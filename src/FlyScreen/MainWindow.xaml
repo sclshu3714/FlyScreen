@@ -716,23 +716,28 @@
         <!-- ===== 文件传输 ===== -->
         <Grid x:Name="PageTransfer" Visibility="Collapsed">
           <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
-          <DockPanel Margin="0,0,0,12">
-            <StackPanel>
-              <TextBlock Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
-              <TextBlock Text="剪贴板粘贴：仅传到粘贴机。直接传输：推送到指定电脑的指定目录。清除只删接收缓存。"
-                         Foreground="{StaticResource Muted}" FontSize="12"/>
-            </StackPanel>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-              <Button Style="{StaticResource PrimaryBtn}" Content="直接传输…" Click="DirectTransfer_Click"
+          <StackPanel Margin="0,0,0,10">
+            <TextBlock Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
+            <TextBlock Text="剪贴板粘贴：仅传到粘贴机。直接传输：推送到指定电脑的指定目录。清除只删接收缓存。"
+                       Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+          </StackPanel>
+          <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,6" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal">
+              <Button Style="{StaticResource PrimaryBtn}" Content="直接传输…" Margin="0,0,8,0"
+                      Click="DirectTransfer_Click"
                       ToolTip="选择文件/文件夹，直接推送到指定电脑的指定目录"/>
-              <Button Content="打开收件箱" Click="OpenInbox_Click"/>
-              <Button Content="清除已完成" Click="ClearTransfers_Click"
+              <Rectangle Width="1" Height="22" Fill="{StaticResource Line}" Margin="4,0,12,0"
+                         VerticalAlignment="Center"/>
+              <Button Content="打开收件箱" Margin="0,0,8,0" Click="OpenInbox_Click"/>
+              <Button Content="清除已完成" Margin="0" Click="ClearTransfers_Click"
                       ToolTip="清除已完成/失败记录；仅删除接收方收件箱缓存，不删除发送方本地文件"/>
             </StackPanel>
-          </DockPanel>
-          <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+          </Border>
+          <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
             <ListView x:Name="TransferList" BorderThickness="0">
               <ListView.View>
                 <GridView>
