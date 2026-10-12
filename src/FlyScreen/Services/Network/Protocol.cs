@@ -24,8 +24,30 @@ public enum MessageType : byte
     ClipboardFilesAnnounce = 45,
     /// <summary>粘贴机请求拉取；源端只向请求方发送。</summary>
     ClipboardFilesPull = 46,
+    /// <summary>截图/图片：仅宣告元数据（兼容旧版）。</summary>
+    ClipboardImageAnnounce = 47,
+    /// <summary>粘贴机请求拉取图片（兼容旧版）。</summary>
+    ClipboardImagePull = 48,
+    /// <summary>图片分块（兼容旧版）。</summary>
+    ClipboardImageChunk = 49,
+    /// <summary>图片发送完毕（兼容旧版）。</summary>
+    ClipboardImageComplete = 52,
+    /// <summary>内联剪贴板（文本/HTML/RTF/CSV/图片）宣告。</summary>
+    ClipboardInlineAnnounce = 53,
+    /// <summary>粘贴机请求拉取内联剪贴板。</summary>
+    ClipboardInlinePull = 54,
+    /// <summary>内联剪贴板分块（8字节seq + 8字节offset + data）。</summary>
+    ClipboardInlineChunk = 55,
+    /// <summary>内联剪贴板发送完毕。</summary>
+    ClipboardInlineComplete = 56,
+    /// <summary>查询对端常用目录（桌面/文档/下载等）。</summary>
+    RemoteFoldersQuery = 57,
+    /// <summary>对端常用目录应答。</summary>
+    RemoteFoldersReply = 58,
     SwitchFocus = 50,
-    PeerInfo = 60
+    PeerInfo = 60,
+    /// <summary>电脑布局同步（槽位 + 1×4/2×2）。</summary>
+    LayoutSync = 61
 }
 
 public readonly struct NetMessage
@@ -129,6 +151,51 @@ public sealed class ClipboardFilesPullPayload
     public string RequesterMachine { get; set; } = "";
 }
 
+public sealed class ClipboardImageAnnouncePayload
+{
+    public long Sequence { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public long TotalBytes { get; set; }
+    public string Format { get; set; } = "png";
+}
+
+public sealed class ClipboardImagePullPayload
+{
+    public long Sequence { get; set; }
+    public string RequesterMachine { get; set; } = "";
+}
+
+public sealed class ClipboardImageCompletePayload
+{
+    public long Sequence { get; set; }
+    public long TotalBytes { get; set; }
+}
+
+public sealed class ClipboardInlineAnnouncePayload
+{
+    public long Sequence { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public long TotalBytes { get; set; }
+    public bool HasText { get; set; }
+    public bool HasHtml { get; set; }
+    public bool HasRtf { get; set; }
+    public bool HasCsv { get; set; }
+    public bool HasImage { get; set; }
+    public string Summary { get; set; } = "";
+}
+
+public sealed class ClipboardInlinePullPayload
+{
+    public long Sequence { get; set; }
+    public string RequesterMachine { get; set; } = "";
+}
+
+public sealed class ClipboardInlineCompletePayload
+{
+    public long Sequence { get; set; }
+    public long TotalBytes { get; set; }
+}
+
 public sealed class FileOfferPayload
 {
     public Guid TransferId { get; set; }
@@ -137,6 +204,21 @@ public sealed class FileOfferPayload
     public long Sequence { get; set; }
     public int FileIndex { get; set; }
     public int FileCount { get; set; }
+    /// <summary>直接传输：对端绝对目录；空则写入收件箱（剪贴板粘贴模式）。</summary>
+    public string? TargetDirectory { get; set; }
+    /// <summary>相对路径（含文件名），用于保留文件夹结构。</summary>
+    public string? RelativePath { get; set; }
+    /// <summary>是否直接落到指定目录（不进粘贴批处理）。</summary>
+    public bool DirectToPath { get; set; }
+}
+
+public sealed class RemoteFoldersPayload
+{
+    public string Desktop { get; set; } = "";
+    public string Documents { get; set; } = "";
+    public string Downloads { get; set; } = "";
+    public string Inbox { get; set; } = "";
+    public string MachineName { get; set; } = "";
 }
 
 public sealed class FileChunkPayload
@@ -157,6 +239,15 @@ public sealed class SwitchFocusPayload
     public string TargetMachine { get; set; } = "";
     public double EntryX { get; set; }
     public double EntryY { get; set; }
+}
+
+public sealed class LayoutSyncPayload
+{
+    public string SourceMachine { get; set; } = "";
+    public List<string> MachineSlots { get; set; } = ["", "", "", ""];
+    public bool TwoRow { get; set; }
+    /// <summary>UTC 毫秒时间戳，用于忽略过期布局。</summary>
+    public long Revision { get; set; }
 }
 
 public static class Utf8

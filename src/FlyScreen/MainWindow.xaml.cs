@@ -53,6 +53,7 @@ public partial class MainWindow : Window
         _host.StatusMessage += msg => Dispatcher.Invoke(() => StatusText.Text = msg);
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
+        _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
 
         _host.Clipboard.Start(this);
         await _host.StartAsync();
@@ -140,6 +141,8 @@ public partial class MainWindow : Window
         ShowKey_Changed(null!, null!);
         ApplyLayoutGrid();
         RefreshPositionLabels();
+        var local = _slots.FirstOrDefault(s => s.IsLocal) ?? _slots.FirstOrDefault();
+        if (local != null) SelectSlot(local);
         ShowPage(0);
     }
 
@@ -232,9 +235,70 @@ public partial class MainWindow : Window
     private async void Apply_Click(object sender, RoutedEventArgs e)
     {
         ApplySettingsFromUi();
+        await _host.BroadcastLayoutSyncAsync();
         await _host.RestartNetworkingAsync();
-        StatusText.Text = "设置已应用并重新连接";
+        StatusText.Text = "设置已应用，布局已同步到其他电脑";
         SyncSlotLocalFlags();
+    }
+
+    private void OnLayoutSyncedFromPeer(string from)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            ApplyLayoutFromSettings();
+            StatusText.Text = $"已同步布局 ← {from}";
+        });
+    }
+
+    /// <summary>用设置中的 MachineSlots / TwoRow 刷新矩阵 UI（对端同步时调用）。</summary>
+    private void ApplyLayoutFromSettings()
+    {
+        var s = _host.Settings;
+        s.EnsureLocalMachineSlot();
+
+        if (s.TwoRow) Layout2x2.IsChecked = true;
+        else Layout1x4.IsChecked = true;
+
+        for (var i = 0; i < 4; i++)
+        {
+            var name = i < s.MachineSlots.Count ? s.MachineSlots[i] : "";
+            name = string.IsNullOrWhiteSpace(name) ? "" : name.Trim();
+            var slot = _slots[i];
+            var isLocal = string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            slot.Name = name;
+            slot.Enabled = !string.IsNullOrWhiteSpace(name);
+            slot.IsLocal = isLocal;
+            slot.ResolvedIp = "";
+            if (isLocal)
+            {
+                slot.OutboundOk = true;
+                slot.InboundOk = true;
+                slot.StatusText = "本机";
+            }
+            else
+            {
+                slot.OutboundOk = false;
+                slot.InboundOk = false;
+                slot.RefreshStatus();
+                if (!string.IsNullOrEmpty(name))
+                {
+                    var ip = _host.Connections.Discovery.FindIp(name);
+                    if (ip != null) slot.ResolvedIp = ip;
+                    var reachable = _host.Connections.IsPeerReachable(name);
+                    if (reachable)
+                    {
+                        // PeerLinkChanged 会再刷新；先标为连接中
+                        slot.RefreshStatus();
+                    }
+                }
+            }
+        }
+
+        ApplyLayoutGrid();
+        RefreshPositionLabels();
+        RedrawArrows();
+        SyncSlotLocalFlags();
+        RefreshDiscovery();
     }
 
     private void SyncSlotLocalFlags()
@@ -247,6 +311,34 @@ public partial class MainWindow : Window
     }
 
     private void Hide_Click(object sender, RoutedEventArgs e) => Hide();
+
+    /// <summary>二次启动时激活已有窗口（含托盘隐藏状态）。</summary>
+    public void BringToFront()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd != IntPtr.Zero)
+            {
+                if (Native.NativeMethods.IsIconic(hwnd))
+                    Native.NativeMethods.ShowWindow(hwnd, Native.NativeMethods.SW_RESTORE);
+                Native.NativeMethods.SetForegroundWindow(hwnd);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => ExitApp();
 
@@ -414,11 +506,51 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    private void RemoveSlot_Click(object sender, RoutedEventArgs e)
+    private void SlotCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        e.Handled = true;
         var slot = FindSlotFromElement(sender as DependencyObject);
-        if (slot == null || !slot.CanRemove) return;
+        if (slot == null) return;
+        SelectSlot(slot);
+        if (e.ClickCount >= 2)
+        {
+            e.Handled = true;
+            TryRemoveSlot(slot);
+            return;
+        }
+        // 单击不 Handled，以便继续支持拖拽
+    }
+
+    private void RemoveSelectedMachine_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = _slots.FirstOrDefault(s => s.IsSelected);
+        if (selected == null)
+        {
+            StatusText.Text = "请先单击选中一张电脑卡片";
+            return;
+        }
+
+        TryRemoveSlot(selected);
+    }
+
+    private void SelectSlot(MachineSlot slot)
+    {
+        foreach (var s in _slots)
+            s.IsSelected = ReferenceEquals(s, slot);
+    }
+
+    private void TryRemoveSlot(MachineSlot slot)
+    {
+        if (slot.IsLocal)
+        {
+            StatusText.Text = "本机不能从布局中移除";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(slot.Name))
+        {
+            StatusText.Text = "该位置已经是空位";
+            return;
+        }
 
         var name = slot.Name;
         slot.Name = "";
@@ -486,6 +618,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
             await _host.RestartNetworkingAsync().ConfigureAwait(true);
         }
         catch
@@ -506,6 +639,12 @@ public partial class MainWindow : Window
             var ip = _host.Connections.Discovery.FindIp(name);
             if (ip != null) slot.ResolvedIp = ip;
         });
+    }
+
+    private void DirectTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new DirectTransferWindow(_host) { Owner = this };
+        dlg.ShowDialog();
     }
 
     private void OpenInbox_Click(object sender, RoutedEventArgs e)
