@@ -682,16 +682,23 @@
           <Border Grid.Row="1" Style="{StaticResource Card}">
             <Grid>
               <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
-              <DockPanel Margin="0,0,0,8">
-                <StackPanel>
-                  <TextBlock Text="局域网自动发现" FontWeight="SemiBold"/>
-                  <TextBlock Text="单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出" Foreground="{StaticResource Muted}" FontSize="12"/>
+              <StackPanel Margin="0,0,0,8">
+                <TextBlock Text="局域网自动发现" FontWeight="SemiBold"/>
+                <TextBlock Text="单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出"
+                           Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+              </StackPanel>
+              <Border Grid.Row="1" Background="#F9FAFB" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                      CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
+                <StackPanel Orientation="Horizontal">
+                  <Button Content="刷新发现" Margin="0" Click="RefreshDiscovery_Click"
+                          ToolTip="重新扫描局域网中的飞鼠实例"/>
                 </StackPanel>
-                <Button DockPanel.Dock="Right" Content="刷新发现" Click="RefreshDiscovery_Click"/>
-              </DockPanel>
-              <ListBox x:Name="DiscoveryList" Grid.Row="1" BorderBrush="{StaticResource Line}" BorderThickness="1"
+              </Border>
+              <ListBox x:Name="DiscoveryList" Grid.Row="2" BorderBrush="{StaticResource Line}" BorderThickness="1"
                        MouseDoubleClick="DiscoveryList_DoubleClick">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
