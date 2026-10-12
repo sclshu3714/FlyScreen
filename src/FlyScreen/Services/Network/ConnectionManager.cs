@@ -62,15 +62,17 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        // 先停监听唤醒 Accept，再取消 CTS，避免 AcceptTcpClientAsync(ct) 路径抛 OCE
+        var listener = _listener;
+        _listener = null;
+        try { listener?.Stop(); } catch { /* ignore */ }
         try { _cts?.Cancel(); } catch { /* ignore */ }
-        try { _listener?.Stop(); } catch { /* ignore */ }
         _discovery.Stop();
 
         foreach (var link in _links.Values)
             await link.DisposeAsync().ConfigureAwait(false);
         _links.Clear();
 
-        _listener = null;
         _cts = null;
     }
 
@@ -127,23 +129,54 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            var listener = _listener;
+            if (listener == null) break;
+
             try
             {
-                var client = await _listener!.AcceptTcpClientAsync(ct).ConfigureAwait(false);
+                // 不传 CancellationToken：停止时靠 listener.Stop() 唤醒，避免 Accept 抛 OCE 刷调试器
+                var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                if (ct.IsCancellationRequested)
+                {
+                    try { client.Dispose(); } catch { /* ignore */ }
+                    break;
+                }
+
                 var session = new PeerSession(client, isOutbound: false);
                 WireSession(session);
-                // 等待对端发 Handshake；超时丢弃
+                // 等待对端发 Handshake；超时丢弃（不用 ct，避免取消异常）
                 _ = Task.Run(async () =>
                 {
-                    await Task.Delay(5000, ct).ConfigureAwait(false);
-                    if (!session.Authenticated)
-                        await session.DisposeAsync().ConfigureAwait(false);
-                }, ct);
+                    try
+                    {
+                        await Task.Delay(5000).ConfigureAwait(false);
+                        if (!session.Authenticated)
+                            await session.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch { /* ignore */ }
+                });
             }
-            catch (OperationCanceledException) { break; }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (SocketException) when (ct.IsCancellationRequested || _listener == null)
+            {
+                break;
+            }
+            catch (InvalidOperationException) when (_listener == null)
+            {
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
             catch
             {
-                await Task.Delay(200, ct).ConfigureAwait(false);
+                if (ct.IsCancellationRequested || _listener == null) break;
+                try { await Task.Delay(200).ConfigureAwait(false); }
+                catch { break; }
             }
         }
     }

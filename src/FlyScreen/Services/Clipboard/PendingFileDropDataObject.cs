@@ -30,31 +30,18 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
             BitConverter.GetBytes((int)WinForms.DragDropEffects.Copy));
     }
 
-    /// <summary>尽早开始后台拉取（例如资源管理器查询格式时）。</summary>
-    public void BeginMaterialize() => EnsurePullStarted();
-
     public override bool GetDataPresent(string format, bool autoConvert)
     {
-        if (IsFileDropFormat(format))
-        {
-            EnsurePullStarted();
+        // 只声明“有文件可粘贴”，绝不在此开始网络拉取
+        if (IsFileDropFormat(format) || IsDropEffectFormat(format))
             return true;
-        }
-
-        if (IsDropEffectFormat(format))
-            return true;
-
         return base.GetDataPresent(format, autoConvert);
     }
 
     public override bool GetDataPresent(Type format)
     {
         if (format == typeof(string[]) || format == typeof(string))
-        {
-            EnsurePullStarted();
             return true;
-        }
-
         return base.GetDataPresent(format);
     }
 

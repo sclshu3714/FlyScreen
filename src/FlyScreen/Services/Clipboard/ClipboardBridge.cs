@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using FlyScreen.Native;
 using WinForms = System.Windows.Forms;
 
@@ -15,6 +16,8 @@ public static class ClipboardBridge
 {
     private static int _suppress;
     private static string? _lastAppliedFilesKey;
+    private static string? _lastAppliedImageKey;
+    private static string? _lastAppliedInlineKey;
     private static PendingFileDropDataObject? _pendingDataObject;
 
     public static bool IsSuppressed => Volatile.Read(ref _suppress) > 0;
@@ -83,11 +86,9 @@ public static class ClipboardBridge
             var data = new PendingFileDropDataObject(placeholderPaths, materializeAsync);
             _pendingDataObject = data;
             WinForms.Clipboard.Clear();
-            // copy:false：粘贴时回调 GetData，不在此时阻塞拉取
+            // copy:false：仅在真正 GetData（粘贴）时才拉取，其它电脑不会传文件
             WinForms.Clipboard.SetDataObject(data, copy: false);
             MarkAppliedFiles(placeholderPaths);
-            // 立刻后台预拉，进度可先显示，粘贴时多半已完成
-            data.BeginMaterialize();
             return true;
         }
         catch
@@ -230,6 +231,162 @@ public static class ClipboardBridge
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>读取剪贴板位图并编码为 PNG（截图 Win+Shift+S 等）。</summary>
+    public static byte[]? TryGetPngBytes()
+    {
+        try
+        {
+            if (!System.Windows.Clipboard.ContainsImage()) return null;
+            var image = System.Windows.Clipboard.GetImage();
+            if (image == null) return null;
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            return ms.ToArray();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static string BuildImageKey(byte[] png)
+    {
+        if (png.Length == 0) return "0";
+        // 长度 + 头尾采样，避免整图哈希开销
+        var head = png.Length > 16 ? BitConverter.ToString(png, 0, 16) : BitConverter.ToString(png);
+        var tail = png.Length > 32 ? BitConverter.ToString(png, png.Length - 16, 16) : "";
+        return $"{png.Length}:{head}:{tail}";
+    }
+
+    public static bool IsSameAsLastAppliedImage(byte[] png)
+        => _lastAppliedImageKey != null && _lastAppliedImageKey == BuildImageKey(png);
+
+    public static void SetImageFromPngSuppressing(byte[] png)
+        => ApplyInlineSuppressing(ClipboardInlineData.FromPngOnly(png));
+
+    /// <summary>
+    /// 采集非文件内联剪贴板：Unicode 文本、HTML、RTF、CSV、位图。
+    /// </summary>
+    public static ClipboardInlineData? TryCaptureInline()
+    {
+        try
+        {
+            string? text = null;
+            string? html = null;
+            string? rtf = null;
+            string? csv = null;
+            byte[]? png = null;
+
+            if (System.Windows.Clipboard.ContainsText(System.Windows.TextDataFormat.UnicodeText))
+            {
+                text = System.Windows.Clipboard.GetText(System.Windows.TextDataFormat.UnicodeText);
+                if (string.IsNullOrEmpty(text)) text = null;
+            }
+
+            if (System.Windows.Clipboard.ContainsText(System.Windows.TextDataFormat.Html))
+            {
+                html = System.Windows.Clipboard.GetText(System.Windows.TextDataFormat.Html);
+                if (string.IsNullOrEmpty(html)) html = null;
+            }
+
+            if (System.Windows.Clipboard.ContainsText(System.Windows.TextDataFormat.Rtf))
+            {
+                rtf = System.Windows.Clipboard.GetText(System.Windows.TextDataFormat.Rtf);
+                if (string.IsNullOrEmpty(rtf)) rtf = null;
+            }
+
+            if (System.Windows.Clipboard.ContainsText(System.Windows.TextDataFormat.CommaSeparatedValue))
+            {
+                csv = System.Windows.Clipboard.GetText(System.Windows.TextDataFormat.CommaSeparatedValue);
+                if (string.IsNullOrEmpty(csv)) csv = null;
+            }
+
+            png = TryGetPngBytes();
+
+            var data = new ClipboardInlineData
+            {
+                Text = text,
+                Html = html,
+                Rtf = rtf,
+                Csv = csv,
+                Png = png
+            };
+            return data.IsEmpty ? null : data;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static bool IsSameAsLastAppliedInline(ClipboardInlineData data)
+        => _lastAppliedInlineKey != null && _lastAppliedInlineKey == data.BuildKey();
+
+    public static void MarkAppliedInline(ClipboardInlineData data)
+    {
+        _lastAppliedInlineKey = data.BuildKey();
+        if (data.Png is { Length: > 0 })
+            _lastAppliedImageKey = BuildImageKey(data.Png);
+    }
+
+    /// <summary>将多格式内联内容写入本机剪贴板（应用会自动选最合适的格式）。</summary>
+    public static void ApplyInlineSuppressing(ClipboardInlineData data)
+    {
+        if (data.IsEmpty) return;
+        MarkAppliedInline(data);
+        Suppress(2500);
+        try
+        {
+            var obj = new System.Windows.DataObject();
+            var any = false;
+
+            if (data.Png is { Length: > 0 })
+            {
+                using var ms = new MemoryStream(data.Png);
+                var decoder = new PngBitmapDecoder(
+                    ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                var frame = decoder.Frames[0];
+                frame.Freeze();
+                obj.SetImage(frame);
+                any = true;
+            }
+
+            if (!string.IsNullOrEmpty(data.Rtf))
+            {
+                obj.SetText(data.Rtf, System.Windows.TextDataFormat.Rtf);
+                any = true;
+            }
+
+            if (!string.IsNullOrEmpty(data.Html))
+            {
+                obj.SetText(data.Html, System.Windows.TextDataFormat.Html);
+                any = true;
+            }
+
+            if (!string.IsNullOrEmpty(data.Csv))
+            {
+                obj.SetText(data.Csv, System.Windows.TextDataFormat.CommaSeparatedValue);
+                any = true;
+            }
+
+            if (!string.IsNullOrEmpty(data.Text))
+            {
+                obj.SetText(data.Text, System.Windows.TextDataFormat.UnicodeText);
+                any = true;
+            }
+
+            if (!any) return;
+            System.Windows.Clipboard.SetDataObject(obj, copy: true);
+        }
+        catch
+        {
+            // ignore clipboard contention
         }
     }
 

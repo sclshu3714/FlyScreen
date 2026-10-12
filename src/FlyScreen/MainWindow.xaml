@@ -31,7 +31,7 @@
 
     <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
-    <!-- 1×4 卡片内容 -->
+    <!-- 1×4 卡片内容（双击移除对端；单击选中） -->
     <DataTemplate x:Key="MachineCard1x4">
       <Grid Margin="4">
         <Grid.RowDefinitions>
@@ -40,26 +40,18 @@
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <DockPanel Margin="0,0,0,4" Cursor="Arrow">
-          <Button DockPanel.Dock="Right" Content="移除"
-                  Padding="6,2" Height="22" MinWidth="44" FontSize="11" Margin="4,0,0,0"
-                  Visibility="{Binding CanRemove, Converter={StaticResource BoolToVis}}"
-                  Click="RemoveSlot_Click" ToolTip="从布局移除，可在局域网发现中再添加"/>
-          <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280"
-                     VerticalAlignment="Center" HorizontalAlignment="Center"/>
-        </DockPanel>
+        <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280"
+                   HorizontalAlignment="Center" Margin="0,0,0,4"/>
         <Control Grid.Row="1" Template="{StaticResource PcIconTemplate}"
-                 HorizontalAlignment="Center" Margin="0,0,0,6" Cursor="SizeAll"/>
+                 HorizontalAlignment="Center" Margin="0,0,0,6"/>
         <TextBlock Grid.Row="2" Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
-                   TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
-                   Cursor="SizeAll"/>
+                   TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
         <TextBlock Grid.Row="3" Text="{Binding StatusText}" Foreground="{StaticResource Success}"
-                   FontWeight="SemiBold" FontSize="11" TextAlignment="Center" Margin="0,4,0,0"
-                   Cursor="SizeAll"/>
+                   FontWeight="SemiBold" FontSize="11" TextAlignment="Center" Margin="0,4,0,0"/>
       </Grid>
     </DataTemplate>
 
-    <!-- 2×2 卡片内容：紧凑内边距，状态完整可见 -->
+    <!-- 2×2 卡片内容 -->
     <DataTemplate x:Key="MachineCard2x2">
       <Grid Margin="6,4">
         <Grid.ColumnDefinitions>
@@ -67,23 +59,13 @@
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Control Template="{StaticResource PcIconTemplate}"
-                 VerticalAlignment="Center" Margin="0,0,10,0"
-                 Cursor="SizeAll"/>
+                 VerticalAlignment="Center" Margin="0,0,10,0"/>
         <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Stretch">
-          <DockPanel Margin="0,0,0,4" Cursor="Arrow">
-            <Button DockPanel.Dock="Right" Content="移除"
-                    Padding="6,2" Height="22" MinWidth="44" FontSize="11" Margin="0"
-                    Visibility="{Binding CanRemove, Converter={StaticResource BoolToVis}}"
-                    Click="RemoveSlot_Click" ToolTip="从布局移除，可在局域网发现中再添加"/>
-            <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280"
-                       VerticalAlignment="Center"/>
-          </DockPanel>
+          <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280" Margin="0,0,0,4"/>
           <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
-                     TextAlignment="Left" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
-                     Cursor="SizeAll"/>
+                     TextAlignment="Left" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
           <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource Success}"
-                     FontWeight="SemiBold" FontSize="11" TextAlignment="Left" Margin="0,3,0,0"
-                     Cursor="SizeAll"/>
+                     FontWeight="SemiBold" FontSize="11" TextAlignment="Left" Margin="0,3,0,0"/>
         </StackPanel>
       </Grid>
     </DataTemplate>
@@ -494,7 +476,7 @@
 
               <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"
                          Margin="0,0,0,10"
-                         Text="格子代表真实摆放位置。拖拽互换位置；用「添加电脑」或在局域网发现中加入；对端卡片可「移除」，移除后可再从发现添加。"/>
+                         Text="格子代表真实摆放位置。拖拽互换；添加/移除后点「应用」会同步到已连接电脑。双击对端卡片可移除，之后可从发现再添加。"/>
 
               <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
@@ -530,13 +512,20 @@
                           <Border Cursor="SizeAll" Tag="{Binding}"
                                   CornerRadius="8" Background="White"
                                   HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                  SnapsToDevicePixels="True" UseLayoutRounding="True">
+                                  SnapsToDevicePixels="True" UseLayoutRounding="True"
+                                  MouseLeftButtonDown="SlotCard_MouseLeftButtonDown"
+                                  ToolTip="单击选中；双击移除对端电脑">
                             <Border.Style>
                               <Style TargetType="Border">
                                 <Setter Property="BorderBrush" Value="#D1D5DB"/>
                                 <Setter Property="BorderThickness" Value="1"/>
                                 <Setter Property="Margin" Value="4"/>
                                 <Style.Triggers>
+                                  <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                    <Setter Property="BorderBrush" Value="{StaticResource Blue}"/>
+                                    <Setter Property="BorderThickness" Value="2"/>
+                                    <Setter Property="Background" Value="{StaticResource BlueHover}"/>
+                                  </DataTrigger>
                                   <DataTrigger Binding="{Binding IsLocal}" Value="True">
                                     <Setter Property="BorderBrush" Value="{StaticResource Blue}"/>
                                     <Setter Property="BorderThickness" Value="2"/>
@@ -547,6 +536,16 @@
                                     <Setter Property="Opacity" Value="0.9"/>
                                     <Setter Property="Background" Value="#F8FAFC"/>
                                   </DataTrigger>
+                                  <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                      <Condition Binding="{Binding Enabled}" Value="False"/>
+                                      <Condition Binding="{Binding IsSelected}" Value="True"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="BorderBrush" Value="{StaticResource Blue}"/>
+                                    <Setter Property="BorderThickness" Value="2"/>
+                                    <Setter Property="Opacity" Value="1"/>
+                                    <Setter Property="Background" Value="{StaticResource BlueHover}"/>
+                                  </MultiDataTrigger>
                                   <DataTrigger Binding="{Binding IsTwoRow}" Value="True">
                                     <Setter Property="Margin" Value="3"/>
                                   </DataTrigger>
@@ -578,6 +577,8 @@
                              TextAlignment="Center" Margin="0,0,0,12"/>
                   <Button Content="添加电脑" Click="AddMachine_Click" Margin="0,0,0,8" Width="100"
                           HorizontalAlignment="Center" ToolTip="从局域网发现的电脑中添加"/>
+                  <Button Content="移除电脑" Click="RemoveSelectedMachine_Click" Margin="0,0,0,8" Width="100"
+                          HorizontalAlignment="Center" ToolTip="移除当前选中的对端电脑（本机不可移除）"/>
                   <Button Content="刷新连接" Click="Reconnect_Click" Margin="0" Width="100" HorizontalAlignment="Center"/>
                 </StackPanel>
               </Grid>
@@ -720,10 +721,12 @@
           <DockPanel Margin="0,0,0,12">
             <StackPanel>
               <TextBlock Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
-              <TextBlock Text="显示传输历史；粘贴用原文件名。清除/删除仅清理接收缓存，不会删除本机传出文件。"
+              <TextBlock Text="剪贴板粘贴：仅传到粘贴机。直接传输：推送到指定电脑的指定目录。清除只删接收缓存。"
                          Foreground="{StaticResource Muted}" FontSize="12"/>
             </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+              <Button Style="{StaticResource PrimaryBtn}" Content="直接传输…" Click="DirectTransfer_Click"
+                      ToolTip="选择文件/文件夹，直接推送到指定电脑的指定目录"/>
               <Button Content="打开收件箱" Click="OpenInbox_Click"/>
               <Button Content="清除已完成" Click="ClearTransfers_Click"
                       ToolTip="清除已完成/失败记录；仅删除接收方收件箱缓存，不删除发送方本地文件"/>

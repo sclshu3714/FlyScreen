@@ -8,6 +8,7 @@ public sealed class MachineSlot : INotifyPropertyChanged
     private string _name = "";
     private bool _enabled;
     private bool _isLocal;
+    private bool _isSelected;
     private string _statusText = "未连接";
     private bool _outboundOk;
     private bool _inboundOk;
@@ -105,6 +106,17 @@ public sealed class MachineSlot : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(DisplaySubtitle));
             OnPropertyChanged(nameof(CanRemove));
+        }
+    }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            OnPropertyChanged();
         }
     }
 

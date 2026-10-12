@@ -9,6 +9,8 @@ public sealed class AppSettings
     public string SecurityKey { get; set; } = GenerateKey();
     public List<string> MachineSlots { get; set; } = ["", "", "", ""];
     public bool TwoRow { get; set; }
+    /// <summary>最近一次布局修订（UTC 毫秒），用于跨机同步去重。</summary>
+    public long LayoutRevision { get; set; }
     public bool WrapMouse { get; set; }
     public bool ShareClipboard { get; set; } = true;
     public bool TransferFile { get; set; } = true;

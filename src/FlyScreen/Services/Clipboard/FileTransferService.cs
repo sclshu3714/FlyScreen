@@ -11,8 +11,9 @@ using FlyScreen.Services.Network;
 namespace FlyScreen.Services.Clipboard;
 
 /// <summary>
-/// 文件传输：复制仅宣告元数据；对端粘贴时按需拉取到该机；分块流式、无大小限制。
-/// 收件箱用 guid 前缀存缓存；粘贴时用原名暂存以触发系统覆盖/重命名对话框。
+/// 剪贴板与文件传输：
+/// 文件 / 内联内容（文本·HTML·RTF·CSV·图片）均为「复制仅宣告，进入粘贴机再拉取」；
+/// 文件粘贴时分块流式、无大小限制；收件箱 guid 缓存，粘贴用原名暂存。
 /// </summary>
 public sealed class FileTransferService
 {
@@ -38,15 +39,33 @@ public sealed class FileTransferService
     private int _ownsDelayedClipboard;
     private int _historySaveQueued;
 
+    // 内联剪贴板（文本/HTML/RTF/CSV/图片）：宣告 + 进入本机再拉取
+    private byte[]? _localPendingInlineBlob;
+    private long _localPendingInlineSeq;
+    private string _localPendingInlineSummary = "";
+    private RemoteInlinePending? _remoteInlinePending;
+    private TaskCompletionSource<byte[]?>? _inlinePullTcs;
+    private int _inlinePullInProgress;
+    private readonly Dictionary<long, InlineReceiveBuffer> _inlineReceiving = new();
+    private TaskCompletionSource<RemoteFoldersPayload?>? _foldersQueryTcs;
+    private string? _foldersQueryPeer;
+
     public ObservableCollection<TransferItem> Items { get; } = [];
     public event Action<string>? StatusMessage;
     /// <summary>收到对端文件宣告，需登记延迟剪贴板。</summary>
     public event Action? RemoteFilesAnnounced;
+    /// <summary>收到对端内联剪贴板宣告（文本/富文本/截图等）。</summary>
+    public event Action? RemoteInlineAnnounced;
     public string InboxDirectory => _inboxDir;
 
     public bool HasRemotePendingFiles
     {
         get { lock (_gate) return _remotePending != null; }
+    }
+
+    public bool HasRemotePendingInline
+    {
+        get { lock (_gate) return _remoteInlinePending != null; }
     }
 
     public bool OwnsDelayedClipboard => Volatile.Read(ref _ownsDelayedClipboard) != 0;
@@ -92,12 +111,14 @@ public sealed class FileTransferService
         }
     }
 
-    public bool IsInboxPath(string path)
+    public bool IsInboxPath(string path) => IsUnderDirectory(path, _inboxDir) || IsUnderDirectory(path, _pasteDir);
+
+    private static bool IsUnderDirectory(string path, string directory)
     {
         try
         {
             var full = Path.GetFullPath(path);
-            var root = Path.GetFullPath(_inboxDir)
+            var root = Path.GetFullPath(directory)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
             return full.StartsWith(root, StringComparison.OrdinalIgnoreCase);
@@ -114,7 +135,8 @@ public sealed class FileTransferService
         _connections = connections;
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FlyScreen");
         _inboxDir = Path.Combine(root, "Inbox");
-        _pasteDir = Path.Combine(_inboxDir, "_paste");
+        // 粘贴暂存与收件箱分开，避免未粘贴时收件箱里出现占位/缓存
+        _pasteDir = Path.Combine(root, "PasteStaging");
         _historyPath = Path.Combine(root, "transfer-history.json");
         Directory.CreateDirectory(_inboxDir);
         _connections.MessageReceived += OnMessage;
@@ -146,6 +168,9 @@ public sealed class FileTransferService
         lock (_gate)
         {
             _localPending = new LocalPendingOffer(seq, files);
+            _localPendingInlineBlob = null;
+            _localPendingInlineSeq = 0;
+            _localPendingInlineSummary = "";
         }
 
         var peers = _connections.ConfiguredPeers().Where(_connections.IsPeerReachable).ToList();
@@ -245,11 +270,181 @@ public sealed class FileTransferService
     public void NotifyLocalClipboardOverride()
     {
         if (Volatile.Read(ref _pullInProgress) != 0) return;
+        if (Volatile.Read(ref _inlinePullInProgress) != 0) return;
         lock (_gate)
         {
             _remotePending = null;
+            _remoteInlinePending = null;
         }
         MarkDelayedClipboardOwned(false);
+    }
+
+    /// <summary>本机复制了文本/富文本/截图等：缓存打包数据并仅宣告元数据。</summary>
+    public async Task AnnounceLocalInlineAsync(ClipboardInlineData data)
+    {
+        if (!_settings.ShareClipboard || data.IsEmpty) return;
+
+        byte[] blob;
+        try { blob = data.Pack(); }
+        catch (Exception ex)
+        {
+            NotifyStatus("剪贴板打包失败: " + ex.Message);
+            return;
+        }
+
+        if (blob.Length == 0) return;
+
+        var summary = data.BuildSummary();
+        var seq = NextSequence();
+        lock (_gate)
+        {
+            _localPendingInlineBlob = blob;
+            _localPendingInlineSeq = seq;
+            _localPendingInlineSummary = summary;
+            _localPending = null; // 内联优先于未粘贴的文件宣告
+        }
+
+        var peers = _connections.ConfiguredPeers().Where(_connections.IsPeerReachable).ToList();
+        if (peers.Count == 0)
+        {
+            NotifyStatus($"已复制{summary}到剪贴板（等待对端粘贴时传输）");
+            return;
+        }
+
+        var announce = MessageCodec.JsonBytes(new ClipboardInlineAnnouncePayload
+        {
+            Sequence = seq,
+            SourceMachine = Environment.MachineName,
+            TotalBytes = blob.Length,
+            HasText = !string.IsNullOrEmpty(data.Text),
+            HasHtml = !string.IsNullOrEmpty(data.Html),
+            HasRtf = !string.IsNullOrEmpty(data.Rtf),
+            HasCsv = !string.IsNullOrEmpty(data.Csv),
+            HasImage = data.Png is { Length: > 0 },
+            Summary = summary
+        });
+
+        foreach (var peer in peers)
+            await _connections.SendToAsync(peer, MessageType.ClipboardInlineAnnounce, announce).ConfigureAwait(false);
+
+        NotifyStatus($"已宣告{summary} {blob.Length / 1024.0:0.#} KB，对端粘贴时再传输");
+    }
+
+    /// <summary>粘贴目标机：向源端拉取内联剪贴板并解包。</summary>
+    public async Task<ClipboardInlineData?> PullRemoteInlineForPasteAsync(CancellationToken ct = default)
+    {
+        if (!_settings.ShareClipboard) return null;
+
+        RemoteInlinePending? remote;
+        lock (_gate) remote = _remoteInlinePending;
+        if (remote == null) return null;
+
+        if (!_connections.IsPeerReachable(remote.SourceMachine))
+        {
+            NotifyStatus($"无法拉取剪贴板：{remote.SourceMachine} 未连接");
+            return null;
+        }
+
+        if (Interlocked.CompareExchange(ref _inlinePullInProgress, 1, 0) != 0)
+        {
+            TaskCompletionSource<byte[]?>? existing;
+            lock (_gate) existing = _inlinePullTcs;
+            if (existing != null)
+            {
+                var existingBlob = await existing.Task.ConfigureAwait(false);
+                return existingBlob is { Length: > 0 } ? SafeUnpackInline(existingBlob, remote.LegacyPngOnly) : null;
+            }
+        }
+
+        var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            _inlinePullTcs = tcs;
+            _inlineReceiving[remote.Sequence] = new InlineReceiveBuffer(remote.TotalBytes);
+        }
+
+        var pullType = remote.LegacyPngOnly
+            ? MessageType.ClipboardImagePull
+            : MessageType.ClipboardInlinePull;
+        var payload = remote.LegacyPngOnly
+            ? MessageCodec.JsonBytes(new ClipboardImagePullPayload
+            {
+                Sequence = remote.Sequence,
+                RequesterMachine = Environment.MachineName
+            })
+            : MessageCodec.JsonBytes(new ClipboardInlinePullPayload
+            {
+                Sequence = remote.Sequence,
+                RequesterMachine = Environment.MachineName
+            });
+
+        NotifyStatus($"正在从 {remote.SourceMachine} 拉取{remote.Summary}…");
+        if (!await _connections.SendToAsync(remote.SourceMachine, pullType, payload).ConfigureAwait(false))
+        {
+            CompleteInlinePullWaiter(null);
+            NotifyStatus("剪贴板拉取请求发送失败");
+            return null;
+        }
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromMinutes(5));
+            using (timeoutCts.Token.Register(() => tcs.TrySetResult(null)))
+            {
+                var blob = await tcs.Task.ConfigureAwait(false);
+                if (blob == null || blob.Length == 0)
+                {
+                    NotifyStatus("剪贴板拉取超时或失败");
+                    return null;
+                }
+
+                var data = SafeUnpackInline(blob, remote.LegacyPngOnly);
+                if (data == null || data.IsEmpty)
+                {
+                    NotifyStatus("剪贴板数据解析失败");
+                    return null;
+                }
+
+                NotifyStatus($"{data.BuildSummary()}已就绪 {blob.Length / 1024.0:0.#} KB，可粘贴");
+                return data;
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_inlinePullTcs, tcs))
+                    _inlinePullTcs = null;
+                _inlineReceiving.Remove(remote.Sequence);
+            }
+            Interlocked.Exchange(ref _inlinePullInProgress, 0);
+        }
+    }
+
+    private static ClipboardInlineData? SafeUnpackInline(byte[] blob, bool legacyPngOnly)
+    {
+        try
+        {
+            return legacyPngOnly
+                ? ClipboardInlineData.FromPngOnly(blob)
+                : ClipboardInlineData.Unpack(blob);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void CompleteInlinePullWaiter(byte[]? blob)
+    {
+        TaskCompletionSource<byte[]?>? waiter;
+        lock (_gate)
+        {
+            waiter = _inlinePullTcs;
+            _inlinePullTcs = null;
+        }
+        waiter?.TrySetResult(blob);
     }
 
     private void CompletePullWaiter(IReadOnlyList<string>? files)
@@ -281,11 +476,20 @@ public sealed class FileTransferService
                 State = TransferState.Queued
             };
             AddItem(item);
-            await SendFileAsync(item, peer, pending.Sequence, i, pending.Files.Count).ConfigureAwait(false);
+            await SendFileAsync(item, peer, pending.Sequence, i, pending.Files.Count,
+                targetDirectory: null, relativePath: null, directToPath: false).ConfigureAwait(false);
         }
     }
 
-    private async Task SendFileAsync(TransferItem item, string peer, long seq, int index, int count)
+    private async Task SendFileAsync(
+        TransferItem item,
+        string peer,
+        long seq,
+        int index,
+        int count,
+        string? targetDirectory,
+        string? relativePath,
+        bool directToPath)
     {
         try
         {
@@ -293,11 +497,14 @@ public sealed class FileTransferService
             var offer = MessageCodec.JsonBytes(new FileOfferPayload
             {
                 TransferId = item.Id,
-                FileName = item.FileName,
+                FileName = Path.GetFileName(item.FullPath),
                 TotalBytes = item.TotalBytes,
                 Sequence = seq,
                 FileIndex = index,
-                FileCount = count
+                FileCount = count,
+                TargetDirectory = targetDirectory,
+                RelativePath = relativePath ?? Path.GetFileName(item.FullPath),
+                DirectToPath = directToPath
             });
             if (!await _connections.SendToAsync(peer, MessageType.FileOffer, offer).ConfigureAwait(false))
                 throw new IOException($"对端未连接: {peer}");
@@ -364,6 +571,30 @@ public sealed class FileTransferService
             case MessageType.ClipboardFilesPull:
                 _ = HandlePullAsync(peer, msg.Payload);
                 break;
+            case MessageType.ClipboardInlineAnnounce:
+                HandleInlineAnnounce(peer, msg.Payload, legacyPngOnly: false);
+                break;
+            case MessageType.ClipboardInlinePull:
+                _ = HandleInlinePullAsync(peer, msg.Payload, legacyPngOnly: false);
+                break;
+            case MessageType.ClipboardInlineChunk:
+                HandleInlineChunk(msg.Payload);
+                break;
+            case MessageType.ClipboardInlineComplete:
+                HandleInlineComplete(msg.Payload, legacyPngOnly: false);
+                break;
+            case MessageType.ClipboardImageAnnounce:
+                HandleLegacyImageAnnounce(peer, msg.Payload);
+                break;
+            case MessageType.ClipboardImagePull:
+                _ = HandleInlinePullAsync(peer, msg.Payload, legacyPngOnly: true);
+                break;
+            case MessageType.ClipboardImageChunk:
+                HandleInlineChunk(msg.Payload);
+                break;
+            case MessageType.ClipboardImageComplete:
+                HandleInlineComplete(msg.Payload, legacyPngOnly: true);
+                break;
             case MessageType.FileOffer:
                 _ = HandleOfferAsync(peer, msg.Payload);
                 break;
@@ -379,7 +610,201 @@ public sealed class FileTransferService
             case MessageType.ClipboardText:
                 HandleClipboardText(msg.Payload);
                 break;
+            case MessageType.RemoteFoldersQuery:
+                _ = HandleRemoteFoldersQueryAsync(peer);
+                break;
+            case MessageType.RemoteFoldersReply:
+                HandleRemoteFoldersReply(peer, msg.Payload);
+                break;
         }
+    }
+
+    /// <summary>查询对端常用保存位置。</summary>
+    public async Task<RemoteFoldersPayload?> QueryRemoteFoldersAsync(string peer, CancellationToken ct = default)
+    {
+        if (!_connections.IsPeerReachable(peer)) return null;
+
+        var tcs = new TaskCompletionSource<RemoteFoldersPayload?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            _foldersQueryTcs = tcs;
+            _foldersQueryPeer = peer;
+        }
+
+        if (!await _connections.SendToAsync(peer, MessageType.RemoteFoldersQuery, []).ConfigureAwait(false))
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_foldersQueryTcs, tcs))
+                {
+                    _foldersQueryTcs = null;
+                    _foldersQueryPeer = null;
+                }
+            }
+            return null;
+        }
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+            using (timeoutCts.Token.Register(() => tcs.TrySetResult(null)))
+                return await tcs.Task.ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_foldersQueryTcs, tcs))
+                {
+                    _foldersQueryTcs = null;
+                    _foldersQueryPeer = null;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 直接推送文件/文件夹到对端指定目录（保留相对目录结构）。
+    /// </summary>
+    public async Task StartDirectTransferAsync(
+        string peer,
+        string targetDirectory,
+        IReadOnlyList<string> paths,
+        CancellationToken ct = default)
+    {
+        if (!_settings.TransferFile)
+        {
+            NotifyStatus("未启用文件传输");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(peer) || !_connections.IsPeerReachable(peer))
+        {
+            NotifyStatus("目标电脑未连接");
+            return;
+        }
+
+        targetDirectory = targetDirectory.Trim().TrimEnd('\\', '/');
+        if (string.IsNullOrWhiteSpace(targetDirectory))
+        {
+            NotifyStatus("请指定对端保存位置");
+            return;
+        }
+
+        var entries = ExpandTransferEntries(paths);
+        if (entries.Count == 0)
+        {
+            NotifyStatus("没有可传输的文件");
+            return;
+        }
+
+        var seq = NextSequence();
+        NotifyStatus($"直接传输 {entries.Count} 个文件 → {peer}:{targetDirectory}");
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var entry = entries[i];
+            if (!File.Exists(entry.FullPath)) continue;
+
+            var item = new TransferItem
+            {
+                Id = Guid.NewGuid(),
+                Direction = TransferDirection.Send,
+                FileName = entry.RelativePath.Replace('\\', '/'),
+                FullPath = entry.FullPath,
+                TotalBytes = entry.TotalBytes,
+                PeerName = peer,
+                State = TransferState.Queued
+            };
+            AddItem(item);
+            await SendFileAsync(
+                item, peer, seq, i, entries.Count,
+                targetDirectory, entry.RelativePath, directToPath: true).ConfigureAwait(false);
+        }
+    }
+
+    private static List<DirectEntry> ExpandTransferEntries(IReadOnlyList<string> paths)
+    {
+        var result = new List<DirectEntry>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var raw in paths)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var path = raw.Trim();
+
+            if (File.Exists(path))
+            {
+                var fi = new FileInfo(path);
+                if (!seen.Add(fi.FullName)) continue;
+                result.Add(new DirectEntry(fi.FullName, fi.Name, fi.Length));
+            }
+            else if (Directory.Exists(path))
+            {
+                var root = new DirectoryInfo(path);
+                var rootPrefix = root.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                 + Path.DirectorySeparatorChar;
+                foreach (var file in root.EnumerateFiles("*", SearchOption.AllDirectories))
+                {
+                    if (!seen.Add(file.FullName)) continue;
+                    var rel = file.FullName.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                        ? Path.Combine(root.Name, file.FullName[rootPrefix.Length..])
+                        : Path.Combine(root.Name, file.Name);
+                    result.Add(new DirectEntry(file.FullName, rel, file.Length));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private async Task HandleRemoteFoldersQueryAsync(string peer)
+    {
+        var payload = MessageCodec.JsonBytes(BuildLocalFoldersPayload());
+        await _connections.SendToAsync(peer, MessageType.RemoteFoldersReply, payload).ConfigureAwait(false);
+    }
+
+    private void HandleRemoteFoldersReply(string peer, byte[] payload)
+    {
+        var folders = MessageCodec.DecodeJson<RemoteFoldersPayload>(payload);
+        TaskCompletionSource<RemoteFoldersPayload?>? tcs;
+        string? expected;
+        lock (_gate)
+        {
+            tcs = _foldersQueryTcs;
+            expected = _foldersQueryPeer;
+        }
+
+        if (tcs == null) return;
+        if (expected != null && !string.Equals(expected, peer, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (folders != null && string.IsNullOrWhiteSpace(folders.MachineName))
+            folders.MachineName = peer;
+        tcs.TrySetResult(folders);
+    }
+
+    public RemoteFoldersPayload BuildLocalFoldersPayload()
+    {
+        static string Special(Environment.SpecialFolder folder)
+        {
+            try { return Environment.GetFolderPath(folder); }
+            catch { return ""; }
+        }
+
+        var downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+
+        return new RemoteFoldersPayload
+        {
+            MachineName = Environment.MachineName,
+            Desktop = Special(Environment.SpecialFolder.DesktopDirectory),
+            Documents = Special(Environment.SpecialFolder.MyDocuments),
+            Downloads = Directory.Exists(downloads) ? downloads : Special(Environment.SpecialFolder.UserProfile),
+            Inbox = _inboxDir
+        };
     }
 
     private void HandleAnnounce(string peer, byte[] payload)
@@ -392,10 +817,202 @@ public sealed class FileTransferService
         lock (_gate)
         {
             _remotePending = new RemotePendingOffer(announce.Sequence, source, announce.Files.ToList());
+            _remoteInlinePending = null; // 文件宣告覆盖未粘贴的内联内容
         }
 
-        NotifyStatus($"对端 {source} 已复制 {announce.Files.Count} 个文件，粘贴时拉取");
+        // 仅记录元数据，不改剪贴板、不拉文件；鼠标进入本机并粘贴时才传输
+        NotifyStatus($"对端 {source} 已复制 {announce.Files.Count} 个文件（鼠标移到本机再粘贴才会传输）");
         try { RemoteFilesAnnounced?.Invoke(); } catch { /* ignore */ }
+    }
+
+    private void HandleLegacyImageAnnounce(string peer, byte[] payload)
+    {
+        var announce = MessageCodec.DecodeJson<ClipboardImageAnnouncePayload>(payload);
+        if (announce == null || !_settings.ShareClipboard) return;
+        if (announce.TotalBytes <= 0) return;
+
+        var source = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine;
+        RegisterRemoteInline(new RemoteInlinePending(
+            announce.Sequence, source, announce.TotalBytes, "图片", legacyPngOnly: true));
+        NotifyStatus($"对端 {source} 已复制图片 {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
+        try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
+    }
+
+    private void HandleInlineAnnounce(string peer, byte[] payload, bool legacyPngOnly)
+    {
+        var announce = MessageCodec.DecodeJson<ClipboardInlineAnnouncePayload>(payload);
+        if (announce == null || !_settings.ShareClipboard) return;
+        if (announce.TotalBytes <= 0) return;
+
+        var source = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine;
+        var summary = string.IsNullOrWhiteSpace(announce.Summary) ? "剪贴板" : announce.Summary;
+        RegisterRemoteInline(new RemoteInlinePending(
+            announce.Sequence, source, announce.TotalBytes, summary, legacyPngOnly));
+        NotifyStatus($"对端 {source} 已复制{summary} {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
+        try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
+    }
+
+    private void RegisterRemoteInline(RemoteInlinePending pending)
+    {
+        lock (_gate)
+        {
+            _remoteInlinePending = pending;
+            _remotePending = null; // 内联宣告覆盖未粘贴的文件
+        }
+    }
+
+    private async Task HandleInlinePullAsync(string peer, byte[] payload, bool legacyPngOnly)
+    {
+        long seq;
+        if (legacyPngOnly)
+        {
+            var pull = MessageCodec.DecodeJson<ClipboardImagePullPayload>(payload);
+            if (pull == null || !_settings.ShareClipboard) return;
+            seq = pull.Sequence;
+        }
+        else
+        {
+            var pull = MessageCodec.DecodeJson<ClipboardInlinePullPayload>(payload);
+            if (pull == null || !_settings.ShareClipboard) return;
+            seq = pull.Sequence;
+        }
+
+        byte[]? blob;
+        long localSeq;
+        string summary;
+        lock (_gate)
+        {
+            blob = _localPendingInlineBlob;
+            localSeq = _localPendingInlineSeq;
+            summary = _localPendingInlineSummary;
+        }
+
+        if (blob == null || blob.Length == 0 || localSeq != seq)
+        {
+            NotifyStatus($"收到 {peer} 的剪贴板拉取，但本地没有对应内容");
+            return;
+        }
+
+        // 旧版只懂纯 PNG：若当前是打包内联，尝试解出 PNG 再发
+        byte[] sendBlob = blob;
+        if (legacyPngOnly)
+        {
+            try
+            {
+                var unpacked = ClipboardInlineData.Unpack(blob);
+                if (unpacked.Png is not { Length: > 0 })
+                {
+                    NotifyStatus($"对端 {peer} 为旧版，且当前剪贴板无图片可发");
+                    return;
+                }
+                sendBlob = unpacked.Png;
+                summary = "图片";
+            }
+            catch
+            {
+                // 可能本地本身就是旧 PNG 缓存
+            }
+        }
+
+        var chunkType = legacyPngOnly ? MessageType.ClipboardImageChunk : MessageType.ClipboardInlineChunk;
+        var completeType = legacyPngOnly ? MessageType.ClipboardImageComplete : MessageType.ClipboardInlineComplete;
+
+        NotifyStatus($"向 {peer} 发送{summary} {sendBlob.Length / 1024.0:0.#} KB");
+
+        try
+        {
+            for (long offset = 0; offset < sendBlob.Length; offset += ChunkSize)
+            {
+                var n = (int)Math.Min(ChunkSize, sendBlob.Length - offset);
+                var frame = new byte[16 + n];
+                BitConverter.TryWriteBytes(frame.AsSpan(0, 8), seq);
+                BitConverter.TryWriteBytes(frame.AsSpan(8, 8), offset);
+                Buffer.BlockCopy(sendBlob, (int)offset, frame, 16, n);
+                if (!await _connections.SendToAsync(peer, chunkType, frame).ConfigureAwait(false))
+                    throw new IOException("剪贴板传输中断");
+            }
+
+            var done = legacyPngOnly
+                ? MessageCodec.JsonBytes(new ClipboardImageCompletePayload
+                {
+                    Sequence = seq,
+                    TotalBytes = sendBlob.Length
+                })
+                : MessageCodec.JsonBytes(new ClipboardInlineCompletePayload
+                {
+                    Sequence = seq,
+                    TotalBytes = sendBlob.Length
+                });
+            await _connections.SendToAsync(peer, completeType, done).ConfigureAwait(false);
+            NotifyStatus($"{summary}已发送 → {peer}");
+        }
+        catch (Exception ex)
+        {
+            NotifyStatus("剪贴板发送失败: " + ex.Message);
+        }
+    }
+
+    private void HandleInlineChunk(byte[] payload)
+    {
+        if (payload.Length < 16) return;
+        var seq = BitConverter.ToInt64(payload, 0);
+        var offset = BitConverter.ToInt64(payload, 8);
+        var dataLen = payload.Length - 16;
+
+        InlineReceiveBuffer? buf;
+        lock (_gate) _inlineReceiving.TryGetValue(seq, out buf);
+        if (buf == null) return;
+
+        try
+        {
+            if (offset < 0 || offset + dataLen > buf.Data.Length) return;
+            Buffer.BlockCopy(payload, 16, buf.Data, (int)offset, dataLen);
+            buf.Received = Math.Max(buf.Received, offset + dataLen);
+        }
+        catch
+        {
+            CompleteInlinePullWaiter(null);
+        }
+    }
+
+    private void HandleInlineComplete(byte[] payload, bool legacyPngOnly)
+    {
+        long sequence;
+        long totalBytes;
+        if (legacyPngOnly)
+        {
+            var done = MessageCodec.DecodeJson<ClipboardImageCompletePayload>(payload);
+            if (done == null) return;
+            sequence = done.Sequence;
+            totalBytes = done.TotalBytes;
+        }
+        else
+        {
+            var done = MessageCodec.DecodeJson<ClipboardInlineCompletePayload>(payload);
+            if (done == null) return;
+            sequence = done.Sequence;
+            totalBytes = done.TotalBytes;
+        }
+
+        InlineReceiveBuffer? buf;
+        lock (_gate)
+        {
+            _inlineReceiving.Remove(sequence, out buf);
+            if (_remoteInlinePending?.Sequence == sequence)
+                _remoteInlinePending = null;
+        }
+
+        _ = totalBytes;
+        if (buf == null || buf.Received < buf.Data.Length)
+        {
+            CompleteInlinePullWaiter(null);
+            return;
+        }
+
+        if (sequence > _lastAppliedRemoteSequence)
+            _lastAppliedRemoteSequence = sequence;
+
+        CompleteInlinePullWaiter(buf.Data);
     }
 
     private async Task HandlePullAsync(string peer, byte[] payload)
@@ -424,12 +1041,45 @@ public sealed class FileTransferService
         var offer = MessageCodec.DecodeJson<FileOfferPayload>(payload);
         if (offer == null || !_settings.TransferFile) return;
 
-        var dest = Path.Combine(_inboxDir, $"{offer.TransferId:N}_{Sanitize(offer.FileName)}");
+        string dest;
+        var displayName = offer.FileName;
+        try
+        {
+            if (offer.DirectToPath && !string.IsNullOrWhiteSpace(offer.TargetDirectory))
+            {
+                var rel = string.IsNullOrWhiteSpace(offer.RelativePath) ? offer.FileName : offer.RelativePath;
+                dest = ResolveDirectDestination(offer.TargetDirectory, rel);
+                displayName = rel.Replace('\\', '/');
+                var parent = Path.GetDirectoryName(dest);
+                if (!string.IsNullOrEmpty(parent))
+                    Directory.CreateDirectory(parent);
+            }
+            else
+            {
+                dest = Path.Combine(_inboxDir, $"{offer.TransferId:N}_{Sanitize(offer.FileName)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            NotifyStatus($"拒绝接收 {offer.FileName}: {ex.Message}");
+            try
+            {
+                var abort = MessageCodec.JsonBytes(new FileControlPayload
+                {
+                    TransferId = offer.TransferId,
+                    Reason = ex.Message
+                });
+                await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
+            }
+            catch { /* ignore */ }
+            return;
+        }
+
         var item = new TransferItem
         {
             Id = offer.TransferId,
             Direction = TransferDirection.Receive,
-            FileName = offer.FileName,
+            FileName = displayName,
             FullPath = dest,
             TotalBytes = offer.TotalBytes,
             PeerName = peer,
@@ -441,7 +1091,7 @@ public sealed class FileTransferService
         var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read, ChunkSize, useAsync: true);
         lock (_gate)
         {
-            _receiving[offer.TransferId] = new ReceiveState(item, fs, offer.Sequence);
+            _receiving[offer.TransferId] = new ReceiveState(item, fs, offer.Sequence, offer.DirectToPath);
             if (!_batches.TryGetValue(offer.Sequence, out var batch))
             {
                 batch = new BatchReceive(offer.Sequence, Math.Max(1, offer.FileCount));
@@ -460,7 +1110,39 @@ public sealed class FileTransferService
         }
         catch { /* ignore */ }
 
-        NotifyStatus($"接收中: {offer.FileName} ← {peer}");
+        NotifyStatus(offer.DirectToPath
+            ? $"直接接收: {displayName} → {dest}"
+            : $"接收中: {offer.FileName} ← {peer}");
+    }
+
+    /// <summary>将对端目标目录与相对路径安全合成为本地绝对路径。</summary>
+    private static string ResolveDirectDestination(string targetDirectory, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(targetDirectory))
+            throw new InvalidOperationException("目标目录为空");
+
+        var root = Path.GetFullPath(targetDirectory.Trim());
+        var rel = relativePath.Replace('/', Path.DirectorySeparatorChar).Trim();
+        if (string.IsNullOrWhiteSpace(rel))
+            throw new InvalidOperationException("相对路径为空");
+
+        if (Path.IsPathRooted(rel))
+            throw new InvalidOperationException("不允许绝对相对路径");
+
+        var segments = rel.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(s => s is "." or ".."))
+            throw new InvalidOperationException("相对路径非法");
+
+        var combined = Path.GetFullPath(Path.Combine(root, Path.Combine(segments)));
+        var rootWithSep = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                           + Path.DirectorySeparatorChar;
+        if (!combined.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(combined, root, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("目标路径越界");
+
+        return combined;
     }
 
     private void HandleChunk(byte[] payload)
@@ -531,7 +1213,12 @@ public sealed class FileTransferService
             QueueSaveHistory();
 
             if (ready)
-                FinishPulledBatch(state.Sequence, files);
+            {
+                if (state.IsDirect)
+                    NotifyStatus($"直接传输完成（{files.Count} 个文件）");
+                else
+                    FinishPulledBatch(state.Sequence, files);
+            }
 
             NotifyStatus($"已接收: {state.Item.FileName}");
         }
@@ -952,12 +1639,40 @@ public sealed class FileTransferService
         public List<ClipboardFileAnnounceItem> Files { get; } = files;
     }
 
-    private sealed class ReceiveState(TransferItem item, FileStream stream, long sequence)
+    private sealed class RemoteInlinePending(
+        long sequence,
+        string sourceMachine,
+        long totalBytes,
+        string summary,
+        bool legacyPngOnly)
+    {
+        public long Sequence { get; } = sequence;
+        public string SourceMachine { get; } = sourceMachine;
+        public long TotalBytes { get; } = totalBytes;
+        public string Summary { get; } = summary;
+        public bool LegacyPngOnly { get; } = legacyPngOnly;
+    }
+
+    private sealed class InlineReceiveBuffer(long totalBytes)
+    {
+        public byte[] Data { get; } = new byte[totalBytes];
+        public long Received { get; set; }
+    }
+
+    private sealed class ReceiveState(TransferItem item, FileStream stream, long sequence, bool isDirect = false)
     {
         public TransferItem Item { get; } = item;
         public FileStream Stream { get; } = stream;
         public long Sequence { get; } = sequence;
+        public bool IsDirect { get; } = isDirect;
         public DateTime LastUiUtc { get; set; } = DateTime.UtcNow;
+    }
+
+    private sealed class DirectEntry(string fullPath, string relativePath, long totalBytes)
+    {
+        public string FullPath { get; } = fullPath;
+        public string RelativePath { get; } = relativePath;
+        public long TotalBytes { get; } = totalBytes;
     }
 
     private sealed class BatchReceive(long sequence, int expectedCount)
