@@ -76,13 +76,13 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.KeyEvent:
             {
+                // 直接注入；跨机文件粘贴靠剪贴板延迟渲染，不拦截 Ctrl+V
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p != null) InputInjector.Key(p);
                 break;
             }
             case MessageType.SwitchFocus:
             {
-                // 对端通知焦点切到本机：本地恢复控制
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
                 if (p == null) return;
                 if (string.Equals(p.TargetMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))

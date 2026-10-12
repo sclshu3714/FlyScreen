@@ -26,13 +26,14 @@ public sealed class TransferItem : INotifyPropertyChanged
     private string _status = "排队中";
     private long _bytesTransferred;
 
-    public Guid Id { get; init; } = Guid.NewGuid();
-    public TransferDirection Direction { get; init; }
-    public string FileName { get; init; } = "";
-    public string FullPath { get; init; } = "";
-    public long TotalBytes { get; init; }
-    public string PeerName { get; init; } = "";
-    public DateTime CreatedAt { get; init; } = DateTime.Now;
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public TransferDirection Direction { get; set; }
+    public string FileName { get; set; } = "";
+    /// <summary>收件箱缓存路径（可含 guid 前缀）；发送项为源路径。</summary>
+    public string FullPath { get; set; } = "";
+    public long TotalBytes { get; set; }
+    public string PeerName { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 
     public long BytesTransferred
     {
@@ -41,17 +42,17 @@ public sealed class TransferItem : INotifyPropertyChanged
         {
             if (_bytesTransferred == value) return;
             _bytesTransferred = value;
+            var next = TotalBytes <= 0 ? 0 : Math.Clamp(100.0 * value / TotalBytes, 0, 100);
+            var progressChanged = Math.Abs(_progress - next) > 0.01;
+            if (progressChanged) _progress = next;
+            // 合并通知，减少 ListView/ProgressBar 布局风暴
             OnPropertyChanged();
-            Progress = TotalBytes <= 0 ? 0 : Math.Clamp(100.0 * value / TotalBytes, 0, 100);
+            if (progressChanged) OnPropertyChanged(nameof(Progress));
             OnPropertyChanged(nameof(SizeText));
         }
     }
 
-    public double Progress
-    {
-        get => _progress;
-        private set { if (Math.Abs(_progress - value) > 0.01) { _progress = value; OnPropertyChanged(); } }
-    }
+    public double Progress => _progress;
 
     public TransferState State
     {

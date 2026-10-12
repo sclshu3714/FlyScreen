@@ -20,6 +20,10 @@ public enum MessageType : byte
     FileChunk = 42,
     FileComplete = 43,
     FileAbort = 44,
+    /// <summary>复制时仅广播文件元数据，不传内容。</summary>
+    ClipboardFilesAnnounce = 45,
+    /// <summary>粘贴机请求拉取；源端只向请求方发送。</summary>
+    ClipboardFilesPull = 46,
     SwitchFocus = 50,
     PeerInfo = 60
 }
@@ -104,6 +108,25 @@ public sealed class ClipboardTextPayload
 {
     public string Text { get; set; } = "";
     public long Sequence { get; set; }
+}
+
+public sealed class ClipboardFileAnnounceItem
+{
+    public string FileName { get; set; } = "";
+    public long TotalBytes { get; set; }
+}
+
+public sealed class ClipboardFilesAnnouncePayload
+{
+    public long Sequence { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public List<ClipboardFileAnnounceItem> Files { get; set; } = [];
+}
+
+public sealed class ClipboardFilesPullPayload
+{
+    public long Sequence { get; set; }
+    public string RequesterMachine { get; set; } = "";
 }
 
 public sealed class FileOfferPayload

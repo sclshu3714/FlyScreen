@@ -14,7 +14,8 @@ public sealed class PeerSession : IAsyncDisposable
     private readonly Channel<byte[]> _sendQueue = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
     {
         SingleReader = true,
-        SingleWriter = false
+        SingleWriter = false,
+        AllowSynchronousContinuations = false
     });
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _sendLoop;
@@ -28,7 +29,7 @@ public sealed class PeerSession : IAsyncDisposable
     public bool IsOutbound { get; }
     public bool Authenticated { get; private set; }
     public DateTime LastRecvUtc => _lastRecvUtc;
-    public bool IsAlive => !_cts.IsCancellationRequested && _client.Connected;
+    public bool IsAlive => Volatile.Read(ref _disposed) == 0 && _client.Connected;
 
     public event Action<PeerSession, NetMessage>? MessageReceived;
     public event Action<PeerSession, Exception?>? Disconnected;
@@ -54,14 +55,25 @@ public sealed class PeerSession : IAsyncDisposable
 
     public ValueTask SendAsync(MessageType type, byte[]? payload = null)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+            return ValueTask.CompletedTask;
+
         var frame = MessageCodec.Encode(type, payload ?? []);
-        return _sendQueue.Writer.WriteAsync(frame);
+        _sendQueue.Writer.TryWrite(frame);
+        return ValueTask.CompletedTask;
     }
 
-    public ValueTask SendRawAsync(byte[] frame) => _sendQueue.Writer.WriteAsync(frame);
+    public ValueTask SendRawAsync(byte[] frame)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            return ValueTask.CompletedTask;
+        _sendQueue.Writer.TryWrite(frame);
+        return ValueTask.CompletedTask;
+    }
 
     public async Task SendAndFlushAsync(MessageType type, byte[]? payload = null, CancellationToken ct = default)
     {
+        if (Volatile.Read(ref _disposed) != 0) return;
         var frame = MessageCodec.Encode(type, payload ?? []);
         await _stream.WriteAsync(frame, ct).ConfigureAwait(false);
         await _stream.FlushAsync(ct).ConfigureAwait(false);
@@ -72,13 +84,22 @@ public sealed class PeerSession : IAsyncDisposable
     {
         try
         {
-            await foreach (var frame in _sendQueue.Reader.ReadAllAsync(_cts.Token).ConfigureAwait(false))
+            while (await _sendQueue.Reader.WaitToReadAsync().ConfigureAwait(false))
             {
-                await _stream.WriteAsync(frame, _cts.Token).ConfigureAwait(false);
-                _lastSendUtc = DateTime.UtcNow;
+                while (_sendQueue.Reader.TryRead(out var frame))
+                {
+                    if (Volatile.Read(ref _disposed) != 0)
+                        return;
+
+                    await _stream.WriteAsync(frame.AsMemory()).ConfigureAwait(false);
+                    _lastSendUtc = DateTime.UtcNow;
+                }
             }
         }
-        catch (OperationCanceledException) { }
+        catch (Exception ex) when (IsBenignShutdown(ex))
+        {
+            // 正常关闭
+        }
         catch (Exception ex)
         {
             RaiseDisconnected(ex);
@@ -90,26 +111,36 @@ public sealed class PeerSession : IAsyncDisposable
         var header = new byte[MessageCodec.HeaderSize];
         try
         {
-            while (!_cts.IsCancellationRequested)
+            while (Volatile.Read(ref _disposed) == 0)
             {
-                await ReadExactAsync(_stream, header, _cts.Token).ConfigureAwait(false);
+                // 不用 CancellationToken 取消 ReadAsync，避免关闭时抛 OperationCanceledException
+                if (!await TryReadExactAsync(_stream, header).ConfigureAwait(false))
+                    break;
+
                 var type = (MessageType)header[0];
                 var len = BitConverter.ToInt32(header, 1);
                 if (len < 0 || len > MessageCodec.MaxPayload)
                     throw new InvalidDataException($"非法帧长度: {len}");
 
                 var payload = len == 0 ? [] : new byte[len];
-                if (len > 0)
-                    await ReadExactAsync(_stream, payload, _cts.Token).ConfigureAwait(false);
+                if (len > 0 && !await TryReadExactAsync(_stream, payload).ConfigureAwait(false))
+                    break;
+
+                if (Volatile.Read(ref _disposed) != 0)
+                    break;
 
                 _lastRecvUtc = DateTime.UtcNow;
                 MessageReceived?.Invoke(this, new NetMessage(type, payload));
             }
         }
-        catch (OperationCanceledException) { }
+        catch (Exception ex) when (IsBenignShutdown(ex))
+        {
+            // 正常关闭
+        }
         catch (Exception ex)
         {
             RaiseDisconnected(ex);
+            return;
         }
         finally
         {
@@ -117,31 +148,69 @@ public sealed class PeerSession : IAsyncDisposable
         }
     }
 
-    private static async Task ReadExactAsync(Stream stream, byte[] buffer, CancellationToken ct)
+    /// <summary>读满 buffer；对端关闭或本机释放时返回 false，不向外抛取消异常。</summary>
+    private async Task<bool> TryReadExactAsync(Stream stream, byte[] buffer)
     {
         var offset = 0;
-        while (offset < buffer.Length)
+        try
         {
-            var n = await stream.ReadAsync(buffer.AsMemory(offset, buffer.Length - offset), ct).ConfigureAwait(false);
-            if (n == 0) throw new EndOfStreamException();
-            offset += n;
+            while (offset < buffer.Length)
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                    return false;
+
+                var n = await stream.ReadAsync(buffer.AsMemory(offset, buffer.Length - offset))
+                    .ConfigureAwait(false);
+                if (n == 0)
+                    return false;
+                offset += n;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (IsBenignShutdown(ex))
+        {
+            return false;
         }
     }
+
+    private static bool IsBenignShutdown(Exception ex) =>
+        ex is OperationCanceledException
+            or ObjectDisposedException
+            or EndOfStreamException
+            or IOException
+            or SocketException
+            or ChannelClosedException;
 
     private void RaiseDisconnected(Exception? ex)
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        try { _cts.Cancel(); } catch { /* ignore */ }
-        Disconnected?.Invoke(this, ex);
+
+        try { _sendQueue.Writer.TryComplete(); } catch { /* ignore */ }
+
+        // 先关 socket，唤醒阻塞中的读写；勿依赖 CTS 取消 ReadAsync（会抛 OCE）
+        try { _stream.Close(); } catch { /* ignore */ }
+        try { _client.Close(); } catch { /* ignore */ }
+
+        try
+        {
+            if (!_cts.IsCancellationRequested)
+                _cts.Cancel();
+        }
+        catch { /* ignore */ }
+
+        try { Disconnected?.Invoke(this, ex); } catch { /* ignore */ }
     }
 
     public async ValueTask DisposeAsync()
     {
         RaiseDisconnected(null);
-        _sendQueue.Writer.TryComplete();
-        try { await Task.WhenAny(Task.WhenAll(_sendLoop, _recvLoop), Task.Delay(500)).ConfigureAwait(false); } catch { /* ignore */ }
-        try { _stream.Dispose(); } catch { /* ignore */ }
-        try { _client.Dispose(); } catch { /* ignore */ }
-        _cts.Dispose();
+        try
+        {
+            await Task.WhenAll(_sendLoop, _recvLoop).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch { /* ignore timeout / faults */ }
+
+        try { _cts.Dispose(); } catch { /* ignore */ }
     }
 }

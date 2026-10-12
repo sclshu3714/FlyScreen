@@ -76,11 +76,18 @@ public sealed class MachineSlot : INotifyPropertyChanged
             _name = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(DisplayName));
+            OnPropertyChanged(nameof(CanRemove));
+            OnPropertyChanged(nameof(IsEmpty));
         }
     }
 
     /// <summary>只读展示用；空位显示占位文案。</summary>
     public string DisplayName => string.IsNullOrWhiteSpace(_name) ? "（空位）" : _name;
+
+    public bool IsEmpty => string.IsNullOrWhiteSpace(_name);
+
+    /// <summary>本机不可移除；有名称的对端可从布局中拿掉，之后可从发现再添加。</summary>
+    public bool CanRemove => !IsLocal && !string.IsNullOrWhiteSpace(_name);
 
     public bool Enabled
     {
@@ -91,7 +98,14 @@ public sealed class MachineSlot : INotifyPropertyChanged
     public bool IsLocal
     {
         get => _isLocal;
-        set { if (_isLocal != value) { _isLocal = value; OnPropertyChanged(); OnPropertyChanged(nameof(DisplaySubtitle)); } }
+        set
+        {
+            if (_isLocal == value) return;
+            _isLocal = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplaySubtitle));
+            OnPropertyChanged(nameof(CanRemove));
+        }
     }
 
     public string StatusText

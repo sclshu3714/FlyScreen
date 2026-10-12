@@ -9,4 +9,5 @@ public sealed class NicInfo
     public string SubnetMask { get; init; } = "";
     public bool IsUp { get; init; }
     public string Display => $"{Name} — {IPv4}{(IsUp ? "" : " [未连接]")}";
+    public override string ToString() => Display;
 }

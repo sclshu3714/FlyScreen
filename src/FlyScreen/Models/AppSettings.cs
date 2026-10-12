@@ -20,6 +20,8 @@ public sealed class AppSettings
     public bool BlockMouseAtCorners { get; set; }
     public bool ShowStatusMessages { get; set; } = true;
     public bool EasyMouse { get; set; } = true;
+    /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
+    public bool AutoStart { get; set; }
     public int TcpPort { get; set; } = 15155;
     public int UdpPort { get; set; } = 15156;
     /// <summary>绑定的本地 IPv4；空表示自动选择。</summary>
