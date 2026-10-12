@@ -30,6 +30,35 @@ dotnet run --project src\FlyScreen\FlyScreen.csproj -c Release
 
 输出目录：`src\FlyScreen\bin\Release\net8.0-windows\`
 
+## 发布为单个独立 exe
+
+本程序清单要求 **管理员权限**（全局键鼠钩子），**不能用 ClickOnce**（会报：`ClickOnce 不支持 requireAdministrator`）。请用「文件夹 / 单文件」发布。
+
+### 命令行（推荐）
+
+```powershell
+cd d:\Source\Repos\FlyScreen
+dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true `
+  -o src\FlyScreen\bin\publish\win-x64
+```
+
+生成文件：`src\FlyScreen\bin\publish\win-x64\FlyScreen.exe`  
+（自包含，目标电脑无需单独安装 .NET；首次运行可能短暂解压原生库到临时目录。）
+
+### Visual Studio
+
+1. 右键项目 → **发布**
+2. 选择 **文件夹**（不要选 ClickOnce）
+3. 目标运行时：`win-x64`
+4. 部署模式：**独立**（Self-contained）
+5. 文件发布选项 → 勾选 **生成单个文件**
+6. 发布
+
+也可直接选用已有配置：`Properties\PublishProfiles\SingleFile-win-x64.pubxml`
+
 ## 使用方法
 
 1. 两台（或更多）电脑安装并启动「飞鼠」，**版本保持一致**。
