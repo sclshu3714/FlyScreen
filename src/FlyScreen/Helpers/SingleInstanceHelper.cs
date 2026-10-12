@@ -16,11 +16,11 @@ public sealed class SingleInstanceHelper : IDisposable
     private Thread? _listenThread;
     private bool _owned;
 
-    private SingleInstanceHelper(Mutex mutex, EventWaitHandle showEvent, bool owned)
+    private SingleInstanceHelper(Mutex mutex, EventWaitHandle showEvent)
     {
         _mutex = mutex;
         _showEvent = showEvent;
-        _owned = owned;
+        _owned = true;
     }
 
     /// <summary>
@@ -28,7 +28,28 @@ public sealed class SingleInstanceHelper : IDisposable
     /// </summary>
     public static bool TryStartPrimary(out SingleInstanceHelper? instance)
     {
-        var mutex = new Mutex(true, MutexName, out var createdNew);
+        Mutex mutex;
+        try
+        {
+            mutex = new Mutex(initiallyOwned: false, MutexName);
+        }
+        catch
+        {
+            instance = null;
+            return false;
+        }
+
+        var acquired = false;
+        try
+        {
+            acquired = mutex.WaitOne(0);
+        }
+        catch (AbandonedMutexException)
+        {
+            // 上一实例异常退出，接管互斥量
+            acquired = true;
+        }
+
         EventWaitHandle showEvent;
         try
         {
@@ -36,23 +57,25 @@ public sealed class SingleInstanceHelper : IDisposable
         }
         catch
         {
-            try { mutex.ReleaseMutex(); } catch { /* ignore */ }
+            if (acquired)
+            {
+                try { mutex.ReleaseMutex(); } catch { /* ignore */ }
+            }
             mutex.Dispose();
             instance = null;
             return false;
         }
 
-        if (!createdNew)
+        if (!acquired)
         {
             try { showEvent.Set(); } catch { /* ignore */ }
             showEvent.Dispose();
-            try { mutex.ReleaseMutex(); } catch { /* ignore */ }
             mutex.Dispose();
             instance = null;
             return false;
         }
 
-        instance = new SingleInstanceHelper(mutex, showEvent, owned: true);
+        instance = new SingleInstanceHelper(mutex, showEvent);
         return true;
     }
 
@@ -95,12 +118,12 @@ public sealed class SingleInstanceHelper : IDisposable
         _listenCts = null;
         _listenThread = null;
 
-        _showEvent.Dispose();
+        try { _showEvent.Dispose(); } catch { /* ignore */ }
         if (_owned)
         {
             try { _mutex.ReleaseMutex(); } catch { /* ignore */ }
             _owned = false;
         }
-        _mutex.Dispose();
+        try { _mutex.Dispose(); } catch { /* ignore */ }
     }
 }
