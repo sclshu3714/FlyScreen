@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Text.Json;
 
 namespace FlyScreen.Services.Network;
@@ -27,6 +26,7 @@ public sealed class DiscoveryService : IAsyncDisposable
     public string LocalMachine { get; } = Environment.MachineName;
     public string BoundIp { get; private set; } = "";
     public int UdpPort { get; private set; }
+    public int AnnounceTcpPort { get; set; } = 15155;
 
     public event Action<IReadOnlyList<DiscoveredPeer>>? PeersUpdated;
 
@@ -43,31 +43,44 @@ public sealed class DiscoveryService : IAsyncDisposable
         _udp.MulticastLoopback = false;
 
         var ct = _cts.Token;
+        var udp = _udp;
         _loop = Task.Run(async () =>
         {
-            var announce = Task.Run(() => AnnounceLoopAsync(ct), ct);
+            var announce = AnnounceLoopAsync(udp, ct);
             try
             {
                 while (!ct.IsCancellationRequested)
                 {
-                    var result = await _udp.ReceiveAsync(ct).ConfigureAwait(false);
+                    UdpReceiveResult result;
+                    try
+                    {
+                        // 不向 ReceiveAsync 传入 ct：停止时通过 Close() 解除阻塞，
+                        // 避免调试器对 OperationCanceledException 刷屏。
+                        result = await udp.ReceiveAsync().ConfigureAwait(false);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+                    catch (SocketException)
+                    {
+                        if (ct.IsCancellationRequested) break;
+                        await Task.Delay(200).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (ct.IsCancellationRequested) break;
                     HandlePacket(result.Buffer, result.RemoteEndPoint);
                 }
-            }
-            catch (OperationCanceledException) { }
-            catch (ObjectDisposedException) { }
-            catch
-            {
-                // ignore transient UDP errors
             }
             finally
             {
                 try { await announce.ConfigureAwait(false); } catch { /* ignore */ }
             }
-        }, ct);
+        });
     }
 
-    private async Task AnnounceLoopAsync(CancellationToken ct)
+    private async Task AnnounceLoopAsync(UdpClient udp, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
@@ -76,24 +89,39 @@ public sealed class DiscoveryService : IAsyncDisposable
                 var payload = JsonSerializer.SerializeToUtf8Bytes(new DiscoveryPacket
                 {
                     MachineName = LocalMachine,
-                    TcpPort = /* filled by ConnectionManager via setter */ AnnounceTcpPort,
+                    TcpPort = AnnounceTcpPort,
                     Ip = BoundIp
                 });
-                // 子网广播
-                await _udp!.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
+                await udp.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
                     .ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (SocketException)
+            {
+                if (ct.IsCancellationRequested) break;
             }
             catch
             {
-                // ignore
+                // ignore transient send errors
             }
 
             Prune();
-            await Task.Delay(2000, ct).ConfigureAwait(false);
+
+            try
+            {
+                await Task.Delay(2000, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                break;
+            }
+
+            if (ct.IsCancellationRequested) break;
         }
     }
-
-    public int AnnounceTcpPort { get; set; } = 15155;
 
     private void HandlePacket(byte[] buffer, IPEndPoint remote)
     {
@@ -150,12 +178,24 @@ public sealed class DiscoveryService : IAsyncDisposable
 
     public void Stop()
     {
-        try { _cts?.Cancel(); } catch { /* ignore */ }
-        try { _udp?.Close(); } catch { /* ignore */ }
-        try { _udp?.Dispose(); } catch { /* ignore */ }
-        _udp = null;
-        _cts = null;
+        var loop = _loop;
+        var cts = _cts;
+        var udp = _udp;
+
         _loop = null;
+        _cts = null;
+        _udp = null;
+
+        try { cts?.Cancel(); } catch { /* ignore */ }
+
+        // 关闭套接字以唤醒阻塞中的 ReceiveAsync
+        try { udp?.Close(); } catch { /* ignore */ }
+        try { udp?.Dispose(); } catch { /* ignore */ }
+
+        try { cts?.Dispose(); } catch { /* ignore */ }
+
+        // 短暂等待循环退出，避免重启时端口占用
+        try { loop?.Wait(TimeSpan.FromMilliseconds(500)); } catch { /* ignore */ }
     }
 
     public ValueTask DisposeAsync()

@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using FlyScreen.Helpers;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
@@ -56,6 +57,13 @@ public partial class MainWindow : Window
         _host.Clipboard.Start(this);
         await _host.StartAsync();
         StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+
+        // 开机自启：隐藏到托盘，后台已自动连接
+        if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
+        {
+            StatusText.Text = $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+            Hide();
+        }
     }
 
     private void InitTray()
@@ -98,6 +106,11 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        // 注册表与设置任一为开则视为开启，并写回一致状态
+        var autoStart = AutoStartHelper.IsEnabled() || s.AutoStart;
+        AutoStartCheck.IsChecked = autoStart;
+        s.AutoStart = autoStart;
+        AutoStartHelper.SetEnabled(autoStart);
         TcpPortBox.Text = s.TcpPort.ToString();
         UdpPortBox.Text = s.UdpPort.ToString();
         HotF.IsChecked = s.SwitchHotkeyMode == 0;
@@ -191,6 +204,9 @@ public partial class MainWindow : Window
         s.MoveMouseRelatively = MoveRelCheck.IsChecked == true;
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
+        s.AutoStart = AutoStartCheck.IsChecked == true;
+        if (!AutoStartHelper.SetEnabled(s.AutoStart))
+            StatusText.Text = s.AutoStart ? "开机自启写入失败，请检查权限" : "关闭开机自启失败";
         s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
         s.HotkeySettings = HkSettings.Text.Trim();
         s.HotkeyReconnect = HkReconnect.Text.Trim();
@@ -319,7 +335,7 @@ public partial class MainWindow : Window
 
     private void RefreshNics()
     {
-        var nics = NicService.ListIpv4Nics();
+        var nics = NicService.ListUsableIpv4Nics();
         NicCombo.ItemsSource = nics;
         var preferred = NicService.ResolvePreferred(_host.Settings.PreferredNicId, _host.Settings.PreferredLocalIp);
         if (preferred != null)
@@ -333,7 +349,7 @@ public partial class MainWindow : Window
 
     private void RefreshDiscovery()
     {
-        DiscoveryList.ItemsSource = _host.Connections.Discovery.GetPeers();
+        DiscoveryList.ItemsSource = UnusedDiscoveredPeers();
         foreach (var slot in _slots.Where(s => s.Enabled && !s.IsLocal))
         {
             var ip = _host.Connections.Discovery.FindIp(slot.Name);
@@ -341,13 +357,102 @@ public partial class MainWindow : Window
         }
     }
 
+    private List<DiscoveredPeer> UnusedDiscoveredPeers()
+    {
+        var used = new HashSet<string>(
+            _slots.Where(s => !string.IsNullOrWhiteSpace(s.Name)).Select(s => s.Name),
+            StringComparer.OrdinalIgnoreCase);
+        used.Add(Environment.MachineName);
+        return _host.Connections.Discovery.GetPeers()
+            .Where(p => !string.IsNullOrWhiteSpace(p.MachineName) && !used.Contains(p.MachineName))
+            .ToList();
+    }
+
     private void DiscoveryList_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (DiscoveryList.SelectedItem is not DiscoveredPeer peer) return;
-        var empty = _slots.FirstOrDefault(s => !s.Enabled || string.IsNullOrWhiteSpace(s.Name));
+        TryAddPeer(peer);
+    }
+
+    private void AddDiscovered_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        if (fe.Tag is DiscoveredPeer peer)
+            TryAddPeer(peer);
+        else if (DiscoveryList.SelectedItem is DiscoveredPeer selected)
+            TryAddPeer(selected);
+    }
+
+    private void AddMachine_Click(object sender, RoutedEventArgs e)
+    {
+        var unused = UnusedDiscoveredPeers();
+        if (unused.Count == 0)
+        {
+            ShowPage(2);
+            RefreshDiscovery();
+            StatusText.Text = "暂无新发现的电脑，请先刷新发现或确认对端已启动";
+            return;
+        }
+
+        var menu = new ContextMenu();
+        foreach (var peer in unused)
+        {
+            var item = new MenuItem
+            {
+                Header = string.IsNullOrEmpty(peer.Ip) ? peer.MachineName : $"{peer.MachineName}  ({peer.Ip})",
+                Tag = peer
+            };
+            item.Click += (_, _) =>
+            {
+                if (item.Tag is DiscoveredPeer p) TryAddPeer(p);
+            };
+            menu.Items.Add(item);
+        }
+
+        menu.PlacementTarget = sender as UIElement;
+        menu.Placement = PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private void RemoveSlot_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var slot = FindSlotFromElement(sender as DependencyObject);
+        if (slot == null || !slot.CanRemove) return;
+
+        var name = slot.Name;
+        slot.Name = "";
+        slot.Enabled = false;
+        slot.IsLocal = false;
+        slot.ResolvedIp = "";
+        slot.OutboundOk = false;
+        slot.InboundOk = false;
+        slot.RefreshStatus();
+        PersistSlots();
+        RefreshDiscovery();
+        RedrawArrows();
+        StatusText.Text = $"已移除 {name}，可在局域网自动发现中再添加";
+        _ = RestartAfterSlotChangeAsync();
+    }
+
+    private void TryAddPeer(DiscoveredPeer peer)
+    {
+        if (string.Equals(peer.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText.Text = "不能添加本机";
+            return;
+        }
+
+        if (_slots.Any(s => string.Equals(s.Name, peer.MachineName, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusText.Text = $"{peer.MachineName} 已在布局中";
+            return;
+        }
+
+        var empty = _slots.FirstOrDefault(s => string.IsNullOrWhiteSpace(s.Name));
         if (empty == null)
         {
-            System.Windows.MessageBox.Show("没有空的机器槽位，请先清空一个。", "飞鼠");
+            System.Windows.MessageBox.Show("没有空的机器槽位，请先移除一台电脑。", "飞鼠");
             return;
         }
 
@@ -355,7 +460,38 @@ public partial class MainWindow : Window
         empty.Name = peer.MachineName;
         empty.ResolvedIp = peer.Ip;
         empty.IsLocal = false;
+        empty.OutboundOk = false;
+        empty.InboundOk = false;
+        empty.RefreshStatus();
+        PersistSlots();
+        RefreshDiscovery();
+        RedrawArrows();
         StatusText.Text = $"已添加 {peer.MachineName}";
+        _ = RestartAfterSlotChangeAsync();
+    }
+
+    private void PersistSlots()
+    {
+        var s = _host.Settings;
+        s.MachineSlots = _slots
+            .Select(x => string.IsNullOrWhiteSpace(x.Name) ? "" : x.Name.Trim())
+            .ToList();
+        while (s.MachineSlots.Count < 4) s.MachineSlots.Add("");
+        s.EnsureLocalMachineSlot();
+        s.Save();
+        SyncSlotLocalFlags();
+    }
+
+    private async Task RestartAfterSlotChangeAsync()
+    {
+        try
+        {
+            await _host.RestartNetworkingAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            // ignore reconnect errors
+        }
     }
 
     private void OnPeerLinkChanged(string name, bool outbound, bool inbound)
@@ -382,11 +518,18 @@ public partial class MainWindow : Window
 
     private void ClearTransfers_Click(object sender, RoutedEventArgs e) => _host.Transfers.ClearCompleted();
 
+    private void DeleteTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is FrameworkElement { Tag: TransferItem item })
+            _host.Transfers.RemoveItem(item, deleteCache: true);
+    }
+
     private void Matrix_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         _dragStart = e.GetPosition(null);
-        // 点在复选框上不开始拖拽
-        if (IsOverCheckBox(e.OriginalSource as DependencyObject))
+        // 点在按钮上不开始拖拽
+        if (IsOverInteractive(e.OriginalSource as DependencyObject))
         {
             _dragItem = null;
             return;
@@ -401,7 +544,7 @@ public partial class MainWindow : Window
         // 在 TextBox/CheckBox 上拖动时不启动，避免干扰输入
         if (e.OriginalSource is System.Windows.Controls.Primitives.TextBoxBase
             or System.Windows.Controls.Primitives.ButtonBase
-            || IsOverCheckBox(e.OriginalSource as DependencyObject))
+            || IsOverInteractive(e.OriginalSource as DependencyObject))
             return;
 
         var pos = e.GetPosition(null);
@@ -466,11 +609,11 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private static bool IsOverCheckBox(DependencyObject? element)
+    private static bool IsOverInteractive(DependencyObject? element)
     {
         while (element != null)
         {
-            if (element is System.Windows.Controls.CheckBox) return true;
+            if (element is System.Windows.Controls.Primitives.ButtonBase) return true;
             element = VisualTreeHelper.GetParent(element);
         }
 

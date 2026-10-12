@@ -29,6 +29,8 @@
       </Grid>
     </ControlTemplate>
 
+    <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
     <!-- 1×4 卡片内容 -->
     <DataTemplate x:Key="MachineCard1x4">
       <Grid Margin="4">
@@ -38,12 +40,14 @@
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6" Cursor="Arrow">
-          <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay}" VerticalAlignment="Center"
-                    Cursor="Hand" ToolTip="启用此位置"/>
+        <DockPanel Margin="0,0,0,4" Cursor="Arrow">
+          <Button DockPanel.Dock="Right" Content="移除"
+                  Padding="6,2" Height="22" MinWidth="44" FontSize="11" Margin="4,0,0,0"
+                  Visibility="{Binding CanRemove, Converter={StaticResource BoolToVis}}"
+                  Click="RemoveSlot_Click" ToolTip="从布局移除，可在局域网发现中再添加"/>
           <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280"
-                     VerticalAlignment="Center" Margin="6,0,0,0" Cursor="Arrow"/>
-        </StackPanel>
+                     VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        </DockPanel>
         <Control Grid.Row="1" Template="{StaticResource PcIconTemplate}"
                  HorizontalAlignment="Center" Margin="0,0,0,6" Cursor="SizeAll"/>
         <TextBlock Grid.Row="2" Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
@@ -65,14 +69,15 @@
         <Control Template="{StaticResource PcIconTemplate}"
                  VerticalAlignment="Center" Margin="0,0,10,0"
                  Cursor="SizeAll"/>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left">
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,4" Cursor="Arrow">
-            <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay}"
-                      VerticalAlignment="Center" Cursor="Hand"
-                      ToolTip="启用此位置"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+          <DockPanel Margin="0,0,0,4" Cursor="Arrow">
+            <Button DockPanel.Dock="Right" Content="移除"
+                    Padding="6,2" Height="22" MinWidth="44" FontSize="11" Margin="0"
+                    Visibility="{Binding CanRemove, Converter={StaticResource BoolToVis}}"
+                    Click="RemoveSlot_Click" ToolTip="从布局移除，可在局域网发现中再添加"/>
             <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280"
-                       VerticalAlignment="Center" Margin="6,0,0,0" Cursor="Arrow"/>
-          </StackPanel>
+                       VerticalAlignment="Center"/>
+          </DockPanel>
           <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
                      TextAlignment="Left" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"
                      Cursor="SizeAll"/>
@@ -246,7 +251,87 @@
     </Style>
     <Style TargetType="ComboBox">
       <Setter Property="Height" Value="36"/>
-      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="Padding" Value="10,0,32,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="BorderBrush" Value="#D1D5DB"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="Foreground" Value="{StaticResource Text}"/>
+      <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="4"/>
+              <ToggleButton Focusable="False" ClickMode="Press"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="32"/>
+                      </Grid.ColumnDefinitions>
+                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="#6B7280"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                IsHitTestVisible="False"/>
+              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                <Border Background="White" BorderBrush="#D1D5DB" BorderThickness="1"
+                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                  <ScrollViewer>
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#2563EB"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="#EFF6FF"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="#DBEAFE"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
   </Window.Resources>
 
@@ -409,7 +494,7 @@
 
               <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"
                          Margin="0,0,0,10"
-                         Text="下方格子代表真实摆放位置（从左到右、从上到下）。把电脑拖到对应格子：鼠标从本机左边缘出去会进入左侧电脑，右边缘进入右侧电脑；双行布局时上下边缘同样生效。"/>
+                         Text="格子代表真实摆放位置。拖拽互换位置；用「添加电脑」或在局域网发现中加入；对端卡片可「移除」，移除后可再从发现添加。"/>
 
               <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
@@ -491,6 +576,8 @@
                 <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Top" Width="100">
                   <TextBlock Text="拖拽互换位置" Foreground="{StaticResource Blue}" FontSize="12"
                              TextAlignment="Center" Margin="0,0,0,12"/>
+                  <Button Content="添加电脑" Click="AddMachine_Click" Margin="0,0,0,8" Width="100"
+                          HorizontalAlignment="Center" ToolTip="从局域网发现的电脑中添加"/>
                   <Button Content="刷新连接" Click="Reconnect_Click" Margin="0" Width="100" HorizontalAlignment="Center"/>
                 </StackPanel>
               </Grid>
@@ -521,6 +608,8 @@
               </StackPanel>
               <StackPanel Grid.Column="1">
                 <TextBlock Text="行为" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <CheckBox x:Name="AutoStartCheck" Content="开机自动启动并连接"
+                          ToolTip="登录 Windows 后自动启动飞鼠并连接已配置的电脑"/>
                 <CheckBox x:Name="BlockSaverCheck" Content="阻止其他机器屏保"/>
                 <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"/>
                 <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"/>
@@ -573,7 +662,8 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <ComboBox x:Name="NicCombo" DisplayMemberPath="Display"/>
+                <ComboBox x:Name="NicCombo" DisplayMemberPath="Display"
+                          VerticalContentAlignment="Center"/>
                 <Button Grid.Column="1" Content="刷新网卡" Click="RefreshNics_Click"/>
               </Grid>
               <Grid Margin="0,12,0,0">
@@ -596,7 +686,7 @@
               <DockPanel Margin="0,0,0,8">
                 <StackPanel>
                   <TextBlock Text="局域网自动发现" FontWeight="SemiBold"/>
-                  <TextBlock Text="双击可填入机器布局空位" Foreground="{StaticResource Muted}" FontSize="12"/>
+                  <TextBlock Text="单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出" Foreground="{StaticResource Muted}" FontSize="12"/>
                 </StackPanel>
                 <Button DockPanel.Dock="Right" Content="刷新发现" Click="RefreshDiscovery_Click"/>
               </DockPanel>
@@ -605,9 +695,11 @@
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <DockPanel Margin="6,8">
+                      <Button DockPanel.Dock="Right" Content="添加" Padding="10,0" Height="28" MinWidth="56"
+                              Margin="8,0,0,0" Click="AddDiscovered_Click" Tag="{Binding}"/>
                       <Border Width="8" Height="8" CornerRadius="4" Background="{StaticResource Success}"
                               Margin="0,0,10,0" VerticalAlignment="Center"/>
-                      <TextBlock>
+                      <TextBlock VerticalAlignment="Center">
                         <Run Text="{Binding MachineName}" FontWeight="SemiBold"/>
                         <Run Text="  "/><Run Text="{Binding Ip}" Foreground="#6B7280"/>
                         <Run Text=":" Foreground="#6B7280"/><Run Text="{Binding TcpPort}" Foreground="#6B7280"/>
@@ -628,12 +720,13 @@
           <DockPanel Margin="0,0,0,12">
             <StackPanel>
               <TextBlock Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
-              <TextBlock Text="支持多文件、无大小限制；完成后自动更新剪贴板"
+              <TextBlock Text="显示传输历史；粘贴用原文件名。清除/删除仅清理接收缓存，不会删除本机传出文件。"
                          Foreground="{StaticResource Muted}" FontSize="12"/>
             </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
               <Button Content="打开收件箱" Click="OpenInbox_Click"/>
-              <Button Content="清除已完成" Click="ClearTransfers_Click"/>
+              <Button Content="清除已完成" Click="ClearTransfers_Click"
+                      ToolTip="清除已完成/失败记录；仅删除接收方收件箱缓存，不删除发送方本地文件"/>
             </StackPanel>
           </DockPanel>
           <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
@@ -641,17 +734,30 @@
               <ListView.View>
                 <GridView>
                   <GridViewColumn Header="方向" Width="56" DisplayMemberBinding="{Binding DirectionText}"/>
-                  <GridViewColumn Header="文件名" Width="220" DisplayMemberBinding="{Binding FileName}"/>
-                  <GridViewColumn Header="对端" Width="130" DisplayMemberBinding="{Binding PeerName}"/>
-                  <GridViewColumn Header="大小" Width="110" DisplayMemberBinding="{Binding SizeText}"/>
-                  <GridViewColumn Header="进度" Width="120">
+                  <GridViewColumn Header="文件名" Width="200" DisplayMemberBinding="{Binding FileName}"/>
+                  <GridViewColumn Header="对端" Width="120" DisplayMemberBinding="{Binding PeerName}"/>
+                  <GridViewColumn Header="大小" Width="100" DisplayMemberBinding="{Binding SizeText}"/>
+                  <GridViewColumn Header="进度" Width="110">
                     <GridViewColumn.CellTemplate>
                       <DataTemplate>
-                        <ProgressBar Value="{Binding Progress}" Height="10" Margin="0,6"/>
+                        <!-- 固定宽度，避免 GridView 无限宽度测量导致栈溢出 -->
+                        <ProgressBar Minimum="0" Maximum="100"
+                                     Value="{Binding Progress, Mode=OneWay}"
+                                     Width="90" Height="12" Margin="0,4"
+                                     HorizontalAlignment="Left"/>
                       </DataTemplate>
                     </GridViewColumn.CellTemplate>
                   </GridViewColumn>
                   <GridViewColumn Header="状态" Width="72" DisplayMemberBinding="{Binding Status}"/>
+                  <GridViewColumn Header="" Width="56">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <Button Content="删除" Padding="6,0" Height="24" MinWidth="44" Margin="0,2"
+                                FontSize="11" Click="DeleteTransfer_Click" Tag="{Binding}"
+                                ToolTip="删除此记录；若为接收项则同时删除收件箱缓存（发送项不删本地文件）"/>
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
                 </GridView>
               </ListView.View>
             </ListView>

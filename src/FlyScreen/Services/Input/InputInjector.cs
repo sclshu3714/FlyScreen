@@ -71,6 +71,25 @@ public static class InputInjector
         NativeMethods.SendInput(1, [input], System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
     }
 
+    /// <summary>注入 Ctrl+V（或 Shift+Insert）完成粘贴。</summary>
+    public static void InjectPaste(bool shiftInsert = false)
+    {
+        if (shiftInsert)
+        {
+            Key(new KeyEventPayload { VirtualKey = 0x10, Down = true }); // Shift
+            Key(new KeyEventPayload { VirtualKey = 0x2D, Down = true, Extended = true }); // Insert
+            Key(new KeyEventPayload { VirtualKey = 0x2D, Down = false, Extended = true });
+            Key(new KeyEventPayload { VirtualKey = 0x10, Down = false });
+        }
+        else
+        {
+            Key(new KeyEventPayload { VirtualKey = 0x11, Down = true }); // Ctrl
+            Key(new KeyEventPayload { VirtualKey = 0x56, Down = true }); // V
+            Key(new KeyEventPayload { VirtualKey = 0x56, Down = false });
+            Key(new KeyEventPayload { VirtualKey = 0x11, Down = false });
+        }
+    }
+
     private static void SendMouse(uint flags, int dx, int dy, uint data)
     {
         var input = new NativeMethods.INPUT

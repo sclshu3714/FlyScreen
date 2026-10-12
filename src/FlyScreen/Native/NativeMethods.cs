@@ -75,7 +75,57 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool OpenClipboard(IntPtr hWndNewOwner);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool CloseClipboard();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool EmptyClipboard();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetClipboardOwner();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GlobalLock(IntPtr hMem);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GlobalUnlock(IntPtr hMem);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GlobalFree(IntPtr hMem);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint RegisterClipboardFormat(string lpszFormat);
+
+    public const uint CF_HDROP = 15;
+    public const uint GMEM_MOVEABLE = 0x0002;
+    public const uint GMEM_ZEROINIT = 0x0040;
+    public const int WM_RENDERFORMAT = 0x0305;
+    public const int WM_RENDERALLFORMATS = 0x0306;
+    public const int WM_DESTROYCLIPBOARD = 0x0307;
     public const int WM_CLIPBOARDUPDATE = 0x031D;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DROPFILES
+    {
+        public uint pFiles;
+        public POINT pt;
+        public int fNC;
+        public int fWide;
+    }
     public const int SM_CXSCREEN = 0;
     public const int SM_CYSCREEN = 1;
     public const int SM_XVIRTUALSCREEN = 76;

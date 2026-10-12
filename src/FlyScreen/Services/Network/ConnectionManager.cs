@@ -169,11 +169,22 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     private async Task EnsureOutboundAsync(string peerName, CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
+
         var link = _links.GetOrAdd(peerName, _ => new PeerLink(peerName));
         if (link.Outbound is { IsAlive: true, Authenticated: true })
             return;
 
-        var ip = await ResolvePeerIpAsync(peerName, ct).ConfigureAwait(false);
+        string? ip;
+        try
+        {
+            ip = await ResolvePeerIpAsync(peerName, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         if (ip == null) return;
 
         if (_settings.SameSubnetOnly)
@@ -183,17 +194,24 @@ public sealed class ConnectionManager : IAsyncDisposable
                 return;
         }
 
+        TcpClient? client = null;
+        PeerSession? session = null;
         try
         {
-            var client = new TcpClient();
+            client = new TcpClient();
             if (_bindIp != "0.0.0.0")
                 client.Client.Bind(new IPEndPoint(IPAddress.Parse(_bindIp), 0));
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(3));
-            await client.ConnectAsync(IPAddress.Parse(ip), _settings.TcpPort, timeoutCts.Token).ConfigureAwait(false);
+            // 用 WhenAny 做连接超时，避免 CancelAfter 在 ConnectAsync 上抛 OCE 刷调试器
+            if (!await ConnectWithTimeoutAsync(client, IPAddress.Parse(ip), _settings.TcpPort, TimeSpan.FromSeconds(3), ct)
+                    .ConfigureAwait(false))
+            {
+                client.Dispose();
+                return;
+            }
 
-            var session = new PeerSession(client, isOutbound: true);
+            session = new PeerSession(client, isOutbound: true);
+            client = null; // 所有权交给 session
             WireSession(session);
 
             var hs = MessageCodec.EncodeJson(MessageType.Handshake, new HandshakePayload
@@ -223,12 +241,68 @@ public sealed class ConnectionManager : IAsyncDisposable
 
             session.SetPeerIdentity(peerName);
             await link.SetOutboundAsync(session).ConfigureAwait(false);
+            session = null; // 已交给 link
             NotifyLink(peerName, link);
             StatusMessage?.Invoke($"已出站连接 {peerName} ({ip})");
+        }
+        catch (OperationCanceledException)
+        {
+            // 关闭/停止时的取消，静默返回
         }
         catch
         {
             // 下一轮重试
+        }
+        finally
+        {
+            if (session != null)
+            {
+                try
+                {
+                    UnwireSession(session);
+                    await session.DisposeAsync().ConfigureAwait(false);
+                }
+                catch { /* ignore */ }
+            }
+            else
+            {
+                try { client?.Dispose(); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 带超时的 TCP 连接；超时或取消时关闭 socket 并返回 false，不向外抛 OCE。
+    /// </summary>
+    private static async Task<bool> ConnectWithTimeoutAsync(
+        TcpClient client, IPAddress address, int port, TimeSpan timeout, CancellationToken ct)
+    {
+        try
+        {
+            var connectTask = client.ConnectAsync(address, port);
+            var delayTask = Task.Delay(timeout, ct);
+            var completed = await Task.WhenAny(connectTask, delayTask).ConfigureAwait(false);
+
+            if (completed != connectTask)
+            {
+                // 超时或外部取消：关掉 socket，让 ConnectAsync 尽快结束
+                try { client.Close(); } catch { /* ignore */ }
+                try { await connectTask.ConfigureAwait(false); } catch { /* ignore */ }
+                return false;
+            }
+
+            await connectTask.ConfigureAwait(false);
+            return client.Connected;
+        }
+        catch (OperationCanceledException)
+        {
+            try { client.Close(); } catch { /* ignore */ }
+            return false;
+        }
+        catch
+        {
+            try { client.Close(); } catch { /* ignore */ }
+            return false;
         }
     }
 
