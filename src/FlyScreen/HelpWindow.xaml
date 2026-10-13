@@ -5,7 +5,7 @@
         Height="640" Width="720"
         MinHeight="520" MinWidth="600"
         WindowStartupLocation="CenterOwner"
-        Background="#F7F8FA"
+        Background="{DynamicResource WinBg}"
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13"
         ShowInTaskbar="False">
@@ -13,21 +13,36 @@
     <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
     <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
     <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
     <Style TargetType="Button">
       <Setter Property="Padding" Value="12,6"/>
       <Setter Property="Margin" Value="0,0,8,0"/>
       <Setter Property="MinWidth" Value="96"/>
       <Setter Property="Height" Value="32"/>
-      <Setter Property="Background" Value="White"/>
-      <Setter Property="BorderBrush" Value="#D1D5DB"/>
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
     <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Background" Value="{StaticResource Blue}"/>
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
     </Style>
   </Window.Resources>
 
@@ -39,7 +54,7 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
+    <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
             CornerRadius="8" Padding="4">
       <RichTextBox x:Name="HelpRich"
                    IsReadOnly="True"
@@ -47,13 +62,14 @@
                    IsUndoEnabled="False"
                    BorderThickness="0"
                    Background="Transparent"
+                   Foreground="{DynamicResource Text}"
                    VerticalScrollBarVisibility="Auto"
                    HorizontalScrollBarVisibility="Disabled"
                    Padding="12,10"
                    Focusable="True"/>
     </Border>
 
-    <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
+    <Border Grid.Row="1" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
             CornerRadius="8" Padding="12" Margin="0,12,0,0">
       <Grid>
         <Grid.RowDefinitions>
@@ -63,7 +79,7 @@
         </Grid.RowDefinitions>
         <TextBlock Text="更新与连接诊断" FontWeight="SemiBold"/>
         <TextBlock x:Name="ActionStatus" Grid.Row="1" TextWrapping="Wrap"
-                   Foreground="{StaticResource Muted}" Margin="0,6,0,10"
+                   Foreground="{DynamicResource Muted}" Margin="0,6,0,10"
                    Text="可通过 GitHub Release 检查更新；连接异常时先「一键检查」再「一键修复」。"/>
         <WrapPanel Grid.Row="2">
           <Button Content="检查更新" Click="CheckUpdate_Click"/>
@@ -76,7 +92,7 @@
 
     <TextBox x:Name="DiagOutput" Grid.Row="2" Margin="0,12,0,0" Height="120"
              IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-             BorderBrush="{StaticResource Line}" Padding="10,8"
+             BorderBrush="{DynamicResource Line}" Padding="10,8"
              Visibility="Collapsed"
              FontFamily="Consolas, Microsoft YaHei UI"/>
 
