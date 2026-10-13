@@ -723,8 +723,7 @@
               ToolTipService.BetweenShowDelay="200">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
           <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <Grid>
@@ -763,82 +762,76 @@
               </StackPanel>
             </Grid>
           </Border>
-          <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,12" VerticalAlignment="Top">
-            <StackPanel>
-              <TextBlock x:Name="HotTitleText" Text="键盘快捷键" FontWeight="SemiBold" Margin="0,0,0,10"/>
-              <DockPanel Margin="0,0,0,12" LastChildFill="False">
-                <TextBlock x:Name="HotSwitchText" DockPanel.Dock="Left" Text="切换机器（Ctrl+Alt+）"
-                           Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                  <RadioButton x:Name="HotF" Content="F1–F4" GroupName="Sw" Margin="0,0,16,0" VerticalContentAlignment="Center" IsChecked="True"/>
-                  <RadioButton x:Name="HotNum" Content="1–4" GroupName="Sw" Margin="0,0,16,0" VerticalContentAlignment="Center"/>
+          <!-- 快捷键占剩余宽度，系统设置固定较窄 -->
+          <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="12"/>
+              <ColumnDefinition Width="260"/>
+            </Grid.ColumnDefinitions>
+            <Border Style="{StaticResource Card}">
+              <StackPanel>
+                <TextBlock x:Name="HotTitleText" Text="键盘快捷键" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <TextBlock x:Name="HotSwitchText" Text="切换机器（Ctrl+Alt+）"
+                           Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                  <RadioButton x:Name="HotF" Content="F1–F4" GroupName="Sw" Margin="0,0,14,0" VerticalContentAlignment="Center" IsChecked="True"/>
+                  <RadioButton x:Name="HotNum" Content="1–4" GroupName="Sw" Margin="0,0,14,0" VerticalContentAlignment="Center"/>
                   <RadioButton x:Name="HotOff" Content="禁用" GroupName="Sw" VerticalContentAlignment="Center"/>
                 </StackPanel>
-              </DockPanel>
-              <!-- 行高必须 Auto：StackPanel 内 * 行会被量成 0，导致输入框“消失” -->
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="Auto" MinWidth="140"/>
-                  <ColumnDefinition Width="56"/>
-                  <ColumnDefinition Width="24"/>
-                  <ColumnDefinition Width="Auto" MinWidth="140"/>
-                  <ColumnDefinition Width="56"/>
-                  <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto"/>
-                  <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,8,8"/>
-                <TextBox x:Name="HkSettings" Grid.Column="1" Height="32" Margin="0,0,0,8" MaxLength="1"
-                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-                <TextBlock x:Name="HotReconnectLabel" Grid.Column="3" Text="重新连接 (Ctrl+Alt+)"
-                           VerticalAlignment="Center" Margin="0,0,8,8"/>
-                <TextBox x:Name="HkReconnect" Grid.Column="4" Height="32" Margin="0,0,0,8" MaxLength="1"
-                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-                <TextBlock x:Name="HotExitLabel" Grid.Row="1" Text="退出程序 (Ctrl+Alt+)"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox x:Name="HkExit" Grid.Row="1" Grid.Column="1" Height="32" MaxLength="1"
-                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-                <TextBlock x:Name="HotLockLabel" Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox x:Name="HkLock" Grid.Row="1" Grid.Column="4" Height="32" MaxLength="1"
-                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-              </Grid>
-            </StackPanel>
-          </Border>
+                <!-- 行高必须 Auto：StackPanel 内 * 行会被量成 0 -->
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="48"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="48"/>
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+                  <TextBlock x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,6,8"
+                             TextWrapping="Wrap"/>
+                  <TextBox x:Name="HkSettings" Grid.Column="1" Height="32" Margin="0,0,0,8" MaxLength="1"
+                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                  <TextBlock x:Name="HotReconnectLabel" Grid.Column="3" Text="重新连接 (Ctrl+Alt+)"
+                             VerticalAlignment="Center" Margin="0,0,6,8" TextWrapping="Wrap"/>
+                  <TextBox x:Name="HkReconnect" Grid.Column="4" Height="32" Margin="0,0,0,8" MaxLength="1"
+                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                  <TextBlock x:Name="HotExitLabel" Grid.Row="1" Text="退出程序 (Ctrl+Alt+)"
+                             VerticalAlignment="Center" Margin="0,0,6,0" TextWrapping="Wrap"/>
+                  <TextBox x:Name="HkExit" Grid.Row="1" Grid.Column="1" Height="32" MaxLength="1"
+                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                  <TextBlock x:Name="HotLockLabel" Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)"
+                             VerticalAlignment="Center" Margin="0,0,6,0" TextWrapping="Wrap"/>
+                  <TextBox x:Name="HkLock" Grid.Row="1" Grid.Column="4" Height="32" MaxLength="1"
+                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                </Grid>
+              </StackPanel>
+            </Border>
 
-          <Border Grid.Row="2" Style="{StaticResource Card}" VerticalAlignment="Top">
-            <StackPanel>
-              <TextBlock x:Name="SysTitleText" Text="系统设置" FontWeight="SemiBold" Margin="0,0,0,10"/>
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="100"/>
-                  <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto"/>
-                  <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <TextBlock x:Name="SysStyleLabel" Text="样式" VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+              <StackPanel>
+                <TextBlock x:Name="SysTitleText" Text="系统设置" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <TextBlock x:Name="SysStyleLabel" Text="样式" Margin="0,0,0,8"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                   <RadioButton x:Name="ThemeLight" Content="淡色（当前默认）" GroupName="UiTheme"
                                Margin="0,0,18,0" IsChecked="True"/>
                   <RadioButton x:Name="ThemeDark" Content="深色" GroupName="UiTheme"/>
                 </StackPanel>
-
-                <TextBlock x:Name="SysLangLabel" Grid.Row="1" Text="语言" VerticalAlignment="Center" Margin="0,12,0,0"/>
-                <ComboBox x:Name="LanguageCombo" Grid.Row="1" Grid.Column="1" Margin="0,12,0,0">
+                <TextBlock x:Name="SysLangLabel" Text="语言" Margin="0,0,0,8"/>
+                <ComboBox x:Name="LanguageCombo">
                   <ComboBox.ItemTemplate>
                     <DataTemplate>
                       <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
                     </DataTemplate>
                   </ComboBox.ItemTemplate>
                 </ComboBox>
-              </Grid>
-            </StackPanel>
-          </Border>
+              </StackPanel>
+            </Border>
+          </Grid>
         </Grid>
 
         <!-- ===== 网络设置 ===== -->
