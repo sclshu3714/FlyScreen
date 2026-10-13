@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Threading;
 using FlyScreen.Models;
 using FlyScreen.Native;
 using FlyScreen.Services.Network;
@@ -32,7 +33,9 @@ public sealed class InputRouter : IDisposable
     /// <summary>切换控制权后的短冷却，避免落在边缘时立刻被环形逻辑甩回。</summary>
     private long _switchCooldownUntilTick;
     private const int SwitchCooldownMs = 350;
-    private int _cursorHideDepth;
+    /// <summary>本进程 UI/钩子线程上是否已将 ShowCursor 压到不可见（仅在该线程读写）。</summary>
+    private bool _cursorHiddenOnHookThread;
+    private Dispatcher? _hookDispatcher;
     private long _lastCursorOwnerBroadcastTick;
 
     public bool EasyMouseEnabled { get; set; } = true;
@@ -51,6 +54,8 @@ public sealed class InputRouter : IDisposable
 
     public void Start()
     {
+        // LL 钩子回调跑在安装线程；ShowCursor 计数也必须只在该线程调整
+        _hookDispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _mouseProc = MouseHookCallback;
         _keyProc = KeyHookCallback;
         using var cur = System.Diagnostics.Process.GetCurrentProcess();
@@ -170,6 +175,8 @@ public sealed class InputRouter : IDisposable
         _virtualNy = Math.Clamp(entryY, 0.02, 0.98);
         _peerSide = peerSide;
         ArmSwitchCooldown();
+        // 无论是否隐藏光标，控远端时都必须把本机光标钉在中部，否则卡在屏幕边缘无法产生向远端方向的位移
+        PinLocalCursorForRemoteControl();
         if (_settings.HideMouseAtEdge)
         {
             HideLocalCursor();
@@ -178,6 +185,18 @@ public sealed class InputRouter : IDisposable
 
         ControlTargetChanged?.Invoke(peer);
         _ = SendSwitchAsync(peer, _virtualNx, _virtualNy);
+    }
+
+    /// <summary>控远端时将本机光标钉在屏幕中部，用相对位移驱动对端虚拟坐标。</summary>
+    private void PinLocalCursorForRemoteControl()
+    {
+        var screenW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
+        var screenH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
+        var cx = screenW / 2;
+        var cy = screenH / 2;
+        NativeMethods.SetCursorPos(cx, cy);
+        _lastX = cx;
+        _lastY = cy;
     }
 
     private void ArmSwitchCooldown()
@@ -229,8 +248,6 @@ public sealed class InputRouter : IDisposable
                     out var peer, out var entryX, out var entryY, out var peerSide))
             {
                 SwitchToPeer(peer!, entryX, entryY, peerSide);
-                if (_settings.HideMouseAtEdge)
-                    NativeMethods.SetCursorPos(screenW / 2, screenH / 2);
                 return (IntPtr)1;
             }
         }
@@ -239,15 +256,9 @@ public sealed class InputRouter : IDisposable
         {
             if (msg == NativeMethods.WM_MOUSEMOVE)
             {
-                var dx = info.pt.X - _lastX;
-                var dy = info.pt.Y - _lastY;
-                // 光标被钉在中部时，用相对位移累积虚拟坐标
-                if (_settings.HideMouseAtEdge)
-                {
-                    dx = info.pt.X - screenW / 2;
-                    dy = info.pt.Y - screenH / 2;
-                }
-
+                // 本机光标钉在中部：位移相对屏幕中心（与是否「隐藏边缘光标」无关）
+                var dx = info.pt.X - screenW / 2;
+                var dy = info.pt.Y - screenH / 2;
                 _lastX = info.pt.X;
                 _lastY = info.pt.Y;
 
@@ -272,9 +283,7 @@ public sealed class InputRouter : IDisposable
                 if (!InSwitchCooldown() && TryNavigateFromRemoteVirtual(dx, dy))
                     return (IntPtr)1;
 
-                if (_settings.HideMouseAtEdge)
-                    NativeMethods.SetCursorPos(screenW / 2, screenH / 2);
-
+                NativeMethods.SetCursorPos(screenW / 2, screenH / 2);
                 return (IntPtr)1;
             }
 
@@ -348,7 +357,7 @@ public sealed class InputRouter : IDisposable
     {
         if (!_settings.HideMouseAtEdge) return;
         if (_controllingRemote) return; // 本机正在控远端：继续隐藏本机光标，输入仍转发
-        if (!_receivingRemoteControl && _cursorHideDepth == 0) return; // 已是本机操作且光标可见
+        if (!_receivingRemoteControl && !_cursorHiddenOnHookThread) return; // 已是本机操作且光标可见
         if (InSwitchCooldown() && _receivingRemoteControl) return; // 刚切入被控，忽略切入瞬间误判
 
         _receivingRemoteControl = false;
@@ -362,23 +371,59 @@ public sealed class InputRouter : IDisposable
             _ = BroadcastCursorOwnerAsync(Environment.MachineName);
     }
 
+    /// <summary>
+    /// ShowCursor 计数按线程维护；必须在安装 LL 钩子的 UI 线程上调整，
+    /// 否则网络线程 Show 无法抵消钩子线程 Hide，玄鸟窗口上会出现「可点不可见」。
+    /// </summary>
+    private void RunOnHookThread(Action action)
+    {
+        var d = _hookDispatcher ?? Application.Current?.Dispatcher;
+        if (d == null || d.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        try
+        {
+            // 同步：切入本机时需在注入光标划过 WPF 窗口前恢复可见
+            d.Invoke(action, DispatcherPriority.Send);
+        }
+        catch (TaskCanceledException)
+        {
+            // 关闭中
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher 已关闭
+        }
+    }
+
     private void HideLocalCursor()
     {
         if (!_settings.HideMouseAtEdge) return;
-        // ShowCursor 为线程引用计数；确保隐藏到不可见
-        while (NativeMethods.ShowCursor(false) >= 0)
-            _cursorHideDepth++;
-        if (_cursorHideDepth == 0) _cursorHideDepth = 1;
+        RunOnHookThread(() =>
+        {
+            // 确保本线程计数 < 0
+            while (NativeMethods.ShowCursor(false) >= 0)
+            {
+            }
+
+            _cursorHiddenOnHookThread = true;
+        });
     }
 
     private void ShowLocalCursor()
     {
-        // 恢复到可见（计数 >= 0）
-        while (NativeMethods.ShowCursor(true) < 0)
+        RunOnHookThread(() =>
         {
-        }
+            // 恢复本线程计数到可见 (>= 0)
+            while (NativeMethods.ShowCursor(true) < 0)
+            {
+            }
 
-        _cursorHideDepth = 0;
+            _cursorHiddenOnHookThread = false;
+        });
     }
 
     private async Task BroadcastCursorOwnerAsync(string ownerMachine)
@@ -675,13 +720,6 @@ public sealed class InputRouter : IDisposable
         var entryY = dirV < 0 ? 0.92 : dirV > 0 ? 0.08 : Math.Clamp(_virtualNy, 0.05, 0.95);
         var peerSide = dirH != 0 ? dirH : dirV;
         SwitchToPeer(next, entryX, entryY, peerSide);
-        if (_settings.HideMouseAtEdge)
-        {
-            var screenW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
-            var screenH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
-            NativeMethods.SetCursorPos(screenW / 2, screenH / 2);
-        }
-
         return true;
     }
 
