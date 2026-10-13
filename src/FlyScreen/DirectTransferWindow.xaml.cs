@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using FlyScreen.Helpers;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 
@@ -19,6 +20,7 @@ public partial class DirectTransferWindow : Window
     {
         InitializeComponent();
         _host = host;
+        ThemeService.ApplyToChildWindow(this);
         PathList.ItemsSource = _paths;
         PeerCombo.ItemsSource = _peers;
         FolderPresetCombo.ItemsSource = _presets;

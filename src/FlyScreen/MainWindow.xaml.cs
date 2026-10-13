@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using FlyScreen.Helpers;
+using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
@@ -143,6 +144,21 @@ public partial class MainWindow : Window
         HkExit.Text = s.HotkeyExit;
         HkLock.Text = s.HotkeyLock;
 
+        LanguageCombo.ItemsSource = Loc.Languages;
+        var lang = Loc.Languages.FirstOrDefault(l =>
+                       string.Equals(l.Code, s.UiLanguage, StringComparison.OrdinalIgnoreCase))
+                   ?? Loc.Languages[0];
+        LanguageCombo.SelectedItem = lang;
+        Loc.SetCulture(lang.Code);
+
+        if (string.Equals(s.UiTheme, ThemeService.Dark, StringComparison.OrdinalIgnoreCase))
+            ThemeDark.IsChecked = true;
+        else
+            ThemeLight.IsChecked = true;
+        ThemeService.Apply(s.UiTheme, this);
+
+        ApplyLocalizedUi();
+
         _slots.Clear();
         for (var i = 0; i < 4; i++)
         {
@@ -249,6 +265,17 @@ public partial class MainWindow : Window
             s.PreferredLocalIp = nic.IPv4;
         }
 
+        if (LanguageCombo.SelectedItem is LanguageOption lang)
+            s.UiLanguage = lang.Code;
+        else
+            s.UiLanguage = Loc.DefaultCulture;
+
+        s.UiTheme = ThemeDark.IsChecked == true ? ThemeService.Dark : ThemeService.Light;
+        ThemeService.Apply(s.UiTheme, this);
+
+        Loc.SetCulture(s.UiLanguage);
+        ApplyLocalizedUi();
+
         s.MachineSlots = _slots.Select(x => x.Enabled ? x.Name.Trim() : "").ToList();
         while (s.MachineSlots.Count < 4) s.MachineSlots.Add("");
         s.EnsureLocalMachineSlot();
@@ -257,12 +284,67 @@ public partial class MainWindow : Window
         _host.Input.EasyMouseEnabled = s.EasyMouse;
     }
 
+    private void ApplyLocalizedUi()
+    {
+        TabBasic.Content = Loc.T("Tab.Basic");
+        TabOptions.Content = Loc.T("Tab.Options");
+        TabNetwork.Content = Loc.T("Tab.Network");
+        TabTransfer.Content = Loc.T("Tab.Transfer");
+        AboutBtn.Content = Loc.T("Btn.About");
+        HelpBtn.Content = Loc.T("Btn.Help");
+        ApplyBtn.Content = Loc.T("Btn.Apply");
+        HideTrayBtn.Content = Loc.T("Btn.HideTray");
+        ExitBtn.Content = Loc.T("Btn.Exit");
+
+        FeatTitleText.Text = Loc.T("Feat.Title");
+        BehTitleText.Text = Loc.T("Beh.Title");
+        HotTitleText.Text = Loc.T("Hot.Title");
+        HotSwitchText.Text = Loc.T("Hot.Switch");
+        HotF.Content = Loc.T("Hot.F14");
+        HotNum.Content = Loc.T("Hot.Num");
+        HotOff.Content = Loc.T("Hot.Off");
+        HotSettingsLabel.Text = Loc.T("Hot.Settings");
+        HotReconnectLabel.Text = Loc.T("Hot.Reconnect");
+        HotExitLabel.Text = Loc.T("Hot.Exit");
+        HotLockLabel.Text = Loc.T("Hot.Lock");
+
+        SysTitleText.Text = Loc.T("Sys.Title");
+        SysStyleLabel.Text = Loc.T("Sys.Style");
+        SysLangLabel.Text = Loc.T("Sys.Language");
+        ThemeLight.Content = Loc.T("Sys.StyleLight");
+        ThemeDark.Content = Loc.T("Sys.StyleDark");
+        SysStyleLabel.ToolTip = Loc.T("Sys.StyleTip");
+        SysLangLabel.ToolTip = Loc.T("Sys.LangTip");
+        ThemeLight.ToolTip = Loc.T("Sys.StyleTip");
+        ThemeDark.ToolTip = Loc.T("Sys.StyleDark");
+        LanguageCombo.ToolTip = Loc.T("Sys.LangTip");
+
+        SetOpt(WrapMouseCheck, "Opt.WrapMouse", "Tip.WrapMouse");
+        SetOpt(ShareClipboardCheck, "Opt.ShareClipboard", "Tip.ShareClipboard");
+        SetOpt(TransferFileCheck, "Opt.TransferFile", "Tip.TransferFile");
+        SetOpt(HideMouseCheck, "Opt.HideMouse", "Tip.HideMouse");
+        SetOpt(DrawCursorCheck, "Opt.DrawCursor", "Tip.DrawCursor");
+        SetOpt(SameSubnetCheck, "Opt.SameSubnet", "Tip.SameSubnet");
+        SetOpt(ShowStatusCheck, "Opt.ShowStatus", "Tip.ShowStatus");
+        SetOpt(AutoStartCheck, "Opt.AutoStart", "Tip.AutoStart");
+        SetOpt(BlockSaverCheck, "Opt.BlockSaver", "Tip.BlockSaver");
+        SetOpt(MoveRelCheck, "Opt.MoveRel", "Tip.MoveRel");
+        SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
+        SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
+    }
+
+    private static void SetOpt(System.Windows.Controls.CheckBox box, string contentKey, string tipKey)
+    {
+        box.Content = Loc.T(contentKey);
+        box.ToolTip = Loc.T(tipKey);
+    }
+
     private async void Apply_Click(object sender, RoutedEventArgs e)
     {
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
         await _host.RestartNetworkingAsync();
-        StatusText.Text = "设置已应用，布局已同步到其他电脑";
+        StatusText.Text = Loc.T("Sys.Applied");
         SyncSlotLocalFlags();
     }
 

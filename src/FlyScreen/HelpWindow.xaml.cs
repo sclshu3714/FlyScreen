@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
+using FlyScreen.Helpers;
 using FlyScreen.Services;
 using FlyScreen.Services.Update;
 
@@ -16,7 +17,10 @@ public partial class HelpWindow : Window
     {
         InitializeComponent();
         _host = host;
+        ThemeService.ApplyToChildWindow(this);
         HelpRich.Document = BuildHelpDocument();
+        HelpRich.Foreground = (System.Windows.Media.Brush)Resources["Text"];
+        HelpRich.Background = System.Windows.Media.Brushes.Transparent;
     }
 
     private static FlowDocument BuildHelpDocument()

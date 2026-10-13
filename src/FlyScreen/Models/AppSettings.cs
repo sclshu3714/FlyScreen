@@ -26,6 +26,10 @@ public sealed class AppSettings
     public bool AutoStart { get; set; }
     /// <summary>启动时静默检查 GitHub Release 更新。</summary>
     public bool CheckUpdatesOnStartup { get; set; } = true;
+    /// <summary>界面主题：Light（淡色，默认）/ Dark（深色，待实现）。</summary>
+    public string UiTheme { get; set; } = "Light";
+    /// <summary>界面语言文化代码，默认 zh-CN。</summary>
+    public string UiLanguage { get; set; } = "zh-CN";
     public int TcpPort { get; set; } = 15155;
     public int UdpPort { get; set; } = 15156;
     /// <summary>绑定的本地 IPv4；空表示自动选择。</summary>
