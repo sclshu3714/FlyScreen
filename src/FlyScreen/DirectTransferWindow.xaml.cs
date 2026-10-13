@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using FlyScreen.Helpers;
+using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 
@@ -21,18 +22,37 @@ public partial class DirectTransferWindow : Window
         InitializeComponent();
         _host = host;
         ThemeService.ApplyToChildWindow(this);
+        ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerCombo.ItemsSource = _peers;
         FolderPresetCombo.ItemsSource = _presets;
         Loaded += OnLoaded;
     }
 
+    private void ApplyLocalizedUi()
+    {
+        Title = Loc.T("DT.Title");
+        AddFilesBtn.Content = Loc.T("DT.AddFiles");
+        AddFolderBtn.Content = Loc.T("DT.AddFolder");
+        RemoveSelectedBtn.Content = Loc.T("DT.Remove");
+        ClearPathsBtn.Content = Loc.T("DT.Clear");
+        ContentHintText.Text = Loc.T("DT.ContentHint");
+        TargetHintText.Text = Loc.T("DT.TargetHint");
+        PeerLabel.Text = Loc.T("DT.Peer");
+        PresetLabel.Text = Loc.T("DT.Preset");
+        PathLabel.Text = Loc.T("DT.Path");
+        TargetPathBox.ToolTip = Loc.T("DT.PathTip");
+        CancelBtn.Content = Loc.T("DT.Cancel");
+        StartBtn.Content = Loc.T("DT.Start");
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ThemeService.ApplyToChildWindow(this);
         RefreshPeers();
         if (_peers.Count == 0)
         {
-            StatusText.Text = "当前没有已连接的目标电脑，请先在布局中连接对端。";
+            StatusText.Text = Loc.T("DT.NoPeers");
             StartBtn.IsEnabled = false;
         }
         else
@@ -62,7 +82,7 @@ public partial class DirectTransferWindow : Window
         if (Interlocked.Exchange(ref _loadingFolders, 1) == 1) return;
         try
         {
-            StatusText.Text = $"正在查询 {peer} 的常用目录…";
+            StatusText.Text = string.Format(Loc.T("DT.Querying"), peer);
             _presets.Clear();
             TargetPathBox.Text = "";
 
@@ -71,8 +91,8 @@ public partial class DirectTransferWindow : Window
 
             if (folders == null)
             {
-                StatusText.Text = $"无法获取 {peer} 的目录信息，请手动填写保存路径。";
-                _presets.Add(new FolderPreset("自定义路径", ""));
+                StatusText.Text = string.Format(Loc.T("DT.QueryFail"), peer);
+                _presets.Add(new FolderPreset(Loc.T("DT.CustomPath"), ""));
                 FolderPresetCombo.SelectedIndex = 0;
                 return;
             }
@@ -83,14 +103,14 @@ public partial class DirectTransferWindow : Window
                     _presets.Add(new FolderPreset(label, path.Trim()));
             }
 
-            Add("桌面", folders.Desktop);
-            Add("文档", folders.Documents);
-            Add("下载", folders.Downloads);
-            Add("玄鸟收件箱", folders.Inbox);
-            _presets.Add(new FolderPreset("自定义路径…", folders.Downloads));
+            Add(Loc.T("DT.Desktop"), folders.Desktop);
+            Add(Loc.T("DT.Documents"), folders.Documents);
+            Add(Loc.T("DT.Downloads"), folders.Downloads);
+            Add(Loc.T("DT.Inbox"), folders.Inbox);
+            _presets.Add(new FolderPreset(Loc.T("DT.CustomPath"), folders.Downloads));
 
             FolderPresetCombo.SelectedIndex = 0;
-            StatusText.Text = $"已连接 {peer}，共 {_paths.Count} 项待传。";
+            StatusText.Text = string.Format(Loc.T("DT.Connected"), peer, _paths.Count);
         }
         finally
         {
@@ -109,7 +129,7 @@ public partial class DirectTransferWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "选择要传输的文件",
+            Title = Loc.T("DT.PickFiles"),
             Multiselect = true,
             CheckFileExists = true
         };
@@ -122,7 +142,7 @@ public partial class DirectTransferWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "选择要传输的文件夹",
+            Title = Loc.T("DT.PickFolder"),
             Multiselect = true
         };
         if (dlg.ShowDialog(this) != true) return;
@@ -137,7 +157,7 @@ public partial class DirectTransferWindow : Window
         if (_paths.Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)))
             return;
         _paths.Add(path);
-        StatusText.Text = $"已选 {_paths.Count} 项。";
+        StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
     }
 
     private void RemoveSelected_Click(object sender, RoutedEventArgs e)
@@ -153,14 +173,14 @@ public partial class DirectTransferWindow : Window
     {
         if (_paths.Count == 0)
         {
-            MessageBox.Show(this, "请先添加文件或文件夹。", "直接传输",
+            MessageBox.Show(this, Loc.T("DT.NeedPaths"), Loc.T("DT.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
         if (PeerCombo.SelectedItem is not PeerOption peer)
         {
-            MessageBox.Show(this, "请选择目标电脑。", "直接传输",
+            MessageBox.Show(this, Loc.T("DT.NeedPeer"), Loc.T("DT.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -168,20 +188,20 @@ public partial class DirectTransferWindow : Window
         var target = TargetPathBox.Text?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(target))
         {
-            MessageBox.Show(this, "请填写对端保存路径。", "直接传输",
+            MessageBox.Show(this, Loc.T("DT.NeedPath"), Loc.T("DT.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
         if (!_host.Settings.TransferFile)
         {
-            MessageBox.Show(this, "请先在设置中启用「文件传输」。", "直接传输",
+            MessageBox.Show(this, Loc.T("DT.NeedEnable"), Loc.T("DT.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         StartBtn.IsEnabled = false;
-        StatusText.Text = $"已开始向 {peer.Name} 传输，可在传输列表查看进度。";
+        StatusText.Text = string.Format(Loc.T("DT.Started"), peer.Name);
 
         var snapshot = _paths.ToList();
         var peerName = peer.Name;
@@ -195,7 +215,7 @@ public partial class DirectTransferWindow : Window
             catch (Exception ex)
             {
                 await Dispatcher.InvokeAsync(() =>
-                    MessageBox.Show(ex.Message, "直接传输", MessageBoxButton.OK, MessageBoxImage.Error));
+                    MessageBox.Show(ex.Message, Loc.T("DT.Title"), MessageBoxButton.OK, MessageBoxImage.Error));
             }
         });
 

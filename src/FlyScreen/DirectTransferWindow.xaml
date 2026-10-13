@@ -5,7 +5,7 @@
         Height="520" Width="640"
         MinHeight="460" MinWidth="560"
         WindowStartupLocation="CenterOwner"
-        Background="#F7F8FA"
+        Background="{DynamicResource WinBg}"
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13"
         ResizeMode="CanResizeWithGrip"
@@ -14,12 +14,25 @@
     <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
     <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
     <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+    <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
+    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
+    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
     <Style TargetType="Button">
       <Setter Property="Padding" Value="12,6"/>
       <Setter Property="Margin" Value="0,0,8,0"/>
       <Setter Property="MinWidth" Value="88"/>
-      <Setter Property="Background" Value="White"/>
-      <Setter Property="BorderBrush" Value="#D1D5DB"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
       <Setter Property="BorderThickness" Value="1"/>
     </Style>
     <Style x:Key="ToolBtn" TargetType="Button">
@@ -27,8 +40,9 @@
       <Setter Property="Margin" Value="0,0,8,0"/>
       <Setter Property="MinWidth" Value="0"/>
       <Setter Property="Height" Value="30"/>
-      <Setter Property="Background" Value="White"/>
-      <Setter Property="BorderBrush" Value="#D1D5DB"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -36,19 +50,53 @@
     <Style x:Key="PrimaryBtn" TargetType="Button">
       <Setter Property="Padding" Value="16,8"/>
       <Setter Property="MinWidth" Value="100"/>
-      <Setter Property="Background" Value="{StaticResource Blue}"/>
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
+    </Style>
+    <Style TargetType="ListBox">
+      <Setter Property="Background" Value="{DynamicResource ListBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style TargetType="ListBoxItem">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="4,2"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="ComboBox">
       <Setter Property="Height" Value="32"/>
       <Setter Property="Padding" Value="10,0,32,0"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="BorderBrush" Value="#D1D5DB"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Background" Value="White"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
       <Setter Property="Template">
         <Setter.Value>
@@ -68,7 +116,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="32"/>
                       </Grid.ColumnDefinitions>
-                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="#6B7280"
+                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{DynamicResource Muted}"
                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Grid>
                   </ControlTemplate>
@@ -84,7 +132,7 @@
                                 IsHitTestVisible="False"/>
               <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                      AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                <Border Background="White" BorderBrush="#D1D5DB" BorderThickness="1"
+                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1"
                         MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
                         MaxHeight="{TemplateBinding MaxDropDownHeight}">
                   <ScrollViewer>
@@ -95,7 +143,7 @@
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="BorderBrush" Value="#2563EB"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -107,6 +155,25 @@
       <Setter Property="Padding" Value="10,0"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                TextBlock.Foreground="{DynamicResource Text}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
   </Window.Resources>
 
@@ -121,29 +188,28 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- 工具条：在待传内容卡片外 -->
-    <Border Grid.Row="0" Background="#F3F4F6" BorderBrush="{StaticResource Line}"
+    <Border Grid.Row="0" Background="{DynamicResource SubtleBg}" BorderBrush="{DynamicResource Line}"
             BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
       <StackPanel Orientation="Horizontal">
-        <Button Style="{StaticResource ToolBtn}" Content="添加文件…" Click="AddFiles_Click"/>
-        <Button Style="{StaticResource ToolBtn}" Content="添加文件夹…" Click="AddFolder_Click"/>
-        <Button Style="{StaticResource ToolBtn}" Content="移除所选" Click="RemoveSelected_Click"/>
-        <Button Style="{StaticResource ToolBtn}" Content="清空" Click="ClearPaths_Click" Margin="0"/>
+        <Button x:Name="AddFilesBtn" Style="{StaticResource ToolBtn}" Content="添加文件…" Click="AddFiles_Click"/>
+        <Button x:Name="AddFolderBtn" Style="{StaticResource ToolBtn}" Content="添加文件夹…" Click="AddFolder_Click"/>
+        <Button x:Name="RemoveSelectedBtn" Style="{StaticResource ToolBtn}" Content="移除所选" Click="RemoveSelected_Click"/>
+        <Button x:Name="ClearPathsBtn" Style="{StaticResource ToolBtn}" Content="清空" Click="ClearPaths_Click" Margin="0"/>
       </StackPanel>
     </Border>
 
-    <TextBlock Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
-               Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+    <TextBlock x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
+               Foreground="{DynamicResource Muted}" Margin="0,0,0,6"/>
 
-    <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
+    <Border Grid.Row="2" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
             CornerRadius="8" Padding="12">
-      <ListBox x:Name="PathList" BorderThickness="0" SelectionMode="Extended"/>
+      <ListBox x:Name="PathList" SelectionMode="Extended"/>
     </Border>
 
-    <TextBlock Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"
-               Foreground="{StaticResource Muted}" Margin="0,14,0,6"/>
+    <TextBlock x:Name="TargetHintText" Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"
+               Foreground="{DynamicResource Muted}" Margin="0,14,0,6"/>
 
-    <Border Grid.Row="4" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
+    <Border Grid.Row="4" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
             CornerRadius="8" Padding="12">
       <Grid>
         <Grid.RowDefinitions>
@@ -156,7 +222,7 @@
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <TextBlock Text="目标电脑" VerticalAlignment="Center"/>
+        <TextBlock x:Name="PeerLabel" Text="目标电脑" VerticalAlignment="Center"/>
         <ComboBox x:Name="PeerCombo" Grid.Column="1"
                   SelectionChanged="PeerCombo_SelectionChanged">
           <ComboBox.ItemTemplate>
@@ -166,7 +232,7 @@
           </ComboBox.ItemTemplate>
         </ComboBox>
 
-        <TextBlock Grid.Row="1" Text="常用位置" VerticalAlignment="Center" Margin="0,10,0,0"/>
+        <TextBlock x:Name="PresetLabel" Grid.Row="1" Text="常用位置" VerticalAlignment="Center" Margin="0,10,0,0"/>
         <ComboBox x:Name="FolderPresetCombo" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
                   SelectionChanged="FolderPreset_SelectionChanged">
           <ComboBox.ItemTemplate>
@@ -176,18 +242,17 @@
           </ComboBox.ItemTemplate>
         </ComboBox>
 
-        <TextBlock Grid.Row="2" Text="保存路径" VerticalAlignment="Center" Margin="0,10,0,0"/>
+        <TextBlock x:Name="PathLabel" Grid.Row="2" Text="保存路径" VerticalAlignment="Center" Margin="0,10,0,0"/>
         <TextBox x:Name="TargetPathBox" Grid.Row="2" Grid.Column="1" Height="32" Margin="0,10,0,0"
-                 VerticalContentAlignment="Center" Padding="8,0"
-                 ToolTip="对端电脑上的绝对路径，可手动修改"/>
+                 VerticalContentAlignment="Center" Padding="8,0"/>
       </Grid>
     </Border>
 
-    <TextBlock x:Name="StatusText" Grid.Row="5" Foreground="{StaticResource Muted}"
+    <TextBlock x:Name="StatusText" Grid.Row="5" Foreground="{DynamicResource Muted}"
                Margin="0,10,0,0" TextWrapping="Wrap"/>
 
     <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-      <Button Content="取消" IsCancel="True" Click="Cancel_Click" Margin="0,0,8,0"/>
+      <Button x:Name="CancelBtn" Content="取消" IsCancel="True" Click="Cancel_Click" Margin="0,0,8,0"/>
       <Button x:Name="StartBtn" Style="{StaticResource PrimaryBtn}" Content="开始传输"
               IsDefault="True" Click="Start_Click" Margin="0"/>
     </StackPanel>
