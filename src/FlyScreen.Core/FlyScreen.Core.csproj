@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen</RootNamespace>
+    <AssemblyName>FlyScreen.Core</AssemblyName>
+    <Description>玄鸟跨平台核心：协议、网络、模型、本地化（无 UI / 无 Win32）</Description>
+  </PropertyGroup>
+
+</Project>

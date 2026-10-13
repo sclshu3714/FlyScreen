@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
+// PropertyChanged 经 UiMarshal 回投 UI（由 App 注入）
 
 namespace FlyScreen.Models;
 
@@ -123,6 +124,6 @@ public sealed class TransferItem : INotifyPropertyChanged
         var handler = PropertyChanged;
         if (handler == null) return;
         // 传输进度常在后台线程更新，必须切回 UI 线程再通知绑定
-        UiThread.Post(() => handler(this, new PropertyChangedEventArgs(name)));
+        UiMarshal.Post(() => handler(this, new PropertyChangedEventArgs(name)));
     }
 }
