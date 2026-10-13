@@ -74,7 +74,8 @@
                   </ControlTemplate>
                 </ToggleButton.Template>
               </ToggleButton>
-              <ContentPresenter Margin="{TemplateBinding Padding}"
+              <ContentPresenter x:Name="ContentSite"
+                                Margin="{TemplateBinding Padding}"
                                 HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                 Content="{TemplateBinding SelectionBoxItem}"
@@ -112,46 +113,38 @@
   <Grid Margin="20">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel>
-      <TextBlock Text="直接传输到指定电脑" FontSize="16" FontWeight="SemiBold"/>
-      <TextBlock Text="选择本机文件或文件夹，指定已连接电脑及保存位置后开始推送。"
-                 Foreground="{StaticResource Muted}" Margin="0,4,0,12" TextWrapping="Wrap"/>
-    </StackPanel>
-
-    <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
-            CornerRadius="8" Padding="12">
-      <Grid>
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <TextBlock Text="待传输内容" FontWeight="SemiBold" Margin="0,0,0,8"/>
-
-        <Border Grid.Row="1" Background="#F3F4F6" BorderBrush="{StaticResource Line}"
-                BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
-          <StackPanel Orientation="Horizontal">
-            <Button Style="{StaticResource ToolBtn}" Content="添加文件…" Click="AddFiles_Click"/>
-            <Button Style="{StaticResource ToolBtn}" Content="添加文件夹…" Click="AddFolder_Click"/>
-            <Button Style="{StaticResource ToolBtn}" Content="移除所选" Click="RemoveSelected_Click"/>
-            <Button Style="{StaticResource ToolBtn}" Content="清空" Click="ClearPaths_Click" Margin="0"/>
-          </StackPanel>
-        </Border>
-
-        <ListBox x:Name="PathList" Grid.Row="2" BorderBrush="{StaticResource Line}"
-                 BorderThickness="1" Padding="2" SelectionMode="Extended"/>
-      </Grid>
+    <!-- 工具条：在待传内容卡片外 -->
+    <Border Grid.Row="0" Background="#F3F4F6" BorderBrush="{StaticResource Line}"
+            BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
+      <StackPanel Orientation="Horizontal">
+        <Button Style="{StaticResource ToolBtn}" Content="添加文件…" Click="AddFiles_Click"/>
+        <Button Style="{StaticResource ToolBtn}" Content="添加文件夹…" Click="AddFolder_Click"/>
+        <Button Style="{StaticResource ToolBtn}" Content="移除所选" Click="RemoveSelected_Click"/>
+        <Button Style="{StaticResource ToolBtn}" Content="清空" Click="ClearPaths_Click" Margin="0"/>
+      </StackPanel>
     </Border>
 
+    <TextBlock Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
+               Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+
     <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
-            CornerRadius="8" Padding="12" Margin="0,12,0,0">
+            CornerRadius="8" Padding="12">
+      <ListBox x:Name="PathList" BorderThickness="0" SelectionMode="Extended"/>
+    </Border>
+
+    <TextBlock Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"
+               Foreground="{StaticResource Muted}" Margin="0,14,0,6"/>
+
+    <Border Grid.Row="4" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
+            CornerRadius="8" Padding="12">
       <Grid>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
@@ -165,12 +158,23 @@
 
         <TextBlock Text="目标电脑" VerticalAlignment="Center"/>
         <ComboBox x:Name="PeerCombo" Grid.Column="1"
-                  DisplayMemberPath="Display"
-                  SelectionChanged="PeerCombo_SelectionChanged"/>
+                  SelectionChanged="PeerCombo_SelectionChanged">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
 
         <TextBlock Grid.Row="1" Text="常用位置" VerticalAlignment="Center" Margin="0,10,0,0"/>
         <ComboBox x:Name="FolderPresetCombo" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
-                  DisplayMemberPath="Label" SelectionChanged="FolderPreset_SelectionChanged"/>
+                  SelectionChanged="FolderPreset_SelectionChanged">
+          <ComboBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
 
         <TextBlock Grid.Row="2" Text="保存路径" VerticalAlignment="Center" Margin="0,10,0,0"/>
         <TextBox x:Name="TargetPathBox" Grid.Row="2" Grid.Column="1" Height="32" Margin="0,10,0,0"
@@ -179,10 +183,10 @@
       </Grid>
     </Border>
 
-    <TextBlock x:Name="StatusText" Grid.Row="3" Foreground="{StaticResource Muted}"
+    <TextBlock x:Name="StatusText" Grid.Row="5" Foreground="{StaticResource Muted}"
                Margin="0,10,0,0" TextWrapping="Wrap"/>
 
-    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+    <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
       <Button Content="取消" IsCancel="True" Click="Cancel_Click" Margin="0,0,8,0"/>
       <Button x:Name="StartBtn" Style="{StaticResource PrimaryBtn}" Content="开始传输"
               IsDefault="True" Click="Start_Click" Margin="0"/>
