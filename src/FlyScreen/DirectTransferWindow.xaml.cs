@@ -212,6 +212,7 @@ public partial class DirectTransferWindow : Window
         public PeerOption(string name) => Name = name;
         public string Name { get; }
         public string Display => Name;
+        public override string ToString() => Display;
     }
 
     private sealed class FolderPreset
@@ -224,5 +225,6 @@ public partial class DirectTransferWindow : Window
 
         public string Label { get; }
         public string Path { get; }
+        public override string ToString() => Label;
     }
 }
