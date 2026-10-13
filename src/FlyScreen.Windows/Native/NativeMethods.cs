@@ -77,6 +77,40 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsIconic(IntPtr hWnd);
 
+    // --- DWM 标题栏主题（Win10 1809+ / Win11）---
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_BORDER_COLOR = 34;
+    public const int DWMWA_CAPTION_COLOR = 35;
+    public const int DWMWA_TEXT_COLOR = 36;
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref uint pvAttribute, int cbAttribute);
+
+    /// <summary>
+    /// 按应用淡/深色同步系统标题栏（沉浸式深色 + Win11 标题栏/边框色）。
+    /// </summary>
+    public static void ApplyTitleBarTheme(IntPtr hwnd, bool dark)
+    {
+        if (hwnd == IntPtr.Zero) return;
+
+        var useDark = dark ? 1 : 0;
+        if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int)) != 0)
+            _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useDark, sizeof(int));
+
+        // Win11：标题栏/文字/边框对齐应用主题；Win10 上属性失败可忽略
+        // COLORREF 为 0x00BBGGRR
+        uint caption = dark ? 0x002A170Fu : 0x00FAF8F7u; // #0F172A / #F7F8FA
+        uint text = dark ? 0x00F0E8E2u : 0x00271811u;    // #E2E8F0 / #111827
+        uint border = dark ? 0x00554133u : 0x00EBE7E5u;  // #334155 / #E5E7EB
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref caption, sizeof(uint));
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ref text, sizeof(uint));
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref border, sizeof(uint));
+    }
+
     public const int SW_RESTORE = 9;
     public const int SW_SHOW = 5;
 

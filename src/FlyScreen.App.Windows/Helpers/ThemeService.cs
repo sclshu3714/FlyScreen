@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
+using FlyScreen.Native;
 using Media = System.Windows.Media;
 using WpfControls = System.Windows.Controls;
 
@@ -53,12 +55,48 @@ public static class ThemeService
         {
             win.Background = BrushOf(rd, "WinBg");
             win.Foreground = BrushOf(rd, "Text");
+            ApplyNativeTitleBar(win, dark);
             win.Dispatcher.BeginInvoke(() => OverrideListSystemColors(win, rd), DispatcherPriority.Loaded);
             OverrideListSystemColors(win, rd);
         }
 
         root.InvalidateVisual();
         root.InvalidateArrange();
+    }
+
+    /// <summary>同步 DWM 标题栏深/浅色（需 HWND；过早则挂到 SourceInitialized）。</summary>
+    private static void ApplyNativeTitleBar(Window window, bool dark)
+    {
+        void Apply()
+        {
+            try
+            {
+                var hwnd = new WindowInteropHelper(window).EnsureHandle();
+                NativeMethods.ApplyTitleBarTheme(hwnd, dark);
+            }
+            catch
+            {
+                // 旧系统无 DWM 属性时忽略
+            }
+        }
+
+        if (window.IsLoaded || PresentationSource.FromVisual(window) != null)
+        {
+            Apply();
+            return;
+        }
+
+        // 避免重复订阅：先卸再挂
+        void OnSourceInitialized(object? sender, EventArgs e)
+        {
+            window.SourceInitialized -= OnSourceInitialized;
+            Apply();
+        }
+
+        window.SourceInitialized -= OnSourceInitialized;
+        window.SourceInitialized += OnSourceInitialized;
+        // 尽量立刻建句柄，多数情况下可马上生效
+        try { Apply(); } catch { /* SourceInitialized 兜底 */ }
     }
 
     private static void OverrideSystemColorsOn(ResourceDictionary rd, bool dark)
