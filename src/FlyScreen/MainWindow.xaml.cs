@@ -65,6 +65,26 @@ public partial class MainWindow : Window
             StatusText.Text = $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
             Hide();
         }
+
+        if (_host.Settings.CheckUpdatesOnStartup)
+            _ = CheckUpdatesOnStartupQuietAsync();
+    }
+
+    private async Task CheckUpdatesOnStartupQuietAsync()
+    {
+        try
+        {
+            var updater = new Services.Update.GitHubUpdateService();
+            var result = await updater.CheckAsync().ConfigureAwait(true);
+            if (result is { Success: true, UpdateAvailable: true })
+            {
+                StatusText.Text = $"发现新版本 {result.RemoteVersion}，可在「帮助」中自动更新";
+            }
+        }
+        catch
+        {
+            // 静默忽略
+        }
     }
 
     private void InitTray()
@@ -850,39 +870,32 @@ public partial class MainWindow : Window
             "面向中文环境做了连接、布局同步与传输等增强。\n\n" +
             "运行环境：Windows 10/11，建议管理员身份运行。\n\n" +
             "联系邮箱：sclshu3714@163.com\n" +
+            "更新：https://github.com/sclshu3714/FlyScreen/releases\n" +
             "反馈问题或建议欢迎邮件联系。",
             "关于 玄鸟");
     }
 
     private void Help_Click(object sender, RoutedEventArgs e)
     {
-        System.Windows.MessageBox.Show(
-            "玄鸟 — 跨电脑键鼠与剪贴板共享\n\n" +
-            "【快速开始】\n" +
-            "1. 多台电脑（最多 4 台）安装并启动玄鸟（版本尽量一致），建议以管理员身份运行。\n" +
-            "2. 「基础设置」中填写相同的安全密钥。\n" +
-            "3. 「网络设置」选择实际通信网卡，确认「局域网自动发现」能看到对方。\n" +
-            "4. 将对方加入「电脑布局」（可从发现列表添加），按真实摆放调整 1×4 / 2×2，点「应用」。\n" +
-            "5. 状态显示「双向已连接」后，鼠标移出屏幕边缘即可切换控制。\n" +
-            "   布局应用后会同步到其它已连接电脑。\n\n" +
-            "【剪贴板与文件】\n" +
-            "· 文本 / HTML / RTF / CSV / 截图：复制只宣告，鼠标进入某台后再拉取到该机。\n" +
-            "· 复制文件：鼠标移到目标机后后台接收，完成后才可粘贴；接收中可继续操作。\n" +
-            "· 「文件传输」→「直接传输…」可推送到对方桌面、文档、下载、收件箱或自定义路径。\n" +
-            "· 「清除已完成」只删接收方收件箱缓存，不删发送方本地文件。\n\n" +
-            "【常用选项】\n" +
-            "· 轻松鼠标：移出屏幕边缘切换电脑。\n" +
-            "· 环形鼠标：布局首尾相连（如最左↔最右），仅在相邻槽位有电脑时切换。\n" +
-            "· 控制远端时隐藏本机边缘光标：只显示当前操作机的光标。\n" +
-            "· 开机自动启动：通过任务计划程序以管理员权限登录后启动。\n" +
-            "· 程序单实例：再次启动会激活已有窗口（含托盘隐藏）。\n\n" +
-            "【快捷键】\n" +
-            "Ctrl+Alt+M 打开设置　Ctrl+Alt+R 重新连接　Ctrl+Alt+Q 退出\n" +
-            "Ctrl+Alt+F1–F4（或 1–4）切换到对应机器（可在高级选项中更改）\n\n" +
-            "【网络与防火墙】\n" +
-            "请允许 TCP（默认 15155）与 UDP 发现（默认 15156）在专用网络通过。\n" +
-            "配置保存在 %AppData%\\FlyScreen\\",
-            "玄鸟 — 帮助");
+        var win = new HelpWindow(_host) { Owner = this };
+        win.ShowDialog();
+    }
+
+    /// <summary>诊断修复后刷新布局槽位与连接状态显示。</summary>
+    public void ReloadAfterDiagnostics()
+    {
+        ApplyLayoutFromSettings();
+        foreach (var st in _host.Connections.GetConfiguredPeerStatuses())
+        {
+            var slot = _slots.FirstOrDefault(s =>
+                string.Equals(s.Name, st.Name, StringComparison.OrdinalIgnoreCase));
+            if (slot == null) continue;
+            slot.OutboundOk = st.Outbound;
+            slot.InboundOk = st.Inbound;
+            if (!string.IsNullOrEmpty(st.DiscoveredIp))
+                slot.ResolvedIp = st.DiscoveredIp;
+            slot.RefreshStatus();
+        }
     }
 
     private void MachineMatrix_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawArrows();
