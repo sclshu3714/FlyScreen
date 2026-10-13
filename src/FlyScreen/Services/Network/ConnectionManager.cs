@@ -88,6 +88,25 @@ public sealed class ConnectionManager : IAsyncDisposable
     public bool IsPeerReachable(string name)
         => _links.TryGetValue(name, out var link) && link.AnyAlive;
 
+    /// <summary>查询对端出入站连接状态（诊断用）。</summary>
+    public PeerConnectionStatus GetPeerStatus(string name)
+    {
+        var outbound = false;
+        var inbound = false;
+        if (_links.TryGetValue(name, out var link))
+        {
+            outbound = link.Outbound is { IsAlive: true };
+            inbound = link.Inbound is { IsAlive: true };
+        }
+
+        return new PeerConnectionStatus(name, outbound, inbound, _discovery.FindIp(name));
+    }
+
+    public IReadOnlyList<PeerConnectionStatus> GetConfiguredPeerStatuses()
+        => ConfiguredPeers().Select(GetPeerStatus).ToList();
+
+    public bool IsListening => _listener != null;
+
     public async Task<bool> SendToAsync(string peerName, MessageType type, byte[]? payload = null)
     {
         if (!_links.TryGetValue(peerName, out var link) || !link.AnyAlive)

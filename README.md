@@ -101,6 +101,12 @@ dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-conta
 | `%AppData%\FlyScreen\PasteStaging` | 粘贴时原名暂存（触发系统覆盖/重命名对话框） |
 | `%AppData%\FlyScreen\transfer-history.json` | 传输历史 |
 
+## 更新与诊断
+
+- 帮助窗口支持 **检查更新 / 自动更新**（GitHub Release：`https://github.com/sclshu3714/FlyScreen/releases`）
+- 启动时可静默检查新版本；发布时请在 Release 中上传 `FlyScreen.exe` 或 `*-win-x64*.zip`
+- **一键检查 / 一键修复**：诊断网卡、发现、防火墙与出入站链路，并尝试放行端口、重启网络、重连
+
 ## 主要功能一览
 
 - 跨机键鼠（边缘切换、热键切换、Easy Mouse）
@@ -108,3 +114,4 @@ dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-conta
 - 剪贴板：文本、富文本、表格 CSV、图片/截图
 - 文件：粘贴按需拉取 + 直接推送到指定路径
 - 局域网 UDP 发现、多网卡绑定、开机自启、托盘、单实例
+- GitHub Release 更新、连接一键检查/修复
