@@ -38,7 +38,14 @@ public sealed class GitHubUpdateService
         return v ?? new Version(1, 0, 0, 0);
     }
 
-    public static string FormatVersion(Version v) => $"{v.Major}.{v.Minor}.{Math.Max(v.Build, 0)}";
+    /// <summary>显示为 major.minor.patch（支持 1.0.10 这类三位）。</summary>
+    public static string FormatVersion(Version v)
+    {
+        var major = v.Major;
+        var minor = v.Minor;
+        var patch = Math.Max(v.Build, 0);
+        return $"{major}.{minor}.{patch}";
+    }
 
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default)
     {

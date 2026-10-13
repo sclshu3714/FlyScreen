@@ -40,6 +40,38 @@ dotnet run --project src\FlyScreen\FlyScreen.csproj -c Release
 
 输出目录：`src\FlyScreen\bin\Release\net8.0-windows\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
 
+## 版本号（跟最新 Git 标签走，与提交无关）
+
+规则：**项目版本 = 最新 `vX.Y.Z` 标签的 patch + 1**。多次提交、不打新 tag，版本号不变。
+
+| 最新 GitHub / 本地 tag | 构建出的 Version |
+|------------------------|------------------|
+| `v1.0.1` | 一直是 **1.0.2** |
+| 打上 `v1.0.2` 之后 | 一直是 **1.0.3** |
+| `v1.0.9` | **1.0.10** |
+| `v1.1.0` | **1.1.1** |
+
+发版推荐流程（以当前最新 tag 为 `v1.0.1`、构建为 `1.0.2` 为例）：
+
+```powershell
+cd d:\Source\Repos\FlyScreen
+# 1. publish（版本自动为 1.0.2，多次提交也仍是 1.0.2）
+dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true `
+  -o src\FlyScreen\bin\publish\win-x64
+
+# 2. 上传 FlyScreen.exe 到 GitHub Release，并创建/推送同名标签
+git tag v1.0.2
+git push origin v1.0.2
+
+# 3. 之后本地构建会自动变成 1.0.3，准备下一轮发版
+```
+
+若要发次版本 `1.1.0`：先打 `v1.1.0` 并上传对应包时，可用覆盖：  
+`dotnet publish ... -p:Version=1.1.0`，然后再把 tag `v1.1.0` 推上去；之后未覆盖的构建会变成 `1.1.1`。
+
 ## 发布为单个独立 exe（推荐分发）
 
 清单要求 **管理员权限**，**不能用 ClickOnce**。请用文件夹 / 单文件、自包含发布。
@@ -124,12 +156,7 @@ dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-conta
 
 - **帮助**：检查更新 / 自动更新（GitHub Release）；一键检查 / 一键修复连接。
 - 启动时可静默提示新版本。
-- **发版注意（自动更新能否生效的关键）**：
-  1. 先提高 `FlyScreen.csproj` 中的 `<Version>`（须高于用户当前版本）。
-  2. 用自包含命令 `dotnet publish ... --self-contained true` 生成 exe。
-  3. 将**该次构建**的 `FlyScreen.exe`（或含它的 zip）上传到对应 tag 的 Release。
-  4. 若标签是 `v1.0.1` 但资源里仍是 `1.0.0` 的程序集，安装后仍会提示更新；程序会在下载后检测并报错。
-  5. 替换失败时可查看 `%TEMP%\xuanniao-update.log`。
+- **发版注意（自动更新）**：先打 Git tag（如 `v1.0.10`）再 publish，把该次 exe 上传到**同名** GitHub Release；不要用未打 tag 的 preview 构建当正式包。替换失败见 `%TEMP%\xuanniao-update.log`。
 - **关于**、托盘提示与右键菜单随界面语言更新。
 
 ## 功能一览

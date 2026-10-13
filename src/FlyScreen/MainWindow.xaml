@@ -866,7 +866,7 @@
             </StackPanel>
           </Border>
           <Border Grid.Row="1" Style="{StaticResource Card}">
-            <Grid>
+    <Grid>
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -972,5 +972,5 @@
         <Button x:Name="ExitBtn" Content="退出" Click="Exit_Click"/>
       </StackPanel>
     </Grid>
-  </Grid>
+    </Grid>
 </Window>
