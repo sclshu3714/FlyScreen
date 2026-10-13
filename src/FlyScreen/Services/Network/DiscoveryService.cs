@@ -13,7 +13,7 @@ public sealed class DiscoveredPeer
 }
 
 /// <summary>
-/// UDP 广播自动发现局域网内的飞鼠实例；绑定到选定网卡。
+/// UDP 广播自动发现局域网内的玄鸟实例；绑定到选定网卡。
 /// </summary>
 public sealed class DiscoveryService : IAsyncDisposable
 {

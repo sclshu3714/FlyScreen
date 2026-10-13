@@ -95,7 +95,7 @@ public static class AutoStartHelper
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <RegistrationInfo>
-                <Description>飞鼠开机自动启动并连接</Description>
+                <Description>玄鸟开机自动启动并连接</Description>
               </RegistrationInfo>
               <Triggers>
                 <LogonTrigger>

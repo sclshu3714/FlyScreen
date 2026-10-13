@@ -72,7 +72,7 @@ public partial class MainWindow : Window
         _trayIcon = LoadAppIcon();
         _tray = new WinForms.NotifyIcon
         {
-            Text = "飞鼠",
+            Text = "玄鸟",
             Visible = true,
             Icon = _trayIcon ?? System.Drawing.SystemIcons.Application
         };
@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("打开设置", null, (_, _) => { Show(); Activate(); });
         menu.Items.Add("重新连接", null, async (_, _) => await _host.Connections.ReconnectNowAsync());
+        menu.Items.Add("关于", null, (_, _) => ShowAbout());
         menu.Items.Add("退出", null, (_, _) => ExitApp());
         _tray.ContextMenuStrip = menu;
     }
@@ -590,7 +591,7 @@ public partial class MainWindow : Window
         var empty = _slots.FirstOrDefault(s => string.IsNullOrWhiteSpace(s.Name));
         if (empty == null)
         {
-            System.Windows.MessageBox.Show("没有空的机器槽位，请先移除一台电脑。", "飞鼠");
+            System.Windows.MessageBox.Show("没有空的机器槽位，请先移除一台电脑。", "玄鸟");
             return;
         }
 
@@ -833,16 +834,55 @@ public partial class MainWindow : Window
             ShowPage(0);
     }
 
+    private void About_Click(object sender, RoutedEventArgs e) => ShowAbout();
+
+    private void ShowAbout()
+    {
+        var ver = typeof(MainWindow).Assembly.GetName().Version;
+        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
+        System.Windows.MessageBox.Show(
+            "玄鸟\n" +
+            $"版本 {verText}\n\n" +
+            "跨电脑键鼠与剪贴板共享工具。\n" +
+            "支持最多 4 台电脑共用一套键鼠，边缘切换控制；\n" +
+            "统一剪贴板（文本、图片、文件按需拉取）与直接文件传输。\n\n" +
+            "灵感来自 Microsoft Mouse without Borders，\n" +
+            "面向中文环境做了连接、布局同步与传输等增强。\n\n" +
+            "运行环境：Windows 10/11，建议管理员身份运行。\n\n" +
+            "联系邮箱：sclshu3714@163.com\n" +
+            "反馈问题或建议欢迎邮件联系。",
+            "关于 玄鸟");
+    }
+
     private void Help_Click(object sender, RoutedEventArgs e)
     {
         System.Windows.MessageBox.Show(
-            "使用说明：\n\n" +
-            "1. 两台电脑设置相同的安全密钥\n" +
-            "2. 在「网络设置」选择正确网卡\n" +
-            "3. 在「电脑布局」中按真实摆放拖拽电脑位置\n" +
-            "4. 点击「应用」后，鼠标移出屏幕边缘即可切换\n\n" +
-            "快捷键：Ctrl+Alt+M 打开设置，Ctrl+Alt+R 重连，Ctrl+Alt+Q 退出",
-            "飞鼠 — 帮助");
+            "玄鸟 — 跨电脑键鼠与剪贴板共享\n\n" +
+            "【快速开始】\n" +
+            "1. 多台电脑（最多 4 台）安装并启动玄鸟（版本尽量一致），建议以管理员身份运行。\n" +
+            "2. 「基础设置」中填写相同的安全密钥。\n" +
+            "3. 「网络设置」选择实际通信网卡，确认「局域网自动发现」能看到对方。\n" +
+            "4. 将对方加入「电脑布局」（可从发现列表添加），按真实摆放调整 1×4 / 2×2，点「应用」。\n" +
+            "5. 状态显示「双向已连接」后，鼠标移出屏幕边缘即可切换控制。\n" +
+            "   布局应用后会同步到其它已连接电脑。\n\n" +
+            "【剪贴板与文件】\n" +
+            "· 文本 / HTML / RTF / CSV / 截图：复制只宣告，鼠标进入某台后再拉取到该机。\n" +
+            "· 复制文件后粘贴：仅粘贴目标机从源端拉取；本机粘贴不走网络。\n" +
+            "· 「文件传输」→「直接传输…」可推送到对方桌面、文档、下载、收件箱或自定义路径。\n" +
+            "· 「清除已完成」只删接收方收件箱缓存，不删发送方本地文件。\n\n" +
+            "【常用选项】\n" +
+            "· 轻松鼠标：移出屏幕边缘切换电脑。\n" +
+            "· 环形鼠标：布局首尾相连（如最左↔最右），仅在相邻槽位有电脑时切换。\n" +
+            "· 控制远端时隐藏本机边缘光标：只显示当前操作机的光标。\n" +
+            "· 开机自动启动：通过任务计划程序以管理员权限登录后启动。\n" +
+            "· 程序单实例：再次启动会激活已有窗口（含托盘隐藏）。\n\n" +
+            "【快捷键】\n" +
+            "Ctrl+Alt+M 打开设置　Ctrl+Alt+R 重新连接　Ctrl+Alt+Q 退出\n" +
+            "Ctrl+Alt+F1–F4（或 1–4）切换到对应机器（可在高级选项中更改）\n\n" +
+            "【网络与防火墙】\n" +
+            "请允许 TCP（默认 15155）与 UDP 发现（默认 15156）在专用网络通过。\n" +
+            "配置保存在 %AppData%\\FlyScreen\\",
+            "玄鸟 — 帮助");
     }
 
     private void MachineMatrix_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawArrows();

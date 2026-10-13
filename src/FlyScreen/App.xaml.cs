@@ -27,7 +27,7 @@ public partial class App : System.Windows.Application
 
         DispatcherUnhandledException += (_, args) =>
         {
-            System.Windows.MessageBox.Show("未处理错误: " + args.Exception.Message, "飞鼠");
+            System.Windows.MessageBox.Show("未处理错误: " + args.Exception.Message, "玄鸟");
             args.Handled = true;
         };
 

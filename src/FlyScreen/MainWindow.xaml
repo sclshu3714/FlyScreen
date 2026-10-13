@@ -1,7 +1,7 @@
 ﻿<Window x:Class="FlyScreen.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="飞鼠 1.0"
+        Title="玄鸟"
         Icon="pack://application:,,,/Assets/wlogo_tu.ico"
         Height="640" Width="960"
         MinHeight="600" MinWidth="900"
@@ -403,11 +403,14 @@
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
-      <!-- 顶栏 Tabs + 帮助 -->
+      <!-- 顶栏 Tabs + 帮助 / 关于 -->
       <DockPanel Grid.Row="0" Margin="0,0,0,14">
         <Button DockPanel.Dock="Right" Content="？ 帮助" Click="Help_Click"
                 Background="Transparent" BorderThickness="0" Foreground="{StaticResource Muted}"
                 Margin="0" MinWidth="60" Height="34" Cursor="Hand"/>
+        <Button DockPanel.Dock="Right" Content="关于" Click="About_Click"
+                Background="Transparent" BorderThickness="0" Foreground="{StaticResource Muted}"
+                Margin="0,0,4,0" MinWidth="48" Height="34" Cursor="Hand"/>
         <StackPanel Orientation="Horizontal">
           <RadioButton x:Name="TabBasic" Style="{StaticResource TopTab}" GroupName="TopTab"
                        Content="基础设置" IsChecked="True" Checked="TopTab_Changed"/>
@@ -448,7 +451,7 @@
                 <Button Grid.Column="2" Style="{StaticResource PrimaryBtn}" Content="生成新密钥"
                         Click="NewKey_Click" Margin="12,0,0,0"/>
               </Grid>
-              <TextBlock Text="两台电脑必须使用相同的安全密钥才能连接。"
+              <TextBlock Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
                          Foreground="{StaticResource Muted}" FontSize="12" Margin="0,10,0,0"/>
             </StackPanel>
           </Border>
@@ -696,7 +699,7 @@
                       CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
                 <StackPanel Orientation="Horizontal">
                   <Button Content="刷新发现" Margin="0" Click="RefreshDiscovery_Click"
-                          ToolTip="重新扫描局域网中的飞鼠实例"/>
+                          ToolTip="重新扫描局域网中的玄鸟实例"/>
                 </StackPanel>
               </Border>
               <ListBox x:Name="DiscoveryList" Grid.Row="2" BorderBrush="{StaticResource Line}" BorderThickness="1"

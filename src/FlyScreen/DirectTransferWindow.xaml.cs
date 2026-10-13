@@ -84,7 +84,7 @@ public partial class DirectTransferWindow : Window
             Add("桌面", folders.Desktop);
             Add("文档", folders.Documents);
             Add("下载", folders.Downloads);
-            Add("飞鼠收件箱", folders.Inbox);
+            Add("玄鸟收件箱", folders.Inbox);
             _presets.Add(new FolderPreset("自定义路径…", folders.Downloads));
 
             FolderPresetCombo.SelectedIndex = 0;
