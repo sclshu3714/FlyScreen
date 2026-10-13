@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using System.Windows;
 using FlyScreen.Helpers;
 using FlyScreen.Models;
@@ -49,6 +50,10 @@ public sealed class FileTransferService
     private readonly Dictionary<long, InlineReceiveBuffer> _inlineReceiving = new();
     private TaskCompletionSource<RemoteFoldersPayload?>? _foldersQueryTcs;
     private string? _foldersQueryPeer;
+
+    /// <summary>文件块写盘队列：避免在 TCP 收包回调里同步写盘堵死键鼠消息。</summary>
+    private readonly Channel<ChunkDiskJob> _chunkDiskChannel = Channel.CreateUnbounded<ChunkDiskJob>(
+        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
     public ObservableCollection<TransferItem> Items { get; } = [];
     public event Action<string>? StatusMessage;
@@ -141,6 +146,7 @@ public sealed class FileTransferService
         Directory.CreateDirectory(_inboxDir);
         _connections.MessageReceived += OnMessage;
         LoadHistory();
+        _ = Task.Run(ChunkDiskLoopAsync);
     }
 
     public long NextSequence() => Interlocked.Increment(ref _clipboardSequence);
@@ -232,7 +238,7 @@ public sealed class FileTransferService
             RequesterMachine = Environment.MachineName
         });
 
-        NotifyStatus($"正在从 {remote.SourceMachine} 拉取 {remote.Files.Count} 个文件…");
+        NotifyStatus($"正在从 {remote.SourceMachine} 接收 {remote.Files.Count} 个文件（可继续操作，完成后粘贴）…");
         if (!await _connections.SendToAsync(remote.SourceMachine, MessageType.ClipboardFilesPull, payload)
                 .ConfigureAwait(false))
         {
@@ -599,13 +605,13 @@ public sealed class FileTransferService
                 _ = HandleOfferAsync(peer, msg.Payload);
                 break;
             case MessageType.FileChunk:
-                HandleChunk(msg.Payload);
+                EnqueueChunkWrite(msg.Payload);
                 break;
             case MessageType.FileComplete:
-                _ = HandleCompleteAsync(msg.Payload);
+                EnqueueFileComplete(msg.Payload);
                 break;
             case MessageType.FileAbort:
-                HandleAbort(msg.Payload);
+                EnqueueFileAbort(msg.Payload);
                 break;
             case MessageType.ClipboardText:
                 HandleClipboardText(msg.Payload);
@@ -820,8 +826,8 @@ public sealed class FileTransferService
             _remoteInlinePending = null; // 文件宣告覆盖未粘贴的内联内容
         }
 
-        // 仅记录元数据，不改剪贴板、不拉文件；鼠标进入本机并粘贴时才传输
-        NotifyStatus($"对端 {source} 已复制 {announce.Files.Count} 个文件（鼠标移到本机再粘贴才会传输）");
+        // 仅记录元数据；鼠标进入本机后后台拉取，完成后才可粘贴
+        NotifyStatus($"对端 {source} 已复制 {announce.Files.Count} 个文件（移到本机后后台接收，完成后可粘贴）");
         try { RemoteFilesAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
@@ -1145,13 +1151,51 @@ public sealed class FileTransferService
         return combined;
     }
 
-    private void HandleChunk(byte[] payload)
+    private void EnqueueChunkWrite(byte[] payload)
     {
         if (payload.Length < 24) return;
         var id = new Guid(payload.AsSpan(0, 16));
         var offset = BitConverter.ToInt64(payload, 16);
         var dataLen = payload.Length - 24;
+        var data = new byte[dataLen];
+        Buffer.BlockCopy(payload, 24, data, 0, dataLen);
+        _chunkDiskChannel.Writer.TryWrite(new ChunkDiskJob.Write(id, offset, data));
+    }
 
+    private void EnqueueFileComplete(byte[] payload)
+        => _chunkDiskChannel.Writer.TryWrite(new ChunkDiskJob.Complete(payload));
+
+    private void EnqueueFileAbort(byte[] payload)
+        => _chunkDiskChannel.Writer.TryWrite(new ChunkDiskJob.Abort(payload));
+
+    private async Task ChunkDiskLoopAsync()
+    {
+        try
+        {
+            await foreach (var job in _chunkDiskChannel.Reader.ReadAllAsync().ConfigureAwait(false))
+            {
+                switch (job)
+                {
+                    case ChunkDiskJob.Write w:
+                        WriteChunkToDisk(w.Id, w.Offset, w.Data);
+                        break;
+                    case ChunkDiskJob.Complete c:
+                        await HandleCompleteAsync(c.Payload).ConfigureAwait(false);
+                        break;
+                    case ChunkDiskJob.Abort a:
+                        HandleAbort(a.Payload);
+                        break;
+                }
+            }
+        }
+        catch
+        {
+            // 进程退出时忽略
+        }
+    }
+
+    private void WriteChunkToDisk(Guid id, long offset, byte[] data)
+    {
         ReceiveState? state;
         lock (_gate) _receiving.TryGetValue(id, out state);
         if (state == null) return;
@@ -1159,8 +1203,8 @@ public sealed class FileTransferService
         try
         {
             state.Stream.Position = offset;
-            state.Stream.Write(payload, 24, dataLen);
-            var transferred = Math.Max(state.Item.BytesTransferred, offset + dataLen);
+            state.Stream.Write(data, 0, data.Length);
+            var transferred = Math.Max(state.Item.BytesTransferred, offset + data.Length);
             if ((DateTime.UtcNow - state.LastUiUtc).TotalMilliseconds >= 80
                 || transferred >= state.Item.TotalBytes)
             {
@@ -1280,7 +1324,7 @@ public sealed class FileTransferService
 
         // 粘贴用原名路径，触发资源管理器覆盖/重命名对话框
         var pastePaths = PreparePastePaths(inboxFiles);
-        NotifyStatus($"已就绪 {pastePaths.Count} 个文件（原名粘贴）");
+        NotifyStatus($"文件已就绪，可以粘贴（{pastePaths.Count} 个）");
         CompletePullWaiter(pastePaths.Count > 0 ? pastePaths : null);
     }
 
@@ -1605,6 +1649,13 @@ public sealed class FileTransferService
         foreach (var c in Path.GetInvalidFileNameChars())
             name = name.Replace(c, '_');
         return string.IsNullOrWhiteSpace(name) ? "file.bin" : name;
+    }
+
+    private abstract record ChunkDiskJob
+    {
+        public sealed record Write(Guid Id, long Offset, byte[] Data) : ChunkDiskJob;
+        public sealed record Complete(byte[] Payload) : ChunkDiskJob;
+        public sealed record Abort(byte[] Payload) : ChunkDiskJob;
     }
 
     private sealed class TransferHistoryDto
