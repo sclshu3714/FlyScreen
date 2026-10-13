@@ -16,7 +16,9 @@
     <Authors>sclshu3714</Authors>
     <Company>玄鸟</Company>
     <Copyright>Copyright © 2026</Copyright>
-    <Description>玄鸟 — 跨电脑键鼠与剪贴板共享（仿 Mouse without Borders，中文增强版）</Description>
+    <Description>玄鸟 — 跨电脑键鼠与剪贴板共享（灵感来源 Mouse without Borders，中文增强版）</Description>
+    <!-- 带 RID 发布时默认自包含，避免只装了 .NET Runtime、缺少 Desktop/WPF 时闪退 -->
+    <SelfContained Condition="'$(RuntimeIdentifier)' != '' and '$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>

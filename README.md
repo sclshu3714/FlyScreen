@@ -46,7 +46,18 @@ dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-conta
 ```
 
 生成文件：`src\FlyScreen\bin\publish\win-x64\FlyScreen.exe`  
-（自包含，目标电脑无需单独安装 .NET；首次运行可能短暂解压原生库到临时目录。）
+（自包含，目标电脑无需单独安装 .NET；首次运行可能短暂解压原生库到临时目录。体积通常约 100MB+。）
+
+> **不要**只拷贝 `bin\Release\net8.0-windows\FlyScreen.exe` 到其它电脑：那是依赖框架的构建。  
+> 若目标机只装了「.NET Runtime」而没有「**.NET Desktop Runtime**」，会报 `PresentationFramework` / `FileNotFoundException` 并闪退。
+
+### 若启动报 PresentationFramework 找不到
+
+任选其一：
+
+1. **推荐**：用上面的 `dotnet publish ... --self-contained true` 重新发布，把 `bin\publish\win-x64\FlyScreen.exe` 拷到目标机。  
+2. 或在目标机安装 [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/8.0)（注意选 **Desktop**，不是普通 Runtime）。  
+   可用 `dotnet --list-runtimes` 确认存在一行 `Microsoft.WindowsDesktop.App 8.0.x`。
 
 ### Visual Studio
 
