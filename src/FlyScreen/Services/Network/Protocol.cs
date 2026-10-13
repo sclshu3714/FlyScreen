@@ -47,7 +47,9 @@ public enum MessageType : byte
     SwitchFocus = 50,
     PeerInfo = 60,
     /// <summary>电脑布局同步（槽位 + 1×4/2×2）。</summary>
-    LayoutSync = 61
+    LayoutSync = 61,
+    /// <summary>当前应显示光标的电脑（其它机器隐藏光标）。</summary>
+    CursorOwner = 62
 }
 
 public readonly struct NetMessage
@@ -248,6 +250,12 @@ public sealed class LayoutSyncPayload
     public bool TwoRow { get; set; }
     /// <summary>UTC 毫秒时间戳，用于忽略过期布局。</summary>
     public long Revision { get; set; }
+}
+
+public sealed class CursorOwnerPayload
+{
+    /// <summary>当前操作/应显示光标的机器名。</summary>
+    public string OwnerMachine { get; set; } = "";
 }
 
 public static class Utf8

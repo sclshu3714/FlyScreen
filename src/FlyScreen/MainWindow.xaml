@@ -602,7 +602,8 @@
                 <CheckBox x:Name="WrapMouseCheck" Content="环形鼠标（首尾相连）"/>
                 <CheckBox x:Name="ShareClipboardCheck" Content="共享剪贴板"/>
                 <CheckBox x:Name="TransferFileCheck" Content="启用文件传输" Margin="20,4,0,4"/>
-                <CheckBox x:Name="HideMouseCheck" Content="控制远端时隐藏本机边缘光标"/>
+                <CheckBox x:Name="HideMouseCheck" Content="控制远端时隐藏本机边缘光标"
+                          ToolTip="只显示当前操作电脑的光标；进入远端时隐藏本机光标。本机物理鼠标活动时立即显示本机并隐藏其它电脑光标。"/>
                 <CheckBox x:Name="DrawCursorCheck" Content="绘制鼠标光标（预留）"/>
                 <CheckBox x:Name="SameSubnetCheck" Content="仅同网段连接"/>
                 <CheckBox x:Name="ShowStatusCheck" Content="显示状态消息"/>
@@ -610,7 +611,7 @@
               <StackPanel Grid.Column="1">
                 <TextBlock Text="行为" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <CheckBox x:Name="AutoStartCheck" Content="开机自动启动并连接"
-                          ToolTip="登录 Windows 后自动启动飞鼠并连接已配置的电脑"/>
+                          ToolTip="登录后约 15 秒以管理员权限启动（任务计划程序）。因需提权，不能用普通启动项。"/>
                 <CheckBox x:Name="BlockSaverCheck" Content="阻止其他机器屏保"/>
                 <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"/>
                 <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"/>

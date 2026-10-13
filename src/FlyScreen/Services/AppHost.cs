@@ -107,10 +107,17 @@ public sealed class AppHost : IAsyncDisposable
                 if (p == null) return;
                 if (string.Equals(p.TargetMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
                 {
-                    Input.TakeLocalControl();
+                    // 对端鼠标进入本机：本机显示光标并接受远程操控
+                    Input.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
                     Clipboard.ArmRemoteClipboardForPaste();
-                    InputInjector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
                 }
+                break;
+            }
+            case MessageType.CursorOwner:
+            {
+                var p = MessageCodec.DecodeJson<CursorOwnerPayload>(msg.Payload);
+                if (p == null) return;
+                Input.OnCursorOwnerChanged(p.OwnerMachine);
                 break;
             }
             case MessageType.LayoutSync:

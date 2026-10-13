@@ -57,6 +57,14 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool SetCursorPos(int X, int Y);
 
+    /// <summary>显示/隐藏光标（按调用线程引用计数）。</summary>
+    [DllImport("user32.dll")]
+    public static extern int ShowCursor(bool bShow);
+
+    public const uint LLMHF_INJECTED = 0x00000001;
+    public const uint LLMHF_LOWER_IL_INJECTED = 0x00000002;
+    public const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
