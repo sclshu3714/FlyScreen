@@ -8,6 +8,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>FlyScreen</RootNamespace>
+    <!-- 产物仍为 FlyScreen.exe，便于更新替换与开机自启任务名不变 -->
     <AssemblyName>FlyScreen</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\wlogo_tu.ico</ApplicationIcon>
@@ -29,6 +30,11 @@
     <Resource Include="Assets\wlogo_tu.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+  </ItemGroup>
+
   <!-- 从 Git 最新 v* 标签推算下一版本（不随 commit 增高） -->
   <Target Name="ResolveVersionFromGitTag"
           BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild"
@@ -37,7 +43,7 @@
           ConsoleToMSBuild="true"
           IgnoreExitCode="true"
           StandardOutputImportance="Low"
-          WorkingDirectory="$(MSBuildProjectDirectory)">
+          WorkingDirectory="$(MSBuildThisFileDirectory)..\..\">
       <Output TaskParameter="ConsoleOutput" ItemName="_GitTagLines" />
     </Exec>
 

@@ -18,6 +18,16 @@ public partial class App : System.Windows.Application
         }
 
         base.OnStartup(e);
+
+        // Core 模型属性通知回投 WPF UI 线程
+        UiMarshal.Configure(
+            post: a => Dispatcher.BeginInvoke(a, System.Windows.Threading.DispatcherPriority.Background),
+            send: a =>
+            {
+                if (Dispatcher.CheckAccess()) a();
+                else Dispatcher.Invoke(a);
+            });
+
         AppHost.EnsureCreated();
 
         // 设置了开机自启则确保注册表项与当前 exe 路径一致（升级后路径可能变化）

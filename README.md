@@ -7,6 +7,16 @@
 联系邮箱：`sclshu3714@163.com`  
 更新发布：<https://github.com/sclshu3714/FlyScreen/releases>
 
+## 多端迭代规划
+
+后续将扩展 macOS、Linux、Android（手机 / 平板 / 电视）、鸿蒙（手机 / 平板 / **电脑**）。  
+规划、设备矩阵、协议兼容与 **Windows 零回退门禁** 见文档目录：
+
+- **[docs/README.md](docs/README.md)** — 文档索引  
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — 版本阶段与周期（W0–W6）
+
+原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。
+
 ## 相对 Mouse without Borders 的改进
 
 1. **中文优先 + 多语言** — 默认简体中文；可在高级选项切换多种界面语言（未翻译词条回退英文/中文）。
@@ -34,11 +44,13 @@
 
 ```powershell
 cd d:\Source\Repos\FlyScreen
-dotnet build src\FlyScreen\FlyScreen.csproj -c Release
-dotnet run --project src\FlyScreen\FlyScreen.csproj -c Release
+dotnet build FlyScreen.sln -c Release
+dotnet run --project src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 ```
 
-输出目录：`src\FlyScreen\bin\Release\net8.0-windows\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
+解决方案含：`FlyScreen.Core`（跨平台核心）→ `FlyScreen.Windows`（Win32 适配）→ `FlyScreen.App.Windows`（WPF 应用）。日常开发打开 `FlyScreen.sln` 即可。产物 exe 仍为 `FlyScreen.exe`。
+
+输出目录：`src\FlyScreen.App.Windows\bin\Release\net8.0-windows\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
 
 ## 版本号（跟最新 Git 标签走，与提交无关）
 
@@ -56,11 +68,11 @@ dotnet run --project src\FlyScreen\FlyScreen.csproj -c Release
 ```powershell
 cd d:\Source\Repos\FlyScreen
 # 1. publish（版本自动为 1.0.2，多次提交也仍是 1.0.2）
-dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-contained true `
+dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:EnableCompressionInSingleFile=true `
-  -o src\FlyScreen\bin\publish\win-x64
+  -o src\FlyScreen.App.Windows\bin\publish\win-x64
 
 # 2. 上传 FlyScreen.exe 到 GitHub Release，并创建/推送同名标签
 git tag v1.0.2
@@ -81,16 +93,16 @@ git push origin v1.0.2
 ```powershell
 cd d:\Source\Repos\FlyScreen
 # 若发布目录中的 exe 正在运行，请先退出托盘中的玄鸟，否则会「访问被拒绝」
-dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-contained true `
+dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:EnableCompressionInSingleFile=true `
-  -o src\FlyScreen\bin\publish\win-x64
+  -o src\FlyScreen.App.Windows\bin\publish\win-x64
 ```
 
-生成：`src\FlyScreen\bin\publish\win-x64\FlyScreen.exe`（约 70MB 级；目标机无需安装 .NET）。
+生成：`src\FlyScreen.App.Windows\bin\publish\win-x64\FlyScreen.exe`（约 70MB 级；目标机无需安装 .NET）。
 
-也可使用配置：`src\FlyScreen\Properties\PublishProfiles\SingleFile-win-x64.pubxml`。
+也可使用配置：`src\FlyScreen.App.Windows\Properties\PublishProfiles\SingleFile-win-x64.pubxml`。
 
 ### Visual Studio
 
@@ -156,7 +168,7 @@ dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-conta
 
 - **帮助**：检查更新 / 自动更新（GitHub Release）；一键检查 / 一键修复连接。
 - 启动时可静默提示新版本。
-- **发版注意（自动更新）**：先打 Git tag（如 `v1.0.10`）再 publish，把该次 exe 上传到**同名** GitHub Release；不要用未打 tag 的 preview 构建当正式包。替换失败见 `%TEMP%\xuanniao-update.log`。
+- **发版注意（自动更新）**：构建版本 = 最新 tag 的 patch+1；publish 后把 exe 上传到 **同名** GitHub Release（如版本 `1.0.2` → tag `v1.0.2`）。详见 [docs/compatibility.md](docs/compatibility.md)、[docs/runbooks/release-windows.md](docs/runbooks/release-windows.md)。替换失败见 `%TEMP%\xuanniao-update.log`。
 - **关于**、托盘提示与右键菜单随界面语言更新。
 
 ## 功能一览
