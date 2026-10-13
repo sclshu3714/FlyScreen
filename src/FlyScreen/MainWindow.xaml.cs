@@ -23,6 +23,10 @@ public partial class MainWindow : Window
     private readonly AppHost _host;
     private readonly ObservableCollection<MachineSlot> _slots = [];
     private WinForms.NotifyIcon? _tray;
+    private WinForms.ToolStripMenuItem? _trayOpen;
+    private WinForms.ToolStripMenuItem? _trayReconnect;
+    private WinForms.ToolStripMenuItem? _trayAbout;
+    private WinForms.ToolStripMenuItem? _trayExit;
     private System.Drawing.Icon? _trayIcon;
     private System.Windows.Point _dragStart;
     private object? _dragItem;
@@ -93,7 +97,7 @@ public partial class MainWindow : Window
         _trayIcon = LoadAppIcon();
         _tray = new WinForms.NotifyIcon
         {
-            Text = "玄鸟",
+            Text = Loc.T("Tray.Tip"),
             Visible = true,
             Icon = _trayIcon ?? System.Drawing.SystemIcons.Application
         };
@@ -104,11 +108,23 @@ public partial class MainWindow : Window
             Activate();
         };
         var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("打开设置", null, (_, _) => { Show(); Activate(); });
-        menu.Items.Add("重新连接", null, async (_, _) => await _host.Connections.ReconnectNowAsync());
-        menu.Items.Add("关于", null, (_, _) => ShowAbout());
-        menu.Items.Add("退出", null, (_, _) => ExitApp());
+        _trayOpen = new WinForms.ToolStripMenuItem(Loc.T("Tray.Open"), null, (_, _) => { Show(); Activate(); });
+        _trayReconnect = new WinForms.ToolStripMenuItem(Loc.T("Tray.Reconnect"), null,
+            async (_, _) => await _host.Connections.ReconnectNowAsync());
+        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) => ShowAbout());
+        _trayExit = new WinForms.ToolStripMenuItem(Loc.T("Tray.Exit"), null, (_, _) => ExitApp());
+        menu.Items.AddRange([_trayOpen, _trayReconnect, _trayAbout, _trayExit]);
         _tray.ContextMenuStrip = menu;
+    }
+
+    private void ApplyTrayLocalized()
+    {
+        if (_tray != null)
+            _tray.Text = Loc.T("Tray.Tip");
+        if (_trayOpen != null) _trayOpen.Text = Loc.T("Tray.Open");
+        if (_trayReconnect != null) _trayReconnect.Text = Loc.T("Tray.Reconnect");
+        if (_trayAbout != null) _trayAbout.Text = Loc.T("Tray.About");
+        if (_trayExit != null) _trayExit.Text = Loc.T("Tray.Exit");
     }
 
     private void LoadUiFromSettings()
@@ -170,7 +186,7 @@ public partial class MainWindow : Window
                 Name = string.IsNullOrWhiteSpace(name) ? "" : name,
                 Enabled = !string.IsNullOrWhiteSpace(name),
                 IsLocal = isLocal,
-                StatusText = isLocal ? "本机" : "未连接"
+                StatusText = isLocal ? Loc.T("Slot.Local") : Loc.T("Slot.Disconnected")
             });
         }
 
@@ -286,6 +302,12 @@ public partial class MainWindow : Window
 
     private void ApplyLocalizedUi()
     {
+        // 供 DataTemplate 使用的动态文案
+        Resources["Str.Delete"] = Loc.T("Btn.Delete");
+        Resources["Str.DeleteTip"] = Loc.T("Tip.DeleteTransfer");
+        Resources["Str.Add"] = Loc.T("Btn.Add");
+        Resources["Str.Search"] = Loc.T("Search.Placeholder");
+
         TabBasic.Content = Loc.T("Tab.Basic");
         TabOptions.Content = Loc.T("Tab.Options");
         TabNetwork.Content = Loc.T("Tab.Network");
@@ -295,6 +317,49 @@ public partial class MainWindow : Window
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
+        ApplyTrayLocalized();
+        Title = Loc.T("App.Name");
+
+        NavBasicText.Text = Loc.T("Nav.Basic");
+        NavNetworkText.Text = Loc.T("Nav.Network");
+        NavShareText.Text = Loc.T("Nav.Share");
+        NavSecurityText.Text = Loc.T("Nav.Security");
+        NavAdvancedText.Text = Loc.T("Nav.Advanced");
+        SearchPlaceholderText.Text = Loc.T("Search.Placeholder");
+
+        SecurityTitleText.Text = Loc.T("Sec.Title");
+        ShowKeyCheck.Content = Loc.T("Sec.Show");
+        NewKeyBtn.Content = Loc.T("Sec.NewKey");
+        SecurityHintText.Text = Loc.T("Sec.Hint");
+        LayoutTitleText.Text = Loc.T("Layout.Title");
+        LayoutHintText.Text = Loc.T("Layout.Hint");
+        LayoutDragTipText.Text = Loc.T("Layout.DragTip");
+        AddMachineBtn.Content = Loc.T("Layout.Add");
+        RemoveMachineBtn.Content = Loc.T("Layout.Remove");
+        ReconnectBtn.Content = Loc.T("Layout.Reconnect");
+
+        NicTitleText.Text = Loc.T("Net.NicTitle");
+        NicHintText.Text = Loc.T("Net.NicHint");
+        RefreshNicsBtn.Content = Loc.T("Net.RefreshNics");
+        TcpPortLabel.Text = Loc.T("Net.TcpPort");
+        UdpPortLabel.Text = Loc.T("Net.UdpPort");
+        DiscoveryTitleText.Text = Loc.T("Net.DiscoveryTitle");
+        DiscoveryHintText.Text = Loc.T("Net.DiscoveryHint");
+        RefreshDiscoveryBtn.Content = Loc.T("Net.RefreshDiscovery");
+
+        XferTitleText.Text = Loc.T("Xfer.Title");
+        XferHintText.Text = Loc.T("Xfer.Hint");
+        DirectTransferBtn.Content = Loc.T("Xfer.Direct");
+        DirectTransferBtn.ToolTip = Loc.T("Tip.DirectTransfer");
+        OpenInboxBtn.Content = Loc.T("Xfer.OpenInbox");
+        ClearTransfersBtn.Content = Loc.T("Xfer.ClearDone");
+        ClearTransfersBtn.ToolTip = Loc.T("Tip.ClearTransfers");
+        ColDir.Header = Loc.T("Xfer.Col.Dir");
+        ColName.Header = Loc.T("Xfer.Col.Name");
+        ColPeer.Header = Loc.T("Xfer.Col.Peer");
+        ColSize.Header = Loc.T("Xfer.Col.Size");
+        ColProgress.Header = Loc.T("Xfer.Col.Progress");
+        ColStatus.Header = Loc.T("Xfer.Col.Status");
 
         FeatTitleText.Text = Loc.T("Feat.Title");
         BehTitleText.Text = Loc.T("Beh.Title");
@@ -316,7 +381,7 @@ public partial class MainWindow : Window
         SysStyleLabel.ToolTip = Loc.T("Sys.StyleTip");
         SysLangLabel.ToolTip = Loc.T("Sys.LangTip");
         ThemeLight.ToolTip = Loc.T("Sys.StyleTip");
-        ThemeDark.ToolTip = Loc.T("Sys.StyleDark");
+        ThemeDark.ToolTip = Loc.T("Sys.StyleTip");
         LanguageCombo.ToolTip = Loc.T("Sys.LangTip");
 
         SetOpt(WrapMouseCheck, "Opt.WrapMouse", "Tip.WrapMouse");
@@ -331,6 +396,19 @@ public partial class MainWindow : Window
         SetOpt(MoveRelCheck, "Opt.MoveRel", "Tip.MoveRel");
         SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
         SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
+
+        foreach (var item in _host.Transfers.Items)
+            item.RefreshLocalized();
+
+        foreach (var slot in _slots)
+            slot.RefreshStatus();
+
+        // 强制刷新列表主题（避免系统默认白底）
+        ThemeService.Apply(ThemeService.Current, this);
+        TransferList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
+        TransferList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
+        DiscoveryList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
+        DiscoveryList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
     }
 
     private static void SetOpt(System.Windows.Controls.CheckBox box, string contentKey, string tipKey)
@@ -380,7 +458,7 @@ public partial class MainWindow : Window
             {
                 slot.OutboundOk = true;
                 slot.InboundOk = true;
-                slot.StatusText = "本机";
+                slot.StatusText = Loc.T("Slot.Local");
             }
             else
             {
@@ -943,18 +1021,11 @@ public partial class MainWindow : Window
         var ver = typeof(MainWindow).Assembly.GetName().Version;
         var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
         System.Windows.MessageBox.Show(
-            "玄鸟\n" +
-            $"版本 {verText}\n\n" +
-            "跨电脑键鼠与剪贴板共享工具。\n" +
-            "支持最多 4 台电脑共用一套键鼠，边缘切换控制；\n" +
-            "统一剪贴板（文本、图片、文件按需拉取）与直接文件传输。\n\n" +
-            "灵感来自 Microsoft Mouse without Borders，\n" +
-            "面向中文环境做了连接、布局同步与传输等增强。\n\n" +
-            "运行环境：Windows 10/11，建议管理员身份运行。\n\n" +
-            "联系邮箱：sclshu3714@163.com\n" +
-            "更新：https://github.com/sclshu3714/FlyScreen/releases\n" +
-            "反馈问题或建议欢迎邮件联系。",
-            "关于 玄鸟");
+            this,
+            string.Format(Loc.T("About.Body"), verText),
+            Loc.T("About.Title"),
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private void Help_Click(object sender, RoutedEventArgs e)

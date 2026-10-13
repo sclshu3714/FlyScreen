@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using FlyScreen.Helpers;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Models;
 
@@ -23,7 +24,7 @@ public sealed class TransferItem : INotifyPropertyChanged
 {
     private double _progress;
     private TransferState _state = TransferState.Queued;
-    private string _status = "排队中";
+    private string _status = Loc.T("Xfer.Queued");
     private long _bytesTransferred;
 
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -62,15 +63,7 @@ public sealed class TransferItem : INotifyPropertyChanged
             if (_state == value) return;
             _state = value;
             OnPropertyChanged();
-            Status = value switch
-            {
-                TransferState.Queued => "排队中",
-                TransferState.Transferring => "传输中",
-                TransferState.Completed => "已完成",
-                TransferState.Failed => "失败",
-                TransferState.Cancelled => "已取消",
-                _ => Status
-            };
+            Status = StateLabel(value);
         }
     }
 
@@ -80,7 +73,27 @@ public sealed class TransferItem : INotifyPropertyChanged
         set { if (_status != value) { _status = value; OnPropertyChanged(); } }
     }
 
-    public string DirectionText => Direction == TransferDirection.Send ? "发送" : "接收";
+    public string DirectionText => Direction == TransferDirection.Send
+        ? Loc.T("Xfer.Send")
+        : Loc.T("Xfer.Receive");
+
+    /// <summary>语言切换后刷新方向/状态文案。</summary>
+    public void RefreshLocalized()
+    {
+        Status = StateLabel(State);
+        OnPropertyChanged(nameof(DirectionText));
+        OnPropertyChanged(nameof(Status));
+    }
+
+    private static string StateLabel(TransferState state) => state switch
+    {
+        TransferState.Queued => Loc.T("Xfer.Queued"),
+        TransferState.Transferring => Loc.T("Xfer.Transferring"),
+        TransferState.Completed => Loc.T("Xfer.Completed"),
+        TransferState.Failed => Loc.T("Xfer.Failed"),
+        TransferState.Cancelled => Loc.T("Xfer.Cancelled"),
+        _ => Loc.T("Xfer.Queued")
+    };
 
     public string SizeText
     {

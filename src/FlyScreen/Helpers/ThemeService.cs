@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Threading;
 using Media = System.Windows.Media;
+using WpfControls = System.Windows.Controls;
 
 namespace FlyScreen.Helpers;
 
@@ -44,10 +46,76 @@ public static class ThemeService
         Set(rd, "MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set(rd, "ListBg", dark ? "#0B1220" : "#F9FAFB");
 
+        // 覆盖窗口级 SystemColors，避免 ListView/ScrollViewer 默认白底
+        OverrideSystemColorsOn(rd, dark);
+
         if (root is Window win)
         {
             win.Background = BrushOf(rd, "WinBg");
             win.Foreground = BrushOf(rd, "Text");
+            win.Dispatcher.BeginInvoke(() => OverrideListSystemColors(win, rd), DispatcherPriority.Loaded);
+            OverrideListSystemColors(win, rd);
+        }
+
+        root.InvalidateVisual();
+        root.InvalidateArrange();
+    }
+
+    private static void OverrideSystemColorsOn(ResourceDictionary rd, bool dark)
+    {
+        var windowBg = BrushOf(rd, "ListBg");
+        var text = BrushOf(rd, "Text");
+        var control = BrushOf(rd, "CardBg");
+        var highlight = BrushOf(rd, "BlueSoft");
+        rd[System.Windows.SystemColors.WindowBrushKey] = windowBg;
+        rd[System.Windows.SystemColors.WindowTextBrushKey] = text;
+        rd[System.Windows.SystemColors.ControlBrushKey] = control;
+        rd[System.Windows.SystemColors.ControlTextBrushKey] = text;
+        rd[System.Windows.SystemColors.HighlightBrushKey] = highlight;
+        rd[System.Windows.SystemColors.HighlightTextBrushKey] = text;
+        rd[System.Windows.SystemColors.InactiveSelectionHighlightBrushKey] = highlight;
+        _ = dark;
+    }
+
+    /// <summary>
+    /// ListView/ListBox 默认模板使用 SystemColors.WindowBrush，需覆盖否则深色下仍为白底。
+    /// </summary>
+    private static void OverrideListSystemColors(DependencyObject root, ResourceDictionary theme)
+    {
+        var windowBg = BrushOf(theme, "ListBg");
+        var text = BrushOf(theme, "Text");
+        var highlight = BrushOf(theme, "BlueSoft");
+        var control = BrushOf(theme, "CardBg");
+
+        void Patch(WpfControls.Control fe)
+        {
+            fe.Resources[System.Windows.SystemColors.WindowBrushKey] = windowBg;
+            fe.Resources[System.Windows.SystemColors.WindowTextBrushKey] = text;
+            fe.Resources[System.Windows.SystemColors.ControlBrushKey] = control;
+            fe.Resources[System.Windows.SystemColors.ControlTextBrushKey] = text;
+            fe.Resources[System.Windows.SystemColors.HighlightBrushKey] = highlight;
+            fe.Resources[System.Windows.SystemColors.HighlightTextBrushKey] = text;
+            fe.Resources[System.Windows.SystemColors.InactiveSelectionHighlightBrushKey] = highlight;
+            fe.Background = windowBg;
+            fe.Foreground = text;
+        }
+
+        foreach (var lv in FindVisualChildren<WpfControls.ListView>(root))
+            Patch(lv);
+        foreach (var lb in FindVisualChildren<WpfControls.ListBox>(root))
+            Patch(lb);
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
+    {
+        if (parent == null) yield break;
+        var count = Media.VisualTreeHelper.GetChildrenCount(parent);
+        for (var i = 0; i < count; i++)
+        {
+            var child = Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is T typed) yield return typed;
+            foreach (var nested in FindVisualChildren<T>(child))
+                yield return nested;
         }
     }
 
@@ -57,6 +125,15 @@ public static class ThemeService
     private static void Set(ResourceDictionary rd, string key, string hex)
     {
         var color = (Media.Color)Media.ColorConverter.ConvertFromString(hex)!;
+        // 原地改 Color，已绑定的 DynamicResource / 画刷引用才能同步变色
+        if (rd[key] is Media.SolidColorBrush brush)
+        {
+            if (brush.IsFrozen)
+                brush = brush.Clone();
+            brush.Color = color;
+            rd[key] = brush;
+            return;
+        }
         rd[key] = new Media.SolidColorBrush(color);
     }
 

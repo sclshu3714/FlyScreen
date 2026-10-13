@@ -448,7 +448,8 @@ public sealed class ConnectionManager : IAsyncDisposable
         var link = _links.GetOrAdd(hs.MachineName, _ => new PeerLink(hs.MachineName));
         await link.SetInboundAsync(session).ConfigureAwait(false);
         NotifyLink(hs.MachineName, link);
-        StatusMessage?.Invoke($"已入站连接 {hs.MachineName}");
+        StatusMessage?.Invoke(string.Format(
+            Helpers.Localization.Loc.T("Status.Inbound"), hs.MachineName));
     }
 
     private async void OnSessionDisconnected(PeerSession session, Exception? ex)

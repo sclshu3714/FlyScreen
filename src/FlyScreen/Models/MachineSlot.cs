@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Models;
 
@@ -9,7 +10,7 @@ public sealed class MachineSlot : INotifyPropertyChanged
     private bool _enabled;
     private bool _isLocal;
     private bool _isSelected;
-    private string _statusText = "未连接";
+    private string _statusText = Loc.T("Slot.Disconnected");
     private bool _outboundOk;
     private bool _inboundOk;
     private string _resolvedIp = "";
@@ -144,24 +145,25 @@ public sealed class MachineSlot : INotifyPropertyChanged
         set { if (_resolvedIp != value) { _resolvedIp = value; OnPropertyChanged(); } }
     }
 
-    public string DisplaySubtitle => IsLocal ? "本机" : StatusText;
+    public string DisplaySubtitle => IsLocal ? Loc.T("Slot.Local") : StatusText;
 
     public void RefreshStatus()
     {
         if (IsLocal)
         {
-            StatusText = "本机";
+            StatusText = Loc.T("Slot.Local");
+            OnPropertyChanged(nameof(DisplaySubtitle));
             return;
         }
 
         if (OutboundOk && InboundOk)
-            StatusText = "双向已连接";
+            StatusText = Loc.T("Slot.Both");
         else if (OutboundOk)
-            StatusText = "仅出站 →";
+            StatusText = Loc.T("Slot.OutOnly");
         else if (InboundOk)
-            StatusText = "仅入站 ←";
+            StatusText = Loc.T("Slot.InOnly");
         else
-            StatusText = "未连接";
+            StatusText = Loc.T("Slot.Disconnected");
 
         OnPropertyChanged(nameof(DisplaySubtitle));
     }

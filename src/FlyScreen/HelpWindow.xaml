@@ -77,15 +77,15 @@
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Text="更新与连接诊断" FontWeight="SemiBold"/>
+        <TextBlock x:Name="SectionUpdateText" Text="更新与连接诊断" FontWeight="SemiBold"/>
         <TextBlock x:Name="ActionStatus" Grid.Row="1" TextWrapping="Wrap"
                    Foreground="{DynamicResource Muted}" Margin="0,6,0,10"
                    Text="可通过 GitHub Release 检查更新；连接异常时先「一键检查」再「一键修复」。"/>
         <WrapPanel Grid.Row="2">
-          <Button Content="检查更新" Click="CheckUpdate_Click"/>
+          <Button x:Name="CheckUpdateBtn" Content="检查更新" Click="CheckUpdate_Click"/>
           <Button x:Name="ApplyUpdateBtn" Content="自动更新" Click="ApplyUpdate_Click" IsEnabled="False"/>
-          <Button Content="一键检查" Click="DiagCheck_Click"/>
-          <Button Style="{StaticResource PrimaryBtn}" Content="一键修复" Click="DiagFix_Click" Margin="0"/>
+          <Button x:Name="DiagCheckBtn" Content="一键检查" Click="DiagCheck_Click"/>
+          <Button x:Name="DiagFixBtn" Style="{StaticResource PrimaryBtn}" Content="一键修复" Click="DiagFix_Click" Margin="0"/>
         </WrapPanel>
       </Grid>
     </Border>
@@ -97,7 +97,7 @@
              FontFamily="Consolas, Microsoft YaHei UI"/>
 
     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-      <Button Content="关闭" IsCancel="True" Click="Close_Click" Margin="0" MinWidth="88"/>
+      <Button x:Name="CloseBtn" Content="关闭" IsCancel="True" Click="Close_Click" Margin="0" MinWidth="88"/>
     </StackPanel>
   </Grid>
 </Window>
