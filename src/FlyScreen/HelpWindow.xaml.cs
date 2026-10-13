@@ -185,23 +185,57 @@ public partial class HelpWindow : Window
         if (confirm != MessageBoxResult.Yes) return;
 
         SetBusy(true);
+        ShowUpdateProgress(0, indeterminate: false);
         try
         {
-            var progress = new Progress<double>(p =>
-                ActionStatus.Text = string.Format(Loc.T("Help.Downloading"), p));
+            var progress = new Progress<UpdateDownloadProgress>(OnUpdateProgress);
             var apply = await _updater.DownloadAndApplyAsync(_lastCheck, progress).ConfigureAwait(true);
             ActionStatus.Text = apply.Message;
             ShowDiag(apply.Message);
             if (apply.ShouldExit)
             {
-                await Task.Delay(400).ConfigureAwait(true);
-                Application.Current.Shutdown();
+                ActionStatus.Text = Loc.T("Help.Restarting");
+                UpdateProgressBar.IsIndeterminate = true;
+                UpdateProgressBar.Visibility = Visibility.Visible;
+                await Task.Delay(300).ConfigureAwait(true);
+                // 单文件 exe 必须先退出才能被脚本覆盖；尽快释放托盘与文件锁
+                if (Owner is MainWindow mw)
+                    mw.ExitForUpdate();
+                else
+                    Environment.Exit(0);
+                return;
             }
+
+            HideUpdateProgress();
         }
         finally
         {
-            SetBusy(false);
+            if (IsLoaded)
+                SetBusy(false);
         }
+    }
+
+    private void OnUpdateProgress(UpdateDownloadProgress p)
+    {
+        ActionStatus.Text = string.IsNullOrWhiteSpace(p.Message)
+            ? string.Format(Loc.T("Help.Downloading"), Math.Max(0, p.Percent))
+            : p.Message;
+        ShowUpdateProgress(p.Percent, p.IsIndeterminate);
+    }
+
+    private void ShowUpdateProgress(double percent, bool indeterminate)
+    {
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressBar.IsIndeterminate = indeterminate;
+        if (!indeterminate)
+            UpdateProgressBar.Value = Math.Clamp(percent, 0, 100);
+    }
+
+    private void HideUpdateProgress()
+    {
+        UpdateProgressBar.IsIndeterminate = false;
+        UpdateProgressBar.Value = 0;
+        UpdateProgressBar.Visibility = Visibility.Collapsed;
     }
 
     private async void DiagCheck_Click(object sender, RoutedEventArgs e)

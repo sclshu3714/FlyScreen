@@ -76,12 +76,16 @@
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock x:Name="SectionUpdateText" Text="更新与连接诊断" FontWeight="SemiBold"/>
         <TextBlock x:Name="ActionStatus" Grid.Row="1" TextWrapping="Wrap"
-                   Foreground="{DynamicResource Muted}" Margin="0,6,0,10"
+                   Foreground="{DynamicResource Muted}" Margin="0,6,0,8"
                    Text="可通过 GitHub Release 检查更新；连接异常时先「一键检查」再「一键修复」。"/>
-        <WrapPanel Grid.Row="2">
+        <ProgressBar x:Name="UpdateProgressBar" Grid.Row="2" Height="10" Minimum="0" Maximum="100"
+                     Margin="0,0,0,10" Visibility="Collapsed"
+                     Background="{DynamicResource ControlBorder}" Foreground="{DynamicResource Blue}"/>
+        <WrapPanel Grid.Row="3">
           <Button x:Name="CheckUpdateBtn" Content="检查更新" Click="CheckUpdate_Click"/>
           <Button x:Name="ApplyUpdateBtn" Content="自动更新" Click="ApplyUpdate_Click" IsEnabled="False"/>
           <Button x:Name="DiagCheckBtn" Content="一键检查" Click="DiagCheck_Click"/>

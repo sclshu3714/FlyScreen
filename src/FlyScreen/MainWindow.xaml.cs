@@ -529,6 +529,21 @@ public partial class MainWindow : Window
 
     private async void ExitApp()
     {
+        DisposeTray();
+        await _host.DisposeAsync();
+        System.Windows.Application.Current.Shutdown();
+    }
+
+    /// <summary>自动更新：释放托盘后立即退出，供外部脚本覆盖单文件 exe 并重启。</summary>
+    public void ExitForUpdate()
+    {
+        try { DisposeTray(); } catch { /* ignore */ }
+        try { _ = _host.DisposeAsync().AsTask(); } catch { /* ignore */ }
+        Environment.Exit(0);
+    }
+
+    private void DisposeTray()
+    {
         if (_tray != null)
         {
             _tray.Visible = false;
@@ -538,8 +553,6 @@ public partial class MainWindow : Window
 
         _trayIcon?.Dispose();
         _trayIcon = null;
-        await _host.DisposeAsync();
-        System.Windows.Application.Current.Shutdown();
     }
 
     private static System.Drawing.Icon? LoadAppIcon()
