@@ -123,7 +123,13 @@ dotnet publish src\FlyScreen\FlyScreen.csproj -c Release -r win-x64 --self-conta
 ## 更新与诊断
 
 - **帮助**：检查更新 / 自动更新（GitHub Release）；一键检查 / 一键修复连接。
-- 启动时可静默提示新版本；Release 请上传自包含的 `FlyScreen.exe` 或 `*-win-x64*.zip`。
+- 启动时可静默提示新版本。
+- **发版注意（自动更新能否生效的关键）**：
+  1. 先提高 `FlyScreen.csproj` 中的 `<Version>`（须高于用户当前版本）。
+  2. 用自包含命令 `dotnet publish ... --self-contained true` 生成 exe。
+  3. 将**该次构建**的 `FlyScreen.exe`（或含它的 zip）上传到对应 tag 的 Release。
+  4. 若标签是 `v1.0.1` 但资源里仍是 `1.0.0` 的程序集，安装后仍会提示更新；程序会在下载后检测并报错。
+  5. 替换失败时可查看 `%TEMP%\xuanniao-update.log`。
 - **关于**、托盘提示与右键菜单随界面语言更新。
 
 ## 功能一览

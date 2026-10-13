@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -12,7 +13,6 @@ namespace FlyScreen.Services.Update;
 
 /// <summary>
 /// 通过 GitHub Releases 检查 / 下载 / 替换当前程序（适配单文件自包含 exe）。
-/// 流程：下载到临时目录 → 写外部脚本 → 退出本进程释放文件锁 → 脚本等待 PID 结束后改名替换并重启。
 /// </summary>
 public sealed class GitHubUpdateService
 {
@@ -20,6 +20,7 @@ public sealed class GitHubUpdateService
     public const string Repo = "FlyScreen";
     public static string ReleasesUrl => $"https://github.com/{Owner}/{Repo}/releases";
     public static string LatestApiUrl => $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
+    public static string UpdateLogPath => Path.Combine(Path.GetTempPath(), "xuanniao-update.log");
 
     private static readonly HttpClient Http = CreateClient();
 
@@ -37,7 +38,7 @@ public sealed class GitHubUpdateService
         return v ?? new Version(1, 0, 0, 0);
     }
 
-    public static string FormatVersion(Version v) => $"{v.Major}.{v.Minor}.{v.Build}";
+    public static string FormatVersion(Version v) => $"{v.Major}.{v.Minor}.{Math.Max(v.Build, 0)}";
 
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default)
     {
@@ -82,7 +83,7 @@ public sealed class GitHubUpdateService
                 }
             }
 
-            var newer = remote > Normalize(local);
+            var newer = Compare(remote, local) > 0;
             return new UpdateCheckResult
             {
                 Success = true,
@@ -118,18 +119,18 @@ public sealed class GitHubUpdateService
         if (string.IsNullOrWhiteSpace(check.AssetDownloadUrl))
             return UpdateApplyResult.Fail("Release 中没有可下载的安装包。请打开：\n" + check.ReleaseUrl);
 
-        var currentExe = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
-            return UpdateApplyResult.Fail("无法定位当前程序路径。");
-
-        // 单文件发布时 ProcessPath 即为用户启动的那个 exe
-        currentExe = Path.GetFullPath(currentExe);
+        var currentExe = ResolveRunningExePath();
+        if (currentExe == null)
+            return UpdateApplyResult.Fail("无法定位当前程序路径（ProcessPath）。");
 
         var tempDir = Path.Combine(Path.GetTempPath(), "XuanNiaoUpdate_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
 
         try
         {
+            try { File.WriteAllText(UpdateLogPath, $"[{DateTime.Now:o}] start update → {currentExe}\r\n"); }
+            catch { /* ignore */ }
+
             var assetName = string.IsNullOrWhiteSpace(check.AssetName) ? "update.bin" : check.AssetName;
             var downloadPath = Path.Combine(tempDir, SanitizeFileName(assetName));
 
@@ -143,25 +144,74 @@ public sealed class GitHubUpdateService
             var stagingExe = Path.Combine(tempDir, "FlyScreen.new.exe");
             File.Copy(newExe, stagingExe, overwrite: true);
 
-            var bat = Path.Combine(tempDir, "apply-update.bat");
-            await File.WriteAllTextAsync(bat, BuildApplyScript(Environment.ProcessId, stagingExe, currentExe),
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct).ConfigureAwait(false);
+            // 关键原因：Release 标签升了，但上传的仍是旧 Version 的 exe → 装完还提示更新
+            var local = GetLocalVersion();
+            var fileVer = TryReadExeVersion(stagingExe);
+            if (fileVer != null && Compare(fileVer, local) <= 0)
+            {
+                return UpdateApplyResult.Fail(
+                    $"下载的 exe 文件版本为 {FormatVersion(fileVer)}，不高于当前 {FormatVersion(local)}。\n" +
+                    $"GitHub 标签为 {check.TagName}，但资源里的程序集版本未递增。\n" +
+                    "请重新 publish 自包含包，在 csproj 中提高 <Version>，再上传到 Release。\n" +
+                    $"目标路径：{currentExe}");
+            }
+
+            var expectedRemote = ParseVersion(check.RemoteVersion) ?? ParseVersion(check.TagName);
+            if (fileVer != null && expectedRemote != null && Compare(fileVer, expectedRemote) < 0)
+            {
+                return UpdateApplyResult.Fail(
+                    $"下载的 exe 版本 {FormatVersion(fileVer)} 低于 Release 标签 {check.TagName}。\n" +
+                    "请确认上传的是本次构建的自包含 FlyScreen.exe。\n" +
+                    $"目标路径：{currentExe}");
+            }
+
+            var ps1 = Path.Combine(tempDir, "apply-update.ps1");
+            await File.WriteAllTextAsync(ps1, BuildApplyPowerShell(), new UTF8Encoding(false), ct)
+                .ConfigureAwait(false);
 
             progress?.Report(UpdateDownloadProgress.Complete("即将退出并安装，请稍候…"));
 
-            var started = Process.Start(new ProcessStartInfo
+            var args =
+                $"-NoProfile -ExecutionPolicy Bypass -File \"{ps1}\" " +
+                $"-WaitPid {Environment.ProcessId} " +
+                $"-Source \"{stagingExe}\" " +
+                $"-Target \"{currentExe}\" " +
+                $"-Log \"{UpdateLogPath}\"";
+
+            var psi = new ProcessStartInfo
             {
-                FileName = bat,
+                FileName = "powershell.exe",
+                Arguments = args,
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = tempDir,
                 CreateNoWindow = true
-            });
+            };
+
+            // 当前若以管理员运行，脚本也提权，避免无权限写入安装目录
+            if (IsProcessElevated())
+                psi.Verb = "runas";
+
+            Process? started;
+            try
+            {
+                started = Process.Start(psi);
+            }
+            catch (Exception ex) when (psi.Verb == "runas")
+            {
+                // 用户取消 UAC 时退回非提权尝试
+                psi.Verb = null;
+                AppendLog($"runas failed: {ex.Message}, fallback");
+                started = Process.Start(psi);
+            }
 
             if (started == null)
                 return UpdateApplyResult.Fail("无法启动更新脚本。");
 
-            return UpdateApplyResult.Ok("正在关闭程序并替换文件，随后自动重启…");
+            return UpdateApplyResult.Ok(
+                $"正在关闭并替换：\n{currentExe}\n" +
+                (fileVer != null ? $"新版本文件：{FormatVersion(fileVer)}\n" : "") +
+                $"若失败请查看日志：{UpdateLogPath}");
         }
         catch (Exception ex)
         {
@@ -170,58 +220,147 @@ public sealed class GitHubUpdateService
         }
     }
 
-    /// <summary>
-    /// 外部 bat：等待本进程退出 → 将旧 exe 改名为 .old → 拷入新 exe → 启动 → 清理。
-    /// 单文件 exe 运行中无法直接覆盖，必须先退出；Windows 上通常可对已退出进程的文件 rename。
-    /// </summary>
-    private static string BuildApplyScript(int pid, string stagingExe, string targetExe)
-    {
-        var oldExe = targetExe + ".old";
-        var source = stagingExe.Replace("\"", "");
-        var target = targetExe.Replace("\"", "");
-        var old = oldExe.Replace("\"", "");
+    private static string BuildApplyPowerShell() => """
+param(
+  [Parameter(Mandatory=$true)][int]$WaitPid,
+  [Parameter(Mandatory=$true)][string]$Source,
+  [Parameter(Mandatory=$true)][string]$Target,
+  [Parameter(Mandatory=$true)][string]$Log
+)
+function Write-Log([string]$m) {
+  $line = "[{0}] {1}" -f (Get-Date -Format o), $m
+  Add-Content -LiteralPath $Log -Value $line -Encoding UTF8
+}
+$ErrorActionPreference = 'Stop'
+Write-Log "apply begin pid=$WaitPid"
+Write-Log "source=$Source"
+Write-Log "target=$Target"
 
-        return string.Join("\r\n",
-            "@echo off",
-            "setlocal EnableExtensions",
-            $"set \"PID={pid}\"",
-            $"set \"SOURCE={source}\"",
-            $"set \"TARGET={target}\"",
-            $"set \"OLD={old}\"",
-            "set TRY=0",
-            "",
-            "REM 等待主进程退出（释放单文件 exe 锁）",
-            $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"try {{ Wait-Process -Id {pid} -Timeout 180 -ErrorAction SilentlyContinue }} catch {{ }}\"",
-            "timeout /t 1 /nobreak >nul",
-            "",
-            ":replace",
-            "set /a TRY+=1",
-            "if exist \"%OLD%\" del /F /Q \"%OLD%\" >nul 2>&1",
-            "if exist \"%TARGET%\" (",
-            "  move /Y \"%TARGET%\" \"%OLD%\" >nul 2>&1",
-            "  if exist \"%TARGET%\" (",
-            "    if %TRY% LSS 45 (",
-            "      timeout /t 1 /nobreak >nul",
-            "      goto replace",
-            "    )",
-            "    goto fail",
-            "  )",
-            ")",
-            "",
-            "copy /Y \"%SOURCE%\" \"%TARGET%\" >nul",
-            "if errorlevel 1 goto fail",
-            "",
-            "start \"\" \"%TARGET%\"",
-            "timeout /t 2 /nobreak >nul",
-            "del /F /Q \"%OLD%\" >nul 2>&1",
-            "del /F /Q \"%SOURCE%\" >nul 2>&1",
-            "exit /b 0",
-            "",
-            ":fail",
-            "if exist \"%OLD%\" if not exist \"%TARGET%\" move /Y \"%OLD%\" \"%TARGET%\" >nul 2>&1",
-            "if exist \"%TARGET%\" start \"\" \"%TARGET%\"",
-            "exit /b 1",
-            "");
+try {
+  Wait-Process -Id $WaitPid -Timeout 180 -ErrorAction SilentlyContinue
+} catch {}
+Start-Sleep -Seconds 2
+
+if (-not (Test-Path -LiteralPath $Source)) {
+  Write-Log "FAIL source missing"
+  exit 2
+}
+
+$old = "$Target.old"
+$ok = $false
+for ($i = 1; $i -le 60; $i++) {
+  try {
+    if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $Target) {
+      Move-Item -LiteralPath $Target -Destination $old -Force
+    }
+    Copy-Item -LiteralPath $Source -Destination $Target -Force
+    $srcLen = (Get-Item -LiteralPath $Source).Length
+    $dstLen = (Get-Item -LiteralPath $Target).Length
+    if ($srcLen -ne $dstLen) { throw "size mismatch src=$srcLen dst=$dstLen" }
+    Write-Log "OK replaced size=$dstLen try=$i"
+    $ok = $true
+    break
+  } catch {
+    Write-Log "retry $i : $($_.Exception.Message)"
+    Start-Sleep -Seconds 1
+  }
+}
+
+if (-not $ok) {
+  Write-Log "FAIL replace"
+  if ((Test-Path -LiteralPath $old) -and -not (Test-Path -LiteralPath $Target)) {
+    Move-Item -LiteralPath $old -Destination $Target -Force -ErrorAction SilentlyContinue
+  }
+  if (Test-Path -LiteralPath $Target) { Start-Process -FilePath $Target }
+  exit 1
+}
+
+Start-Process -FilePath $Target
+Start-Sleep -Seconds 2
+Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
+Write-Log "done restart"
+exit 0
+""";
+
+    private static void AppendLog(string message)
+    {
+        try { File.AppendAllText(UpdateLogPath, $"[{DateTime.Now:o}] {message}\r\n"); }
+        catch { /* ignore */ }
+    }
+
+    /// <summary>解析用户真正启动的那个 exe，避开 Temp\.net 解压缓存。</summary>
+    public static string? ResolveRunningExePath()
+    {
+        var list = new List<string>();
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(Environment.ProcessPath))
+                list.Add(Environment.ProcessPath);
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var mod = Process.GetCurrentProcess().MainModule?.FileName;
+            if (!string.IsNullOrWhiteSpace(mod))
+                list.Add(mod);
+        }
+        catch { /* ignore */ }
+
+        foreach (var raw in list)
+        {
+            try
+            {
+                var full = Path.GetFullPath(raw);
+                if (!full.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!File.Exists(full)) continue;
+                if (IsDotNetExtractPath(full)) continue;
+                return full;
+            }
+            catch { /* ignore */ }
+        }
+
+        return null;
+    }
+
+    private static bool IsDotNetExtractPath(string path)
+    {
+        var p = path.Replace('/', '\\');
+        return p.Contains(@"\Temp\.net\", StringComparison.OrdinalIgnoreCase)
+               || p.Contains(@"\AppData\Local\Temp\.net\", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsProcessElevated()
+    {
+        try
+        {
+            using var id = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(id);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static Version? TryReadExeVersion(string path)
+    {
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(path);
+            return ParseVersion(info.FileVersion)
+                   ?? ParseVersion(info.ProductVersion)
+                   ?? (info.FileMajorPart > 0
+                       ? new Version(info.FileMajorPart, info.FileMinorPart, info.FileBuildPart, info.FilePrivatePart)
+                       : null);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static async Task DownloadFileAsync(
@@ -252,7 +391,7 @@ public sealed class GitHubUpdateService
             readTotal += read;
 
             var now = DateTime.UtcNow;
-            if ((now - lastReport).TotalMilliseconds < 80 && readTotal < total)
+            if ((now - lastReport).TotalMilliseconds < 80 && total > 0 && readTotal < total)
                 continue;
             lastReport = now;
 
@@ -320,7 +459,10 @@ public sealed class GitHubUpdateService
         return n is "flyscreen.exe";
     }
 
-    private static Version? ParseVersion(string tag)
+    private static int Compare(Version a, Version b)
+        => Normalize(a).CompareTo(Normalize(b));
+
+    private static Version? ParseVersion(string? tag)
     {
         if (string.IsNullOrWhiteSpace(tag)) return null;
         var m = Regex.Match(tag, @"\d+(\.\d+){1,3}");
@@ -334,12 +476,10 @@ public sealed class GitHubUpdateService
 
 public sealed class UpdateDownloadProgress
 {
-    /// <summary>0–100；未知大小时为 -1（界面可走不确定进度）。</summary>
     public double Percent { get; init; }
     public long BytesReceived { get; init; }
     public long TotalBytes { get; init; } = -1;
     public string Message { get; init; } = "";
-
     public bool IsIndeterminate => Percent < 0;
 
     public static UpdateDownloadProgress Indeterminate(string message) => new()
