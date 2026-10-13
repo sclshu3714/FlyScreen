@@ -20,6 +20,8 @@ public sealed class InputRouter : IDisposable
     private bool _controllingRemote;
     /// <summary>正在被其它电脑远程操控（光标由对端注入）。</summary>
     private bool _receivingRemoteControl;
+    /// <summary>光标焦点是否在本机（本机操作或被远程操控本机）。</summary>
+    private bool _focusOnLocal = true;
     private string? _activePeer;
     private int _lastX;
     private int _lastY;
@@ -35,6 +37,8 @@ public sealed class InputRouter : IDisposable
 
     public bool EasyMouseEnabled { get; set; } = true;
     public bool IsControllingRemote => _controllingRemote;
+    /// <summary>光标是否在本机（用于剪贴板文件异步预取，勿在钩子里做重活）。</summary>
+    public bool IsFocusOnLocalMachine => _focusOnLocal;
     public string? ActivePeer => _activePeer;
 
     public event Action<string?>? ControlTargetChanged;
@@ -73,6 +77,7 @@ public sealed class InputRouter : IDisposable
         var side = _peerSide;
         _controllingRemote = false;
         _receivingRemoteControl = false;
+        _focusOnLocal = true;
         _activePeer = null;
         _peerSide = 0;
         ArmSwitchCooldown();
@@ -120,6 +125,7 @@ public sealed class InputRouter : IDisposable
         _activePeer = null;
         _peerSide = 0;
         _receivingRemoteControl = true;
+        _focusOnLocal = true;
         ArmSwitchCooldown();
         BecomeCursorOwner(broadcast: false); // 发送方已广播 Owner=本机
         InputInjector.MoveAbsoluteNormalized(entryX, entryY);
@@ -140,6 +146,7 @@ public sealed class InputRouter : IDisposable
 
         // 其它电脑正在操作：隐藏本机光标，并放下对远端的控制
         HideLocalCursor();
+        _focusOnLocal = false;
         if (_controllingRemote)
         {
             _controllingRemote = false;
@@ -156,6 +163,7 @@ public sealed class InputRouter : IDisposable
         if (!_connections.IsPeerReachable(peer)) return;
         _controllingRemote = true;
         _receivingRemoteControl = false;
+        _focusOnLocal = false;
         _activePeer = peer;
         // 入口略向内收，避免刚进入就因抖动从同一边甩回去
         _virtualNx = Math.Clamp(entryX, 0.02, 0.98);

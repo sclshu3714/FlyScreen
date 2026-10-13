@@ -35,10 +35,22 @@ public sealed class AppHost : IAsyncDisposable
         Connections.MessageReceived += OnPeerMessage;
         Connections.PeerLinkChanged += OnPeerLinkChangedForLayout;
 
-        // 鼠标回到本机 / 离开远端时，才把待粘贴登记到本机剪贴板（仍不拉文件）
+        // 鼠标回到本机：后台异步预取远程剪贴板（文件收完后再可粘贴，不堵键鼠）
         Input.ControlTargetChanged += peer =>
         {
             if (peer == null)
+                Clipboard.ArmRemoteClipboardForPaste();
+        };
+
+        // 焦点已在本机时对端才复制：立即开始预取
+        Transfers.RemoteFilesAnnounced += () =>
+        {
+            if (Input.IsFocusOnLocalMachine)
+                Clipboard.ArmRemoteClipboardForPaste();
+        };
+        Transfers.RemoteInlineAnnounced += () =>
+        {
+            if (Input.IsFocusOnLocalMachine)
                 Clipboard.ArmRemoteClipboardForPaste();
         };
     }
@@ -70,8 +82,7 @@ public sealed class AppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
-                // 对端鼠标进入本机：作为粘贴目标，登记剪贴板（不拉文件）
-                Clipboard.ArmRemoteClipboardForPaste();
+                // 键鼠注入优先，不在此路径做剪贴板/磁盘 I/O（避免卡鼠标）
                 if (p.Relative) InputInjector.MoveRelative(p.Dx, p.Dy);
                 else InputInjector.MoveAbsoluteNormalized(p.Nx, p.Ny);
                 break;
@@ -80,7 +91,6 @@ public sealed class AppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p == null) return;
-                Clipboard.ArmRemoteClipboardForPaste();
                 InputInjector.MouseButton(p);
                 break;
             }
@@ -88,7 +98,6 @@ public sealed class AppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p == null) return;
-                Clipboard.ArmRemoteClipboardForPaste();
                 InputInjector.MouseWheel(p);
                 break;
             }
@@ -96,8 +105,6 @@ public sealed class AppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
-                // 远端键入（含 Ctrl+V）到达本机时再启用待粘贴
-                Clipboard.ArmRemoteClipboardForPaste();
                 InputInjector.Key(p);
                 break;
             }
@@ -107,9 +114,8 @@ public sealed class AppHost : IAsyncDisposable
                 if (p == null) return;
                 if (string.Equals(p.TargetMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
                 {
-                    // 对端鼠标进入本机：本机显示光标并接受远程操控
+                    // 对端鼠标进入本机：显示光标；剪贴板预取由 ControlTargetChanged 异步触发
                     Input.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
-                    Clipboard.ArmRemoteClipboardForPaste();
                 }
                 break;
             }
