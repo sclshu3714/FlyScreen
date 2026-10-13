@@ -9,19 +9,30 @@ public static class InputInjector
 
     public static bool IsInjected(IntPtr extraInfo) => extraInfo == InjectMarker;
 
+    public const uint LLKHF_INJECTED = 0x00000010;
+
+    public static bool IsInjectedMouse(uint flags, IntPtr extraInfo)
+        => extraInfo == InjectMarker
+           || (flags & (NativeMethods.LLMHF_INJECTED | NativeMethods.LLMHF_LOWER_IL_INJECTED)) != 0;
+
+    public static bool IsInjectedKey(uint flags, IntPtr extraInfo)
+        => extraInfo == InjectMarker
+           || (flags & LLKHF_INJECTED) != 0;
+
     public static void MoveAbsoluteNormalized(double nx, double ny)
     {
-        var vx = NativeMethods.GetSystemMetrics(NativeMethods.SM_XVIRTUALSCREEN);
-        var vy = NativeMethods.GetSystemMetrics(NativeMethods.SM_YVIRTUALSCREEN);
         var vw = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN);
         var vh = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN);
         if (vw <= 0 || vh <= 0) return;
 
         nx = Math.Clamp(nx, 0, 1);
         ny = Math.Clamp(ny, 0, 1);
-        var x = vx + (int)Math.Round(nx * (vw - 1));
-        var y = vy + (int)Math.Round(ny * (vh - 1));
-        NativeMethods.SetCursorPos(x, y);
+        // 0..65535 映射到整个虚拟桌面，并带注入标记，便于钩子区分物理鼠标
+        var absX = (int)Math.Round(nx * 65535);
+        var absY = (int)Math.Round(ny * 65535);
+        SendMouse(
+            NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_VIRTUALDESK,
+            absX, absY, 0);
     }
 
     public static void MoveRelative(int dx, int dy)

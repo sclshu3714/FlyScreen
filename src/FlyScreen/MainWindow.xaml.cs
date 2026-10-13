@@ -209,7 +209,11 @@ public partial class MainWindow : Window
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
         s.AutoStart = AutoStartCheck.IsChecked == true;
         if (!AutoStartHelper.SetEnabled(s.AutoStart))
-            StatusText.Text = s.AutoStart ? "开机自启写入失败，请检查权限" : "关闭开机自启失败";
+            StatusText.Text = s.AutoStart
+                ? "开机自启设置失败（需管理员权限创建计划任务）"
+                : "关闭开机自启失败";
+        else if (s.AutoStart)
+            StatusText.Text = "已启用开机自启（登录后约 15 秒以管理员启动）";
         s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
         s.HotkeySettings = HkSettings.Text.Trim();
         s.HotkeyReconnect = HkReconnect.Text.Trim();
@@ -363,9 +367,11 @@ public partial class MainWindow : Window
         {
             var info = System.Windows.Application.GetResourceStream(AppIconUri);
             if (info?.Stream == null) return null;
-            // NotifyIcon 需要独立副本，流关闭后图标仍可用
+            // 托盘优先取 16/32 清晰尺寸；NotifyIcon 需要独立副本
             using var stream = info.Stream;
-            using var temp = new System.Drawing.Icon(stream);
+            var size = System.Windows.Forms.SystemInformation.SmallIconSize;
+            var wh = Math.Clamp(Math.Max(size.Width, size.Height), 16, 32);
+            using var temp = new System.Drawing.Icon(stream, wh, wh);
             return (System.Drawing.Icon)temp.Clone();
         }
         catch
