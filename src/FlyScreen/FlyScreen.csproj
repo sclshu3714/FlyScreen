@@ -11,19 +11,70 @@
     <AssemblyName>FlyScreen</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\wlogo_tu.ico</ApplicationIcon>
-    <Version>1.0.1</Version>
+    <!--
+      版本 = 最新 Git tag（vX.Y.Z）的 patch+1，与提交次数无关。
+      例：最新 tag v1.0.1 → 构建版本始终 1.0.2；打上 v1.0.2 后 → 始终 1.0.3。
+      可覆盖：dotnet build -p:Version=1.1.0
+    -->
+    <Version Condition="'$(Version)' == ''">1.0.0</Version>
     <Product>玄鸟</Product>
     <Authors>sclshu3714</Authors>
     <Company>玄鸟</Company>
     <Copyright>Copyright © 2026</Copyright>
     <Description>玄鸟 — 跨电脑键鼠与剪贴板共享（灵感来源 Mouse without Borders，中文增强版）</Description>
-    <!-- 带 RID 发布时默认自包含，避免只装了 .NET Runtime、缺少 Desktop/WPF 时闪退 -->
     <SelfContained Condition="'$(RuntimeIdentifier)' != '' and '$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 供 WPF 窗体 / 托盘以 pack URI 加载 -->
     <Resource Include="Assets\wlogo_tu.ico" />
   </ItemGroup>
+
+  <!-- 从 Git 最新 v* 标签推算下一版本（不随 commit 增高） -->
+  <Target Name="ResolveVersionFromGitTag"
+          BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild"
+          Condition="'$(IgnoreGitVersion)' != 'true'">
+    <Exec Command="git tag -l v*.*.* --sort=-v:refname"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="Low"
+          WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" ItemName="_GitTagLines" />
+    </Exec>
+
+    <PropertyGroup>
+      <_LatestTagRaw>@(_GitTagLines->'%(Identity)', '|')</_LatestTagRaw>
+      <!-- 取第一行标签 -->
+      <_LatestTag>$([System.Text.RegularExpressions.Regex]::Match($(_LatestTagRaw), 'v\d+\.\d+\.\d+').Value)</_LatestTag>
+    </PropertyGroup>
+
+    <!-- 无标签时保持 Version 默认；有标签则 patch+1 -->
+    <PropertyGroup Condition="'$(_LatestTag)' != ''">
+      <_TagBody>$(_LatestTag.Substring(1))</_TagBody>
+      <_TagMajor>$([System.Version]::Parse($(_TagBody)).Major)</_TagMajor>
+      <_TagMinor>$([System.Version]::Parse($(_TagBody)).Minor)</_TagMinor>
+      <_TagPatch>$([System.Version]::Parse($(_TagBody)).Build)</_TagPatch>
+      <!-- Build 在 Version 里是第三段；若 tag 写成 1.0.1，Build=1 -->
+      <_NextPatch>$([MSBuild]::Add($(_TagPatch), 1))</_NextPatch>
+      <Version>$(_TagMajor).$(_TagMinor).$(_NextPatch)</Version>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <AssemblyVersion>$(Version).0</AssemblyVersion>
+      <FileVersion>$(Version).0</FileVersion>
+      <InformationalVersion>$(Version)</InformationalVersion>
+    </PropertyGroup>
+
+    <Message Importance="High"
+             Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（提交不改变此版本）" />
+  </Target>
+
+  <Target Name="WritePublishVersion" AfterTargets="Publish">
+    <PropertyGroup>
+      <_VerOutDir Condition="'$(PublishDir)' != ''">$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_VerOutDir>
+      <_VerOutDir Condition="'$(PublishDir)' == ''">$(OutputPath)</_VerOutDir>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_VerOutDir)version.txt" Lines="$(Version)" Overwrite="true" Encoding="UTF-8" />
+    <Message Importance="High" Text="玄鸟 Version=$(Version)。发版：上传本 exe 到 GitHub Release，并打 tag v$(Version)" />
+  </Target>
 
 </Project>
