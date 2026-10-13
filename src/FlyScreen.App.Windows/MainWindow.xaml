@@ -739,7 +739,7 @@
                 <CheckBox x:Name="TransferFileCheck" Content="启用文件传输" Margin="20,4,0,4"
                           ToolTip="允许通过剪贴板按需传输文件，以及「文件传输」页的直接推送。关闭后仍可共享文本/图片剪贴板。"/>
                 <CheckBox x:Name="HideMouseCheck" Content="控制远端时隐藏本机边缘光标"
-                          ToolTip="只显示当前操作电脑的光标；进入远端时隐藏本机光标。本机物理鼠标活动时立即显示本机并隐藏其它电脑光标。"/>
+                          ToolTip="进入远端时隐藏本机光标（本机光标仍会钉在屏幕中部以采集位移）。关闭后本机中部仍可见光标，不影响跨机移动。"/>
                 <CheckBox x:Name="DrawCursorCheck" Content="绘制鼠标光标（预留）"
                           ToolTip="预留选项：在远端屏幕上绘制虚拟光标。当前版本尚未启用实际绘制逻辑。"/>
                 <CheckBox x:Name="SameSubnetCheck" Content="仅同网段连接"
