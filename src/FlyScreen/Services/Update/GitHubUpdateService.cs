@@ -4,14 +4,15 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace FlyScreen.Services.Update;
 
 /// <summary>
-/// 通过 GitHub Releases 检查 / 下载 / 替换当前程序（适配单文件 exe）。
-/// 仓库：sclshu3714/FlyScreen
+/// 通过 GitHub Releases 检查 / 下载 / 替换当前程序（适配单文件自包含 exe）。
+/// 流程：下载到临时目录 → 写外部脚本 → 退出本进程释放文件锁 → 脚本等待 PID 结束后改名替换并重启。
 /// </summary>
 public sealed class GitHubUpdateService
 {
@@ -24,7 +25,7 @@ public sealed class GitHubUpdateService
 
     private static HttpClient CreateClient()
     {
-        var c = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        var c = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
         c.DefaultRequestHeaders.UserAgent.ParseAdd("XuanNiao-FlyScreen-Updater");
         c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return c;
@@ -44,9 +45,7 @@ public sealed class GitHubUpdateService
         {
             using var resp = await Http.GetAsync(LatestApiUrl, ct).ConfigureAwait(false);
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
                 return UpdateCheckResult.Fail("GitHub 上尚无 Release。请访问：\n" + ReleasesUrl);
-            }
 
             resp.EnsureSuccessStatusCode();
             await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -107,11 +106,11 @@ public sealed class GitHubUpdateService
     }
 
     /// <summary>
-    /// 下载最新 Release 资源并替换当前 exe，成功后退出进程由脚本拉起新版本。
+    /// 下载并准备替换；成功后返回 ShouldExit=true，调用方须退出进程以便脚本覆盖单文件 exe。
     /// </summary>
     public async Task<UpdateApplyResult> DownloadAndApplyAsync(
         UpdateCheckResult check,
-        IProgress<double>? progress = null,
+        IProgress<UpdateDownloadProgress>? progress = null,
         CancellationToken ct = default)
     {
         if (!check.Success || !check.UpdateAvailable)
@@ -123,16 +122,20 @@ public sealed class GitHubUpdateService
         if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
             return UpdateApplyResult.Fail("无法定位当前程序路径。");
 
+        // 单文件发布时 ProcessPath 即为用户启动的那个 exe
+        currentExe = Path.GetFullPath(currentExe);
+
         var tempDir = Path.Combine(Path.GetTempPath(), "XuanNiaoUpdate_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
 
         try
         {
             var assetName = string.IsNullOrWhiteSpace(check.AssetName) ? "update.bin" : check.AssetName;
-            var downloadPath = Path.Combine(tempDir, assetName);
+            var downloadPath = Path.Combine(tempDir, SanitizeFileName(assetName));
 
             await DownloadFileAsync(check.AssetDownloadUrl!, downloadPath, progress, ct).ConfigureAwait(false);
 
+            progress?.Report(UpdateDownloadProgress.Indeterminate("正在解压/准备安装包…"));
             var newExe = ResolveExeFromDownload(downloadPath, tempDir);
             if (newExe == null)
                 return UpdateApplyResult.Fail("下载包中未找到可执行文件（.exe）。");
@@ -141,32 +144,24 @@ public sealed class GitHubUpdateService
             File.Copy(newExe, stagingExe, overwrite: true);
 
             var bat = Path.Combine(tempDir, "apply-update.bat");
-            var pid = Environment.ProcessId;
-            await File.WriteAllTextAsync(bat,
-                "@echo off\r\n" +
-                "setlocal\r\n" +
-                $":wait\r\n" +
-                $"timeout /t 1 /nobreak >nul\r\n" +
-                $"tasklist /FI \"PID eq {pid}\" | find \"{pid}\" >nul\r\n" +
-                "if not errorlevel 1 goto wait\r\n" +
-                $"copy /Y \"{stagingExe}\" \"{currentExe}\"\r\n" +
-                $"if errorlevel 1 (\r\n" +
-                $"  ping 127.0.0.1 -n 2 >nul\r\n" +
-                $"  copy /Y \"{stagingExe}\" \"{currentExe}\"\r\n" +
-                $")\r\n" +
-                $"start \"\" \"{currentExe}\"\r\n" +
-                $"rd /s /q \"{tempDir}\"\r\n",
-                ct).ConfigureAwait(false);
+            await File.WriteAllTextAsync(bat, BuildApplyScript(Environment.ProcessId, stagingExe, currentExe),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct).ConfigureAwait(false);
 
-            Process.Start(new ProcessStartInfo
+            progress?.Report(UpdateDownloadProgress.Complete("即将退出并安装，请稍候…"));
+
+            var started = Process.Start(new ProcessStartInfo
             {
                 FileName = bat,
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = tempDir
+                WorkingDirectory = tempDir,
+                CreateNoWindow = true
             });
 
-            return UpdateApplyResult.Ok("正在安装更新并重启…");
+            if (started == null)
+                return UpdateApplyResult.Fail("无法启动更新脚本。");
+
+            return UpdateApplyResult.Ok("正在关闭程序并替换文件，随后自动重启…");
         }
         catch (Exception ex)
         {
@@ -175,26 +170,124 @@ public sealed class GitHubUpdateService
         }
     }
 
+    /// <summary>
+    /// 外部 bat：等待本进程退出 → 将旧 exe 改名为 .old → 拷入新 exe → 启动 → 清理。
+    /// 单文件 exe 运行中无法直接覆盖，必须先退出；Windows 上通常可对已退出进程的文件 rename。
+    /// </summary>
+    private static string BuildApplyScript(int pid, string stagingExe, string targetExe)
+    {
+        var oldExe = targetExe + ".old";
+        var source = stagingExe.Replace("\"", "");
+        var target = targetExe.Replace("\"", "");
+        var old = oldExe.Replace("\"", "");
+
+        return string.Join("\r\n",
+            "@echo off",
+            "setlocal EnableExtensions",
+            $"set \"PID={pid}\"",
+            $"set \"SOURCE={source}\"",
+            $"set \"TARGET={target}\"",
+            $"set \"OLD={old}\"",
+            "set TRY=0",
+            "",
+            "REM 等待主进程退出（释放单文件 exe 锁）",
+            $"powershell -NoProfile -ExecutionPolicy Bypass -Command \"try {{ Wait-Process -Id {pid} -Timeout 180 -ErrorAction SilentlyContinue }} catch {{ }}\"",
+            "timeout /t 1 /nobreak >nul",
+            "",
+            ":replace",
+            "set /a TRY+=1",
+            "if exist \"%OLD%\" del /F /Q \"%OLD%\" >nul 2>&1",
+            "if exist \"%TARGET%\" (",
+            "  move /Y \"%TARGET%\" \"%OLD%\" >nul 2>&1",
+            "  if exist \"%TARGET%\" (",
+            "    if %TRY% LSS 45 (",
+            "      timeout /t 1 /nobreak >nul",
+            "      goto replace",
+            "    )",
+            "    goto fail",
+            "  )",
+            ")",
+            "",
+            "copy /Y \"%SOURCE%\" \"%TARGET%\" >nul",
+            "if errorlevel 1 goto fail",
+            "",
+            "start \"\" \"%TARGET%\"",
+            "timeout /t 2 /nobreak >nul",
+            "del /F /Q \"%OLD%\" >nul 2>&1",
+            "del /F /Q \"%SOURCE%\" >nul 2>&1",
+            "exit /b 0",
+            "",
+            ":fail",
+            "if exist \"%OLD%\" if not exist \"%TARGET%\" move /Y \"%OLD%\" \"%TARGET%\" >nul 2>&1",
+            "if exist \"%TARGET%\" start \"\" \"%TARGET%\"",
+            "exit /b 1",
+            "");
+    }
+
     private static async Task DownloadFileAsync(
-        string url, string path, IProgress<double>? progress, CancellationToken ct)
+        string url, string path, IProgress<UpdateDownloadProgress>? progress, CancellationToken ct)
     {
         using var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         var total = resp.Content.Headers.ContentLength ?? -1L;
         await using var input = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await using var output = File.Create(path);
-        var buffer = new byte[82 * 1024];
+
+        var buffer = new byte[128 * 1024];
         long readTotal = 0;
         int read;
+        var lastReport = DateTime.UtcNow;
+
+        progress?.Report(new UpdateDownloadProgress
+        {
+            Percent = 0,
+            BytesReceived = 0,
+            TotalBytes = total,
+            Message = total > 0 ? "正在下载更新…" : "正在下载更新（大小未知）…"
+        });
+
         while ((read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false)) > 0)
         {
             await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
             readTotal += read;
-            if (total > 0)
-                progress?.Report(readTotal * 100.0 / total);
+
+            var now = DateTime.UtcNow;
+            if ((now - lastReport).TotalMilliseconds < 80 && readTotal < total)
+                continue;
+            lastReport = now;
+
+            progress?.Report(new UpdateDownloadProgress
+            {
+                Percent = total > 0 ? Math.Min(99.9, readTotal * 100.0 / total) : -1,
+                BytesReceived = readTotal,
+                TotalBytes = total,
+                Message = total > 0
+                    ? $"正在下载更新… {readTotal * 100.0 / total:0}%（{FormatBytes(readTotal)} / {FormatBytes(total)}）"
+                    : $"正在下载更新… {FormatBytes(readTotal)}"
+            });
         }
 
-        progress?.Report(100);
+        progress?.Report(new UpdateDownloadProgress
+        {
+            Percent = 100,
+            BytesReceived = readTotal,
+            TotalBytes = total > 0 ? total : readTotal,
+            Message = "下载完成，正在准备安装…"
+        });
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
+        return $"{bytes / (1024.0 * 1024.0):0.0} MB";
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return string.IsNullOrWhiteSpace(name) ? "update.bin" : name;
     }
 
     private static string? ResolveExeFromDownload(string downloadPath, string tempDir)
@@ -237,6 +330,29 @@ public sealed class GitHubUpdateService
 
     private static Version Normalize(Version v)
         => new(v.Major, v.Minor, Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
+}
+
+public sealed class UpdateDownloadProgress
+{
+    /// <summary>0–100；未知大小时为 -1（界面可走不确定进度）。</summary>
+    public double Percent { get; init; }
+    public long BytesReceived { get; init; }
+    public long TotalBytes { get; init; } = -1;
+    public string Message { get; init; } = "";
+
+    public bool IsIndeterminate => Percent < 0;
+
+    public static UpdateDownloadProgress Indeterminate(string message) => new()
+    {
+        Percent = -1,
+        Message = message
+    };
+
+    public static UpdateDownloadProgress Complete(string message) => new()
+    {
+        Percent = 100,
+        Message = message
+    };
 }
 
 public sealed class UpdateCheckResult
