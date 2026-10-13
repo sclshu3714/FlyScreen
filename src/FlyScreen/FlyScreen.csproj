@@ -12,8 +12,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\wlogo_tu.ico</ApplicationIcon>
     <Version>1.0.0</Version>
-    <Product>飞鼠</Product>
-    <Description>跨电脑键鼠与剪贴板共享（仿 Mouse without Borders，中文增强版）</Description>
+    <Product>玄鸟</Product>
+    <Authors>sclshu3714</Authors>
+    <Company>玄鸟</Company>
+    <Copyright>Copyright © 2026</Copyright>
+    <Description>玄鸟 — 跨电脑键鼠与剪贴板共享（仿 Mouse without Borders，中文增强版）</Description>
   </PropertyGroup>
 
   <ItemGroup>
