@@ -135,12 +135,28 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 - Android 正式上架签名 / Mac 公证（notarize）需另行配置；本脚本产出供内测分发。  
 - Avalonia Mac 正式桌面包仍见 [build-macos.md](build-macos.md)（Rid：`osx-arm64` / `osx-x64`）。
 
+## UI 信息架构（对齐 WPF / Avalonia）
+
+侧栏七页（彩色 Path 图标 + 文案，与 `App.Windows` / `App.Desktop` 一致）：
+
+| 页 | 内容要点 |
+|----|----------|
+| 基础 | 电脑布局（1×4 / 2×2）、槽位 |
+| 网络 | 网卡、发现、端口等 |
+| 共享 | 文件传输 / 直传 / 收件箱 |
+| 安全 | **安全密钥**（已从基础页迁出） |
+| 高级 | 选项、热键、主题等 |
+| 关于 | 版本与说明（页内，非对话框） |
+| 帮助 | 工具栏：帮助文本 / 检查更新 / 问题检查；日志区 |
+
+**窄屏 / 手机（非触控板专用 Phone 入口）：** 顶栏汉堡 + 抽屉侧栏；主区全宽，避免挤压。侧栏用底层 `Button` 命中 + 上层 Path/Label 展示，保证 Android 可点。
+
 ## 架构要点
 
 - `MauiAppHost`：连接、布局同步、`FileTransferService`、对端键鼠消息分发。
 - `IMauiPlatformServices`：Windows / Android 分别实现；Mac Catalyst 暂用 `NullMauiPlatformServices`。
 - Windows 适配位于 `Platforms/Windows/`；Android 位于 `Platforms/Android/`；Mac Catalyst 入口位于 `Platforms/MacCatalyst/`。
-- Phone：`App` 启动 `PhoneTouchpadPage`；桌面启动 `AppShell`→`MainPage`。
+- Phone：`App` 启动 `PhoneTouchpadPage`；桌面 / 平板启动 `AppShell`→`MainPage`。
 
 ## CI
 

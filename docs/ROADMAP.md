@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.0 |
+| 文档版本 | 1.2 |
 | 状态 | 生效 |
 | 原则 | 协议先行、能力协商、平台隔离、**Windows 主干零回退** |
 
@@ -350,21 +350,23 @@ src/
 - 各 Desktop 文件传输能力对齐；移动端有限被控。
 - **仅当**新 Win UI 通过与 WPF 同等回归后，才切换 stable 默认包。
 
+**进度（UI 壳）：** 侧栏彩色 Path 图标 + 七页导航（基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）已与 WPF 对齐；密钥在安全页；关于/帮助为页内内容（非独立窗）。键鼠主路径仍见 W1/W2。
+
 ---
 
 ### 6.7 阶段 W7 — .NET MAUI 跨平台 UI（v2.1）
 
 **周期：** 6–10 周 · **版本：** 2.1.x  
 **工程：** `FlyScreen.App.Maui`（引用 `FlyScreen.Core`）  
-**TFM：** 默认 `net10.0-windows*`；Android 经 `FlyScreenEnableMauiAndroid=true` 开启（需本机 MSVC + Android SDK）  
-**进度：** 双轨 beta 能力接线 — Win DesktopFull 适配 + Android 触控板/剪贴板/直传；**不改** `App.Windows`。说明：[runbooks/build-maui.md](runbooks/build-maui.md)。
+**TFM：** 默认含 android/ios/maccatalyst；Windows 主机自动追加 `net10.0-windows*`  
+**进度：** 双轨 beta 能力接线（Win DesktopFull + Android 触控板/剪贴板/直传）+ **UI 与 Win 同构**。说明：[runbooks/build-maui.md](runbooks/build-maui.md)。
 
 #### 目标
 
 | 项 | 说明 |
 |----|------|
 | 单一 UI 工程 | Windows / Android / Mac Catalyst（可选 TFM）；发布见 `build/Publish-FlyScreenMaui.ps1` |
-| 用户体验 | 侧栏 + 顶栏 Tab + 安全密钥 / 电脑布局 / 网络发现 / 高级选项，与 Win **同一信息架构** |
+| 用户体验 | 侧栏七页 + Path 彩标；安全密钥 / 电脑布局 / 网络 / 共享 / 高级 / 关于 / 帮助，与 Win **同一信息架构**；窄屏抽屉导航 |
 | 业务 | 经 Core + `Platforms/Windows|Android` 适配；**禁止**引用 `App.Windows` |
 | 分发 | 独立包 / `beta` 通道；**禁止**默认替换 WPF stable |
 
@@ -372,15 +374,16 @@ src/
 
 1. ~~新建 `FlyScreen.App.Maui`，配色与导航对齐 Win。~~ ✅
 2. ~~`MauiAppHost`：设置、发现、布局、FileTransfer、消息分发。~~ ✅
-3. ~~Windows：钩子/注入/托盘/自启/文本剪贴板（对照移植，不改 WPF）。~~ ✅
+3. ~~Windows：钩子/注入/托盘/自启/文本剪贴板（对照移植，不耦合 WPF 工程）。~~ ✅
 4. ~~Android：触控板 AbsPointer + 文本剪贴板 + 直传；Phone 启动分流。~~ ✅
-5. ⏳ Windows / Android 与 WPF 真机交叉联调；图标/启动图；文件剪贴板 OLE 体验打磨  
+5. ~~侧栏 Path 彩标、安全/关于/帮助页、窄屏抽屉与 Android 侧栏可点。~~ ✅
+6. ⏳ Windows / Android 与 WPF 真机交叉联调；图标/启动图；文件剪贴板 OLE 体验打磨  
 
 #### 不做
 
 - 删除或停更 WPF / Avalonia 工程。  
-- 为迁就 MAUI 改 Win 钩子语义或破坏 Caps 兼容。  
-- 修改 `FlyScreen.App.Windows` 源码。  
+- 为迁就 MAUI 改 Win **钩子/Caps 语义**或破坏兼容。  
+- 让 MAUI **依赖** `FlyScreen.App.Windows` 实现细节（WPF 自身 UI 改进可并行，不经本工程引用）。  
 
 #### 不影响 Win
 
@@ -390,8 +393,8 @@ src/
 #### 验收
 
 - Windows 目标：可编译运行；密钥/槽位/发现/应用后与 Win 端握手成功。  
-- Android 目标：可安装；发现与连接状态可见。  
-- UI 分区与 Win 文案一致（基础 / 网络 / 共享 / 高级）。  
+- Android 目标：可安装；发现与连接状态可见；窄屏侧栏可切换页面。  
+- UI 分区与 Win 一致：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助。  
 
 ---
 
@@ -455,3 +458,4 @@ src/
 | 2026-10-13 | 1.0 | 首版：多端路线图与 Win 零回退门禁 |
 | 2026-10-14 | 1.1 | 增补 W7：.NET MAUI 跨平台 UI（`FlyScreen.App.Maui`） |
 | 2026-10-14 | 1.1.1 | W7 TFM 对齐 net10 + 补装 macos workload，消除 MSB4019 AutoImport |
+| 2026-10-15 | 1.2 | 三端 UI 同构：七页导航、安全页密钥、关于/帮助页内化、Path 侧栏；W6/W7 进度与验收更新 |
