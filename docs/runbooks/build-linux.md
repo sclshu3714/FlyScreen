@@ -9,7 +9,7 @@
 | `FlyScreen.App.Linux` | 单一入口：自动选择 GUI 或 CLI/Daemon |
 | `FlyScreen.App.Desktop` | Avalonia 共用主界面类库（供 Mac/Linux 引用与 publish） |
 
-**不引用** Windows / Mac 工程。GUI 布局/文案与 Windows「基础 / 网络 / 共享 / 高级」一致。
+**不引用** Windows / Mac 工程。GUI 由 `App.Desktop` 提供，布局/文案与 Windows 七页一致：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助（侧栏彩色 Path 图标；密钥在安全页）。
 
 ## 启动模式
 

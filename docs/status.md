@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |----|------|
 | 基准 | **Windows Desktop**（`FlyScreen.App.Windows`，stable 唯一交付） |
-| 统计日 | 2026-10-14 |
+| 统计日 | 2026-10-15 |
 | 图例 | **完整** = 与 Win 对标可用 · **骨架** = 工程/协议已通、主路径未齐 · **占位** = API/UI 有入口未落地 · **—** = 非本阶段目标 · **❌** = 明确不做 |
 
 相对完成度按「对标 Win 的必达能力」粗算，仅供排期，非精确工时。
@@ -23,8 +23,8 @@
 | Android TV | W4 | — | **0%** | 未开工 |
 | 鸿蒙手机/平板 | W5a | `mobile/harmony/phone` | **~30%** | ArkTS 触控板壳 + 共享连接层；剪贴板/文件未做 |
 | 鸿蒙电脑 | W5b | `mobile/harmony/desktop` | **~20%** | 设置/槽位壳 + Caps；无注入/捕获/布局同步 |
-| 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~40%** | Mac/Linux 已共用对齐 Win 的壳 |
-| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~70%** | 双轨 beta：Win DesktopFull 适配（钩子/注入/托盘/剪贴板/直传）；Android 触控板+文本剪贴板+直传；**不改 WPF** |
+| 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~60%** | Mac/Linux 共用壳；侧栏 Path 彩标 + 七页导航已与 Win 对齐 |
+| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~75%** | 双轨 beta：Win DesktopFull + Android 触控板/剪贴板/直传；UI 信息架构与 Win 对齐（含窄屏抽屉） |
 
 ---
 
@@ -83,8 +83,9 @@
 | Win stable 回归门禁文档 | ✅ 含 Caps / 旧新交叉项（H 节） |
 | Mac/Linux/Android/鸿蒙/MAUI 构建 runbook | ✅ |
 | Android TV（W4） | ❌ 未开始 |
-| Avalonia 统一桌面（W6） | 骨架（Mac/Linux 共用 `App.Desktop`） |
-| MAUI 跨平台 UI（W7） | 骨架（`App.Maui` + `MauiAppHost`） |
+| Avalonia 统一桌面（W6） | 推进中（`App.Desktop`：七页导航 + Path 彩标侧栏；键鼠主路径仍骨架） |
+| MAUI 跨平台 UI（W7） | 推进中（`App.Maui` + `MauiAppHost`；UI 与 Win 同构，能力接线见上表） |
+| 三端 UI 信息架构 | ✅ Win / Desktop / MAUI：基础·网络·共享·安全·高级·关于·帮助；密钥在安全页；关于/帮助为页非对话框 |
 
 ---
 
@@ -99,8 +100,8 @@
 | W4 | Android TV | **0%** | — |
 | W5a | 鸿蒙手机/平板 | **~30%** | 对标 W3 骨架级 |
 | W5b | 鸿蒙电脑 | **~20%** | 壳 + 降级 Caps；无桌面键鼠 |
-| W6 | Avalonia 统一桌面 UI | **~55%** | Mac/Linux 共用壳 + 直传窗/传输列表；Win 仍 WPF |
-| W7 | MAUI 跨平台 UI | **~70%** | Win/Android 能力接线完成；真机联调与文件剪贴板 OLE 仍待打磨 |
+| W6 | Avalonia 统一桌面 UI | **~60%** | 共用壳 + 直传/传输列表；侧栏与七页已对齐 Win；键鼠主路径未齐 |
+| W7 | MAUI 跨平台 UI | **~75%** | Win/Android 能力接线 + UI 同构（Path 侧栏、窄屏抽屉）；真机联调与 OLE 仍待打磨 |
 
 ---
 
@@ -123,4 +124,5 @@
 | 2026-10-14 | W0 收口 100%：Caps 协商门控 + Core.Tests |
 | 2026-10-14 | 增补 W7 MAUI 跨平台 UI 骨架与文档 |
 | 2026-10-14 | 传输核心抽到 Core；Mac/Linux 桌面文本剪贴板+直传；Linux CLI send/inbox/clip |
-| 2026-10-15 | W7：MAUI 双轨对齐（Win DesktopFull 适配 + Android 触控板）；WPF 不动 |
+| 2026-10-15 | W7：MAUI 双轨对齐（Win DesktopFull 适配 + Android 触控板） |
+| 2026-10-15 | UI 同构：安全密钥独立页；关于/帮助改页内；侧栏彩色 Path 图标；MAUI 窄屏抽屉+Android 可点；Desktop/MAUI 对齐 WPF |

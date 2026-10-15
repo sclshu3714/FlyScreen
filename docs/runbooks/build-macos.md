@@ -6,7 +6,8 @@
 |------|------|
 | `FlyScreen.Core` | 协议 / 连接 / 发现（与 Win 共用） |
 | `FlyScreen.Mac` | CGEvent 注入、辅助功能权限 |
-| `FlyScreen.App.Mac` | Avalonia UI 壳 |
+| `FlyScreen.App.Mac` | Avalonia 入口（UI 来自 `FlyScreen.App.Desktop`） |
+| `FlyScreen.App.Desktop` | 与 Linux 共用的主界面（对齐 Win 七页导航 + Path 侧栏） |
 
 **不引用** `FlyScreen.Windows` / `FlyScreen.App.Windows`，Win 发版不受影响。
 
