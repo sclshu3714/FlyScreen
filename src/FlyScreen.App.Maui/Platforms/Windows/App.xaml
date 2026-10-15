@@ -2,6 +2,33 @@
     x:Class="FlyScreen.AppMaui.WinUI.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:maui="using:Microsoft.Maui"
-    xmlns:local="using:FlyScreen.AppMaui.WinUI">
+    xmlns:maui="using:Microsoft.Maui">
+
+  <!--
+    MAUI 默认标题栏 DataTemplate 引用 Square44x44Logo.png（不存在），导致图标空白。
+    覆盖 MauiAppTitleBarTemplate，使用与 Win 同源的 logo。
+    见 https://github.com/dotnet/maui/issues/20265
+  -->
+  <maui:MauiWinUIApplication.Resources>
+    <DataTemplate x:Key="MauiAppTitleBarTemplate">
+      <Border Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0">
+        <StackPanel Orientation="Horizontal" Margin="12,0,0,0">
+          <Image x:Name="AppFontIcon"
+                 HorizontalAlignment="Left"
+                 VerticalAlignment="Center"
+                 Source="Assets/appiconLogo.png"
+                 Visibility="Visible"
+                 Width="16"
+                 Height="16"
+                 Margin="0,0,8,0" />
+          <TextBlock x:Name="AppTitle"
+                     VerticalAlignment="Center"
+                     Margin="{Binding WindowTitleMargin}"
+                     Text="{Binding WindowTitle}"
+                     Foreground="{Binding WindowTitleForeground}"
+                     Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </maui:MauiWinUIApplication.Resources>
 </maui:MauiWinUIApplication>

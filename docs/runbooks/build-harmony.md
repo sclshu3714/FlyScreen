@@ -25,17 +25,39 @@ mobile/harmony/
 - 本机 Node / Ohpm（随 DevEco）
 - 复制 `local.properties.example` → `local.properties`（通常由 IDE 生成）
 
+## 版本号（与 Win 对齐）
+
+与桌面端同一 Git 标签规则。发版或拉取新 tag 后，在仓库根目录执行：
+
+```powershell
+powershell -File build\Sync-MobileVersion.ps1
+# 覆盖：powershell -File build\Sync-MobileVersion.ps1 -Version 1.1.0
+```
+
+会更新 `AppScope/app.json5`、`common/oh-package.json5`、`FlyScreenVersion.ets`（握手 `AppVersion`）。
+
 ## 打开与编译
 
-1. DevEco Studio → Open `mobile/harmony`  
-2. Sync / Ohpm install  
-3. 选择模块 **phone** 或 **desktop** 运行到对应设备/模拟器  
+1. （可选）先跑 `Sync-MobileVersion.ps1`  
+2. DevEco Studio → Open `mobile/harmony`  
+3. Sync / Ohpm install  
+4. 选择模块 **phone** 或 **desktop** 运行到对应设备/模拟器  
 
 命令行（在 DevEco 终端，路径因版本而异）：
 
 ```bash
 cd mobile/harmony
 hvigorw assembleHap
+```
+
+## 发布包命名
+
+按 [ROADMAP §4.2](../ROADMAP.md#42-平台包命名)：`FlyScreen-{version}-harmony.hap`（后缀以 hvigor 实际产物为准，若为 `.app`/`.zip` 则保留该后缀）。
+
+```powershell
+powershell -File build\Name-FlyScreenPackage.ps1 `
+  -Source <path-to-signed.hap> `
+  -Rid harmony
 ```
 
 ## 与 Windows 联调
@@ -67,3 +89,4 @@ hvigorw assembleHap
 | 日期 | 说明 |
 |------|------|
 | 2026-10-14 | W5 骨架：common + phone + desktop |
+| 2026-10-15 | 版本与 Win Git 标签规则对齐（Sync-MobileVersion） |

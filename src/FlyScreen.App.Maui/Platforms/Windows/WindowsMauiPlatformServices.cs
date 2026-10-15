@@ -1,0 +1,152 @@
+using FlyScreen.AppMaui.Services;
+using FlyScreen.Helpers;
+using FlyScreen.Models;
+using FlyScreen.Services.Clipboard;
+using FlyScreen.Services.Network;
+
+namespace FlyScreen.AppMaui.Platforms.Windows;
+
+/// <summary>MAUI-Windows 桌面适配：对照 WPF AppHost，不修改 App.Windows。</summary>
+public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
+{
+    private readonly AppSettings _settings;
+    private readonly ConnectionManager _connections;
+    private readonly FileTransferService _transfers;
+    private readonly MauiClipboardApplySink _clipSink = new();
+    private MauiInputRouter? _router;
+    private MauiTextClipboardMonitor? _clipMonitor;
+    private MauiTrayService? _tray;
+
+    public WindowsMauiPlatformServices(
+        AppSettings settings,
+        ConnectionManager connections,
+        FileTransferService transfers)
+    {
+        _settings = settings;
+        _connections = connections;
+        _transfers = transfers;
+    }
+
+    public IClipboardApplySink ClipboardSink => _clipSink;
+    public bool SupportsDesktopInput => true;
+    public bool SupportsTray => true;
+    public bool SupportsAutoStart => true;
+    public bool IsFocusOnLocalMachine => _router?.IsFocusOnLocalMachine ?? true;
+
+    public event Action<string?>? ControlTargetChanged;
+
+    public void StartDesktopInput()
+    {
+        _router?.Dispose();
+        _router = new MauiInputRouter(_settings, _connections);
+        _router.EasyMouseEnabled = _settings.EasyMouse;
+        _router.ControlTargetChanged += peer =>
+        {
+            ControlTargetChanged?.Invoke(peer);
+            if (peer == null)
+                ArmRemoteClipboardForPaste();
+        };
+        _router.RequestShowUi += () => MainThread.BeginInvokeOnMainThread(ShowMainWindow);
+        _router.Start();
+    }
+
+    private static void ShowMainWindow()
+    {
+        var window = Application.Current?.Windows.FirstOrDefault();
+        if (window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
+        {
+            native.AppWindow.Show();
+            native.Activate();
+        }
+    }
+
+    private static void HideMainWindow()
+    {
+        var window = Application.Current?.Windows.FirstOrDefault();
+        if (window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
+            native.AppWindow.Hide();
+    }
+
+    public void StopDesktopInput()
+    {
+        _router?.Dispose();
+        _router = null;
+    }
+
+    public void SetEasyMouse(bool enabled)
+    {
+        if (_router != null)
+            _router.EasyMouseEnabled = enabled;
+    }
+
+    public void InjectMouseMoveAbsolute(double nx, double ny)
+        => MauiInputInjector.MoveAbsoluteNormalized(nx, ny);
+
+    public void InjectMouseMoveRelative(int dx, int dy)
+        => MauiInputInjector.MoveRelative(dx, dy);
+
+    public void InjectMouseButton(int button, bool down)
+        => MauiInputInjector.MouseButton(new MouseButtonPayload { Button = button, Down = down });
+
+    public void InjectMouseWheel(int delta, bool horizontal)
+        => MauiInputInjector.MouseWheel(new MouseWheelPayload { Delta = delta, Horizontal = horizontal });
+
+    public void InjectKey(ushort vk, bool down, bool extended)
+        => MauiInputInjector.Key(new KeyEventPayload { VirtualKey = vk, Down = down, Extended = extended });
+
+    public void BeginReceivingRemoteControl(double entryX, double entryY)
+        => _router?.BeginReceivingRemoteControl(entryX, entryY);
+
+    public void OnCursorOwnerChanged(string ownerMachine)
+        => _router?.OnCursorOwnerChanged(ownerMachine);
+
+    public void StartClipboardMonitor()
+    {
+        _clipMonitor?.Dispose();
+        _clipMonitor = new MauiTextClipboardMonitor(_settings, _transfers, _clipSink);
+        _clipMonitor.Start();
+    }
+
+    public void StopClipboardMonitor()
+    {
+        _clipMonitor?.Dispose();
+        _clipMonitor = null;
+    }
+
+    public void ArmRemoteClipboardForPaste()
+        => _clipMonitor?.ArmRemoteClipboardForPaste();
+
+    public bool GetAutoStartEnabled() => AutoStartHelper.IsEnabled();
+
+    public void SetAutoStartEnabled(bool enabled)
+        => AutoStartHelper.SetEnabled(enabled);
+
+    public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    {
+        _tray ??= new MauiTrayService();
+        _tray.Ensure(
+            show: () =>
+            {
+                ShowMainWindow();
+                showMain();
+            },
+            reconnect: () =>
+            {
+                if (reconnect != null) reconnect();
+                else _ = _connections.ReconnectNowAsync();
+            },
+            about: () => about?.Invoke(),
+            exit: () =>
+            {
+                if (exit != null) exit();
+                else Application.Current?.Quit();
+            });
+        HideMainWindow();
+    }
+
+    public void DisposeTray()
+    {
+        _tray?.Dispose();
+        _tray = null;
+    }
+}

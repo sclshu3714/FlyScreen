@@ -32,6 +32,12 @@ public sealed class LinuxAppHost : IAsyncDisposable
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
+    /// <summary>被远程控制时指针归一化坐标更新（供 GUI 软件光标）。</summary>
+    public event Action<double, double>? RemotePointerMoved;
+    /// <summary>是否处于「被对端操控本机」状态。</summary>
+    public event Action<bool>? ReceivingRemoteControlChanged;
+
+    private bool _receivingRemote;
 
     private LinuxAppHost()
     {
@@ -110,8 +116,19 @@ public sealed class LinuxAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
+                if (!_receivingRemote)
+                    SetReceivingRemote(true);
                 if (p.Relative) Injector.MoveRelative(p.Dx, p.Dy);
                 else Injector.MoveAbsoluteNormalized(p.Nx, p.Ny);
+                if (p.Relative)
+                {
+                    if (Injector.TryGetPointerNormalized(out var nx, out var ny))
+                        RemotePointerMoved?.Invoke(nx, ny);
+                }
+                else
+                {
+                    RemotePointerMoved?.Invoke(p.Nx, p.Ny);
+                }
                 break;
             }
             case MessageType.MouseButton:
@@ -136,11 +153,46 @@ public sealed class LinuxAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
                 if (p == null) return;
-                if (string.Equals(p.TargetMachine, System.Environment.MachineName, StringComparison.OrdinalIgnoreCase))
-                    Injector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
+                if (!IsLocalTarget(p.TargetMachine)) return;
+                Injector.EnsureCursorVisible();
+                SetReceivingRemote(true);
+                Injector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
+                RemotePointerMoved?.Invoke(p.EntryX, p.EntryY);
+                break;
+            }
+            case MessageType.CursorOwner:
+            {
+                var p = MessageCodec.DecodeJson<CursorOwnerPayload>(msg.Payload);
+                if (p == null) return;
+                if (IsLocalTarget(p.OwnerMachine))
+                {
+                    Injector.EnsureCursorVisible();
+                    SetReceivingRemote(true);
+                }
+                else
+                {
+                    SetReceivingRemote(false);
+                }
                 break;
             }
         }
+    }
+
+    private static bool IsLocalTarget(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // 兼容仍按裸 Environment.MachineName 广播的旧对端
+        return string.Equals(name, System.Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void SetReceivingRemote(bool value)
+    {
+        if (_receivingRemote == value) return;
+        _receivingRemote = value;
+        if (value) Injector.EnsureCursorVisible();
+        ReceivingRemoteControlChanged?.Invoke(value);
     }
 
     public async ValueTask DisposeAsync()

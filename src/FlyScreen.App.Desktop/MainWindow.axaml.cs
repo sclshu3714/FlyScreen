@@ -351,7 +351,7 @@ public partial class MainWindow : Window
         for (var i = 0; i < 4; i++)
         {
             var name = i < s.MachineSlots.Count ? s.MachineSlots[i] : "";
-            var isLocal = string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            var isLocal = string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
             _slots.Add(new MachineSlot
             {
                 Index = i,
@@ -673,7 +673,7 @@ public partial class MainWindow : Window
             var slot = _slots[i];
             slot.Name = string.IsNullOrWhiteSpace(name) ? "" : name;
             slot.Enabled = !string.IsNullOrWhiteSpace(name);
-            slot.IsLocal = string.Equals(slot.Name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            slot.IsLocal = string.Equals(slot.Name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
             slot.RefreshStatus();
         }
 
@@ -749,7 +749,7 @@ public partial class MainWindow : Window
         var used = new HashSet<string>(
             _slots.Where(s => !string.IsNullOrWhiteSpace(s.Name)).Select(s => s.Name),
             StringComparer.OrdinalIgnoreCase);
-        used.Add(Environment.MachineName);
+        used.Add(LocalPeerIdentity.MachineName);
         return _host.Connections.Discovery.GetPeers()
             .Where(p => !string.IsNullOrWhiteSpace(p.MachineName) && !used.Contains(p.MachineName))
             .ToList();
@@ -1121,7 +1121,7 @@ public partial class MainWindow : Window
 
     private void TryAddPeer(DiscoveredPeer peer)
     {
-        if (string.Equals(peer.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(peer.MachineName, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
         {
             StatusText.Text = "不能添加本机";
             return;
@@ -1169,7 +1169,7 @@ public partial class MainWindow : Window
     {
         foreach (var slot in _slots)
         {
-            slot.IsLocal = string.Equals(slot.Name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            slot.IsLocal = string.Equals(slot.Name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
             if (slot.IsLocal) slot.RefreshStatus();
         }
     }

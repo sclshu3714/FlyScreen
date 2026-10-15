@@ -1,176 +1,335 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:FlyScreen.Models;assembly=FlyScreen.Core"
              x:Class="FlyScreen.AppMaui.MainPage"
              Title="玄鸟"
-             BackgroundColor="{StaticResource WinBg}">
+             BackgroundColor="{DynamicResource WinBg}">
 
-  <Grid ColumnDefinitions="168,*">
-    <!-- 侧栏：与 Win 一致 -->
-    <Border Grid.Column="0" BackgroundColor="{StaticResource PaneBg}" Stroke="{StaticResource Line}" StrokeThickness="1">
-      <Grid RowDefinitions="Auto,*,Auto" Padding="0,16,0,12">
-        <Border Margin="12,0,12,16" BackgroundColor="{StaticResource SubtleBg}" StrokeThickness="0"
+    <Grid ColumnDefinitions="168,*">
+        <!-- 侧栏宽 168，仅右侧分割线（对齐 Win） -->
+        <Border x:Name="SidePane" Grid.Column="0" BackgroundColor="{DynamicResource PaneBg}"
+            Stroke="{DynamicResource Line}" StrokeThickness="1">
+            <Grid RowDefinitions="Auto,*,Auto" Padding="0,16,0,12">
+                <Border x:Name="SearchBox" Margin="12,0,12,16" BackgroundColor="{DynamicResource SubtleBg}" StrokeThickness="0"
                 StrokeShape="RoundRectangle 18" HeightRequest="36">
-          <Entry x:Name="SearchEntry" Placeholder="搜索设置…" BackgroundColor="Transparent"
-                 Margin="12,0" VerticalOptions="Center" />
+                    <Grid ColumnDefinitions="Auto,*" Padding="12,0">
+                        <Label Text="⌕" TextColor="{DynamicResource Muted}" FontSize="14" VerticalOptions="Center" Margin="0,0,6,0" />
+                        <Entry x:Name="SearchEntry" Grid.Column="1" Placeholder="搜索设置…" BackgroundColor="Transparent"
+                   VerticalOptions="Center" TextChanged="Search_Changed" HeightRequest="36" />
+                    </Grid>
+                </Border>
+
+                <VerticalStackLayout Grid.Row="1" Spacing="2">
+                    <Button x:Name="NavBasic" Text="基础" Style="{StaticResource NavBtnActive}" Clicked="Nav_Clicked" />
+                    <Button x:Name="NavNetwork" Text="网络" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
+                    <Button x:Name="NavShare" Text="共享" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
+                    <Button x:Name="NavSecurity" Text="安全" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
+                    <Button x:Name="NavAdvanced" Text="高级" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
+                </VerticalStackLayout>
+
+                <VerticalStackLayout Grid.Row="2" Margin="12,8,12,0" Spacing="4">
+                    <Label x:Name="PlatformLabel" TextColor="{DynamicResource Muted}" FontSize="11" LineBreakMode="WordWrap" />
+                    <Label x:Name="StatusLabel" Text="就绪" TextColor="{DynamicResource Muted}" FontSize="11" LineBreakMode="WordWrap" />
+                </VerticalStackLayout>
+            </Grid>
         </Border>
 
-        <VerticalStackLayout Grid.Row="1" Spacing="2">
-          <Button x:Name="NavBasic" Text="基础" Style="{StaticResource NavBtnActive}" Clicked="Nav_Clicked" />
-          <Button x:Name="NavNetwork" Text="网络" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
-          <Button x:Name="NavShare" Text="共享" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
-          <Button x:Name="NavSecurity" Text="安全" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
-          <Button x:Name="NavAdvanced" Text="高级" Style="{StaticResource NavBtn}" Clicked="Nav_Clicked" />
-        </VerticalStackLayout>
-
-        <VerticalStackLayout Grid.Row="2" Margin="12,8,12,0" Spacing="4">
-          <Label x:Name="PlatformLabel" TextColor="{StaticResource Muted}" FontSize="11" LineBreakMode="WordWrap" />
-          <Label x:Name="StatusLabel" Text="就绪" TextColor="{StaticResource Muted}" FontSize="11" LineBreakMode="WordWrap" />
-        </VerticalStackLayout>
-      </Grid>
-    </Border>
-
-    <!-- 主区 -->
-    <Grid Grid.Column="1" Padding="20,16" RowDefinitions="Auto,*,Auto">
-      <Grid ColumnDefinitions="*,Auto,Auto">
-        <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
-          <Button x:Name="TabBasic" Text="基础设置" Style="{StaticResource PrimaryBtn}" Clicked="Tab_Clicked" Padding="16,0" />
-          <Button x:Name="TabOptions" Text="高级选项" Style="{StaticResource NormalBtn}" Clicked="Tab_Clicked" />
-          <Button x:Name="TabNetwork" Text="网络设置" Style="{StaticResource NormalBtn}" Clicked="Tab_Clicked" />
-          <Button x:Name="TabTransfer" Text="文件传输" Style="{StaticResource NormalBtn}" Clicked="Tab_Clicked" />
-        </HorizontalStackLayout>
-        <Button Grid.Column="1" Text="关于" Style="{StaticResource NormalBtn}" Clicked="About_Clicked" Margin="0,0,4,0" />
-        <Button Grid.Column="2" Text="？ 帮助" Style="{StaticResource NormalBtn}" Clicked="Help_Clicked" />
-      </Grid>
-
-      <ScrollView Grid.Row="1" Margin="0,12,0,0">
-        <Grid>
-          <!-- 基础设置 -->
-          <VerticalStackLayout x:Name="PageBasic" Spacing="12" IsVisible="True">
-            <Border Style="{StaticResource Card}">
-              <VerticalStackLayout Spacing="10">
-                <Label Text="安全密钥" FontSize="15" FontAttributes="Bold" />
-                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                  <Entry x:Name="KeyEntry" IsPassword="True" FontFamily="Consolas" />
-                  <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" VerticalOptions="Center" CheckedChanged="ShowKey_Changed" />
-                  <Label Grid.Column="1" Text="显示" VerticalOptions="Center" Margin="28,0,0,0" InputTransparent="True" />
-                  <Button Grid.Column="2" Text="生成新密钥" Style="{StaticResource PrimaryBtn}" Clicked="NewKey_Clicked" />
-                </Grid>
-                <Label Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
-                       TextColor="{StaticResource Muted}" FontSize="12" />
-              </VerticalStackLayout>
-            </Border>
-
-            <Border Style="{StaticResource Card}">
-              <VerticalStackLayout Spacing="10">
-                <Grid ColumnDefinitions="*,Auto">
-                  <Label Text="电脑布局" FontSize="15" FontAttributes="Bold" VerticalOptions="Center"
-                         HorizontalOptions="Start" />
-                  <Border Grid.Column="1" BackgroundColor="{StaticResource SubtleBg}" StrokeThickness="0"
-                          StrokeShape="RoundRectangle 8" Padding="3" VerticalOptions="Center"
-                          HorizontalOptions="End">
-                    <HorizontalStackLayout Spacing="0">
-                      <Button x:Name="Layout1x4Btn" Text="1×4" Style="{StaticResource NormalBtn}" WidthRequest="52" HeightRequest="28"
-                              Padding="0" Clicked="LayoutMode_Clicked" />
-                      <Button x:Name="Layout2x2Btn" Text="2×2" Style="{StaticResource PrimaryBtn}" WidthRequest="52" HeightRequest="28"
-                              Padding="0" Clicked="LayoutMode_Clicked" />
-                    </HorizontalStackLayout>
-                  </Border>
-                </Grid>
-                <Label Text="格子代表真实摆放位置。编辑槽位后点「应用」会同步到已连接电脑。"
-                       TextColor="{StaticResource Muted}" FontSize="12" />
-                <Entry x:Name="Slot0" Placeholder="槽位 1" />
-                <Entry x:Name="Slot1" Placeholder="槽位 2" />
-                <Entry x:Name="Slot2" Placeholder="槽位 3" />
-                <Entry x:Name="Slot3" Placeholder="槽位 4" />
-                <HorizontalStackLayout Spacing="8">
-                  <Button Text="添加电脑" Style="{StaticResource NormalBtn}" Clicked="AddPeer_Clicked" />
-                  <Button Text="刷新连接" Style="{StaticResource NormalBtn}" Clicked="Reconnect_Clicked" />
+        <Grid Grid.Column="1" Padding="16" RowDefinitions="Auto,*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <HorizontalStackLayout Spacing="0" VerticalOptions="Center">
+                    <Button x:Name="TabBasic" Text="基础设置" Style="{StaticResource PrimaryBtn}" Clicked="Tab_Clicked" Margin="0" />
+                    <Button x:Name="TabOptions" Text="高级选项" Style="{StaticResource NormalBtn}" Clicked="Tab_Clicked" Margin="8,0,0,0" />
+                    <Button x:Name="TabNetwork" Text="网络设置" Style="{StaticResource NormalBtn}" Clicked="Tab_Clicked" Margin="8,0,0,0" />
+                    <Button x:Name="TabTransfer" Text="文件传输" Style="{StaticResource NormalBtn}" Clicked="Tab_Clicked" Margin="8,0,0,0" />
                 </HorizontalStackLayout>
-              </VerticalStackLayout>
-            </Border>
-          </VerticalStackLayout>
+                <Button x:Name="AboutBtn" Grid.Column="1" Text="关于" Style="{StaticResource NormalBtn}" Clicked="About_Clicked" Margin="8,0,0,0" />
+                <Button x:Name="HelpBtn" Grid.Column="2" Text="？ 帮助" Style="{StaticResource NormalBtn}" Clicked="Help_Clicked" Margin="8,0,0,0" />
+            </Grid>
 
-          <!-- 高级选项 -->
-          <VerticalStackLayout x:Name="PageOptions" Spacing="12" IsVisible="False">
-            <Border Style="{StaticResource Card}">
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
-                <VerticalStackLayout Spacing="4">
-                  <Label Text="功能" FontAttributes="Bold" Margin="0,0,0,8" />
-                  <HorizontalStackLayout><CheckBox x:Name="WrapMouseCheck" /><Label Text="环形鼠标（首尾相连）" VerticalOptions="Center" /></HorizontalStackLayout>
-                  <HorizontalStackLayout><CheckBox x:Name="ShareClipboardCheck" IsChecked="True" /><Label Text="共享剪贴板" VerticalOptions="Center" /></HorizontalStackLayout>
-                  <HorizontalStackLayout Margin="20,0,0,0"><CheckBox x:Name="TransferFileCheck" IsChecked="True" /><Label Text="启用文件传输" VerticalOptions="Center" /></HorizontalStackLayout>
-                  <HorizontalStackLayout><CheckBox x:Name="EasyMouseCheck" IsChecked="True" /><Label Text="轻松鼠标（移出边缘切换）" VerticalOptions="Center" /></HorizontalStackLayout>
-                  <HorizontalStackLayout><CheckBox x:Name="SameSubnetCheck" /><Label Text="仅同网段连接" VerticalOptions="Center" /></HorizontalStackLayout>
-                </VerticalStackLayout>
-                <VerticalStackLayout Grid.Column="1" Spacing="4">
-                  <Label Text="行为" FontAttributes="Bold" Margin="0,0,0,8" />
-                  <Label Text="MAUI 跨平台壳：选项可保存；平台注入/自启按 Caps 逐步对齐。"
-                         TextColor="{StaticResource Muted}" FontSize="12" />
-                </VerticalStackLayout>
-              </Grid>
-            </Border>
-          </VerticalStackLayout>
-
-          <!-- 网络设置 -->
-          <VerticalStackLayout x:Name="PageNetwork" Spacing="12" IsVisible="False">
-            <Border Style="{StaticResource Card}">
-              <VerticalStackLayout Spacing="10">
-                <Label Text="本机网卡" FontAttributes="Bold" />
-                <Label Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。" TextColor="{StaticResource Muted}" FontSize="12" />
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                  <Picker x:Name="NicPicker" Title="网卡" />
-                  <Button Grid.Column="1" Text="刷新网卡" Style="{StaticResource NormalBtn}" Clicked="RefreshNics_Clicked" />
-                </Grid>
-                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8">
-                  <Label Text="TCP 端口" VerticalOptions="Center" />
-                  <Entry x:Name="TcpPortEntry" Grid.Column="1" Keyboard="Numeric" Text="15155" />
-                  <Label Grid.Column="2" Text="发现端口" VerticalOptions="Center" />
-                  <Entry x:Name="UdpPortEntry" Grid.Column="3" Keyboard="Numeric" Text="15156" />
-                </Grid>
-              </VerticalStackLayout>
-            </Border>
-            <Border Style="{StaticResource Card}">
-              <VerticalStackLayout Spacing="8">
-                <Label Text="局域网自动发现" FontAttributes="Bold" />
-                <Label Text="单击「添加」填入电脑布局空位；已在布局中的不会列出"
-                       TextColor="{StaticResource Muted}" FontSize="12" />
-                <Button Text="刷新发现" Style="{StaticResource NormalBtn}" HorizontalOptions="Start" Clicked="RefreshDiscovery_Clicked" />
-                <CollectionView x:Name="DiscoveryList" HeightRequest="220">
-                  <CollectionView.ItemTemplate>
-                    <DataTemplate>
-                      <Grid Padding="6,8" ColumnDefinitions="*,Auto">
-                        <VerticalStackLayout>
-                          <Label Text="{Binding MachineName}" FontAttributes="Bold" />
-                          <Label Text="{Binding Ip}" TextColor="{StaticResource Muted}" FontSize="12" />
+            <Grid Grid.Row="1" Margin="0,12,0,0">
+                <!-- ===== 基础设置（无滚动，与 Win 自适应一致） ===== -->
+                <Grid x:Name="PageBasic" RowDefinitions="Auto,*" IsVisible="True" RowSpacing="12">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="12">
+                            <Label x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontAttributes="Bold" />
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                                <Entry x:Name="KeyEntry" IsPassword="True" FontFamily="Consolas" FontSize="14" HeightRequest="34" />
+                                <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="4" Margin="14,0,0,0">
+                                    <CheckBox x:Name="ShowKeyCheck" VerticalOptions="Center" CheckedChanged="ShowKey_Changed" />
+                                    <Label x:Name="ShowKeyLabel" Text="显示" VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+                                <Button x:Name="NewKeyBtn" Grid.Column="2" Text="生成新密钥" Style="{StaticResource PrimaryBtn}" Clicked="NewKey_Clicked" Margin="12,0,0,0" />
+                            </Grid>
+                            <Label x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
+                       TextColor="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,0" />
                         </VerticalStackLayout>
-                        <Button Grid.Column="1" Text="添加" Style="{StaticResource NormalBtn}"
+                    </Border>
+
+                    <Border Grid.Row="1" Style="{StaticResource Card}">
+                        <Grid RowDefinitions="Auto,Auto,*" ColumnDefinitions="*,Auto">
+                            <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                <Label x:Name="LayoutTitleText" Text="电脑布局" FontSize="15" FontAttributes="Bold" VerticalOptions="Center" />
+                                <Border Grid.Column="1" BackgroundColor="{DynamicResource SubtleBg}" StrokeThickness="0"
+                          StrokeShape="RoundRectangle 8" Padding="3" VerticalOptions="Center">
+                                    <HorizontalStackLayout>
+                                        <Button x:Name="Layout1x4Btn" Text="1×4" Style="{StaticResource SegBtn}" Clicked="LayoutMode_Clicked" />
+                                        <Button x:Name="Layout2x2Btn" Text="2×2" Style="{StaticResource SegBtnActive}" Clicked="LayoutMode_Clicked" />
+                                    </HorizontalStackLayout>
+                                </Border>
+                            </Grid>
+                            <Label x:Name="LayoutHintText" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,10"
+                       Text="格子代表真实摆放位置。点选后可互换/移除；添加后点「应用」会同步到已连接电脑。双击对端卡片可移除。"
+                       TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+
+                            <!-- UniformGrid 式拉伸卡片区（对齐 Win MachineMatrix） -->
+                            <Border x:Name="MatrixBorder" Grid.Row="2" BackgroundColor="{DynamicResource MatrixBg}" Stroke="{DynamicResource Line}"
+                        StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="4">
+                                <Grid x:Name="MachineMatrix" />
+                            </Border>
+
+                            <VerticalStackLayout Grid.Row="2" Grid.Column="1" Margin="14,0,0,0" WidthRequest="100" Spacing="8">
+                                <Label x:Name="LayoutDragTipText" Text="拖拽互换位置" TextColor="{DynamicResource Blue}" FontSize="12"
+                         HorizontalTextAlignment="Center" Margin="0,0,0,4" />
+                                <Button x:Name="AddMachineBtn" Text="添加电脑" Style="{StaticResource NormalBtn}" WidthRequest="100" Margin="0"
+                          HorizontalOptions="Center" Clicked="AddPeer_Clicked" />
+                                <Button x:Name="RemoveMachineBtn" Text="移除电脑" Style="{StaticResource NormalBtn}" WidthRequest="100" Margin="0"
+                          HorizontalOptions="Center" Clicked="RemovePeer_Clicked" />
+                                <Button x:Name="ReconnectBtn" Text="刷新连接" Style="{StaticResource NormalBtn}" WidthRequest="100" Margin="0"
+                          HorizontalOptions="Center" Clicked="Reconnect_Clicked" />
+                            </VerticalStackLayout>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- ===== 高级选项：紧凑复选框 + 可滚动，避免快捷键/系统设置被裁切 ===== -->
+                <ScrollView x:Name="PageOptions" IsVisible="False" VerticalScrollBarVisibility="Never">
+                    <Grid RowDefinitions="Auto,Auto" RowSpacing="10" Padding="0,0,0,4">
+                        <Border Style="{StaticResource Card}" Padding="12,10">
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                                <VerticalStackLayout Spacing="0">
+                                    <Label x:Name="FeatTitleText" Text="功能" FontAttributes="Bold" Margin="0,0,0,4" />
+                                    <!-- Spacing=8；列勿锁死 20px（会裁掉勾选图标） -->
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="WrapMouseCheck" VerticalOptions="Center" />
+                                        <Label x:Name="WrapMouseLabel" Text="环形鼠标（首尾相连）" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="ShareClipboardCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="ShareClipboardLabel" Text="共享剪贴板" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="20,1,0,1">
+                                        <CheckBox x:Name="TransferFileCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="TransferFileLabel" Text="启用文件传输" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="HideMouseCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="HideMouseLabel" Text="控制远端时隐藏本机边缘光标" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="DrawCursorCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="DrawCursorLabel" Text="绘制鼠标光标（预留）" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="SameSubnetCheck" VerticalOptions="Center" />
+                                        <Label x:Name="SameSubnetLabel" Text="仅同网段连接" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="ShowStatusCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="ShowStatusLabel" Text="显示状态消息" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                </VerticalStackLayout>
+                                <VerticalStackLayout Grid.Column="1" Spacing="0">
+                                    <Label x:Name="BehTitleText" Text="行为" FontAttributes="Bold" Margin="0,0,0,4" />
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="AutoStartCheck" VerticalOptions="Center" />
+                                        <Label x:Name="AutoStartLabel" Text="开机自动启动并连接" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="BlockSaverCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="BlockSaverLabel" Text="阻止其他机器屏保" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="RelativeMouseCheck" VerticalOptions="Center" />
+                                        <Label x:Name="RelativeMouseLabel" Text="相对移动鼠标" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="BlockCornersCheck" VerticalOptions="Center" />
+                                        <Label x:Name="BlockCornersLabel" Text="屏幕四角阻挡切换" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8" HeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="EasyMouseCheck" IsChecked="True" VerticalOptions="Center" />
+                                        <Label x:Name="EasyMouseLabel" Text="轻松鼠标（移出边缘切换）" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
+                                </VerticalStackLayout>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="1" ColumnDefinitions="*,12,240">
+                            <Border Style="{StaticResource Card}" Padding="12,10">
+                                <VerticalStackLayout Spacing="4">
+                                    <Label x:Name="HotTitleText" Text="键盘快捷键" FontAttributes="Bold" />
+                                    <Label x:Name="HotSwitchText" Text="切换机器（Ctrl+Alt+）" TextColor="{DynamicResource Muted}" FontSize="12" />
+                                    <HorizontalStackLayout Spacing="14" Margin="0,2,0,6">
+                                        <RadioButton x:Name="HotF" Content="F1–F4" GroupName="SwHot" IsChecked="True" />
+                                        <RadioButton x:Name="HotNum" Content="1–4" GroupName="SwHot" />
+                                        <RadioButton x:Name="HotOff" Content="禁用" GroupName="SwHot" />
+                                    </HorizontalStackLayout>
+                                    <!-- 对齐 Win：标签 * + 输入 48，避免右侧被裁 -->
+                                    <Grid ColumnDefinitions="Auto,68,12,Auto,68" RowDefinitions="Auto,Auto"
+                          ColumnSpacing="8" RowSpacing="8" VerticalOptions="Center">
+                                        <Label x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
+                                        <Entry x:Name="HotkeySettingsEntry" Grid.Column="1" MaxLength="1" Text="M" HeightRequest="32"  WidthRequest="60"
+                             HorizontalTextAlignment="Center" />
+                                        <Label x:Name="HotReconnectLabel" Grid.Column="3" Text="重新连接 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
+                                        <Entry x:Name="HotkeyReconnectEntry" Grid.Column="4" MaxLength="1" Text="R" HeightRequest="32"    WidthRequest="60"
+                             HorizontalTextAlignment="Center" />
+                                        <Label x:Name="HotExitLabel" Grid.Row="1" Text="退出程序 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
+                                        <Entry x:Name="HotkeyExitEntry" Grid.Row="1" Grid.Column="1" MaxLength="1" Text="Q" HeightRequest="32"    WidthRequest="60"
+                             HorizontalTextAlignment="Center" />
+                                        <Label x:Name="HotLockLabel" Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
+                                        <Entry x:Name="HotkeyLockEntry" Grid.Row="1" Grid.Column="4" MaxLength="1" Text="L" HeightRequest="32"     WidthRequest="60"
+                             HorizontalTextAlignment="Center" />
+                                    </Grid>
+                                </VerticalStackLayout>
+                            </Border>
+
+                            <Border Grid.Column="2" Style="{StaticResource Card}" Padding="12,10">
+                                <VerticalStackLayout Spacing="4">
+                                    <Label x:Name="SysTitleText" Text="系统设置" FontAttributes="Bold" />
+                                    <Label x:Name="SysStyleLabel" Text="样式" Margin="0,4,0,2" />
+                                    <HorizontalStackLayout Spacing="18" Margin="0,0,0,10">
+                                        <RadioButton x:Name="ThemeLight" Content="淡色" GroupName="UiTheme" IsChecked="True" />
+                                        <RadioButton x:Name="ThemeDark" Content="深色" GroupName="UiTheme" />
+                                    </HorizontalStackLayout>
+                                    <Label x:Name="SysLangLabel" Text="语言" Margin="0,0,0,4" />
+                                    <Picker x:Name="LanguagePicker" HeightRequest="34" MinimumHeightRequest="34"
+                            ItemDisplayBinding="{Binding NativeName}" />
+                                </VerticalStackLayout>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </ScrollView>
+
+                <!-- ===== 网络设置（Auto + *，底部按钮独立在外） ===== -->
+                <Grid x:Name="PageNetwork" RowDefinitions="Auto,*" RowSpacing="12" IsVisible="False">
+                    <Border Style="{StaticResource Card}" VerticalOptions="Start">
+                        <VerticalStackLayout Spacing="10">
+                            <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" />
+                            <Label x:Name="NicHintText" Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。" TextColor="{DynamicResource Muted}" FontSize="12" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" HeightRequest="34">
+                                <Picker x:Name="NicPicker" HeightRequest="34" VerticalOptions="Center"
+                          Title="" ItemDisplayBinding="{Binding ShortDisplay}" />
+                                <Button x:Name="RefreshNicsBtn" Grid.Column="1" Text="刷新网卡" Style="{StaticResource NormalBtn}"
+                          VerticalOptions="Center" Clicked="RefreshNics_Clicked" />
+                            </Grid>
+                            <Grid ColumnDefinitions="Auto,100,Auto,100" ColumnSpacing="8">
+                                <Label x:Name="TcpPortLabel" Text="TCP 端口" VerticalOptions="Center" Margin="0,0,8,0" />
+                                <Entry x:Name="TcpPortEntry" Grid.Column="1" Keyboard="Numeric" Text="15155" HeightRequest="34" />
+                                <Label x:Name="UdpPortLabel" Grid.Column="2" Text="发现端口" VerticalOptions="Center" Margin="12,0,8,0" />
+                                <Entry x:Name="UdpPortEntry" Grid.Column="3" Keyboard="Numeric" Text="15156" HeightRequest="34" />
+                            </Grid>
+                        </VerticalStackLayout>
+                    </Border>
+                    <Border Grid.Row="1" Style="{StaticResource Card}">
+                        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                            <VerticalStackLayout Spacing="4">
+                                <Label x:Name="DiscoveryTitleText" Text="局域网自动发现" FontAttributes="Bold" />
+                                <Label x:Name="DiscoveryHintText" Text="单击「添加」填入电脑布局空位；已在布局中的不会列出"
+                         TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                            </VerticalStackLayout>
+                            <Border Grid.Row="1" BackgroundColor="{DynamicResource ListBg}" Stroke="{DynamicResource Line}"
+                        StrokeThickness="1" StrokeShape="RoundRectangle 6" Padding="8,6">
+                                <Button x:Name="RefreshDiscoveryBtn" Text="刷新发现" Style="{StaticResource NormalBtn}" HorizontalOptions="Start"
+                          Margin="0" Clicked="RefreshDiscovery_Clicked" />
+                            </Border>
+                            <CollectionView x:Name="DiscoveryList" Grid.Row="2" BackgroundColor="{DynamicResource ListBg}">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Padding="6,8" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
+                                                <BoxView WidthRequest="8" HeightRequest="8" Color="{DynamicResource Success}"
+                                   CornerRadius="4" VerticalOptions="Center" />
+                                                <Label VerticalOptions="Center" LineBreakMode="TailTruncation">
+                                                    <Label.FormattedText>
+                                                        <FormattedString>
+                                                            <Span Text="{Binding MachineName}" FontAttributes="Bold" />
+                                                            <Span Text="  " />
+                                                            <Span Text="{Binding Ip}" TextColor="{DynamicResource Muted}" />
+                                                        </FormattedString>
+                                                    </Label.FormattedText>
+                                                </Label>
+                                            </HorizontalStackLayout>
+                                            <Button Grid.Column="1" Text="{DynamicResource Str.Add}"
+                                Style="{StaticResource NormalBtn}"
+                                HeightRequest="28" MinimumWidthRequest="56" Padding="10,0"
                                 CommandParameter="{Binding}" Clicked="AddDiscovered_Clicked" />
-                      </Grid>
-                    </DataTemplate>
-                  </CollectionView.ItemTemplate>
-                </CollectionView>
-              </VerticalStackLayout>
-            </Border>
-          </VerticalStackLayout>
+                                        </Grid>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </Grid>
+                    </Border>
+                </Grid>
 
-          <!-- 文件传输 -->
-          <VerticalStackLayout x:Name="PageTransfer" Spacing="12" IsVisible="False">
-            <Label Text="传输列表" FontSize="15" FontAttributes="Bold" />
-            <Label Text="与 Windows 端相同入口。本阶段占位；文件能力按 Caps 逐步对齐。"
-                   TextColor="{StaticResource Muted}" FontSize="12" />
-            <Border Style="{StaticResource Card}" HeightRequest="160">
-              <Label Text="暂无传输任务。" TextColor="{StaticResource Muted}"
-                     HorizontalOptions="Center" VerticalOptions="Center" />
-            </Border>
-          </VerticalStackLayout>
+                <!-- ===== 文件传输：表头固定，仅内容区滚动并填满高度 ===== -->
+                <Grid x:Name="PageTransfer" RowDefinitions="Auto,Auto,*" RowSpacing="10" IsVisible="False">
+                    <VerticalStackLayout Spacing="4">
+                        <Label x:Name="XferTitleText" Text="传输列表" FontSize="15" FontAttributes="Bold" />
+                        <Label x:Name="XferHintText" Text="剪贴板粘贴：仅传到粘贴机。直接传输：推送到指定电脑的指定目录。清除只删接收缓存。"
+                     TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                    </VerticalStackLayout>
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,6">
+                        <HorizontalStackLayout Spacing="8">
+                            <Button x:Name="DirectTransferBtn" Text="直接传输…" Style="{StaticResource PrimaryBtn}" Clicked="DirectTransfer_Clicked" />
+                            <BoxView WidthRequest="1" Color="{DynamicResource Line}" Margin="4,4" />
+                            <Button x:Name="OpenInboxBtn" Text="打开收件箱" Style="{StaticResource NormalBtn}" Clicked="OpenInbox_Clicked" />
+                            <Button x:Name="ClearTransfersBtn" Text="清除已完成" Style="{StaticResource NormalBtn}" Clicked="ClearTransfers_Clicked" />
+                        </HorizontalStackLayout>
+                    </Border>
+                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,72,56" BackgroundColor="{DynamicResource SubtleBg}">
+                                <Label x:Name="ColDir" Text="方向" FontAttributes="Bold" FontSize="12" />
+                                <Label x:Name="ColName" Grid.Column="1" Text="文件名" FontAttributes="Bold" FontSize="12" />
+                                <Label x:Name="ColPeer" Grid.Column="2" Text="对端" FontAttributes="Bold" FontSize="12" />
+                                <Label x:Name="ColSize" Grid.Column="3" Text="大小" FontAttributes="Bold" FontSize="12" />
+                                <Label x:Name="ColStatus" Grid.Column="4" Text="状态" FontAttributes="Bold" FontSize="12" />
+                                <Label Grid.Column="5" Text="" FontSize="12" />
+                            </Grid>
+                            <CollectionView x:Name="TransferList" Grid.Row="1" BackgroundColor="{DynamicResource ListBg}">
+                                <CollectionView.EmptyView>
+                                    <Label x:Name="XferEmptyText" Text="暂无传输任务。" TextColor="{DynamicResource Muted}"
+                           HorizontalOptions="Center" VerticalOptions="Center" Margin="0,40" />
+                                </CollectionView.EmptyView>
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:TransferItem">
+                                        <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,72,56" ColumnSpacing="4">
+                                            <Label Text="{Binding DirectionText}" FontSize="12" VerticalOptions="Center" />
+                                            <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
+                                                <Label Text="{Binding FileName}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                                                <ProgressBar Progress="{Binding Progress, Converter={StaticResource PercentToProgress}}" HeightRequest="6" Margin="0,4,8,0" />
+                                            </VerticalStackLayout>
+                                            <Label Grid.Column="2" Text="{Binding PeerName}" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                            <Label Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalOptions="Center" />
+                                            <Label Grid.Column="4" Text="{Binding Status}" FontSize="12" VerticalOptions="Center" />
+                                            <Button Grid.Column="5" Text="{DynamicResource Str.Delete}" FontSize="11" HeightRequest="28" Padding="4,0"
+                                Style="{StaticResource NormalBtn}"
+                                CommandParameter="{Binding}" Clicked="DeleteTransfer_Clicked" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <HorizontalStackLayout Grid.Row="2" HorizontalOptions="End" Spacing="8" Margin="0,16,0,0">
+                <Button x:Name="ApplyBtn" Text="应用" Style="{StaticResource PrimaryBtn}" Clicked="Apply_Clicked" Margin="0" />
+                <Button x:Name="TrayBtn" Text="隐藏到托盘" Style="{StaticResource NormalBtn}" Clicked="Tray_Clicked" Margin="8,0,0,0" />
+                <Button x:Name="ExitBtn" Text="退出" Style="{StaticResource NormalBtn}" Clicked="Exit_Clicked" Margin="8,0,0,0" />
+            </HorizontalStackLayout>
         </Grid>
-      </ScrollView>
-
-      <HorizontalStackLayout Grid.Row="2" HorizontalOptions="End" Spacing="8" Margin="0,12,0,0">
-        <Button Text="应用" Style="{StaticResource PrimaryBtn}" Clicked="Apply_Clicked" />
-        <Button Text="退出" Style="{StaticResource NormalBtn}" Clicked="Exit_Clicked" />
-      </HorizontalStackLayout>
     </Grid>
-  </Grid>
 </ContentPage>

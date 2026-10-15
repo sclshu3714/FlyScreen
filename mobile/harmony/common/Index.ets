@@ -17,3 +17,4 @@ export { ConnectionManager } from './src/main/ets/net/ConnectionManager';
 
 export { HarmonyAppHost, HarmonyHostMode } from './src/main/ets/host/HarmonyAppHost';
 export { detectDeviceClass, detectHostMode } from './src/main/ets/host/DeviceDetector';
+export { FLYSCREEN_VERSION, FLYSCREEN_VERSION_CODE } from './src/main/ets/FlyScreenVersion';

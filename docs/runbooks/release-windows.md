@@ -28,7 +28,14 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 - `src\FlyScreen.App.Windows\bin\publish\win-x64\FlyScreen.exe`
 - `version.txt`（若 Publish 目标已执行）
 
-建议重命名上传：`FlyScreen-{version}-win-x64.exe`。
+按 [ROADMAP §4.2](../ROADMAP.md#42-平台包命名) 命名（后缀用实际产物，此处为 `.exe`）：
+
+```powershell
+powershell -File build\Name-FlyScreenPackage.ps1 `
+  -Source src\FlyScreen.App.Windows\bin\publish\win-x64\FlyScreen.exe `
+  -Rid win-x64
+# → artifacts\release\FlyScreen-{version}-win-x64.exe
+```
 
 ## 3. Git 标签与 GitHub Release
 

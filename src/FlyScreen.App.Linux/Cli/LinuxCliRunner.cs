@@ -263,9 +263,10 @@ public static class LinuxCliRunner
 
     private static void PrintStatus(LinuxAppHost host)
     {
-        Console.WriteLine($"本机: {Environment.MachineName}");
+        Console.WriteLine($"本机: {LocalPeerIdentity.MachineName}（系统名={Environment.MachineName}）");
         Console.WriteLine(LinuxRuntimeEnvironment.Describe());
         Console.WriteLine($"Caps: {string.Join(", ", LocalPeerIdentity.Caps)}");
+        Console.WriteLine($"绑定: {host.Connections.BindIp}:{host.Settings.TcpPort} UDP={host.Settings.UdpPort}");
         Console.WriteLine($"注入: {host.Injector.BackendName} available={host.Injector.IsAvailable}");
         Console.WriteLine(host.Connections.IsListening
             ? $"监听 {host.Connections.BindIp}:{host.Settings.TcpPort} UDP={host.Settings.UdpPort}"

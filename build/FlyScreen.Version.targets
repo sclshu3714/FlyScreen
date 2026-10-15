@@ -1,0 +1,78 @@
+<Project>
+  <!--
+    各端统一版本规则（与 Win 端一致）：
+    Version = 最新 Git tag vX.Y.Z 的 patch + 1；与提交次数无关。
+    可覆盖：dotnet build/publish -p:Version=1.1.0
+    禁用：-p:IgnoreGitVersion=true
+  -->
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == ''">1.0.0</Version>
+    <Product Condition="'$(Product)' == ''">玄鸟</Product>
+    <Authors Condition="'$(Authors)' == ''">sclshu3714</Authors>
+    <Company Condition="'$(Company)' == ''">玄鸟</Company>
+    <Copyright Condition="'$(Copyright)' == ''">Copyright © 2026</Copyright>
+    <ApplicationDisplayVersion Condition="'$(UseMaui)' == 'true' and '$(ApplicationDisplayVersion)' == ''">$(Version)</ApplicationDisplayVersion>
+    <ApplicationVersion Condition="'$(UseMaui)' == 'true' and '$(ApplicationVersion)' == ''">1</ApplicationVersion>
+  </PropertyGroup>
+
+  <Target Name="ResolveVersionFromGitTag"
+          BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild"
+          Condition="'$(IgnoreGitVersion)' != 'true'">
+    <Exec Command="git tag -l v*.*.* --sort=-v:refname"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="Low"
+          WorkingDirectory="$(MSBuildThisFileDirectory)..\">
+      <Output TaskParameter="ConsoleOutput" ItemName="_GitTagLines" />
+    </Exec>
+
+    <PropertyGroup>
+      <_LatestTagRaw>@(_GitTagLines->'%(Identity)', '|')</_LatestTagRaw>
+      <_LatestTag>$([System.Text.RegularExpressions.Regex]::Match($(_LatestTagRaw), 'v\d+\.\d+\.\d+').Value)</_LatestTag>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(_LatestTag)' != ''">
+      <_TagBody>$(_LatestTag.Substring(1))</_TagBody>
+      <_TagMajor>$([System.Version]::Parse($(_TagBody)).Major)</_TagMajor>
+      <_TagMinor>$([System.Version]::Parse($(_TagBody)).Minor)</_TagMinor>
+      <_TagPatch>$([System.Version]::Parse($(_TagBody)).Build)</_TagPatch>
+      <_NextPatch>$([MSBuild]::Add($(_TagPatch), 1))</_NextPatch>
+      <Version>$(_TagMajor).$(_TagMinor).$(_NextPatch)</Version>
+    </PropertyGroup>
+
+    <!-- VersionCode：major*10000+minor*100+patch，与 Android/鸿蒙一致 -->
+    <PropertyGroup>
+      <_VerMajor>$([System.Version]::Parse('$(Version)').Major)</_VerMajor>
+      <_VerMinor>$([System.Version]::Parse('$(Version)').Minor)</_VerMinor>
+      <_VerPatch>$([System.Version]::Parse('$(Version)').Build)</_VerPatch>
+      <_VerCodePart>$([MSBuild]::Add($([MSBuild]::Multiply($(_VerMajor), 10000)), $([MSBuild]::Multiply($(_VerMinor), 100))))</_VerCodePart>
+      <FlyScreenVersionCode>$([MSBuild]::Add($(_VerCodePart), $(_VerPatch)))</FlyScreenVersionCode>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <AssemblyVersion>$(Version).0</AssemblyVersion>
+      <FileVersion>$(Version).0</FileVersion>
+      <InformationalVersion>$(Version)</InformationalVersion>
+      <ApplicationDisplayVersion Condition="'$(UseMaui)' == 'true'">$(Version)</ApplicationDisplayVersion>
+      <ApplicationVersion Condition="'$(UseMaui)' == 'true'">$(FlyScreenVersionCode)</ApplicationVersion>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(MSBuildThisFileDirectory)version.json"
+                      Lines="{&#xD;&#xA;  &quot;version&quot;: &quot;$(Version)&quot;,&#xD;&#xA;  &quot;versionCode&quot;: $(FlyScreenVersionCode),&#xD;&#xA;  &quot;latestTag&quot;: &quot;$(_LatestTag)&quot;&#xD;&#xA;}"
+                      Overwrite="true"
+                      Encoding="UTF-8" />
+
+    <Message Importance="High"
+             Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（code=$(FlyScreenVersionCode)；提交不改变此版本）" />
+  </Target>
+
+  <Target Name="WritePublishVersion" AfterTargets="Publish">
+    <PropertyGroup>
+      <_VerOutDir Condition="'$(PublishDir)' != ''">$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_VerOutDir>
+      <_VerOutDir Condition="'$(PublishDir)' == ''">$(OutputPath)</_VerOutDir>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_VerOutDir)version.txt" Lines="$(Version)" Overwrite="true" Encoding="UTF-8" />
+    <Message Importance="High"
+             Text="玄鸟 Version=$(Version)。发版：上传产物到 GitHub Release，并打 tag v$(Version)" />
+  </Target>
+</Project>

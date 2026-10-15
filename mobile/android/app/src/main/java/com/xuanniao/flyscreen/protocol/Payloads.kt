@@ -11,7 +11,7 @@ data class HandshakePayload(
     @SerializedName("Platform") val platform: String? = "Android",
     @SerializedName("DeviceClass") val deviceClass: String? = "Phone",
     @SerializedName("Caps") val caps: Array<String>? = PeerCaps.AndroidMobile,
-    @SerializedName("AppVersion") val appVersion: String? = "1.4.0"
+    @SerializedName("AppVersion") val appVersion: String? = null
 )
 
 data class MouseMovePayload(

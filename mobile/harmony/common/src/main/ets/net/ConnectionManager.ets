@@ -2,6 +2,7 @@ import { socket } from '@kit.NetworkKit';
 import { MessageCodec } from '../protocol/MessageCodec';
 import { MessageType } from '../protocol/MessageType';
 import { HandshakePayload } from '../protocol/Payloads';
+import { FLYSCREEN_VERSION } from '../FlyScreenVersion';
 import { DiscoveryService } from './DiscoveryService';
 import { PeerSession } from './PeerSession';
 
@@ -166,6 +167,7 @@ export class ConnectionManager {
     hs.Platform = this.platform;
     hs.DeviceClass = this.deviceClass;
     hs.Caps = this.caps;
+    hs.AppVersion = FLYSCREEN_VERSION;
     return hs;
   }
 

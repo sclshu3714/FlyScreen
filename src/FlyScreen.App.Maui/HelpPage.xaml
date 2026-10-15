@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FlyScreen.AppMaui.HelpPage"
+             Title="玄鸟 — 帮助"
+             BackgroundColor="{StaticResource WinBg}">
+  <Grid RowDefinitions="*,Auto,Auto,Auto" Padding="16">
+    <Border Style="{StaticResource Card}" Padding="4">
+      <ScrollView>
+        <VerticalStackLayout x:Name="HelpContent" Padding="12,10" Spacing="8" />
+      </ScrollView>
+    </Border>
+
+    <!-- 更新与连接诊断（对齐 Win HelpWindow） -->
+    <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,12,0,0" Padding="12">
+      <VerticalStackLayout Spacing="0">
+        <Label x:Name="SectionUpdateText" FontAttributes="Bold" />
+        <Label x:Name="ActionStatus" TextColor="{StaticResource Muted}" FontSize="12"
+               LineBreakMode="WordWrap" Margin="0,6,0,8" />
+        <ProgressBar x:Name="UpdateProgressBar" HeightRequest="10" Progress="0" IsVisible="False"
+                     Margin="0,0,0,10" />
+        <FlexLayout Wrap="Wrap" AlignItems="Center">
+          <Button x:Name="CheckUpdateBtn" Text="检查更新" Style="{StaticResource NormalBtn}"
+                  Margin="0,0,8,4" Clicked="CheckUpdate_Clicked" />
+          <Button x:Name="ApplyUpdateBtn" Text="自动更新" Style="{StaticResource NormalBtn}"
+                  Margin="0,0,8,4" IsEnabled="False" Clicked="ApplyUpdate_Clicked" />
+          <Button x:Name="DiagCheckBtn" Text="一键检查" Style="{StaticResource NormalBtn}"
+                  Margin="0,0,8,4" Clicked="DiagCheck_Clicked" />
+          <Button x:Name="DiagFixBtn" Text="一键修复" Style="{StaticResource PrimaryBtn}"
+                  Margin="0,0,0,4" Clicked="DiagFix_Clicked" />
+        </FlexLayout>
+      </VerticalStackLayout>
+    </Border>
+
+    <Editor x:Name="DiagOutput" Grid.Row="2" Margin="0,12,0,0" HeightRequest="120"
+            IsReadOnly="True" IsVisible="False" FontFamily="Consolas" FontSize="12"
+            BackgroundColor="{StaticResource CardBg}" />
+
+    <HorizontalStackLayout Grid.Row="3" HorizontalOptions="End" Margin="0,14,0,0">
+      <Button x:Name="CloseBtn" Text="关闭" Style="{StaticResource NormalBtn}"
+              MinimumWidthRequest="88" Clicked="Close_Clicked" />
+    </HorizontalStackLayout>
+  </Grid>
+</ContentPage>

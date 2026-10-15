@@ -35,6 +35,11 @@ dotnet publish src/FlyScreen.App.Mac/FlyScreen.App.Mac.csproj -c Release -r osx-
 # Intel
 dotnet publish src/FlyScreen.App.Mac/FlyScreen.App.Mac.csproj -c Release -r osx-x64 \
   --self-contained true -o artifacts/osx-x64
+
+# 命名发布包（目录 → .zip；若再打成 .dmg 则对 .dmg 再命名）
+# FlyScreen-{version}-osx-arm64.zip / osx-x64.zip
+powershell -File build/Name-FlyScreenPackage.ps1 -Source artifacts/osx-arm64 -Rid osx-arm64
+powershell -File build/Name-FlyScreenPackage.ps1 -Source artifacts/osx-x64 -Rid osx-x64
 ```
 
 ## 辅助功能

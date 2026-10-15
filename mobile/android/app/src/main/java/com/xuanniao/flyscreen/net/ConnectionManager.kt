@@ -66,7 +66,8 @@ class ConnectionManager(
                     securityKey = securityKey,
                     localIp = bindIp,
                     deviceClass = deviceClass,
-                    caps = PeerCaps.AndroidMobile
+                    caps = PeerCaps.AndroidMobile,
+                    appVersion = com.xuanniao.flyscreen.BuildConfig.FLYSREEN_VERSION
                 )
                 session.send(MessageCodec.encodeJson(MessageType.Handshake, hs))
             } catch (e: Exception) {
@@ -132,7 +133,8 @@ class ConnectionManager(
                         localIp = bindIp,
                         isReply = true,
                         deviceClass = deviceClass,
-                        caps = PeerCaps.AndroidMobile
+                        caps = PeerCaps.AndroidMobile,
+                        appVersion = com.xuanniao.flyscreen.BuildConfig.FLYSREEN_VERSION
                     )
                     session.send(MessageCodec.encodeJson(MessageType.HandshakeAck, ack))
                     onStatus?.invoke("入站已认证 ${hs.machineName}")

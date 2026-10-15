@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:local="clr-namespace:FlyScreen.AppMaui"
+             xmlns:conv="clr-namespace:FlyScreen.AppMaui.Converters"
              x:Class="FlyScreen.AppMaui.App">
   <Application.Resources>
     <ResourceDictionary>
@@ -9,6 +9,9 @@
         <ResourceDictionary Source="Resources/Styles/Colors.xaml" />
         <ResourceDictionary Source="Resources/Styles/Styles.xaml" />
       </ResourceDictionary.MergedDictionaries>
+      <conv:PercentToProgressConverter x:Key="PercentToProgress" />
+      <x:String x:Key="Str.Add">添加</x:String>
+      <x:String x:Key="Str.Delete">删除</x:String>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

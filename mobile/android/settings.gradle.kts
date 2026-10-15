@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "FlyScreen"
 include(":app")
+
+apply(from = "flyscreen-version.gradle.kts")

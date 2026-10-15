@@ -1,77 +1,78 @@
-# .NET MAUI 跨平台 UI（W7）
+# .NET MAUI 跨平台 UI（W7 / 双轨 beta）
 
 ## 工程
 
 | 项目 | 说明 |
 |------|------|
-| `FlyScreen.Core` | 协议 / 连接 / 发现 / 设置（共用） |
-| `FlyScreen.App.Maui` | **MAUI 单一 UI**：对齐 Win「基础 / 网络 / 共享 / 高级」分区 |
+| `FlyScreen.Core` | 协议 / 连接 / 发现 / 设置 / 文件传输（共用） |
+| `FlyScreen.Windows` | Win32 Native / 开机自启（**仅** MAUI-Windows 条件引用） |
+| `FlyScreen.App.Maui` | MAUI UI + 平台适配；**不引用** `FlyScreen.App.Windows` |
 
-**不替换**现有 WPF（`App.Windows`）与 Avalonia（`App.Mac` / `App.Linux` / `App.Desktop`）。W7 为跨平台 UI **双轨 / beta** 通道；Win stable 仍以 WPF 门禁为准。
+**WPF（`App.Windows`）仍为 stable，本通道不得改其代码或默认替换其安装包。**
 
-## 目标平台（分期）
+## 能力矩阵
+
+| 能力 | MAUI-Windows | MAUI-Android |
+|------|--------------|--------------|
+| Caps | `DesktopFull` | `AndroidMobile` |
+| 设置 / 布局 / 发现 / 布局同步 | ✅ | ✅（手机以触控板为主，设置二级页） |
+| 边缘键鼠 / 注入 / 热键 | ✅（`Platforms/Windows` 对照移植） | ❌（Caps 不含） |
+| 文本剪贴板 | ✅ | ✅ |
+| 文件直传 / 收件箱 | ✅ | ✅ |
+| 托盘 / 开机自启 | ✅ | ❌ |
+| 触控板控桌面 | — | ✅ `PhoneTouchpadPage` |
+
+## 目标平台
 
 | TFM | 状态 |
 |-----|------|
-| `net10.0-windows10.0.19041.0` | **默认**桌面验证（对齐 maui 10） |
-| `net10.0-android` | 需显式开启 `FlyScreenEnableMauiAndroid=true` |
-| `net10.0-ios` / `net10.0-maccatalyst` | 有完整 Apple workload 后启用 |
-
-> 说明：工程使用 **.NET 10 + MAUI 10**。默认不含 Android，以免本机缺 **MSVC**（`VC\Tools\MSVC`）或 **Android SDK** 时 VS 报 `GetLatestMSVCVersion` / XA5300，并波及同解决方案其它工程。业务仍引用 `FlyScreen.Core`（`net8.0`）。
+| `net10.0-windows10.0.19041.0` | **默认** |
+| `net10.0-android` | `-p:FlyScreenEnableMauiAndroid=true` |
 
 ## 前置
 
 ```powershell
-# 安装 MAUI 工作负载（一次性）
 dotnet workload install maui
-
-# 清单有、pack 未落盘时常见 MSB4019（AutoImport.props），按报错补装：
-dotnet workload install macos              # Microsoft.macOS.Sdk.*
-dotnet workload install wasm-tools-net6    # Microsoft.NET.Runtime.WebAssembly.Sdk 6.0.36
-# 或：dotnet workload repair
-
 dotnet workload list
 ```
 
-### Windows 目标
-
-- VS：「.NET 多平台应用 UI 开发」
-- 若内网 NuGet 缺包：确保可访问 `https://api.nuget.org/v3/index.json`
-
 ### Android（可选）
 
-1. VS 安装程序勾选 **使用 C++ 的桌面开发**（提供 `VC\Tools\MSVC`，否则 `GetLatestMSVCVersion` 失败）
-2. 安装完整 Android SDK（platforms / build-tools / platform-tools；仅有 emulator 不够）
-3. 构建时打开开关：
+需本机 MSVC + Android SDK，然后：
 
 ```powershell
 dotnet build src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
   -p:FlyScreenEnableMauiAndroid=true -f net10.0-android
 ```
 
-若 SDK 不在默认路径，另加 `-p:AndroidSdkDirectory=...`。
-
 ## 编译 / 运行
 
 ```powershell
-# Windows（默认）
 dotnet build src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release
 dotnet run --project src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release -f net10.0-windows10.0.19041.0
 ```
 
-## UI 对齐原则
+版本号与 Win 同源：`build/FlyScreen.Version.targets`。
 
-- 侧栏：基础 / 网络 / 共享 / 安全 / 高级  
-- 顶栏：基础设置 / 高级选项 / 网络设置 / 文件传输  
-- 配色与 Win 淡色主题一致（`Resources/Styles/Colors.xaml`）  
-- 业务经 `MauiAppHost` → `ConnectionManager` / `LayoutSyncHelper`（Core）
+## 发布包命名
 
-## 与现有端关系
+MAUI 为双轨 **beta**，命名仍遵循 [ROADMAP §4.2](../ROADMAP.md#42-平台包命名)，**不替代** WPF `win-x64` stable。
 
-```text
-Win WPF (stable) ──┐
-Avalonia Mac/Linux ─┼─ 共用 FlyScreen.Core
-MAUI (W7 beta) ─────┘
+```powershell
+# 例：单文件 / 解包 exe 或 msix，后缀以实际为准
+powershell -File build\Name-FlyScreenPackage.ps1 `
+  -Source <path-to-maui-artifact> `
+  -Rid maui-win-x64
+# Android MAUI：-Rid maui-android ，后缀多为 .apk
 ```
 
-键鼠注入 / 边缘捕获 / 剪贴板文件等仍按各平台 Adapter 落地；MAUI 首期保证**设置、布局槽位、发现、握手、布局同步**路径可用。
+## 架构要点
+
+- `MauiAppHost`：连接、布局同步、`FileTransferService`、对端键鼠消息分发。
+- `IMauiPlatformServices`：Windows / Android 分别实现；禁止依赖 WPF 类型。
+- Windows 适配位于 `Platforms/Windows/`（InputRouter / Injector / 托盘 / 文本剪贴板监视）。
+- Phone：`App` 启动 `PhoneTouchpadPage`；桌面启动 `AppShell`→`MainPage`。
+
+## CI
+
+`build-maui` 失败**不得** fail `build-win`。

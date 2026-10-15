@@ -35,6 +35,8 @@ public sealed class AppSettings
     /// <summary>绑定的本地 IPv4；空表示自动选择。</summary>
     public string PreferredLocalIp { get; set; } = "";
     public string PreferredNicId { get; set; } = "";
+    /// <summary>对本机发现/握手名的覆盖；空则自动（WSL 会加发行版后缀避免与宿主机撞名）。</summary>
+    public string MachineNameOverride { get; set; } = "";
     public int SwitchHotkeyMode { get; set; } // 0=F1-F4, 1=1-4, 2=禁用
     public string HotkeySettings { get; set; } = "M";
     public string HotkeyLock { get; set; } = "L";
@@ -80,18 +82,25 @@ public sealed class AppSettings
 
     public void EnsureLocalMachineSlot()
     {
-        var local = Environment.MachineName;
+        // 应用覆盖名（须在首次解析本机名前）
+        FlyScreen.Services.Network.LocalPeerIdentity.SetMachineNameOverride(
+            string.IsNullOrWhiteSpace(MachineNameOverride) ? null : MachineNameOverride);
+
+        var local = FlyScreen.Services.Network.LocalPeerIdentity.MachineName;
         while (MachineSlots.Count < 4)
             MachineSlots.Add("");
 
-        if (!MachineSlots.Any(m => string.Equals(m, local, StringComparison.OrdinalIgnoreCase)))
-        {
-            var empty = MachineSlots.FindIndex(string.IsNullOrWhiteSpace);
-            if (empty >= 0)
-                MachineSlots[empty] = local;
-            else
-                MachineSlots[0] = local;
-        }
+        // 只保证本机名在槽位中。绝不能按 Environment.MachineName 清空/改写其它槽：
+        // 本机显示名与系统名不同时（/etc/hostname、发行版后缀等），同名槽往往是
+        // 局域网里另一台真实机器（例如 WSL 测试时的 Windows 宿主机）。
+        if (MachineSlots.Any(m => string.Equals(m, local, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var empty = MachineSlots.FindIndex(string.IsNullOrWhiteSpace);
+        if (empty >= 0)
+            MachineSlots[empty] = local;
+        else
+            MachineSlots[0] = local;
     }
 
     public static string GenerateKey()

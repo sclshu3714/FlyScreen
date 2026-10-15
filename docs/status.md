@@ -24,7 +24,7 @@
 | 鸿蒙手机/平板 | W5a | `mobile/harmony/phone` | **~30%** | ArkTS 触控板壳 + 共享连接层；剪贴板/文件未做 |
 | 鸿蒙电脑 | W5b | `mobile/harmony/desktop` | **~20%** | 设置/槽位壳 + Caps；无注入/捕获/布局同步 |
 | 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~40%** | Mac/Linux 已共用对齐 Win 的壳 |
-| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~20%** | 骨架：Win 分区 UI + Core 宿主；注入/窄屏自适应待做 |
+| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~70%** | 双轨 beta：Win DesktopFull 适配（钩子/注入/托盘/剪贴板/直传）；Android 触控板+文本剪贴板+直传；**不改 WPF** |
 
 ---
 
@@ -100,7 +100,7 @@
 | W5a | 鸿蒙手机/平板 | **~30%** | 对标 W3 骨架级 |
 | W5b | 鸿蒙电脑 | **~20%** | 壳 + 降级 Caps；无桌面键鼠 |
 | W6 | Avalonia 统一桌面 UI | **~55%** | Mac/Linux 共用壳 + 直传窗/传输列表；Win 仍 WPF |
-| W7 | MAUI 跨平台 UI | **~20%** | 工程 + 对齐 Win 分区骨架；真机联调待做 |
+| W7 | MAUI 跨平台 UI | **~70%** | Win/Android 能力接线完成；真机联调与文件剪贴板 OLE 仍待打磨 |
 
 ---
 
@@ -110,7 +110,7 @@
 2. **Android W3**：剪贴板文本 + 联调稳定性（最接近「可用的第二端」）。  
 3. **macOS / Linux X11**：EventTap / 边缘捕获 + 被控注入打磨（桌面互通）。  
 4. **鸿蒙 5a**：对齐 Android 触控板联调；**5b** 待系统注入 API 再投入。  
-5. **W7 MAUI**：Windows/Android 联调与窄屏分流；与 WPF 双轨，不抢 stable。  
+5. **W7 MAUI**：与 WPF 真机交叉联调（边缘鼠标 / 直传）；Android 触控板联调。  
 6. **W4**：在移动一端稳定后再开。
 
 ---
@@ -123,3 +123,4 @@
 | 2026-10-14 | W0 收口 100%：Caps 协商门控 + Core.Tests |
 | 2026-10-14 | 增补 W7 MAUI 跨平台 UI 骨架与文档 |
 | 2026-10-14 | 传输核心抽到 Core；Mac/Linux 桌面文本剪贴板+直传；Linux CLI send/inbox/clip |
+| 2026-10-15 | W7：MAUI 双轨对齐（Win DesktopFull 适配 + Android 触控板）；WPF 不动 |

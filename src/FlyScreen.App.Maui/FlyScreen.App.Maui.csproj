@@ -13,8 +13,9 @@
     <Nullable>enable</Nullable>
     <ApplicationTitle>玄鸟</ApplicationTitle>
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
-    <ApplicationDisplayVersion>2.1.0</ApplicationDisplayVersion>
-    <ApplicationVersion>1</ApplicationVersion>
+    <!-- 与 Win 同源图标 -->
+    <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
+    <!-- ApplicationDisplayVersion / ApplicationVersion 由 build/FlyScreen.Version.targets 与 Win 同源 -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
@@ -22,6 +23,24 @@
     <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
     <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.png" />
+    <!-- 输出目录根下的 appicon.ico，供 AppWindow.SetIcon / 任务栏 -->
+    <None Include="Resources\AppIcon\appicon.ico" Link="appicon.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <Content Include="Platforms\Windows\Assets\**\*">
+      <Link>Assets\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- MAUI 默认标题栏模板找 Square44x44Logo.png；补一份避免空白 -->
+    <Content Include="Platforms\Windows\Assets\appiconLogo.png">
+      <Link>Square44x44Logo.png</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
   <!-- 可选：本机已装 Android SDK 时取消注释或在 Directory.Build.props 中设置 -->
   <!--
@@ -38,5 +57,12 @@
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
+
+  <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>
