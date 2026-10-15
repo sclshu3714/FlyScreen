@@ -19,7 +19,14 @@ internal static class Program
         }
 
         var mode = ResolveMode(args);
+        if (mode == LinuxRunMode.Gui
+            && LinuxRuntimeEnvironment.TryEnsureGraphicalEnvironment(out var ensureHint)
+            && !string.IsNullOrEmpty(ensureHint))
+            Console.WriteLine(ensureHint);
+
         Console.WriteLine($"玄鸟 Linux | 模式={mode} | {LinuxRuntimeEnvironment.Describe()}");
+        if (mode == LinuxRunMode.Gui && LinuxRuntimeEnvironment.IsRunningAsRoot)
+            Console.WriteLine("提示: 正以 root 运行，GUI 易因缺少 DISPLAY/Xauthority 失败；建议普通用户 ./FlyScreen --gui");
 
         return mode switch
         {
@@ -35,8 +42,10 @@ internal static class Program
         if (HasFlag(args, "--daemon", "-d")) return LinuxRunMode.Daemon;
         if (HasFlag(args, "--cli", "-c")) return LinuxRunMode.Cli;
 
-        // 自动：有图形会话 → GUI；否则 CLI（服务器 / SSH 无转发）
+        // 自动：有图形会话 → GUI；否则尝试 WSLg 补 DISPLAY 再判断
         if (LinuxRuntimeEnvironment.HasGraphicalSession)
+            return LinuxRunMode.Gui;
+        if (LinuxRuntimeEnvironment.TryEnsureGraphicalEnvironment(out _))
             return LinuxRunMode.Gui;
 
         return LinuxRunMode.Cli;
@@ -46,11 +55,13 @@ internal static class Program
     {
         try
         {
+            _ = LinuxRuntimeEnvironment.TryEnsureGraphicalEnvironment(out _);
             return GuiEntry.Run(args);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"GUI 启动失败，回退 CLI：{ex.Message}");
+            Console.Error.WriteLine(LinuxRuntimeEnvironment.GuiFailureAdvice(ex.Message));
             return LinuxCliRunner.RunAsync(args, daemon: false).GetAwaiter().GetResult();
         }
     }
@@ -78,6 +89,8 @@ internal static class Program
 
             环境:
               DISPLAY / WAYLAND_DISPLAY / XDG_SESSION_TYPE 用于会话探测与 Caps。
+              WSL2+WSLg 示例:  export DISPLAY=:0 && ./FlyScreen --gui
+              勿用裸 sudo 开 GUI（会丢掉 DISPLAY）；需要时用 sudo -E 或 DISPLAY=:0 sudo -E …
             """);
     }
 }

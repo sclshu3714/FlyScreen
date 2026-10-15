@@ -19,7 +19,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private string _bindIp = "0.0.0.0";
 
-    public string LocalMachine { get; } = Environment.MachineName;
+    public string LocalMachine => LocalPeerIdentity.MachineName;
     public DiscoveryService Discovery => _discovery;
     public string BindIp => _bindIp;
 
@@ -33,6 +33,9 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         await StopAsync().ConfigureAwait(false);
         _cts = new CancellationTokenSource();
+
+        LocalPeerIdentity.SetMachineNameOverride(
+            string.IsNullOrWhiteSpace(_settings.MachineNameOverride) ? null : _settings.MachineNameOverride);
 
         var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
         _bindIp = nic?.IPv4 ?? "0.0.0.0";
@@ -52,7 +55,7 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         _discovery.AnnounceTcpPort = _settings.TcpPort;
         if (_bindIp != "0.0.0.0")
-            _discovery.Start(_bindIp, _settings.UdpPort);
+            _discovery.Start(_bindIp, _settings.UdpPort, nic?.SubnetMask);
 
         var ct = _cts.Token;
         _ = Task.Run(() => AcceptLoopAsync(ct), ct);
@@ -318,6 +321,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             session.SetPeerIdentity(peerName, remote);
             await link.SetOutboundAsync(session).ConfigureAwait(false);
             link.UpdateRemoteInfo(remote);
+            RememberPeerAddress(peerName, ip, ack.LocalIp);
             session = null; // 已交给 link
             NotifyLink(peerName, link);
             StatusMessage?.Invoke($"已出站连接 {peerName} ({ip}) · {remote}");
@@ -474,6 +478,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         var link = _links.GetOrAdd(hs.MachineName, _ => new PeerLink(hs.MachineName));
         await link.SetInboundAsync(session).ConfigureAwait(false);
         link.UpdateRemoteInfo(remote);
+        RememberPeerAddress(hs.MachineName, session.PeerIp, hs.LocalIp);
         NotifyLink(hs.MachineName, link);
         StatusMessage?.Invoke(string.Format(
             Helpers.Localization.Loc.T("Status.Inbound"), hs.MachineName) + $" · {remote}");
@@ -502,7 +507,33 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         var discovered = _discovery.FindIp(peerName);
         if (discovered != null) return discovered;
+
+        // UDP 未到时，用已有 TCP 会话的对端地址补齐出站（真实 Linux / 桥接均适用）
+        if (_links.TryGetValue(peerName, out var link))
+        {
+            var fromSession = FirstNonEmpty(link.Outbound?.PeerIp, link.Inbound?.PeerIp);
+            if (fromSession != null) return fromSession;
+        }
+
         return await NicService.ResolveHostAsync(peerName, ct).ConfigureAwait(false);
+    }
+
+    private void RememberPeerAddress(string peerName, string? socketIp, string? advertisedIp)
+    {
+        var ip = FirstNonEmpty(advertisedIp, socketIp);
+        if (ip == null) return;
+        _discovery.RememberPeer(peerName, ip, _settings.TcpPort);
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v))
+                return v.Trim();
+        }
+
+        return null;
     }
 
     private static async Task<NetMessage?> WaitMessageAsync(

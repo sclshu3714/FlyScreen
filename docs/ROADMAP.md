@@ -126,15 +126,26 @@ FlyScreen/
 
 ### 4.2 平台包命名
 
+统一格式：`FlyScreen-{version}-{rid}{实际后缀}`。
+
+- `{version}`：与 §4.1 构建版本一致（如 `1.0.4`）
+- `{rid}`：平台标识（`win-x64` / `osx-arm64` / `osx-x64` / `linux-x64` / `linux-arm64` / `android` / `android-tv` / `harmony` / `maui-win-x64` 等）
+- **后缀以实际打包产物为准**（`.exe` / `.apk` / `.hap` / `.zip` / `.dmg` / `.AppImage` / `.msix` …），不以本表示例强制；目录发布默认打成 `.zip`
+
+示例（后缀仅为常见形态，发版以构建结果为准）：
+
 ```text
 FlyScreen-{version}-win-x64.exe
-FlyScreen-{version}-osx-arm64.dmg
-FlyScreen-{version}-osx-x64.dmg
-FlyScreen-{version}-linux-x64.AppImage
+FlyScreen-{version}-osx-arm64.zip          # 或 .dmg / .app 打包结果
+FlyScreen-{version}-osx-x64.zip
+FlyScreen-{version}-linux-x64.zip          # 或 .AppImage
 FlyScreen-{version}-android.apk
-FlyScreen-{version}-android-tv.apk    # 或同一 APK 的 tv flavor
-FlyScreen-{version}-harmony.hap      # 以官方格式为准
+FlyScreen-{version}-android-tv.apk
+FlyScreen-{version}-harmony.hap
+FlyScreen-{version}-maui-win-x64.exe       # MAUI 双轨 beta，不替代 WPF stable
 ```
+
+辅助脚本：`build/Name-FlyScreenPackage.ps1 -Source <产物> -Rid <rid>` → 输出到 `artifacts/release/`。
 
 ### 4.3 协议版本
 
@@ -343,7 +354,7 @@ src/
 **周期：** 6–10 周 · **版本：** 2.1.x  
 **工程：** `FlyScreen.App.Maui`（引用 `FlyScreen.Core`）  
 **TFM：** 默认 `net10.0-windows*`；Android 经 `FlyScreenEnableMauiAndroid=true` 开启（需本机 MSVC + Android SDK）  
-**进度：** 骨架已落地 — 主界面分区对齐 Win；`MauiAppHost` 接发现/握手/布局同步。说明：[runbooks/build-maui.md](runbooks/build-maui.md)。
+**进度：** 双轨 beta 能力接线 — Win DesktopFull 适配 + Android 触控板/剪贴板/直传；**不改** `App.Windows`。说明：[runbooks/build-maui.md](runbooks/build-maui.md)。
 
 #### 目标
 
@@ -351,22 +362,22 @@ src/
 |----|------|
 | 单一 UI 工程 | Windows / Android（首期）；iOS / Mac Catalyst 有 workload 后启用 |
 | 用户体验 | 侧栏 + 顶栏 Tab + 安全密钥 / 电脑布局 / 网络发现 / 高级选项，与 Win **同一信息架构** |
-| 业务 | 经 Core：`ConnectionManager`、`LayoutSyncHelper`、`AppSettings` |
+| 业务 | 经 Core + `Platforms/Windows|Android` 适配；**禁止**引用 `App.Windows` |
 | 分发 | 独立包 / `beta` 通道；**禁止**默认替换 WPF stable |
 
 #### 做
 
-1. ~~新建 `FlyScreen.App.Maui`，配色与导航对齐 Win。~~ ✅ 骨架
-2. ~~`MauiAppHost`：设置保存、发现列表、应用/重连、布局广播。~~ ✅
-3. ⏳ Windows / Android 真机联调与图标/启动图资源补齐  
-4. ⏳ 平台注入 Adapter 接线（复用 Windows/Linux/Mac 能力，不重写协议）  
-5. ⏳ 窄屏（Phone）自适应：触控板页与桌面设置页分流  
+1. ~~新建 `FlyScreen.App.Maui`，配色与导航对齐 Win。~~ ✅
+2. ~~`MauiAppHost`：设置、发现、布局、FileTransfer、消息分发。~~ ✅
+3. ~~Windows：钩子/注入/托盘/自启/文本剪贴板（对照移植，不改 WPF）。~~ ✅
+4. ~~Android：触控板 AbsPointer + 文本剪贴板 + 直传；Phone 启动分流。~~ ✅
+5. ⏳ Windows / Android 与 WPF 真机交叉联调；图标/启动图；文件剪贴板 OLE 体验打磨  
 
 #### 不做
 
 - 删除或停更 WPF / Avalonia 工程。  
 - 为迁就 MAUI 改 Win 钩子语义或破坏 Caps 兼容。  
-- 第一期完整 EdgeMouse / 文件直传（按 Caps 占位）。  
+- 修改 `FlyScreen.App.Windows` 源码。  
 
 #### 不影响 Win
 

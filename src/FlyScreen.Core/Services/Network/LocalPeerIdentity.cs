@@ -9,10 +9,21 @@ namespace FlyScreen.Services.Network;
 public static class LocalPeerIdentity
 {
     private static string[]? _capsOverride;
+    private static string? _machineNameOverride;
+    private static string? _resolvedMachineName;
 
     public static string Platform { get; private set; } = DetectPlatform();
     public static string DeviceClass { get; private set; } = PeerDeviceClass.Desktop;
     public static int ProtocolVersion { get; } = 2;
+
+    /// <summary>
+    /// 对端可见的本机名。WSL 下 Environment.MachineName 常等于 Windows 主机名，
+    /// 会导致发现包被双方当作「自己」丢弃，故自动加发行版后缀。
+    /// </summary>
+    public static string MachineName =>
+        _machineNameOverride
+        ?? _resolvedMachineName
+        ?? (_resolvedMachineName = ResolveMachineName());
 
     public static string AppVersion =>
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
@@ -21,13 +32,86 @@ public static class LocalPeerIdentity
 
     public static string[] Caps => _capsOverride ?? DefaultCapsForPlatform();
 
-    public static void Configure(string? platform = null, string? deviceClass = null, string[]? caps = null)
+    public static void Configure(
+        string? platform = null,
+        string? deviceClass = null,
+        string[]? caps = null,
+        string? machineName = null)
     {
         if (!string.IsNullOrWhiteSpace(platform))
             Platform = platform;
         if (!string.IsNullOrWhiteSpace(deviceClass))
             DeviceClass = deviceClass;
         _capsOverride = caps;
+        if (!string.IsNullOrWhiteSpace(machineName))
+        {
+            _machineNameOverride = machineName.Trim();
+            _resolvedMachineName = null;
+        }
+    }
+
+    /// <summary>从设置覆盖本机名（空则恢复自动探测）。</summary>
+    public static void SetMachineNameOverride(string? name)
+    {
+        _machineNameOverride = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        _resolvedMachineName = null;
+    }
+
+    private static string ResolveMachineName()
+    {
+        var envName = Environment.MachineName?.Trim() ?? "FlyScreen";
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return envName;
+
+        // 优先 /etc/hostname（若与 Windows 主机名不同，可直接区分）
+        try
+        {
+            if (File.Exists("/etc/hostname"))
+            {
+                var host = File.ReadAllText("/etc/hostname").Trim();
+                if (!string.IsNullOrWhiteSpace(host)
+                    && !host.Equals(envName, StringComparison.OrdinalIgnoreCase))
+                    return host;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!IsWsl())
+            return envName;
+
+        // WSL：与宿主机同名时加发行版后缀，保证发现/握手身份唯一
+        var distro = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")?.Trim();
+        if (string.IsNullOrWhiteSpace(distro))
+            distro = "WSL";
+        distro = new string(distro.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').ToArray());
+        if (string.IsNullOrWhiteSpace(distro))
+            distro = "WSL";
+
+        var candidate = $"{envName}-{distro}";
+        return candidate.Length > 63 ? $"{envName}-WSL" : candidate;
+    }
+
+    public static bool IsWsl()
+    {
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")))
+            return true;
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSL_INTEROP")))
+            return true;
+        try
+        {
+            if (!File.Exists("/proc/version")) return false;
+            var v = File.ReadAllText("/proc/version");
+            return v.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
+                   || v.Contains("WSL", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static HandshakePayload Enrich(HandshakePayload payload)

@@ -10,10 +10,9 @@
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
     <Product>玄鸟</Product>
     <Description>玄鸟 macOS — 跨电脑键鼠与剪贴板共享</Description>
-    <Version Condition="'$(Version)' == ''">1.2.0</Version>
     <!-- Windows 上可编译验证；真机发布：-r osx-arm64 / osx-x64 -->
     <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
-	<IncludeNativeLibrariesForSelfExtract>True</IncludeNativeLibrariesForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,5 +27,7 @@
     <ProjectReference Include="..\FlyScreen.Mac\FlyScreen.Mac.csproj" />
     <ProjectReference Include="..\FlyScreen.App.Desktop\FlyScreen.App.Desktop.csproj" />
   </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>

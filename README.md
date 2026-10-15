@@ -67,7 +67,9 @@ macOS / Linux / Android / 鸿蒙构建说明见 [docs/README.md](docs/README.md)
 
 ## 版本号（跟最新 Git 标签走，与提交无关）
 
-规则：**项目版本 = 最新 `vX.Y.Z` 标签的 patch + 1**。多次提交、不打新 tag，版本号不变。
+Windows / Linux / macOS / MAUI 共用 `build/FlyScreen.Version.targets`；Android / 鸿蒙用同一 Git 标签规则（Gradle 自动解析；鸿蒙发版前跑 `build/Sync-MobileVersion.ps1`）。
+
+规则：**项目版本 = 最新 `vX.Y.Z` 标签的 patch + 1**。多次提交、不打新 tag，版本号不变。`versionCode` = `major*10000+minor*100+patch`。
 
 | 最新 GitHub / 本地 tag | 构建出的 Version |
 |------------------------|------------------|

@@ -9,7 +9,7 @@ export class HandshakePayload {
   Platform: string = PeerPlatform.HarmonyOS;
   DeviceClass: string = PeerDeviceClass.Phone;
   Caps: string[] = PeerCaps.HarmonyMobile;
-  AppVersion: string = '1.6.0';
+  AppVersion: string = '';
 }
 
 export class MouseMovePayload {

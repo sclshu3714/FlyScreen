@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FlyScreen.AppMaui.PhoneTouchpadPage"
+             Title="触控板"
+             BackgroundColor="{StaticResource WinBg}">
+  <Grid RowDefinitions="Auto,*,Auto" Padding="16">
+    <VerticalStackLayout Spacing="8">
+      <Label Text="玄鸟 · 触控板" FontSize="20" FontAttributes="Bold" />
+      <Label x:Name="StatusLabel" Text="连接桌面后滑动即可控制鼠标"
+             TextColor="{StaticResource Muted}" FontSize="12" />
+      <Button Text="打开设置" Style="{StaticResource NormalBtn}" Clicked="OpenSettings_Clicked" />
+    </VerticalStackLayout>
+
+    <Border Grid.Row="1" Margin="0,12" BackgroundColor="{StaticResource CardBg}"
+            Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+      <Grid x:Name="PadArea" BackgroundColor="Transparent">
+        <Label Text="触控板区域" TextColor="{StaticResource Muted}"
+               HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+      <Button Text="左键" Style="{StaticResource PrimaryBtn}" Clicked="Left_Clicked" />
+      <Button Grid.Column="1" Text="右键" Style="{StaticResource NormalBtn}" Clicked="Right_Clicked" />
+      <Button Grid.Column="2" Text="滚轮↓" Style="{StaticResource NormalBtn}" Clicked="Wheel_Clicked" />
+    </Grid>
+  </Grid>
+</ContentPage>

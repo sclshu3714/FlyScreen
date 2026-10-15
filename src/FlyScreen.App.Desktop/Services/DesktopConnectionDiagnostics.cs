@@ -22,7 +22,7 @@ public sealed class DesktopConnectionDiagnostics
         var s = _host.Settings;
         var cm = _host.Connections;
 
-        report.Add("本机", Environment.MachineName, DesktopDiagnosticLevel.Info);
+        report.Add("本机", LocalPeerIdentity.MachineName, DesktopDiagnosticLevel.Info);
         report.Add("监听", cm.IsListening
             ? $"{cm.BindIp}:{s.TcpPort}"
             : "未监听", cm.IsListening ? DesktopDiagnosticLevel.Ok : DesktopDiagnosticLevel.Error);
@@ -168,7 +168,7 @@ public sealed class DesktopConnectionDiagnostics
         var added = 0;
         foreach (var peer in _host.Connections.Discovery.GetPeers())
         {
-            if (string.Equals(peer.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(peer.MachineName, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (s.MachineSlots.Any(m => string.Equals(m, peer.MachineName, StringComparison.OrdinalIgnoreCase)))
                 continue;

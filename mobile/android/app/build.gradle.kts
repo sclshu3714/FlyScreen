@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val flyscreenVersion = extra["flyscreen.version"] as String
+val flyscreenVersionCode = extra["flyscreen.versionCode"] as Int
+
 android {
     namespace = "com.xuanniao.flyscreen"
     compileSdk = 34
@@ -11,9 +14,15 @@ android {
         applicationId = "com.xuanniao.flyscreen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 140
-        versionName = "1.4.0"
+        versionCode = flyscreenVersionCode
+        versionName = flyscreenVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "FLYSREEN_VERSION", "\"$flyscreenVersion\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
+        viewBinding = true
     }
 
     buildTypes {
@@ -33,21 +42,17 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-    buildFeatures {
-        viewBinding = true
-    }
-
     // W4 可再加 productFlavors: mobile / tv
     flavorDimensions += "device"
     productFlavors {
         create("phone") {
             dimension = "device"
             applicationIdSuffix = ""
+            // 握手 AppVersion 用 BuildConfig.FLYSREEN_VERSION（无后缀），与 Win 对齐
             versionNameSuffix = "-phone"
         }
         create("tablet") {
             dimension = "device"
-            // 同包名便于联调；平板用大屏布局资源
             versionNameSuffix = "-tablet"
         }
     }

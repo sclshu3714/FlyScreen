@@ -9,9 +9,8 @@
     <AssemblyName>FlyScreen</AssemblyName>
     <Product>玄鸟</Product>
     <Description>玄鸟 Linux — 桌面 GUI / 无头 CLI·Daemon，复用同一业务宿主</Description>
-    <Version Condition="'$(Version)' == ''">1.3.0</Version>
     <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
-	<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,5 +25,7 @@
     <ProjectReference Include="..\FlyScreen.Linux\FlyScreen.Linux.csproj" />
     <ProjectReference Include="..\FlyScreen.App.Desktop\FlyScreen.App.Desktop.csproj" />
   </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>

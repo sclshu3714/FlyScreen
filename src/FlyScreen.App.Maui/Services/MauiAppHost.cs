@@ -1,16 +1,18 @@
 using FlyScreen.Models;
+using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.AppMaui.Services;
 
 /// <summary>
-/// MAUI 跨平台业务宿主：设置 / 连接 / 发现 / 布局同步。
-/// 平台键鼠注入由后续 Adapter 接入；本阶段保证 UI 与协议路径可用。
+/// MAUI 跨平台业务宿主。Windows 兑现 DesktopFull；Android 兑现 AndroidMobile。
+/// 不引用、不修改 FlyScreen.App.Windows。
 /// </summary>
 public sealed class MauiAppHost : IAsyncDisposable
 {
     private static MauiAppHost? _instance;
     private int _started;
+    private IMauiPlatformServices _platform = NullMauiPlatformServices.Instance;
 
     public static MauiAppHost Instance =>
         _instance ?? throw new InvalidOperationException("MauiAppHost 未创建");
@@ -25,6 +27,8 @@ public sealed class MauiAppHost : IAsyncDisposable
     public AppSettings Settings { get; }
     public ConnectionManager Connections { get; }
     public LayoutSyncHelper LayoutSync { get; }
+    public FileTransferService Transfers { get; }
+    public IMauiPlatformServices Platform => _platform;
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
@@ -40,6 +44,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings = AppSettings.Load();
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
+        var sink = new MauiClipboardApplySink();
+        Transfers = new FileTransferService(Settings, Connections, sink);
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
         LayoutSync.LayoutSyncedFromPeer += peer =>
@@ -48,6 +54,34 @@ public sealed class MauiAppHost : IAsyncDisposable
             _ = RestartNetworkingAsync();
         };
         Connections.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Transfers.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Connections.MessageReceived += OnPeerMessage;
+
+        Transfers.RemoteInlineAnnounced += () =>
+        {
+            if (_platform.IsFocusOnLocalMachine)
+                _platform.ArmRemoteClipboardForPaste();
+        };
+        Transfers.RemoteFilesAnnounced += () =>
+        {
+            if (_platform.IsFocusOnLocalMachine)
+                _platform.ArmRemoteClipboardForPaste();
+        };
+    }
+
+    /// <summary>由 MauiProgram / 平台启动代码注入 Windows/Android 实现。</summary>
+    public void AttachPlatform(IMauiPlatformServices platform)
+    {
+        _platform.StopDesktopInput();
+        _platform.StopClipboardMonitor();
+        _platform.DisposeTray();
+        _platform = platform ?? NullMauiPlatformServices.Instance;
+        Transfers.SetClipboardSink(_platform.ClipboardSink);
+        _platform.ControlTargetChanged += peer =>
+        {
+            if (peer == null)
+                _platform.ArmRemoteClipboardForPaste();
+        };
     }
 
     private static (string Platform, string DeviceClass, string[] Caps) DetectIdentity()
@@ -69,6 +103,16 @@ public sealed class MauiAppHost : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
         await Connections.StartAsync().ConfigureAwait(false);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_platform.SupportsDesktopInput)
+            {
+                _platform.SetEasyMouse(Settings.EasyMouse);
+                _platform.StartDesktopInput();
+            }
+
+            _platform.StartClipboardMonitor();
+        });
         StatusMessage?.Invoke($"网络已启动 · {PlatformBanner}");
     }
 
@@ -76,6 +120,7 @@ public sealed class MauiAppHost : IAsyncDisposable
     {
         Settings.Save();
         await Connections.StartAsync().ConfigureAwait(false);
+        _platform.SetEasyMouse(Settings.EasyMouse);
     }
 
     public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastAsync();
@@ -90,7 +135,21 @@ public sealed class MauiAppHost : IAsyncDisposable
         bool shareClipboard,
         bool transferFile,
         bool easyMouse,
-        bool sameSubnet)
+        bool sameSubnet,
+        bool hideMouseAtEdge = true,
+        bool drawMouseCursor = true,
+        bool showStatusMessages = true,
+        bool autoStart = false,
+        bool blockScreenSaver = true,
+        bool moveMouseRelatively = false,
+        bool blockMouseAtCorners = false,
+        int switchHotkeyMode = 0,
+        string? hotkeySettings = null,
+        string? hotkeyLock = null,
+        string? hotkeyReconnect = null,
+        string? hotkeyExit = null,
+        string? uiTheme = null,
+        string? uiLanguage = null)
     {
         Settings.SecurityKey = securityKey.Trim();
         Settings.MachineSlots = slots.Select(s => s.Trim()).ToList();
@@ -103,12 +162,91 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.TransferFile = transferFile;
         Settings.EasyMouse = easyMouse;
         Settings.SameSubnetOnly = sameSubnet;
+        Settings.HideMouseAtEdge = hideMouseAtEdge;
+        Settings.DrawMouseCursor = drawMouseCursor;
+        Settings.ShowStatusMessages = showStatusMessages;
+        Settings.AutoStart = autoStart;
+        Settings.BlockScreenSaver = blockScreenSaver;
+        Settings.MoveMouseRelatively = moveMouseRelatively;
+        Settings.BlockMouseAtCorners = blockMouseAtCorners;
+        Settings.SwitchHotkeyMode = switchHotkeyMode;
+        if (hotkeySettings != null) Settings.HotkeySettings = hotkeySettings;
+        if (hotkeyLock != null) Settings.HotkeyLock = hotkeyLock;
+        if (hotkeyReconnect != null) Settings.HotkeyReconnect = hotkeyReconnect;
+        if (hotkeyExit != null) Settings.HotkeyExit = hotkeyExit;
+        if (!string.IsNullOrWhiteSpace(uiTheme)) Settings.UiTheme = uiTheme;
+        if (!string.IsNullOrWhiteSpace(uiLanguage)) Settings.UiLanguage = uiLanguage;
         Settings.EnsureLocalMachineSlot();
         Settings.Save();
+
+        if (_platform.SupportsAutoStart)
+            _platform.SetAutoStartEnabled(autoStart);
+        _platform.SetEasyMouse(easyMouse);
+    }
+
+    private void OnPeerMessage(string peer, NetMessage msg)
+    {
+        switch (msg.Type)
+        {
+            case MessageType.MouseMove:
+            {
+                var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
+                if (p == null) return;
+                if (p.Relative) _platform.InjectMouseMoveRelative(p.Dx, p.Dy);
+                else _platform.InjectMouseMoveAbsolute(p.Nx, p.Ny);
+                break;
+            }
+            case MessageType.MouseButton:
+            {
+                var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
+                if (p == null) return;
+                _platform.InjectMouseButton(p.Button, p.Down);
+                break;
+            }
+            case MessageType.MouseWheel:
+            {
+                var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
+                if (p == null) return;
+                _platform.InjectMouseWheel(p.Delta, p.Horizontal);
+                break;
+            }
+            case MessageType.KeyEvent:
+            {
+                var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
+                if (p == null) return;
+                _platform.InjectKey(p.VirtualKey, p.Down, p.Extended);
+                break;
+            }
+            case MessageType.SwitchFocus:
+            {
+                var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
+                if (p == null) return;
+                if (IsLocalName(p.TargetMachine))
+                    _platform.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
+                break;
+            }
+            case MessageType.CursorOwner:
+            {
+                var p = MessageCodec.DecodeJson<CursorOwnerPayload>(msg.Payload);
+                if (p == null) return;
+                _platform.OnCursorOwnerChanged(p.OwnerMachine);
+                break;
+            }
+        }
+    }
+
+    private static bool IsLocalName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
     }
 
     public async ValueTask DisposeAsync()
     {
+        _platform.StopClipboardMonitor();
+        _platform.StopDesktopInput();
+        _platform.DisposeTray();
         LayoutSync.Detach();
         await Connections.DisposeAsync().ConfigureAwait(false);
         Settings.Save();

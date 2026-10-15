@@ -51,7 +51,41 @@ fc-cache -fv
 # 或: cp /mnt/c/Windows/Fonts/msyh*.ttc ~/.local/share/fonts/flyscreen/ && fc-cache -fv
 ```
 
-调试 GUI 建议 **不要 sudo**（`./FlyScreen --gui`），避免 X11/`$HOME` 权限问题。
+调试 GUI 建议 **不要 sudo**（`./FlyScreen --gui`），避免 X11/`$HOME`/DISPLAY 被清掉。
+
+WSL2 + WSLg（Windows 11）：
+
+```bash
+# 普通用户（推荐）
+cd ~/xuanniao
+chmod +x FlyScreen
+export DISPLAY=:0          # 若 echo $DISPLAY 为空
+./FlyScreen --gui
+
+# 若必须 root：保留环境或显式指定
+sudo -E DISPLAY=:0 ./FlyScreen --gui
+```
+
+`Session=Headless; DISPLAY=(none)` 且 `XOpenDisplay failed` = 当前进程看不到 X 服务器，不是程序缺库。
+
+## WSL 桥接与局域网发现
+
+WSL 与 Windows 宿主机默认共用同一个 `Environment.MachineName`（如 `DESKTOP-xxx`）。
+发现身份会自动加发行版后缀（如 `DESKTOP-xxx-Ubuntu`），避免与宿主机撞名。
+
+常见表现与对应修复（逻辑对真实 Linux 同样适用，非 WSL 特例）：
+
+| 现象 | 原因 |
+|------|------|
+| WSL 布局里看不到宿主机，对端却显示 WSL「仅出站」 | 曾误把与 `Environment.MachineName` 同名的槽位清空（宿主机合法名被删） |
+| 对端「仅出站」、本机「仅入站」 | UDP 发现不对称；现已从入站 TCP/握手学习对端 IP 并主动出站 |
+
+排查清单：
+
+1. WSL 端「网络设置」绑定 IP 选桥接地址（如 `10.10.1.14`），点「应用」
+2. 三台安全密钥一致；UDP `15156` / TCP `15155` 防火墙放行
+3. 三台布局中应同时出现宿主机名与带后缀的 WSL 名；单向时点「刷新连接」
+4. 若仍撞名，可在 settings.json 写 `"MachineNameOverride": "my-wsl"` 后重启
 
 标题栏只显示「玄」时：由 X11 窗口管理器字体绘制，需系统已有 CJK（上面 apt / 拷贝雅黑后再开一次窗口）。客户端内文字走 Avalonia 字体回退。
 
@@ -77,6 +111,11 @@ dotnet publish src/FlyScreen.App.Linux/FlyScreen.App.Linux.csproj -c Release -r 
   --self-contained true -o artifacts/linux-x64
 dotnet publish src/FlyScreen.App.Linux/FlyScreen.App.Linux.csproj -c Release -r linux-arm64 \
   --self-contained true -o artifacts/linux-arm64
+
+# 命名发布包（目录 → .zip；若改为 AppImage 则对 .AppImage 文件再跑一遍）
+# FlyScreen-{version}-linux-x64.zip / linux-arm64.zip
+powershell -File build/Name-FlyScreenPackage.ps1 -Source artifacts/linux-x64 -Rid linux-x64
+powershell -File build/Name-FlyScreenPackage.ps1 -Source artifacts/linux-arm64 -Rid linux-arm64
 ```
 
 ## systemd 示例（无头 Daemon）
