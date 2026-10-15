@@ -1,0 +1,2 @@
+## 复制为 local.properties 并填写本机 SDK 路径（勿提交 local.properties）
+sdk.dir=C\:\\Users\\YOU\\AppData\\Local\\Android\\Sdk

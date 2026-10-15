@@ -1,0 +1,14 @@
+{
+  "color": [
+    { "name": "bg", "value": "#F7F8FA" },
+    { "name": "page_bg", "value": "#F7F8FA" },
+    { "name": "card_bg", "value": "#FFFFFF" },
+    { "name": "card", "value": "#FFFFFF" },
+    { "name": "pad", "value": "#F3F4F6" },
+    { "name": "text", "value": "#111827" },
+    { "name": "muted", "value": "#6B7280" },
+    { "name": "accent", "value": "#2563EB" },
+    { "name": "line", "value": "#E5E7EB" },
+    { "name": "success", "value": "#059669" }
+  ]
+}

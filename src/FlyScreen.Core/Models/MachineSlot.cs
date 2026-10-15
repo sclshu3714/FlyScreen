@@ -63,7 +63,6 @@ public sealed class MachineSlot : INotifyPropertyChanged
 
     public void SetLayoutHint(bool twoRow)
     {
-        if (_twoRow == twoRow) return;
         _twoRow = twoRow;
         OnPropertyChanged(nameof(PositionLabel));
         OnPropertyChanged(nameof(IsTwoRow));

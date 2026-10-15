@@ -1,0 +1,11 @@
+{
+  "name": "desktop",
+  "version": "1.6.0",
+  "description": "玄鸟鸿蒙电脑（W5b）",
+  "main": "",
+  "author": "xuanniao",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "common": "file:../common"
+  }
+}

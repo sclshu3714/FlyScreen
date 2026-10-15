@@ -26,13 +26,13 @@ public sealed class InputRouter : IDisposable
     private string? _activePeer;
     private int _lastX;
     private int _lastY;
-    private double _virtualNx = 0.5;
-    private double _virtualNy = 0.5;
+    /// <summary>控远端时的虚拟光标（含进入边粘滞，防止误甩回本机）。</summary>
+    private readonly EdgeMouseVirtualCursor _remoteCursor = new();
     /// <summary>对端相对本机：-1 左, +1 右, -2 上, +2 下。</summary>
     private int _peerSide;
     /// <summary>切换控制权后的短冷却，避免落在边缘时立刻被环形逻辑甩回。</summary>
     private long _switchCooldownUntilTick;
-    private const int SwitchCooldownMs = 350;
+    private const int SwitchCooldownMs = 900;
     /// <summary>本进程 UI/钩子线程上是否已将 ShowCursor 压到不可见（仅在该线程读写）。</summary>
     private bool _cursorHiddenOnHookThread;
     private Dispatcher? _hookDispatcher;
@@ -93,8 +93,9 @@ public sealed class InputRouter : IDisposable
             // 落点靠内侧，避免立刻再次触发边缘切换（环形时尤其明显）
             var insetX = Math.Max(24, screenW / 12);
             var insetY = Math.Max(24, screenH / 12);
+            var (vx, vy) = _remoteCursor.Clamped01();
             var px = screenW / 2;
-            var py = (int)(Math.Clamp(_virtualNy, 0.05, 0.95) * Math.Max(1, screenH - 1));
+            var py = (int)(Math.Clamp(vy, 0.05, 0.95) * Math.Max(1, screenH - 1));
             switch (side)
             {
                 case -1: // 从左侧进入本机
@@ -104,11 +105,11 @@ public sealed class InputRouter : IDisposable
                     px = screenW - insetX;
                     break;
                 case -2: // 从上方进入
-                    px = (int)(Math.Clamp(_virtualNx, 0.05, 0.95) * Math.Max(1, screenW - 1));
+                    px = (int)(Math.Clamp(vx, 0.05, 0.95) * Math.Max(1, screenW - 1));
                     py = insetY;
                     break;
                 case 2: // 从下方进入
-                    px = (int)(Math.Clamp(_virtualNx, 0.05, 0.95) * Math.Max(1, screenW - 1));
+                    px = (int)(Math.Clamp(vx, 0.05, 0.95) * Math.Max(1, screenW - 1));
                     py = screenH - insetY;
                     break;
             }
@@ -137,7 +138,7 @@ public sealed class InputRouter : IDisposable
         ControlTargetChanged?.Invoke(null);
     }
 
-    /// <summary>对端宣告光标归属：非本机则隐藏并停止控制远端。</summary>
+    /// <summary>对端宣告光标归属：非本机则隐藏；正在控远端且 Owner=当前对端时保持控制（勿误掐）。</summary>
     public void OnCursorOwnerChanged(string ownerMachine)
     {
         if (!_settings.HideMouseAtEdge) return;
@@ -149,7 +150,17 @@ public sealed class InputRouter : IDisposable
             return;
         }
 
-        // 其它电脑正在操作：隐藏本机光标，并放下对远端的控制
+        // 本机正在控该对端：Owner=对端是预期状态（SwitchToPeer 广播的），不得放弃控制
+        if (_controllingRemote
+            && !string.IsNullOrEmpty(_activePeer)
+            && string.Equals(ownerMachine, _activePeer, StringComparison.OrdinalIgnoreCase))
+        {
+            HideLocalCursor();
+            _focusOnLocal = false;
+            return;
+        }
+
+        // 光标归其它机器：隐藏本机光标；若在控远端则放下（第三方抢了归属）
         HideLocalCursor();
         _focusOnLocal = false;
         if (_controllingRemote)
@@ -165,15 +176,15 @@ public sealed class InputRouter : IDisposable
 
     public void SwitchToPeer(string peer, double entryX, double entryY, int peerSide)
     {
+        // 控对端需可达，且交集含 InjectInput（旧端无 Caps 视为具备全量本机能力）
         if (!_connections.IsPeerReachable(peer)) return;
+        if (!_connections.PeerSupports(peer, PeerCaps.InjectInput)) return;
         _controllingRemote = true;
         _receivingRemoteControl = false;
         _focusOnLocal = false;
         _activePeer = peer;
-        // 入口略向内收，避免刚进入就因抖动从同一边甩回去
-        _virtualNx = Math.Clamp(entryX, 0.02, 0.98);
-        _virtualNy = Math.Clamp(entryY, 0.02, 0.98);
         _peerSide = peerSide;
+        _remoteCursor.BeginRemote(entryX, entryY, peerSide);
         ArmSwitchCooldown();
         // 无论是否隐藏光标，控远端时都必须把本机光标钉在中部，否则卡在屏幕边缘无法产生向远端方向的位移
         PinLocalCursorForRemoteControl();
@@ -184,7 +195,8 @@ public sealed class InputRouter : IDisposable
         }
 
         ControlTargetChanged?.Invoke(peer);
-        _ = SendSwitchAsync(peer, _virtualNx, _virtualNy);
+        var (sx, sy) = _remoteCursor.Clamped01();
+        _ = SendSwitchAsync(peer, sx, sy);
     }
 
     /// <summary>控远端时将本机光标钉在屏幕中部，用相对位移驱动对端虚拟坐标。</summary>
@@ -233,10 +245,15 @@ public sealed class InputRouter : IDisposable
         var screenW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
         var screenH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
 
-        // 物理鼠标活动：夺回本机光标显示，并让其它电脑隐藏（含「正被远程控制时动了本机鼠标」）
+        // 物理键鼠夺回：被控时不要因「移动」抢归属（注入偶发漏标会掐断控制端）；仅按键/滚轮视为本机介入
         if (_settings.HideMouseAtEdge
-            && msg is NativeMethods.WM_MOUSEMOVE or NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
+            && msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
+        {
+            TryClaimPhysicalInput();
+        }
+        else if (_settings.HideMouseAtEdge && msg == NativeMethods.WM_MOUSEMOVE
+                 && !_receivingRemoteControl && !_controllingRemote)
         {
             TryClaimPhysicalInput();
         }
@@ -262,24 +279,24 @@ public sealed class InputRouter : IDisposable
                 _lastX = info.pt.X;
                 _lastY = info.pt.Y;
 
-                // 放宽虚拟出界范围，保证左右两侧都能稳定触发
-                const double lo = -0.2;
-                const double hi = 1.2;
+                if (!_remoteCursor.TryApplyPixelDelta(dx, dy, screenW, screenH))
+                {
+                    // 钉中心失败导致巨位移：忽略本帧，重新钉住，避免虚拟坐标冲出界甩回本机
+                    PinLocalCursorForRemoteControl();
+                    return (IntPtr)1;
+                }
+
                 if (_settings.MoveMouseRelatively)
                 {
                     _ = SendMouseMoveRelAsync(_activePeer, dx, dy);
-                    _virtualNx = Math.Clamp(_virtualNx + dx / (double)Math.Max(1, screenW), lo, hi);
-                    _virtualNy = Math.Clamp(_virtualNy + dy / (double)Math.Max(1, screenH), lo, hi);
                 }
                 else
                 {
-                    _virtualNx = Math.Clamp(_virtualNx + dx / (double)Math.Max(1, screenW), lo, hi);
-                    _virtualNy = Math.Clamp(_virtualNy + dy / (double)Math.Max(1, screenH), lo, hi);
-                    _ = SendMouseMoveAsync(_activePeer,
-                        Math.Clamp(_virtualNx, 0, 1), Math.Clamp(_virtualNy, 0, 1));
+                    var (nx, ny) = _remoteCursor.Clamped01();
+                    _ = SendMouseMoveAsync(_activePeer, nx, ny);
                 }
 
-                // 远端出界：按「当前控制机器」在布局中的位置找下一台（支持环形）
+                // 远端出界：粘滞 + 过冲后，按布局找下一台（支持环形）
                 if (!InSwitchCooldown() && TryNavigateFromRemoteVirtual(dx, dy))
                     return (IntPtr)1;
 
@@ -590,7 +607,7 @@ public sealed class InputRouter : IDisposable
         bool IsValidPeer(string? name) =>
             !string.IsNullOrWhiteSpace(name)
             && !string.Equals(name, local, StringComparison.OrdinalIgnoreCase)
-            && _connections.IsPeerReachable(name);
+            && _connections.IsPeerEdgeMouseCapable(name!);
 
         var nx = screenW <= 1 ? 0.5 : Math.Clamp(x / (double)(screenW - 1), 0, 1);
         var ey = entryY;
@@ -664,14 +681,12 @@ public sealed class InputRouter : IDisposable
     {
         if (string.IsNullOrEmpty(_activePeer)) return false;
 
-        // 必须「已经顶到边 + 仍朝该方向推」，左右对称，避免只一边能出
-        var dirH = 0;
-        var dirV = 0;
-        if (_virtualNx <= 0 && dx < 0) dirH = -1;
-        else if (_virtualNx >= 1 && dx > 0) dirH = 1;
-        else if (_settings.TwoRow && _virtualNy <= 0 && dy < 0) dirV = -1;
-        else if (_settings.TwoRow && _virtualNy >= 1 && dy > 0) dirV = 1;
-        else return false;
+        // 粘滞进入边 + 过冲：避免入口微抖立刻甩回本机
+        if (!_remoteCursor.TryGetExitDirection(dx, dy, _settings.TwoRow, out var dirH, out var dirVSide))
+            return false;
+
+        // dirVSide 为 -2/+2；布局邻居查找用 -1/+1
+        var dirV = dirVSide == 0 ? 0 : (dirVSide < 0 ? -1 : 1);
 
         var slots = GetLayoutSlots();
         var activeIdx = FindSlotIndex(slots, _activePeer);
@@ -683,42 +698,34 @@ public sealed class InputRouter : IDisposable
 
         if (string.IsNullOrWhiteSpace(next))
         {
-            // 到头（未开环形）：夹回界内
-            _virtualNx = Math.Clamp(_virtualNx, 0, 1);
-            _virtualNy = Math.Clamp(_virtualNy, 0, 1);
+            _remoteCursor.ClampInside();
             return false;
         }
 
         var local = Environment.MachineName;
+        var (vx, vy) = _remoteCursor.Clamped01();
         if (string.Equals(next, local, StringComparison.OrdinalIgnoreCase))
         {
             // 远端往右出 → 进本机左边；远端往左出 → 进本机右边
-            _peerSide = dirH != 0 ? -dirH : -dirV;
+            _peerSide = dirH != 0 ? -dirH : -dirVSide;
             if (dirH != 0)
-            {
-                _virtualNx = dirH > 0 ? 0.08 : 0.92;
-                _virtualNy = Math.Clamp(_virtualNy, 0.05, 0.95);
-            }
+                _remoteCursor.Set(dirH > 0 ? 0.08 : 0.92, Math.Clamp(vy, 0.05, 0.95));
             else
-            {
-                _virtualNy = dirV > 0 ? 0.08 : 0.92;
-                _virtualNx = Math.Clamp(_virtualNx, 0.05, 0.95);
-            }
+                _remoteCursor.Set(Math.Clamp(vx, 0.05, 0.95), dirV > 0 ? 0.08 : 0.92);
             TakeLocalControl();
             return true;
         }
 
-        if (!_connections.IsPeerReachable(next))
+        if (!_connections.IsPeerEdgeMouseCapable(next))
         {
-            _virtualNx = Math.Clamp(_virtualNx, 0, 1);
-            _virtualNy = Math.Clamp(_virtualNy, 0, 1);
+            _remoteCursor.ClampInside();
             return false;
         }
 
         // 跳到另一台远端
-        var entryX = dirH < 0 ? 0.92 : dirH > 0 ? 0.08 : Math.Clamp(_virtualNx, 0.05, 0.95);
-        var entryY = dirV < 0 ? 0.92 : dirV > 0 ? 0.08 : Math.Clamp(_virtualNy, 0.05, 0.95);
-        var peerSide = dirH != 0 ? dirH : dirV;
+        var entryX = dirH < 0 ? 0.92 : dirH > 0 ? 0.08 : Math.Clamp(vx, 0.05, 0.95);
+        var entryY = dirV < 0 ? 0.92 : dirV > 0 ? 0.08 : Math.Clamp(vy, 0.05, 0.95);
+        var peerSide = dirH != 0 ? dirH : dirVSide;
         SwitchToPeer(next, entryX, entryY, peerSide);
         return true;
     }

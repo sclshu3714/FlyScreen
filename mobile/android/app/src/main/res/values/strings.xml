@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">玄鸟</string>
+    <string name="notification_channel">连接保活</string>
+    <string name="notification_title">玄鸟运行中</string>
+    <string name="notification_text">正在保持与电脑的连接</string>
+    <string name="security_key">安全密钥</string>
+    <string name="apply_connect">应用</string>
+    <string name="touchpad_hint">在此区域滑动控制电脑鼠标；双指上下滚动</string>
+    <string name="status_idle">未连接</string>
+</resources>

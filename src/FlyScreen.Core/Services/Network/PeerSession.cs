@@ -28,6 +28,8 @@ public sealed class PeerSession : IAsyncDisposable
     public string PeerIp { get; }
     public bool IsOutbound { get; }
     public bool Authenticated { get; private set; }
+    /// <summary>对端握手身份（认证后填写）。</summary>
+    public PeerRemoteInfo RemoteInfo { get; private set; } = new();
     public DateTime LastRecvUtc => _lastRecvUtc;
     public bool IsAlive => Volatile.Read(ref _disposed) == 0 && _client.Connected;
 
@@ -47,10 +49,12 @@ public sealed class PeerSession : IAsyncDisposable
         _recvLoop = Task.Run(RecvLoopAsync);
     }
 
-    public void SetPeerIdentity(string name)
+    public void SetPeerIdentity(string name, PeerRemoteInfo? remote = null)
     {
         PeerName = name;
         Authenticated = true;
+        if (remote != null)
+            RemoteInfo = remote;
     }
 
     public ValueTask SendAsync(MessageType type, byte[]? payload = null)

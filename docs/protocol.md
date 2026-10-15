@@ -13,8 +13,8 @@
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| 1 | 现网 | 现有 Win 消息集（键鼠、剪贴板、文件、布局等） |
-| 2 | 规划（W0） | 在 Hello/握手中增加 `Platform`、`DeviceClass`、`Caps`；旧端忽略 |
+| 1 | 现网 / 兼容 | 现有 Win 消息集（键鼠、剪贴板、文件、布局等） |
+| 2 | 已落地字段 | 握手 JSON 可选：`Platform`、`DeviceClass`、`Caps`、`AppVersion`；旧端忽略多余字段 |
 | 3+ | 未来 | 破坏性变更时使用 |
 
 ## 3. 握手扩展（Version ≥ 2 逻辑字段）
@@ -37,12 +37,16 @@ PeerHello {
 
 ```text
 localCaps ∩ remoteCaps → effectiveCaps
-if EdgeMouse in effectiveCaps && both Desktop → 启用边缘切换
-else if AbsPointer in effectiveCaps → 启用触控板/指针模式
-Clipboard* / DirectTransfer → 按位启用
+if remoteCaps 缺失或空（Protocol v1 旧端）→ effectiveCaps = localCaps（兼容）
+if EdgeMouse in effectiveCaps → 允许边缘切换到该对端
+if InjectInput in effectiveCaps → 允许本机 SwitchToPeer 控该对端
+if LayoutSync in effectiveCaps → 允许向该对端推送布局
+Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 ```
 
-无任何有效输入能力时：保持连接，UI 提示「对端不支持键鼠控制」，仍可尝试剪贴板 / 文件（若有 Caps）。
+实现：`LocalPeerIdentity.IntersectCaps` / `ConnectionManager.PeerSupports` / `IsPeerEdgeMouseCapable`。
+
+无任何有效输入能力时：保持连接；边缘切换不会选中该 peer。
 
 ## 4. 现有消息类别（Version 1，勿随意改义）
 
@@ -86,3 +90,8 @@ Clipboard* / DirectTransfer → 按位启用
 | 日期 | 说明 |
 |------|------|
 | 2026-10-13 | 首版概要 |
+| 2026-10-13 | W1：HandshakePayload 扩展 + Mac 端发送 ProtocolVersion=2 |
+| 2026-10-14 | W2：Linux Caps（X11 / Wayland / Headless）按会话宣告 |
+| 2026-10-14 | W3：Android 握手 Platform=Android、DeviceClass=Phone/Tablet、Caps=AbsPointer+… |
+| 2026-10-14 | W5：HarmonyOS Phone/Tablet/Desktop Caps；Platform=HarmonyOS |
+| 2026-10-14 | W0 收口：Caps 交集门控 + Core.Tests |

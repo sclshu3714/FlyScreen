@@ -36,8 +36,8 @@
 | EdgeMouse | ✅ | ✅（W1） | ✅（W2） | ❌ / ⚠️ | ✅（W5b）或 ⚠️ |
 | AbsPointer | ✅ | ✅ | ✅ | ⚠️ | ✅ |
 | ClipboardText | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ClipboardFiles | ✅ | ⚠️→✅ | ⚠️→✅ | ⚠️ | ⚠️→✅ |
-| DirectTransfer | ✅ | ⚠️→✅ | ⚠️→✅ | ⚠️ | ⚠️→✅ |
+| ClipboardFiles | ✅ | ✅¹ | ✅¹ | ✅¹ | ⚠️→✅ |
+| DirectTransfer | ✅ | ✅ | ✅ | ✅ | ⚠️→✅ |
 | LayoutSync | ✅ | ✅ | ✅ | ❌ | ✅ |
 | InjectInput | ✅ | ✅ | ✅ | ⚠️ | ✅ / ⚠️ |
 | CaptureInput | ✅ | ✅ | ✅ | ⚠️ | ✅ / ⚠️ |
@@ -78,8 +78,19 @@
 | 鸿蒙电脑 | 按 Desktop 清单；与 Win 交叉连接 |
 | 鸿蒙手机 | 与 Android Phone 对标，权限文案按鸿蒙体系 |
 
+### 3.4 Linux 无头 / CLI
+
+| 能力 | 行为 |
+|------|------|
+| ClipboardText | CLI `clip set` 宣告；**无**系统粘贴体验 |
+| ClipboardFiles / DirectTransfer | `send` 直传；收到写入 Inbox（`inbox` 命令） |
+| EdgeMouse / Inject / Capture / LayoutSync | ❌ 不宣告 |
+
+¹ 桌面：拉取到 Inbox/PasteStaging；不做 Win CF_HDROP 延迟系统粘贴。富文本/图片以文本降级或落盘为主。
+
 ## 6. 修订记录
 
 | 日期 | 说明 |
 |------|------|
 | 2026-10-13 | 首版 |
+| 2026-10-14 | Mac/Linux 桌面 ClipboardFiles+DirectTransfer 落地；无头仅直传+文本通道 |

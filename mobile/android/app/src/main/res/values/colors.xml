@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 Windows 端淡色主题对齐 -->
+    <color name="bg">#F7F8FA</color>
+    <color name="card">#FFFFFF</color>
+    <color name="text">#111827</color>
+    <color name="muted">#6B7280</color>
+    <color name="accent">#2563EB</color>
+    <color name="line">#E5E7EB</color>
+    <color name="success">#059669</color>
+    <color name="pad">#F3F4F6</color>
+</resources>

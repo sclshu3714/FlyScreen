@@ -1,0 +1,11 @@
+{
+  "name": "phone",
+  "version": "1.6.0",
+  "description": "玄鸟鸿蒙手机/平板（W5a）",
+  "main": "",
+  "author": "xuanniao",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "common": "file:../common"
+  }
+}

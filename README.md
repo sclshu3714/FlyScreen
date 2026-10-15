@@ -13,7 +13,7 @@
 规划、设备矩阵、协议兼容与 **Windows 零回退门禁** 见文档目录：
 
 - **[docs/README.md](docs/README.md)** — 文档索引  
-- **[docs/ROADMAP.md](docs/ROADMAP.md)** — 版本阶段与周期（W0–W6）
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — 版本阶段与周期（W0–W7，含 MAUI）
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。
 
@@ -48,7 +48,20 @@ dotnet build FlyScreen.sln -c Release
 dotnet run --project src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 ```
 
-解决方案含：`FlyScreen.Core`（跨平台核心）→ `FlyScreen.Windows`（Win32 适配）→ `FlyScreen.App.Windows`（WPF 应用）。日常开发打开 `FlyScreen.sln` 即可。产物 exe 仍为 `FlyScreen.exe`。
+解决方案含：
+
+| 项目 | 说明 |
+|------|------|
+| `FlyScreen.Core` | 跨平台核心（协议 / 连接 / 发现） |
+| `FlyScreen.Windows` + `FlyScreen.App.Windows` | Windows 适配 + WPF（**stable**，产物仍为 `FlyScreen.exe`） |
+| `FlyScreen.Mac` + `FlyScreen.App.Mac` | macOS 适配 + Avalonia（W1） |
+| `FlyScreen.App.Maui` | .NET MAUI 跨平台 UI（W7，对齐 Win 分区；beta） |
+| `FlyScreen.Linux` + `FlyScreen.App.Linux` | Linux：自动 GUI / CLI / Daemon（W2） |
+| `mobile/android` | Android Kotlin：触控板控桌面（W3） |
+| `mobile/harmony` | 鸿蒙 ArkTS：手机/平板 + 电脑（W5） |
+
+日常 Win 开发打开 `FlyScreen.sln` 即可。  
+macOS / Linux / Android / 鸿蒙构建说明见 [docs/README.md](docs/README.md)。
 
 输出目录：`src\FlyScreen.App.Windows\bin\Release\net8.0-windows\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
 

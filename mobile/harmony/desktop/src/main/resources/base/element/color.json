@@ -1,0 +1,9 @@
+{
+  "color": [
+    { "name": "start_window_background", "value": "#0F172A" },
+    { "name": "page_bg", "value": "#0F172A" },
+    { "name": "card_bg", "value": "#1E293B" },
+    { "name": "text", "value": "#E2E8F0" },
+    { "name": "muted", "value": "#94A3B8" }
+  ]
+}
