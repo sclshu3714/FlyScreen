@@ -249,7 +249,8 @@
     </Style>
     <Style TargetType="CheckBox">
       <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="Margin" Value="0,4"/>
+      <Setter Property="Margin" Value="0,2"/>
+      <Setter Property="MinHeight" Value="22"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     </Style>
     <Style TargetType="RadioButton">
@@ -489,33 +490,33 @@
         <StackPanel>
           <RadioButton x:Name="NavBasic" Style="{StaticResource NavBtn}" GroupName="SideNav"
                        IsChecked="True" Checked="Nav_Changed">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="⌂" Width="22" FontSize="15"/>
-              <TextBlock x:Name="NavBasicText" Text="基础" Margin="6,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="⌂" Width="22" FontSize="15" VerticalAlignment="Center" TextAlignment="Center"/>
+              <TextBlock x:Name="NavBasicText" Text="基础" Margin="10,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </RadioButton>
           <RadioButton x:Name="NavNetwork" Style="{StaticResource NavBtn}" GroupName="SideNav" Checked="Nav_Changed">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="◎" Width="22" FontSize="14"/>
-              <TextBlock x:Name="NavNetworkText" Text="网络" Margin="6,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="◎" Width="22" FontSize="14" VerticalAlignment="Center" TextAlignment="Center"/>
+              <TextBlock x:Name="NavNetworkText" Text="网络" Margin="10,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </RadioButton>
           <RadioButton x:Name="NavShare" Style="{StaticResource NavBtn}" GroupName="SideNav" Checked="Nav_Changed">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="▦" Width="22" FontSize="14"/>
-              <TextBlock x:Name="NavShareText" Text="共享" Margin="6,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="▦" Width="22" FontSize="14" VerticalAlignment="Center" TextAlignment="Center"/>
+              <TextBlock x:Name="NavShareText" Text="共享" Margin="10,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </RadioButton>
           <RadioButton x:Name="NavSecurity" Style="{StaticResource NavBtn}" GroupName="SideNav" Checked="Nav_Changed">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="⛨" Width="22" FontSize="14"/>
-              <TextBlock x:Name="NavSecurityText" Text="安全" Margin="6,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="⛨" Width="22" FontSize="14" VerticalAlignment="Center" TextAlignment="Center"/>
+              <TextBlock x:Name="NavSecurityText" Text="安全" Margin="10,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </RadioButton>
           <RadioButton x:Name="NavAdvanced" Style="{StaticResource NavBtn}" GroupName="SideNav" Checked="Nav_Changed">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="☰" Width="22" FontSize="14"/>
-              <TextBlock x:Name="NavAdvancedText" Text="高级" Margin="6,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="☰" Width="22" FontSize="14" VerticalAlignment="Center" TextAlignment="Center"/>
+              <TextBlock x:Name="NavAdvancedText" Text="高级" Margin="10,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </RadioButton>
         </StackPanel>
@@ -592,9 +593,10 @@
                 <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
 
-              <DockPanel Margin="0,0,0,8">
-                <TextBlock x:Name="LayoutTitleText" Text="电脑布局" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <Border DockPanel.Dock="Right" Background="{DynamicResource SubtleBg}" CornerRadius="8" Padding="3">
+              <!-- Dock=Right 须先于填充子项声明，否则 LastChildFill 会把分段控件拉满 -->
+              <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                <Border DockPanel.Dock="Right" Background="{DynamicResource SubtleBg}" CornerRadius="8" Padding="3"
+                        VerticalAlignment="Center">
                   <StackPanel Orientation="Horizontal">
                     <RadioButton x:Name="Layout1x4" Style="{StaticResource SegBtn}" GroupName="LayoutMode"
                                  Content="1×4" Checked="LayoutMode_Changed"/>
@@ -602,6 +604,8 @@
                                  Content="2×2" IsChecked="True" Checked="LayoutMode_Changed"/>
                   </StackPanel>
                 </Border>
+                <TextBlock x:Name="LayoutTitleText" Text="电脑布局" FontSize="15" FontWeight="SemiBold"
+                           VerticalAlignment="Center" HorizontalAlignment="Left"/>
               </DockPanel>
 
               <TextBlock x:Name="LayoutHintText" Grid.Row="1" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12"

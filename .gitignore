@@ -5,3 +5,21 @@ obj/
 *.suo
 *.swp
 Thumbs.db
+
+# Android
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/android/**/build/
+mobile/android/.idea/
+*.apk
+*.aab
+
+# HarmonyOS
+mobile/harmony/local.properties
+mobile/harmony/oh_modules/
+mobile/harmony/**/build/
+mobile/harmony/**/.cxx/
+mobile/harmony/.hvigor/
+mobile/harmony/.idea/
+*.hap
+*.app

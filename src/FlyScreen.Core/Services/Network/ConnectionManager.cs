@@ -88,6 +88,25 @@ public sealed class ConnectionManager : IAsyncDisposable
     public bool IsPeerReachable(string name)
         => _links.TryGetValue(name, out var link) && link.AnyAlive;
 
+    /// <summary>本机与对端 Caps 交集；对端未宣告（旧端）时等同本机 Caps。</summary>
+    public string[] GetEffectiveCaps(string peerName)
+    {
+        if (!_links.TryGetValue(peerName, out var link))
+            return LocalPeerIdentity.Caps;
+        return LocalPeerIdentity.IntersectCaps(link.RemoteInfo.Caps);
+    }
+
+    public bool PeerSupports(string peerName, string cap)
+        => GetEffectiveCaps(peerName)
+            .Contains(cap, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>边缘切换要求对端可达且双方均具备 EdgeMouse。</summary>
+    public bool IsPeerEdgeMouseCapable(string peerName)
+        => IsPeerReachable(peerName) && PeerSupports(peerName, PeerCaps.EdgeMouse);
+
+    public PeerRemoteInfo? GetPeerRemoteInfo(string peerName)
+        => _links.TryGetValue(peerName, out var link) ? link.RemoteInfo : null;
+
     /// <summary>查询对端出入站连接状态（诊断用）。</summary>
     public PeerConnectionStatus GetPeerStatus(string name)
     {
@@ -131,10 +150,14 @@ public sealed class ConnectionManager : IAsyncDisposable
         }
     }
 
-    public async Task BroadcastAsync(MessageType type, byte[]? payload = null)
+    public async Task BroadcastAsync(MessageType type, byte[]? payload = null, string? requiredCap = null)
     {
         foreach (var name in _links.Keys.ToArray())
+        {
+            if (requiredCap != null && !PeerSupports(name, requiredCap))
+                continue;
             await SendToAsync(name, type, payload).ConfigureAwait(false);
+        }
     }
 
     public async Task ReconnectNowAsync()
@@ -266,12 +289,12 @@ public sealed class ConnectionManager : IAsyncDisposable
             client = null; // 所有权交给 session
             WireSession(session);
 
-            var hs = MessageCodec.EncodeJson(MessageType.Handshake, new HandshakePayload
+            var hs = MessageCodec.EncodeJson(MessageType.Handshake, LocalPeerIdentity.Enrich(new HandshakePayload
             {
                 MachineName = LocalMachine,
                 SecurityKey = _settings.SecurityKey,
                 LocalIp = _bindIp
-            });
+            }));
             await session.SendRawAsync(hs).ConfigureAwait(false);
 
             var ackMsg = await WaitMessageAsync(session, MessageType.HandshakeAck, TimeSpan.FromSeconds(3), ct)
@@ -291,11 +314,13 @@ public sealed class ConnectionManager : IAsyncDisposable
                 return;
             }
 
-            session.SetPeerIdentity(peerName);
+            var remote = PeerRemoteInfo.FromHandshake(ack);
+            session.SetPeerIdentity(peerName, remote);
             await link.SetOutboundAsync(session).ConfigureAwait(false);
+            link.UpdateRemoteInfo(remote);
             session = null; // 已交给 link
             NotifyLink(peerName, link);
-            StatusMessage?.Invoke($"已出站连接 {peerName} ({ip})");
+            StatusMessage?.Invoke($"已出站连接 {peerName} ({ip}) · {remote}");
         }
         catch (OperationCanceledException)
         {
@@ -435,21 +460,23 @@ public sealed class ConnectionManager : IAsyncDisposable
             if (idx >= 0) _settings.MachineSlots[idx] = hs.MachineName;
         }
 
-        var ack = MessageCodec.EncodeJson(MessageType.HandshakeAck, new HandshakePayload
+        var ack = MessageCodec.EncodeJson(MessageType.HandshakeAck, LocalPeerIdentity.Enrich(new HandshakePayload
         {
             MachineName = LocalMachine,
             SecurityKey = _settings.SecurityKey,
             LocalIp = _bindIp,
             IsReply = true
-        });
+        }));
         await session.SendRawAsync(ack).ConfigureAwait(false);
-        session.SetPeerIdentity(hs.MachineName);
+        var remote = PeerRemoteInfo.FromHandshake(hs);
+        session.SetPeerIdentity(hs.MachineName, remote);
 
         var link = _links.GetOrAdd(hs.MachineName, _ => new PeerLink(hs.MachineName));
         await link.SetInboundAsync(session).ConfigureAwait(false);
+        link.UpdateRemoteInfo(remote);
         NotifyLink(hs.MachineName, link);
         StatusMessage?.Invoke(string.Format(
-            Helpers.Localization.Loc.T("Status.Inbound"), hs.MachineName));
+            Helpers.Localization.Loc.T("Status.Inbound"), hs.MachineName) + $" · {remote}");
     }
 
     private async void OnSessionDisconnected(PeerSession session, Exception? ex)
@@ -517,9 +544,12 @@ public sealed class ConnectionManager : IAsyncDisposable
         public string Name { get; }
         public PeerSession? Outbound { get; private set; }
         public PeerSession? Inbound { get; private set; }
+        public PeerRemoteInfo RemoteInfo { get; private set; } = new();
         public bool AnyAlive => Outbound is { IsAlive: true } || Inbound is { IsAlive: true };
 
         public PeerLink(string name) => Name = name;
+
+        public void UpdateRemoteInfo(PeerRemoteInfo info) => RemoteInfo = info;
 
         public async Task SetOutboundAsync(PeerSession session)
         {

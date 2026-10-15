@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+  <Color x:Key="Blue">#2563EB</Color>
+  <Color x:Key="BlueSoft">#DBEAFE</Color>
+  <Color x:Key="BlueHover">#EFF6FF</Color>
+  <Color x:Key="Line">#E5E7EB</Color>
+  <Color x:Key="Muted">#6B7280</Color>
+  <Color x:Key="Text">#111827</Color>
+  <Color x:Key="Success">#059669</Color>
+  <Color x:Key="WinBg">#F7F8FA</Color>
+  <Color x:Key="CardBg">#FFFFFF</Color>
+  <Color x:Key="PaneBg">#FFFFFF</Color>
+  <Color x:Key="SubtleBg">#F3F4F6</Color>
+  <Color x:Key="MatrixBg">#F8FAFC</Color>
+  <Color x:Key="ListBg">#F9FAFB</Color>
+  <Color x:Key="Primary">#2563EB</Color>
+  <Color x:Key="White">White</Color>
+</ResourceDictionary>

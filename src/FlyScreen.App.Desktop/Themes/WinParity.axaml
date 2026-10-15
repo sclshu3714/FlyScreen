@@ -1,0 +1,24 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+  <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+  <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
+  <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
+  <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+  <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+  <SolidColorBrush x:Key="Text" Color="#111827"/>
+  <SolidColorBrush x:Key="Success" Color="#059669"/>
+  <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+  <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+  <SolidColorBrush x:Key="PaneBg" Color="#FFFFFF"/>
+  <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
+  <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+  <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+  <SolidColorBrush x:Key="ControlHover" Color="#F9FAFB"/>
+  <SolidColorBrush x:Key="Placeholder" Color="#9CA3AF"/>
+  <SolidColorBrush x:Key="MatrixBg" Color="#F8FAFC"/>
+  <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
+
+  <!-- Inter 嵌入保证可启动；CJK 由 FontManagerOptions.FontFallbacks / 系统字体补齐 -->
+  <FontFamily x:Key="UiFont">fonts:Inter#Inter, Inter, Microsoft YaHei UI, Microsoft YaHei, Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, sans-serif</FontFamily>
+</ResourceDictionary>

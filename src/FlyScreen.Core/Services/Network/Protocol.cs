@@ -96,8 +96,97 @@ public sealed class HandshakePayload
     public string MachineName { get; set; } = "";
     public string SecurityKey { get; set; } = "";
     public string LocalIp { get; set; } = "";
+    /// <summary>1 = 现网 Win；≥2 携带 Platform / DeviceClass / Caps（缺省兼容 v1）。</summary>
     public int ProtocolVersion { get; set; } = 1;
     public bool IsReply { get; set; }
+
+    // --- ProtocolVersion ≥ 2 可选扩展（旧端忽略未知 JSON 字段）---
+    public string? Platform { get; set; }
+    public string? DeviceClass { get; set; }
+    public string[]? Caps { get; set; }
+    public string? AppVersion { get; set; }
+}
+
+/// <summary>能力位常量，见 docs/device-matrix.md。</summary>
+public static class PeerCaps
+{
+    public const string EdgeMouse = "EdgeMouse";
+    public const string AbsPointer = "AbsPointer";
+    public const string ClipboardText = "ClipboardText";
+    public const string ClipboardFiles = "ClipboardFiles";
+    public const string DirectTransfer = "DirectTransfer";
+    public const string LayoutSync = "LayoutSync";
+    public const string InjectInput = "InjectInput";
+    public const string CaptureInput = "CaptureInput";
+
+    public static readonly string[] DesktopFull =
+    [
+        EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+    ];
+
+    /// <summary>macOS 桌面：与 Win 对齐（键鼠 + 剪贴板文本/文件 + 直传 + 布局）。</summary>
+    public static readonly string[] MacDesktopW1 =
+    [
+        EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+    ];
+
+    /// <summary>Linux X11 桌面：与 Win 对齐。</summary>
+    public static readonly string[] LinuxDesktopX11 =
+    [
+        EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+    ];
+
+    /// <summary>Linux Wayland：无 EdgeMouse/捕获；剪贴板文本/文件 + 直传 + 有限注入。</summary>
+    public static readonly string[] LinuxDesktopWayland =
+    [
+        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput
+    ];
+
+    /// <summary>无图形会话：直传落盘 + 文本通道（无系统粘贴体验）；ClipboardFiles 表示可收文件到 Inbox。</summary>
+    public static readonly string[] LinuxHeadless =
+    [
+        ClipboardText, ClipboardFiles, DirectTransfer
+    ];
+
+    /// <summary>Android 手机/平板（W3）：触控板控桌面 + 文本剪贴板 + 收文件；无 EdgeMouse/LayoutSync。</summary>
+    public static readonly string[] AndroidMobile =
+    [
+        AbsPointer, ClipboardText, DirectTransfer
+    ];
+
+    /// <summary>鸿蒙手机/平板（W5a）：对标 AndroidMobile。</summary>
+    public static readonly string[] HarmonyMobile =
+    [
+        AbsPointer, ClipboardText, DirectTransfer
+    ];
+
+    /// <summary>鸿蒙电脑（W5b）：对标桌面；API 不足时由宿主降级去掉 EdgeMouse/Capture。</summary>
+    public static readonly string[] HarmonyDesktop =
+    [
+        EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+    ];
+}
+
+public static class PeerPlatform
+{
+    public const string Windows = "Windows";
+    public const string MacOS = "macOS";
+    public const string Linux = "Linux";
+    public const string Android = "Android";
+    public const string HarmonyOS = "HarmonyOS";
+}
+
+public static class PeerDeviceClass
+{
+    public const string Desktop = "Desktop";
+    public const string Phone = "Phone";
+    public const string Tablet = "Tablet";
+    public const string Tv = "Tv";
+    public const string Unknown = "Unknown";
 }
 
 public sealed class MouseMovePayload

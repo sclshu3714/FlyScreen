@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.IO;
 using System.Text;
 
 namespace FlyScreen.Services.Clipboard;
@@ -34,6 +33,14 @@ public sealed class ClipboardInlineData
         return parts.Count == 0 ? "空" : string.Join("+", parts);
     }
 
+    public static string BuildImageKey(byte[] png)
+    {
+        if (png.Length == 0) return "0";
+        var head = png.Length > 16 ? BitConverter.ToString(png, 0, 16) : BitConverter.ToString(png);
+        var tail = png.Length > 32 ? BitConverter.ToString(png, png.Length - 16, 16) : "";
+        return $"{png.Length}:{head}:{tail}";
+    }
+
     public string BuildKey()
     {
         static string Sample(string? s)
@@ -45,7 +52,7 @@ public sealed class ClipboardInlineData
             return $"{len}:{head}:{tail}";
         }
 
-        var img = Png is { Length: > 0 } ? ClipboardBridge.BuildImageKey(Png) : "0";
+        var img = Png is { Length: > 0 } ? BuildImageKey(Png) : "0";
         return $"t={Sample(Text)}|h={Sample(Html)}|r={Sample(Rtf)}|c={Sample(Csv)}|i={img}";
     }
 
@@ -132,4 +139,12 @@ public sealed class ClipboardInlineData
         }
         return data;
     }
+}
+
+/// <summary>空实现：CLI/无头不写系统剪贴板。</summary>
+public sealed class NullClipboardApplySink : IClipboardApplySink
+{
+    public static NullClipboardApplySink Instance { get; } = new();
+    public void ApplyText(string text) { }
+    public void ApplyInline(ClipboardInlineData data) { }
 }

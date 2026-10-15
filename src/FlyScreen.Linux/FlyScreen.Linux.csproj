@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Linux</RootNamespace>
+    <AssemblyName>FlyScreen.Linux</AssemblyName>
+    <Description>玄鸟 Linux 适配：会话探测、X11/Wayland/无头注入与 Caps（非 Linux 上可编译桩）</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+  </ItemGroup>
+
+</Project>

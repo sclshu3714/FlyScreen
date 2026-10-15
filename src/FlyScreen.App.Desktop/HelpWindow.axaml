@@ -1,0 +1,76 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.HelpWindow"
+        Title="玄鸟 — 帮助"
+        Width="720" Height="640"
+        MinWidth="600" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WinBg}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13"
+        Foreground="{DynamicResource Text}"
+        ShowInTaskbar="False"
+        CanResize="True">
+
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="MinWidth" Value="96"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Margin" Value="0"/>
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="16" RowDefinitions="*,Auto,Auto,Auto">
+    <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+            CornerRadius="8" Padding="4">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                    Padding="12,10">
+        <StackPanel x:Name="HelpContent" Spacing="0"/>
+      </ScrollViewer>
+    </Border>
+
+    <Border Grid.Row="1" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+            BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+      <StackPanel Spacing="0">
+        <TextBlock x:Name="SectionUpdateText" Text="更新与连接诊断" FontWeight="SemiBold"/>
+        <TextBlock x:Name="ActionStatus" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"
+                   Margin="0,6,0,8"
+                   Text="可通过 GitHub Release 检查更新；连接异常时先「一键检查」再「一键修复」。"/>
+        <ProgressBar x:Name="UpdateProgressBar" Height="10" Minimum="0" Maximum="100"
+                     Margin="0,0,0,10" IsVisible="False"
+                     Foreground="{DynamicResource Blue}"/>
+        <WrapPanel>
+          <Button x:Name="CheckUpdateBtn" Content="检查更新" Click="CheckUpdate_Click"/>
+          <Button x:Name="ApplyUpdateBtn" Content="自动更新" Click="ApplyUpdate_Click" IsEnabled="False"/>
+          <Button x:Name="DiagCheckBtn" Content="一键检查" Click="DiagCheck_Click"/>
+          <Button x:Name="DiagFixBtn" Classes="primary" Content="一键修复" Click="DiagFix_Click"/>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <TextBox x:Name="DiagOutput" Grid.Row="2" Margin="0,12,0,0" Height="120"
+             IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+             IsVisible="False" Padding="10,8"
+             BorderBrush="{DynamicResource Line}"
+             FontFamily="Consolas, DejaVu Sans Mono, monospace"/>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+      <Button x:Name="CloseBtn" Content="关闭" Click="Close_Click" Margin="0" MinWidth="88" IsDefault="True"/>
+    </StackPanel>
+  </Grid>
+</Window>

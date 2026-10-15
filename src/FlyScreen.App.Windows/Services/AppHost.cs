@@ -27,7 +27,7 @@ public sealed class AppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         Input = new InputRouter(Settings, Connections);
-        Transfers = new FileTransferService(Settings, Connections);
+        Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         Clipboard = new ClipboardMonitor(Settings, Transfers);
 
         Connections.StatusMessage += m => StatusMessage?.Invoke(m);
@@ -142,7 +142,8 @@ public sealed class AppHost : IAsyncDisposable
         Settings.Save();
 
         var payload = MessageCodec.JsonBytes(BuildLayoutPayload());
-        await Connections.BroadcastAsync(MessageType.LayoutSync, payload).ConfigureAwait(false);
+        await Connections.BroadcastAsync(MessageType.LayoutSync, payload, PeerCaps.LayoutSync)
+            .ConfigureAwait(false);
         StatusMessage?.Invoke("布局已同步到其他电脑");
     }
 
@@ -152,6 +153,7 @@ public sealed class AppHost : IAsyncDisposable
         if (Volatile.Read(ref _applyingRemoteLayout) != 0) return;
         if (Settings.LayoutRevision <= 0) return; // 从未主动同步过则不推，避免抢布局
         if (!Connections.IsPeerReachable(peer)) return;
+        if (!Connections.PeerSupports(peer, PeerCaps.LayoutSync)) return;
 
         var payload = MessageCodec.JsonBytes(BuildLayoutPayload());
         await Connections.SendToAsync(peer, MessageType.LayoutSync, payload).ConfigureAwait(false);

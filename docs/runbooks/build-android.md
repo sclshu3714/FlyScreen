@@ -1,0 +1,67 @@
+# Android 构建说明（W3）
+
+## 工程位置
+
+```text
+mobile/android/          # 独立 Gradle/Kotlin 工程（不进 FlyScreen.sln）
+  app/                   # phone / tablet productFlavor
+```
+
+与桌面共用**线级协议**（帧头 + JSON 字段 PascalCase），**不引用** .NET 程序集。
+
+## 能力（Caps）
+
+| 项 | 值 |
+|----|-----|
+| Platform | `Android` |
+| DeviceClass | `Phone` 或 `Tablet`（按 smallestWidthDp≥600） |
+| Caps | `AbsPointer`, `ClipboardText`, `DirectTransfer` |
+| 不含 | `EdgeMouse`, `LayoutSync`, `CaptureInput` |
+
+主路径：**手机/平板触控板 → 控制 Windows/桌面鼠标**。
+
+## 环境要求
+
+- Android Studio Hedgehog+（或兼容 AGP 8.2）
+- JDK **17**
+- Android SDK 34
+- 在 `mobile/android/local.properties` 配置 `sdk.dir=...`（可参考 `local.properties.example`）
+
+## 编译安装
+
+```bash
+cd mobile/android
+# Android Studio: Open 本目录，Sync，运行 app
+./gradlew :app:assemblePhoneDebug
+./gradlew :app:installPhoneDebug
+```
+
+Windows（已装 wrapper 后）：
+
+```powershell
+cd mobile\android
+.\gradlew.bat :app:assemblePhoneDebug
+```
+
+若尚无 `gradlew`，用 Android Studio 打开工程会自动生成 Wrapper。
+
+## 与 Windows 联调
+
+1. 电脑端玄鸟与手机 **同一安全密钥**。  
+2. 电脑布局留至少一个空槽（入站可自动填入手机名），或手机发现后出站连接电脑。  
+3. 同一 Wi-Fi；关闭「仅同网段」若网段不一致。  
+4. 手机点「应用并连接」，在触控板滑动；电脑光标应移动。  
+5. 通知栏前台服务保持连接；断开只影响该 Android peer。
+
+## 后续（本阶段未完成）
+
+- 文本剪贴板宣告/拉取  
+- 文件收件箱（DirectTransfer）  
+- 软键盘 → KeyEvent  
+- TV flavor → W4  
+
+## 修订
+
+| 日期 | 说明 |
+|------|------|
+| 2026-10-14 | W3 骨架：协议、发现、握手、触控板、前台服务 |

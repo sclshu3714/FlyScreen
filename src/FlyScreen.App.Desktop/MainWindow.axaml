@@ -1,0 +1,598 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="using:FlyScreen.Models"
+        xmlns:net="using:FlyScreen.Services.Network"
+        x:Class="FlyScreen.DesktopUi.MainWindow"
+        Title="玄鸟"
+        Icon="/Assets/app_icon.png"
+        Width="960" Height="640"
+        MinWidth="900" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WinBg}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13"
+        Foreground="{DynamicResource Text}"
+        ExtendClientAreaToDecorationsHint="False">
+
+  <Window.Styles>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="12"/>
+      <Setter Property="Padding" Value="16"/>
+    </Style>
+
+    <Style Selector="Button">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="MinHeight" Value="34"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Margin" Value="8,0,0,0"/>
+    </Style>
+    <Style Selector="Button.normal">
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Margin" Value="8,0,0,0"/>
+    </Style>
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+      <Setter Property="MinWidth" Value="48"/>
+      <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="Margin" Value="0"/>
+    </Style>
+
+    <Style Selector="TextBox">
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+
+    <Style Selector="ComboBox">
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+
+    <Style Selector="CheckBox">
+        <Setter Property="Margin" Value="0"/> <!-- 移除CheckBox自身上下外边距，行间距交给外层StackPanel.Spacing统一管理 -->
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Padding" Value="8,0,0,0"/> <!-- 左Padding=8：勾选框 → 文字拉开8px水平距离，上下0不影响 -->
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <Style Selector="CheckBox /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Margin" Value="8,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 通用单选（快捷键/主题等） -->
+    <Style Selector="RadioButton">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Padding" Value="8,0,0,0"/>
+      <Setter Property="Margin" Value="0,0,14,0"/>
+      <Setter Property="MinHeight" Value="28"/>
+    </Style>
+    <Style Selector="RadioButton /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Margin" Value="8,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 侧栏：自定义模板，圆点与文字强制垂直居中 -->
+    <Style Selector="RadioButton.nav">
+      <Setter Property="Height" Value="40"/>
+      <Setter Property="MinHeight" Value="40"/>
+      <Setter Property="Margin" Value="8,2"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}"
+                  Height="{TemplateBinding Height}">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <Panel Width="16" Height="16" VerticalAlignment="Center">
+                <Ellipse Width="16" Height="16" StrokeThickness="1.5" Fill="Transparent"
+                         Stroke="{TemplateBinding Foreground}"/>
+                <Ellipse x:Name="NavDot" Width="8" Height="8" Fill="{DynamicResource Blue}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
+              </Panel>
+              <ContentPresenter Content="{TemplateBinding Content}"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Left"
+                                RecognizesAccessKey="True"/>
+            </StackPanel>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="RadioButton.nav:checked">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+    </Style>
+    <Style Selector="RadioButton.nav:checked /template/ Ellipse#NavDot">
+      <Setter Property="IsVisible" Value="True"/>
+    </Style>
+    <Style Selector="RadioButton.nav:pointerover /template/ Border">
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+    </Style>
+    <Style Selector="RadioButton.nav:checked:pointerover /template/ Border">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+    </Style>
+
+    <!-- 顶栏 Tab：自定义模板 + 较大项间距 -->
+    <Style Selector="RadioButton.tab">
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="MinHeight" Value="34"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Margin" Value="0,0,16,0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}"
+                  Height="{TemplateBinding Height}">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Panel Width="14" Height="14" VerticalAlignment="Center">
+                <Ellipse Width="14" Height="14" StrokeThickness="1.5" Fill="Transparent"
+                         Stroke="{TemplateBinding Foreground}"/>
+                <Ellipse x:Name="TabDot" Width="7" Height="7" Fill="{DynamicResource Blue}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
+              </Panel>
+              <ContentPresenter Content="{TemplateBinding Content}"
+                                VerticalAlignment="Center"
+                                RecognizesAccessKey="True"/>
+            </StackPanel>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="RadioButton.tab:checked">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+    </Style>
+    <Style Selector="RadioButton.tab:checked /template/ Ellipse#TabDot">
+      <Setter Property="IsVisible" Value="True"/>
+    </Style>
+    <Style Selector="RadioButton.tab:pointerover /template/ Border">
+      <Setter Property="Background" Value="{DynamicResource SubtleBg}"/>
+    </Style>
+    <Style Selector="RadioButton.tab:checked:pointerover /template/ Border">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+    </Style>
+
+    <Style Selector="RadioButton.seg">
+      <Setter Property="Width" Value="52"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0"/>
+    </Style>
+    <!-- 分段按钮无圆点，内容居中，勿沿用通用 ContentPresenter 左边距 -->
+    <Style Selector="RadioButton.seg /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="RadioButton.seg:checked">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <Style Selector="Border.slot">
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Margin" Value="4"/>
+      <Setter Property="Padding" Value="8"/>
+      <Setter Property="Cursor" Value="SizeAll"/>
+      <Setter Property="(DragDrop.AllowDrop)" Value="True"/>
+    </Style>
+    <!-- 选中：蓝框（与 Windows 端一致） -->
+    <Style Selector="Border.slot.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+    </Style>
+    <Style Selector="Border.slot.local:not(.selected)">
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+    </Style>
+    <Style Selector="Border.slot.empty:not(.selected)">
+      <Setter Property="Background" Value="{DynamicResource MatrixBg}"/>
+      <Setter Property="Opacity" Value="0.9"/>
+    </Style>
+    <Style Selector="Border.slot.slot-dragging">
+      <Setter Property="Opacity" Value="0.35"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+    <Style Selector="Border.slot.slot-drop-target">
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+    </Style>
+  </Window.Styles>
+
+  <Panel>
+  <!-- Linux 自绘标题栏时再设圆角/边框；其它平台保持直角由系统装饰负责 -->
+  <Border x:Name="WindowChrome"
+          Background="{DynamicResource WinBg}"
+          BorderBrush="{DynamicResource Line}"
+          BorderThickness="0"
+          CornerRadius="0"
+          ClipToBounds="True">
+  <DockPanel>
+    <!-- Linux/WSL：系统标题栏常因字体只画出「玄」。客户端标题栏可拖动整窗 -->
+    <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
+            Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
+            Cursor="SizeAll"
+            PointerPressed="ClientTitleBar_PointerPressed"
+            PointerMoved="ClientTitleBar_PointerMoved"
+            PointerReleased="ClientTitleBar_PointerReleased"
+            PointerCaptureLost="ClientTitleBar_PointerCaptureLost">
+      <Grid ColumnDefinitions="Auto,*,Auto" Margin="10,0">
+        <Border Background="Transparent" VerticalAlignment="Stretch">
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Image Width="18" Height="18" Source="/Assets/app_icon.png" VerticalAlignment="Center"
+                   IsHitTestVisible="False"/>
+            <TextBlock Text="玄鸟" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                       IsHitTestVisible="False"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="1" Background="Transparent"/>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+          <Button Classes="link" Content="—" Width="40" Height="32" Padding="0"
+                  Click="TitleMin_Click" ToolTip.Tip="最小化"/>
+          <Button Classes="link" Content="□" Width="40" Height="32" Padding="0"
+                  Click="TitleMax_Click" ToolTip.Tip="最大化"/>
+          <Button Classes="link" Content="×" Width="40" Height="32" Padding="0"
+                  Click="TitleClose_Click" ToolTip.Tip="关闭"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+  <Grid ColumnDefinitions="168,*">
+    <!-- 左侧：上搜索 / 中导航 / 下状态，避免重叠 -->
+    <Border Grid.Column="0" Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,*,Auto" Margin="0,16,0,12">
+        <Border Margin="12,0,12,16" Background="{DynamicResource SubtleBg}" CornerRadius="18" Height="36">
+          <Grid Margin="12,0" ColumnDefinitions="Auto,*">
+            <TextBlock Text="⌕" FontSize="14" Foreground="{DynamicResource Muted}"
+                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox x:Name="SearchBox" Grid.Column="1" BorderThickness="0" Background="Transparent"
+                     Watermark="搜索设置…" VerticalAlignment="Center" Height="36" Padding="0"/>
+          </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="1">
+          <RadioButton x:Name="NavBasic" Classes="nav" GroupName="SideNav" IsChecked="True" Content="基础" Checked="Nav_Changed"/>
+          <RadioButton x:Name="NavNetwork" Classes="nav" GroupName="SideNav" Content="网络" Checked="Nav_Changed"/>
+          <RadioButton x:Name="NavShare" Classes="nav" GroupName="SideNav" Content="共享" Checked="Nav_Changed"/>
+          <RadioButton x:Name="NavSecurity" Classes="nav" GroupName="SideNav" Content="安全" Checked="Nav_Changed"/>
+          <RadioButton x:Name="NavAdvanced" Classes="nav" GroupName="SideNav" Content="高级" Checked="Nav_Changed"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="12,8,12,0" Spacing="4">
+          <TextBlock x:Name="PlatformStatusText" Foreground="{DynamicResource Muted}" FontSize="11"
+                     TextWrapping="Wrap" MaxHeight="48" TextTrimming="CharacterEllipsis"/>
+          <TextBlock x:Name="StatusText" Foreground="{DynamicResource Muted}" FontSize="11"
+                     TextWrapping="Wrap" MaxHeight="40" Text="就绪"/>
+          <StackPanel x:Name="PlatformActionsPanel" Spacing="4"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- 主区：顶栏 / 可滚动内容 / 底栏按钮固定 -->
+    <Grid Grid.Column="1" Margin="20,16" RowDefinitions="Auto,*,Auto">
+      <DockPanel Grid.Row="0" Margin="0,0,0,12" LastChildFill="True">
+        <Button x:Name="HelpBtn" DockPanel.Dock="Right" Classes="link" Content="？ 帮助" Click="Help_Click"
+                MinWidth="60" Height="34" Margin="0"/>
+        <Button x:Name="AboutBtn" DockPanel.Dock="Right" Classes="link" Content="关于" Click="About_Click"
+                MinWidth="48" Height="34" Margin="0,0,4,0"/>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="4">
+          <RadioButton x:Name="TabBasic" Classes="tab" GroupName="TopTab" Content="基础设置" IsChecked="True" Checked="TopTab_Changed"/>
+          <RadioButton x:Name="TabOptions" Classes="tab" GroupName="TopTab" Content="高级选项" Checked="TopTab_Changed"/>
+          <RadioButton x:Name="TabNetwork" Classes="tab" GroupName="TopTab" Content="网络设置" Checked="TopTab_Changed"/>
+          <RadioButton x:Name="TabTransfer" Classes="tab" GroupName="TopTab" Content="文件传输" Checked="TopTab_Changed"/>
+        </StackPanel>
+      </DockPanel>
+
+      <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                    BringIntoViewOnFocusChange="False">
+        <Panel MinHeight="420">
+          <!-- 基础设置 -->
+          <Grid x:Name="PageBasic" RowDefinitions="Auto,*" IsVisible="True" MinHeight="420">
+            <Border Classes="card" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="安全密钥" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <Grid ColumnDefinitions="*,Auto,Auto" MinHeight="36">
+                  <Panel VerticalAlignment="Center">
+                    <TextBox x:Name="SecurityKeyBox" FontFamily="Consolas, monospace" FontSize="14" IsVisible="False"/>
+                    <TextBox x:Name="SecurityKeyPassword" FontFamily="Consolas, monospace" FontSize="14" PasswordChar="•"/>
+                  </Panel>
+                  <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" Content="显示" Margin="14,0,0,0"
+                            VerticalAlignment="Center" IsCheckedChanged="ShowKey_Changed"/>
+                  <Button x:Name="NewKeyBtn" Grid.Column="2" Classes="primary" Content="生成新密钥"
+                          Click="NewKey_Click" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </Grid>
+                <TextBlock Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
+                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"/>
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Row="1" Classes="card" MinHeight="260">
+              <Grid RowDefinitions="Auto,Auto,*">
+                <!-- Dock=Right 须先于填充子项声明，否则 LastChildFill 会把分段控件拉满 -->
+                <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                  <Border DockPanel.Dock="Right" Background="{DynamicResource SubtleBg}" CornerRadius="8" Padding="3"
+                          VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="0">
+                      <RadioButton x:Name="Layout1x4" Classes="seg" GroupName="LayoutMode" Content="1×4" Checked="LayoutMode_Changed"/>
+                      <RadioButton x:Name="Layout2x2" Classes="seg" GroupName="LayoutMode" Content="2×2" IsChecked="True" Checked="LayoutMode_Changed"/>
+                    </StackPanel>
+                  </Border>
+                  <TextBlock Text="电脑布局" FontSize="15" FontWeight="SemiBold"
+                             VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                </DockPanel>
+                <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10"
+                           Text="格子代表真实摆放位置。单击选中，按住拖拽互换，双击移除对端。添加/移除后点「应用」会同步到已连接电脑。"/>
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" MinHeight="180">
+                  <Border Background="{DynamicResource MatrixBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                          CornerRadius="10" Padding="4">
+                    <ItemsControl x:Name="MachineMatrix">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Rows="2" Columns="2"/>
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:MachineSlot">
+                          <Border Classes="slot"
+                                  Classes.selected="{Binding IsSelected}"
+                                  Classes.local="{Binding IsLocal}"
+                                  Classes.empty="{Binding IsEmpty}"
+                                  Cursor="Hand"
+                                  PointerPressed="SlotCard_PointerPressed"
+                                  PointerMoved="SlotCard_PointerMoved"
+                                  PointerReleased="SlotCard_PointerReleased"
+                                  DragDrop.AllowDrop="True">
+                            <StackPanel Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        IsHitTestVisible="False">
+                              <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
+                                         HorizontalAlignment="Center"/>
+                              <Border Width="36" Height="24" Background="#1F2937" CornerRadius="3" HorizontalAlignment="Center"
+                                      BorderBrush="#111827" BorderThickness="2">
+                                <Border Background="#60A5FA" Margin="3" CornerRadius="2" Opacity="0.4"/>
+                              </Border>
+                              <TextBlock Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
+                                         TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                              <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource Success}"
+                                         FontWeight="SemiBold" FontSize="11" TextAlignment="Center"/>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="14,0,0,0" Width="100" Spacing="8">
+                    <TextBlock Text="拖拽互换位置" Foreground="{DynamicResource Blue}" FontSize="12" TextAlignment="Center"/>
+                    <Button Classes="normal" Content="添加电脑" Click="AddMachine_Click" Margin="0" Width="100" HorizontalAlignment="Center"/>
+                    <Button Classes="normal" Content="移除电脑" Click="RemoveSelectedMachine_Click" Margin="0" Width="100" HorizontalAlignment="Center"/>
+                    <Button Classes="normal" Content="刷新连接" Click="Reconnect_Click" Margin="0" Width="100" HorizontalAlignment="Center"/>
+                  </StackPanel>
+                </Grid>
+              </Grid>
+            </Border>
+          </Grid>
+
+          <!-- 高级选项 -->
+          <Grid x:Name="PageOptions" IsVisible="False" RowDefinitions="Auto,Auto" MinHeight="420">
+            <Border Classes="card" Margin="0,0,0,12">
+              <Grid ColumnDefinitions="*,*" MinHeight="200">
+                <StackPanel Margin="0,0,8,0" Spacing="2">
+                  <TextBlock x:Name="FeatTitleText" Text="功能" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <CheckBox x:Name="WrapMouseCheck" Content="环形鼠标（首尾相连）"/>
+                  <CheckBox x:Name="ShareClipboardCheck" Content="共享剪贴板"/>
+                  <CheckBox x:Name="TransferFileCheck" Content="启用文件传输" Margin="20,3,0,3"/>
+                  <CheckBox x:Name="HideMouseCheck" Content="控制远端时隐藏本机边缘光标"/>
+                  <CheckBox x:Name="DrawCursorCheck" Content="绘制鼠标光标（预留）"/>
+                  <CheckBox x:Name="SameSubnetCheck" Content="仅同网段连接"/>
+                  <CheckBox x:Name="ShowStatusCheck" Content="显示状态消息"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="2">
+                  <TextBlock x:Name="BehTitleText" Text="行为" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <CheckBox x:Name="AutoStartCheck" Content="开机自动启动并连接"/>
+                  <CheckBox x:Name="BlockSaverCheck" Content="阻止其他机器屏保"/>
+                  <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"/>
+                  <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"/>
+                  <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"/>
+                </StackPanel>
+              </Grid>
+            </Border>
+            <Grid Grid.Row="1" ColumnDefinitions="*,12,260" MinHeight="180">
+              <Border Classes="card">
+                <StackPanel>
+                  <TextBlock Text="键盘快捷键" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                  <TextBlock Text="切换机器（Ctrl+Alt+）" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,0,14" Spacing="4">
+                    <RadioButton x:Name="HotF" Content="F1–F4" GroupName="Sw" IsChecked="True"/>
+                    <RadioButton x:Name="HotNum" Content="1–4" GroupName="Sw"/>
+                    <RadioButton x:Name="HotOff" Content="禁用" GroupName="Sw"/>
+                  </StackPanel>
+                  <Grid ColumnDefinitions="*,48,16,*,48" RowDefinitions="Auto,Auto">
+                    <TextBlock Text="显示设置 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,6,8"/>
+                    <TextBox x:Name="HkSettings" Grid.Column="1" MaxLength="1" TextAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBlock Grid.Column="3" Text="重新连接 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,6,8"/>
+                    <TextBox x:Name="HkReconnect" Grid.Column="4" MaxLength="1" TextAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBlock Grid.Row="1" Text="退出程序 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="HkExit" Grid.Row="1" Grid.Column="1" MaxLength="1" TextAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="HkLock" Grid.Row="1" Grid.Column="4" MaxLength="1" TextAlignment="Center"/>
+                  </Grid>
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="2" Classes="card" MinHeight="200" Padding="16,16,16,20">
+                <StackPanel Spacing="0">
+                  <TextBlock Text="系统设置" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                  <TextBlock Text="样式" Margin="0,0,0,8"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,0,16" Spacing="8">
+                    <RadioButton x:Name="ThemeLight" Content="淡色（默认）" GroupName="UiTheme" IsChecked="True"/>
+                    <RadioButton x:Name="ThemeDark" Content="深色" GroupName="UiTheme"/>
+                  </StackPanel>
+                  <TextBlock Text="语言" Margin="0,0,0,8"/>
+                  <ComboBox x:Name="LanguageCombo" HorizontalAlignment="Stretch" MinHeight="36"/>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </Grid>
+
+          <!-- 网络设置 -->
+          <Grid x:Name="PageNetwork" IsVisible="False" RowDefinitions="Auto,*" MinHeight="420">
+            <Border Classes="card" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="本机网卡" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。"
+                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10"/>
+                <Grid ColumnDefinitions="*,Auto" MinHeight="36">
+                  <ComboBox x:Name="NicCombo" VerticalAlignment="Center"/>
+                  <Button Grid.Column="1" Classes="normal" Content="刷新网卡" Click="RefreshNics_Click" VerticalAlignment="Center"/>
+                </Grid>
+                <Grid Margin="0,12,0,0" ColumnDefinitions="Auto,100,Auto,100" MinHeight="36">
+                  <TextBlock Text="TCP 端口" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                  <TextBox x:Name="TcpPortBox" Grid.Column="1" Text="15155" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="2" Text="发现端口" VerticalAlignment="Center" Margin="20,0,8,0"/>
+                  <TextBox x:Name="UdpPortBox" Grid.Column="3" Text="15156" VerticalAlignment="Center"/>
+                </Grid>
+              </StackPanel>
+            </Border>
+            <Border Grid.Row="1" Classes="card" MinHeight="220">
+              <Grid RowDefinitions="Auto,Auto,*">
+                <StackPanel Margin="0,0,0,8">
+                  <TextBlock Text="局域网自动发现" FontWeight="SemiBold"/>
+                  <TextBlock Text="单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出"
+                             Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border Grid.Row="1" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                        CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
+                  <Button Classes="normal" Content="刷新发现" Margin="0" Click="RefreshDiscovery_Click" HorizontalAlignment="Left"/>
+                </Border>
+                <ListBox x:Name="DiscoveryList" Grid.Row="2" Background="{DynamicResource ListBg}"
+                         BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                         DoubleTapped="DiscoveryList_DoubleTapped">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="net:DiscoveredPeer">
+                      <DockPanel Margin="6,8" MinHeight="28">
+                        <Button DockPanel.Dock="Right" Classes="normal" Content="添加" Padding="10,0" Height="28" MinWidth="56"
+                                Margin="8,0,0,0" Click="AddDiscovered_Click" Tag="{Binding}"/>
+                        <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource Success}"
+                                Margin="0,0,10,0" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+                          <TextBlock Text="{Binding MachineName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                          <TextBlock Text="{Binding Ip}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                      </DockPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+            </Border>
+          </Grid>
+
+          <!-- 文件传输 -->
+          <Grid x:Name="PageTransfer" IsVisible="False" RowDefinitions="Auto,Auto,*" MinHeight="420">
+            <StackPanel Margin="0,0,0,10">
+              <TextBlock Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
+              <TextBlock Text="单击选中；共享剪贴板与直接传输与 Windows 端协议一致。文件也可推送到收件箱。"
+                         Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+            <Border Grid.Row="1" Classes="card" Padding="8,6" Margin="0,0,0,8">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button x:Name="DirectTransferBtn" Classes="primary" Content="直接传输…" Margin="0" Click="DirectTransfer_Click"/>
+                <Button Classes="normal" Content="打开收件箱" Margin="0" Click="OpenInbox_Click"/>
+                <Button Classes="normal" Content="清除已完成" Margin="0" Click="ClearTransfers_Click"/>
+              </StackPanel>
+            </Border>
+            <Border Grid.Row="2" Classes="card" Padding="8" MinHeight="200">
+              <Panel>
+                <TextBlock x:Name="TransferPlaceholder"
+                           Text="暂无传输任务"
+                           Foreground="{DynamicResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <ListBox x:Name="TransferList" BorderThickness="0" Background="Transparent">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:TransferItem">
+                      <Grid ColumnDefinitions="*,Auto" Margin="4,6">
+                        <StackPanel>
+                          <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
+                          <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{DynamicResource Muted}"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding SizeText}" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Muted}" Margin="12,0,0,0"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Panel>
+            </Border>
+          </Grid>
+        </Panel>
+      </ScrollViewer>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0"
+                  Spacing="0" VerticalAlignment="Center" Height="40">
+        <Button x:Name="ApplyBtn" Classes="primary" Content="应用" Click="Apply_Click"/>
+        <Button x:Name="HideTrayBtn" Classes="normal" Content="隐藏到托盘" Click="Hide_Click"/>
+        <Button x:Name="ExitBtn" Classes="normal" Content="退出" Click="Exit_Click"/>
+      </StackPanel>
+    </Grid>
+  </Grid>
+  </DockPanel>
+  </Border>
+  <!-- 拖拽幽灵卡片（跟指针），X11 无系统拖影时也能看出在移动 -->
+  <Canvas x:Name="DragGhostLayer" IsHitTestVisible="False" ZIndex="1000"/>
+  </Panel>
+</Window>

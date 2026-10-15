@@ -1,0 +1,36 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FlyScreen.MacApp.App"
+             RequestedThemeVariant="Light">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://FlyScreen.App.Desktop/Themes/WinParity.axaml"/>
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+    <Style Selector="TextBlock">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+    <Style Selector="CheckBox">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+    <Style Selector="RadioButton">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+    <Style Selector="ComboBox">
+      <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
+    </Style>
+  </Application.Styles>
+</Application>

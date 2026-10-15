@@ -1,12 +1,9 @@
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
-using System.Windows;
 using FlyScreen.Helpers;
 using FlyScreen.Models;
-using FlyScreen.Native;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.Services.Clipboard;
@@ -25,6 +22,7 @@ public sealed class FileTransferService
 
     private readonly AppSettings _settings;
     private readonly ConnectionManager _connections;
+    private IClipboardApplySink _clipboard;
     private readonly object _gate = new();
     private long _clipboardSequence;
     private long _lastAppliedRemoteSequence;
@@ -134,11 +132,20 @@ public sealed class FileTransferService
         }
     }
 
-    public FileTransferService(AppSettings settings, ConnectionManager connections)
+    public FileTransferService(
+        AppSettings settings,
+        ConnectionManager connections,
+        IClipboardApplySink? clipboard = null)
     {
         _settings = settings;
         _connections = connections;
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FlyScreen");
+        _clipboard = clipboard ?? NullClipboardApplySink.Instance;
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "FlyScreen");
+        // Linux/Mac 无 Roaming 时回退到 LocalApplicationData / ~/.config 风格路径
+        if (string.IsNullOrWhiteSpace(root))
+            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".flyscreen");
         _inboxDir = Path.Combine(root, "Inbox");
         // 粘贴暂存与收件箱分开，避免未粘贴时收件箱里出现占位/缓存
         _pasteDir = Path.Combine(root, "PasteStaging");
@@ -148,6 +155,10 @@ public sealed class FileTransferService
         LoadHistory();
         _ = Task.Run(ChunkDiskLoopAsync);
     }
+
+    /// <summary>宿主可在 UI 就绪后注入平台剪贴板实现。</summary>
+    public void SetClipboardSink(IClipboardApplySink sink)
+        => _clipboard = sink ?? NullClipboardApplySink.Instance;
 
     public long NextSequence() => Interlocked.Increment(ref _clipboardSequence);
 
@@ -565,7 +576,7 @@ public sealed class FileTransferService
         }
     }
 
-    private void NotifyStatus(string message) => UiThread.Post(() => StatusMessage?.Invoke(message));
+    private void NotifyStatus(string message) => UiMarshal.Post(() => StatusMessage?.Invoke(message));
 
     private void OnMessage(string peer, NetMessage msg)
     {
@@ -1297,9 +1308,9 @@ public sealed class FileTransferService
         if (p.Sequence <= _lastAppliedRemoteSequence) return;
         _lastAppliedRemoteSequence = p.Sequence;
 
-        Application.Current?.Dispatcher.InvokeAsync(() =>
+        UiMarshal.Post(() =>
         {
-            try { ClipboardBridge.SetTextSuppressing(p.Text); }
+            try { _clipboard.ApplyText(p.Text); }
             catch { /* ignore */ }
         });
     }
@@ -1402,22 +1413,13 @@ public sealed class FileTransferService
         try
         {
             if (File.Exists(dest)) File.Delete(dest);
-            if (NativeMethods.CreateHardLink(dest, source, IntPtr.Zero))
-                return true;
+            // 跨平台：优先复制；Windows 上硬链接由 App 层可选优化，Core 不依赖 Win32
             File.Copy(source, dest, overwrite: true);
             return File.Exists(dest);
         }
         catch
         {
-            try
-            {
-                File.Copy(source, dest, overwrite: true);
-                return File.Exists(dest);
-            }
-            catch
-            {
-                return false;
-            }
+            return false;
         }
     }
 
@@ -1436,7 +1438,7 @@ public sealed class FileTransferService
     public void ClearCompleted()
     {
         var removedReceiveCache = 0;
-        UiThread.Send(() =>
+        UiMarshal.Send(() =>
         {
             for (var i = Items.Count - 1; i >= 0; i--)
             {
@@ -1461,7 +1463,7 @@ public sealed class FileTransferService
     public void RemoveItem(TransferItem item, bool deleteCache = true)
     {
         var deletedCache = false;
-        UiThread.Send(() =>
+        UiMarshal.Send(() =>
         {
             if (deleteCache)
                 deletedCache = TryDeleteReceiveCache(item);
@@ -1531,7 +1533,7 @@ public sealed class FileTransferService
     private void AddItem(TransferItem item)
     {
         // 必须 Post：若用 Send，在 UI 线程阻塞等待拉取时会死锁，拖死 Explorer
-        UiThread.Post(() =>
+        UiMarshal.Post(() =>
         {
             var existing = Items.FirstOrDefault(x => x.Id == item.Id);
             if (existing != null)
@@ -1615,7 +1617,7 @@ public sealed class FileTransferService
         try
         {
             List<TransferHistoryDto> snapshot = [];
-            UiThread.Send(() =>
+            UiMarshal.Send(() =>
             {
                 snapshot = Items
                     .Where(i => i.State is TransferState.Completed or TransferState.Failed or TransferState.Cancelled

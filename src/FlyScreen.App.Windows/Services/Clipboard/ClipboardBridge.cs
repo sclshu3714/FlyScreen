@@ -256,13 +256,7 @@ public static class ClipboardBridge
     }
 
     public static string BuildImageKey(byte[] png)
-    {
-        if (png.Length == 0) return "0";
-        // 长度 + 头尾采样，避免整图哈希开销
-        var head = png.Length > 16 ? BitConverter.ToString(png, 0, 16) : BitConverter.ToString(png);
-        var tail = png.Length > 32 ? BitConverter.ToString(png, png.Length - 16, 16) : "";
-        return $"{png.Length}:{head}:{tail}";
-    }
+        => ClipboardInlineData.BuildImageKey(png);
 
     public static bool IsSameAsLastAppliedImage(byte[] png)
         => _lastAppliedImageKey != null && _lastAppliedImageKey == BuildImageKey(png);
