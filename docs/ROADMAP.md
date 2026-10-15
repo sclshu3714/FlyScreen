@@ -142,8 +142,11 @@ FlyScreen-{version}-linux-x64.zip          # 或 .AppImage
 FlyScreen-{version}-android.apk
 FlyScreen-{version}-android-tv.apk
 FlyScreen-{version}-harmony.hap
-FlyScreen-{version}-maui-win-x64.exe       # MAUI 双轨 beta，不替代 WPF stable
+FlyScreen-{version}-maui-win-x64.zip       # MAUI 双轨 beta，不替代 WPF stable
+FlyScreen-{version}-maui-android.apk
+FlyScreen-{version}-maui-osx-arm64.zip     # MAUI Mac Catalyst；Avalonia Mac 仍用 osx-*
 ```
+
 
 辅助脚本：`build/Name-FlyScreenPackage.ps1 -Source <产物> -Rid <rid>` → 输出到 `artifacts/release/`。
 
@@ -360,7 +363,7 @@ src/
 
 | 项 | 说明 |
 |----|------|
-| 单一 UI 工程 | Windows / Android（首期）；iOS / Mac Catalyst 有 workload 后启用 |
+| 单一 UI 工程 | Windows / Android / Mac Catalyst（可选 TFM）；发布见 `build/Publish-FlyScreenMaui.ps1` |
 | 用户体验 | 侧栏 + 顶栏 Tab + 安全密钥 / 电脑布局 / 网络发现 / 高级选项，与 Win **同一信息架构** |
 | 业务 | 经 Core + `Platforms/Windows|Android` 适配；**禁止**引用 `App.Windows` |
 | 分发 | 独立包 / `beta` 通道；**禁止**默认替换 WPF stable |

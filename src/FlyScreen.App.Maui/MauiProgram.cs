@@ -39,6 +39,9 @@ public static class MauiProgram
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
             host.Settings, host.Transfers));
+#elif MACCATALYST
+        // Mac Catalyst：桌面壳可跑；键鼠注入 / 托盘等仍走 Null（W1 Avalonia Mac 另轨）
+        host.AttachPlatform(NullMauiPlatformServices.Instance);
 #endif
 
         builder.Services.AddSingleton(host);

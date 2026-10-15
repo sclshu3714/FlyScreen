@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- 默认仅 Windows，避免本机缺 MSVC / Android SDK 时 VS 设计时连环报错。
-         启用 Android：msbuild -p:FlyScreenEnableMauiAndroid=true 或环境变量同名 -->
+    <!-- 默认仅 Windows，避免本机缺 Android SDK / Mac workload 时 VS 设计时连环报错。
+         启用：-p:FlyScreenEnableMauiAndroid=true / -p:FlyScreenEnableMauiMac=true -->
     <TargetFrameworks>net10.0-windows10.0.19041.0</TargetFrameworks>
     <TargetFrameworks Condition="'$(FlyScreenEnableMauiAndroid)' == 'true'">$(TargetFrameworks);net10.0-android</TargetFrameworks>
+    <TargetFrameworks Condition="'$(FlyScreenEnableMauiMac)' == 'true'">$(TargetFrameworks);net10.0-maccatalyst</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <RootNamespace>FlyScreen.AppMaui</RootNamespace>
     <UseMaui>true</UseMaui>
@@ -13,21 +14,25 @@
     <Nullable>enable</Nullable>
     <ApplicationTitle>玄鸟</ApplicationTitle>
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
-    <!-- 与 Win 同源图标 -->
-    <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
     <!-- ApplicationDisplayVersion / ApplicationVersion 由 build/FlyScreen.Version.targets 与 Win 同源 -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
     <WindowsPackageType>None</WindowsPackageType>
     <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
     <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
 
+  <!-- Windows 用 .ico；跨平台图标用 MauiIcon png -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
+  </PropertyGroup>
+
   <ItemGroup>
     <MauiIcon Include="Resources\AppIcon\appicon.png" />
-    <!-- 输出目录根下的 appicon.ico，供 AppWindow.SetIcon / 任务栏 -->
-    <None Include="Resources\AppIcon\appicon.ico" Link="appicon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 勿再 Copy appicon.ico 到输出根：与 MauiIcon/ApplicationIcon 冲突会触发 NETSDK1152。
+         运行时从 Assets\appicon.ico（下方 Content）或 exe 内嵌图标解析。 -->
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
@@ -35,19 +40,11 @@
       <Link>Assets\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- MAUI 默认标题栏模板找 Square44x44Logo.png；补一份避免空白 -->
     <Content Include="Platforms\Windows\Assets\appiconLogo.png">
       <Link>Square44x44Logo.png</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
-
-  <!-- 可选：本机已装 Android SDK 时取消注释或在 Directory.Build.props 中设置 -->
-  <!--
-  <PropertyGroup Condition="'$(FlyScreenEnableMauiAndroid)' == 'true'">
-    <AndroidSdkDirectory>C:\Program Files (x86)\Android\android-sdk</AndroidSdkDirectory>
-  </PropertyGroup>
-  -->
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
