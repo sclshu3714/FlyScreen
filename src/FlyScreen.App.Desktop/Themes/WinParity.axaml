@@ -8,6 +8,8 @@
   <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
   <SolidColorBrush x:Key="Text" Color="#111827"/>
   <SolidColorBrush x:Key="Success" Color="#059669"/>
+  <SolidColorBrush x:Key="Warn" Color="#D97706"/>
+  <SolidColorBrush x:Key="WarnSoft" Color="#FEF3C7"/>
   <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
   <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
   <SolidColorBrush x:Key="PaneBg" Color="#FFFFFF"/>

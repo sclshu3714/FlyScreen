@@ -25,11 +25,20 @@
 
 ## 目标平台
 
-| TFM | 启用方式 |
+与 VS MAUI 模板一致（调试下拉才有完整目标）：
+
+| TFM | 何时包含 |
 |-----|----------|
-| `net10.0-windows10.0.19041.0` | **默认** |
-| `net10.0-android` | `-p:FlyScreenEnableMauiAndroid=true` |
-| `net10.0-maccatalyst` | `-p:FlyScreenEnableMauiMac=true`（须在 macOS 上） |
+| `net10.0-android` | **默认** |
+| `net10.0-ios` | **默认** |
+| `net10.0-maccatalyst` | **默认** |
+| `net10.0-windows10.0.19041.0` | Windows 主机上自动追加 |
+
+仅编 Windows（无 Android SDK / 快速 CI）：
+
+```powershell
+dotnet build ... -p:FlyScreenMauiTfms=windows
+```
 
 ## 前置
 
@@ -39,7 +48,7 @@ dotnet workload list
 ```
 
 - **Android**：本机 MSVC + Android SDK  
-- **Mac Catalyst**：在 **macOS** 上安装 `maui` workload（Windows 无法交叉发布 Mac）
+- **iOS / Mac Catalyst**：真机或模拟器调试需配对 Mac；Windows 上仍可出现调试项，部署到设备须 Mac
 
 ## 编译 / 运行
 
@@ -49,6 +58,12 @@ dotnet run --project src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release
 ```
 
 版本号与 Win 同源：`build/FlyScreen.Version.targets`。
+
+### Visual Studio 调试目标
+
+`Properties/launchSettings.json` 配置名须为 **`Windows Machine`**（`commandName: Project`，配合 `WindowsPackageType=None`）。
+
+改 TFM 后若下拉仍只有项目名/WSL：卸载并重新加载项目，或删除仓库根目录 `.vs` 后重开解决方案。
 
 ---
 
@@ -76,16 +91,19 @@ pwsh -File build/Publish-FlyScreenMaui.ps1 -Platforms Mac -MacRid maccatalyst-x6
 
 | 平台 | 发布输出 | Rid | 命名结果（后缀以实际为准） |
 |------|----------|-----|---------------------------|
-| Windows | `src/FlyScreen.App.Maui/bin/publish/maui-win-x64/` | `maui-win-x64` | `artifacts/release/FlyScreen-{ver}-maui-win-x64.zip` |
+| Windows | `…/maui-win-x64/*.exe`（单文件） | `maui-win-x64` | `FlyScreen-{ver}-maui-win-x64.exe` |
 | Android | `…/maui-android/*.apk` | `maui-android` | `FlyScreen-{ver}-maui-android.apk` |
-| Mac Catalyst | `…/maui-osx-arm64/` 或 `maui-osx-x64/` | `maui-osx-arm64` / `maui-osx-x64` | `FlyScreen-{ver}-maui-osx-arm64.zip` 等 |
+| Mac Catalyst | `…/maui-osx-arm64/` 单文件可执行 | `maui-osx-arm64` / `maui-osx-x64` | `FlyScreen-{ver}-maui-osx-arm64`（无扩展名） |
 
 脚本内部等价命令：
 
 ```powershell
-# Windows 自包含解包（WindowsPackageType=None）
+# Windows 自包含单文件
 dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
   -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true `
   -o src\FlyScreen.App.Maui\bin\publish\maui-win-x64
 
 # Android Release APK
@@ -94,19 +112,21 @@ dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
   -p:AndroidPackageFormat=apk `
   -o src\FlyScreen.App.Maui\bin\publish\maui-android
 
-# Mac Catalyst（仅 macOS）
+# Mac Catalyst 自包含单文件（仅 macOS）
 dotnet publish src/FlyScreen.App.Maui/FlyScreen.App.Maui.csproj -c Release `
   -f net10.0-maccatalyst -r maccatalyst-arm64 `
   -p:FlyScreenEnableMauiMac=true --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
   -o src/FlyScreen.App.Maui/bin/publish/maui-osx-arm64
 ```
 
 手工命名：
 
 ```powershell
-powershell -File build\Name-FlyScreenPackage.ps1 -Source <产物或目录> -Rid maui-win-x64
+powershell -File build\Name-FlyScreenPackage.ps1 -Source <xxx.exe> -Rid maui-win-x64
 powershell -File build\Name-FlyScreenPackage.ps1 -Source <xxx.apk> -Rid maui-android
-powershell -File build\Name-FlyScreenPackage.ps1 -Source <产物或目录> -Rid maui-osx-arm64
+powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -Rid maui-osx-arm64
 ```
 
 ### 注意

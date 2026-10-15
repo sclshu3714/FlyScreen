@@ -1,6 +1,8 @@
 # MAUI 双轨 beta：发布 Windows / Android / Mac Catalyst 自包含包，并按 ROADMAP §4.2 命名。
 # 不替代 WPF win-x64 stable。
 #
+# Windows / Mac：PublishSingleFile 单文件可执行；Android：APK。
+#
 # 用法：
 #   powershell -File build\Publish-FlyScreenMaui.ps1
 #   powershell -File build\Publish-FlyScreenMaui.ps1 -Platforms Windows,Android
@@ -69,20 +71,68 @@ function Invoke-NamePackage {
     & $nameScript -Source $Source -Rid $Rid -RepoRoot $RepoRoot
 }
 
-# ---------- Windows（解包自包含，WindowsPackageType=None）----------
+function Find-SingleFileBinary {
+    param(
+        [string]$Dir,
+        [string[]]$PreferredNames,
+        [string[]]$Extensions = @('.exe', '')
+    )
+    if (-not (Test-Path -LiteralPath $Dir)) {
+        throw "发布目录不存在: $Dir"
+    }
+
+    foreach ($name in $PreferredNames) {
+        foreach ($ext in $Extensions) {
+            $candidate = Join-Path $Dir ($name + $ext)
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return (Get-Item -LiteralPath $candidate).FullName
+            }
+        }
+    }
+
+    $exes = @(Get-ChildItem -LiteralPath $Dir -File -Filter '*.exe' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '^(createdump|hostfxr|corehost)' })
+    if ($exes.Count -eq 1) { return $exes[0].FullName }
+    if ($exes.Count -gt 1) {
+        $hit = $exes | Where-Object { $_.Name -match 'FlyScreen|Maui' } | Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+    }
+
+    $unixBins = @(Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Extension -eq '' -and
+            $_.Name -notmatch '^(createdump|lib|Microsoft\.|System\.)' -and
+            $_.Length -gt 1MB
+        })
+    if ($unixBins.Count -ge 1) {
+        $hit = $unixBins | Where-Object { $_.Name -match 'FlyScreen|Maui' } | Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+        return ($unixBins | Sort-Object Length -Descending | Select-Object -First 1).FullName
+    }
+
+    throw "未找到单文件可执行产物，目录: $Dir"
+}
+
+# ---------- Windows（自包含单文件 .exe）----------
 if ($want.Windows) {
     $winOut = Join-Path $OutRoot 'maui-win-x64'
     if (Test-Path -LiteralPath $winOut) { Remove-Item -LiteralPath $winOut -Recurse -Force }
-    Invoke-DotNetPublish -Label 'MAUI-Windows' -PublishArgs @(
+    Invoke-DotNetPublish -Label 'MAUI-Windows (single-file)' -PublishArgs @(
         'publish', $proj,
         '-c', $Configuration,
         '-f', 'net10.0-windows10.0.19041.0',
         '-r', 'win-x64',
         '--self-contained', 'true',
+        '-p:PublishSingleFile=true',
+        '-p:IncludeNativeLibrariesForSelfExtract=true',
+        '-p:EnableCompressionInSingleFile=true',
         '-o', $winOut
     )
-    $named = Invoke-NamePackage -Source $winOut -Rid 'maui-win-x64'
-    $results += [pscustomobject]@{ Platform = 'Windows'; Path = $winOut; Package = $named.Path }
+    $winExe = Find-SingleFileBinary -Dir $winOut -PreferredNames @(
+        'FlyScreen.App.Maui', 'FlyScreen', '玄鸟'
+    ) -Extensions @('.exe')
+    $named = Invoke-NamePackage -Source $winExe -Rid 'maui-win-x64'
+    $results += [pscustomobject]@{ Platform = 'Windows'; Path = $winExe; Package = $named.Path }
 }
 
 # ---------- Android（Release APK，自带运行时）----------
@@ -94,7 +144,6 @@ if ($want.Android) {
         'publish', $proj,
         '-c', $Configuration,
         '-f', 'net10.0-android',
-        '-p:FlyScreenEnableMauiAndroid=true',
         '-p:AndroidPackageFormat=apk',
         '-o', $androidOut
     )
@@ -132,23 +181,29 @@ if ($want.Mac) {
         $pkgRid = if ($macRidNorm -eq 'maccatalyst-arm64') { 'maui-osx-arm64' } else { 'maui-osx-x64' }
         $macOut = Join-Path $OutRoot $pkgRid
         if (Test-Path -LiteralPath $macOut) { Remove-Item -LiteralPath $macOut -Recurse -Force }
-        Invoke-DotNetPublish -Label "MAUI-MacCatalyst ($macRidNorm)" -PublishArgs @(
+        Invoke-DotNetPublish -Label "MAUI-MacCatalyst single-file ($macRidNorm)" -PublishArgs @(
             'publish', $proj,
             '-c', $Configuration,
             '-f', 'net10.0-maccatalyst',
             '-r', $macRidNorm,
-            '-p:FlyScreenEnableMauiMac=true',
             '--self-contained', 'true',
+            '-p:PublishSingleFile=true',
+            '-p:IncludeNativeLibrariesForSelfExtract=true',
             '-p:CreatePackage=false',
             '-o', $macOut
         )
 
-        # 优先命名 .app；否则整目录 zip
-        $app = Get-ChildItem -LiteralPath $macOut -Filter '*.app' -Directory -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        $source = if ($app) { $app.FullName } else { $macOut }
-        $named = Invoke-NamePackage -Source $source -Rid $pkgRid
-        $results += [pscustomobject]@{ Platform = 'Mac'; Path = $source; Package = $named.Path }
+        $macBin = Find-SingleFileBinary -Dir $macOut -PreferredNames @(
+            'FlyScreen.App.Maui', 'FlyScreen'
+        ) -Extensions @('', '.dll')
+        # Mac 单文件通常无扩展名；若误命中 dll 则再搜无扩展名大文件
+        if ($macBin.EndsWith('.dll', [StringComparison]::OrdinalIgnoreCase)) {
+            $macBin = Find-SingleFileBinary -Dir $macOut -PreferredNames @(
+                'FlyScreen.App.Maui', 'FlyScreen'
+            ) -Extensions @('')
+        }
+        $named = Invoke-NamePackage -Source $macBin -Rid $pkgRid
+        $results += [pscustomobject]@{ Platform = 'Mac'; Path = $macBin; Package = $named.Path }
     }
 }
 

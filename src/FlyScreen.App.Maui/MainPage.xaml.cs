@@ -13,12 +13,18 @@ public partial class MainPage : ContentPage
     private readonly MauiAppHost _host;
     private ObservableCollection<DiscoveredPeer> _discovery = [];
     private readonly ObservableCollection<MachineSlot> _slots = [];
-    private readonly List<Button> _tabButtons = [];
     private int _pageIndex;
     private bool _twoRow = true;
     private MachineSlot? _selected;
     private IDispatcherTimer? _statusTimer;
     private const string DragSlotKey = "FlyScreen.MachineSlot";
+    private readonly MauiUpdateChecker _helpUpdater = new();
+    private MauiUpdateCheckResult? _helpLastCheck;
+    private bool _helpUpdateReady;
+    private bool _helpFixReady;
+    private bool _compactLayout;
+    private bool _navOpen;
+    private const double CompactWidthBreakpoint = 720;
 
     public MainPage()
     {
@@ -26,10 +32,10 @@ public partial class MainPage : ContentPage
         _host = MauiAppHost.EnsureCreated();
         DiscoveryList.ItemsSource = _discovery;
         TransferList.ItemsSource = _host.Transfers.Items;
-        _tabButtons.AddRange([TabBasic, TabOptions, TabNetwork, TabTransfer]);
         TrayBtn.IsVisible = true;
         AutoStartCheck.IsEnabled = _host.Platform.SupportsAutoStart;
         Loaded += OnLoaded;
+        SizeChanged += OnPageSizeChanged;
         Unloaded += (_, _) => _statusTimer?.Stop();
     }
 
@@ -51,17 +57,250 @@ public partial class MainPage : ContentPage
         _host.Connections.Discovery.PeersUpdated += _ => MainThread.BeginInvokeOnMainThread(RefreshDiscovery);
         _host.Connections.PeerLinkChanged += (_, _, _) => MainThread.BeginInvokeOnMainThread(RefreshSlotStatuses);
 
-        await _host.StartAsync();
-        StatusLabel.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        try
+        {
+            await _host.StartAsync();
+            StatusLabel.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            StatusLabel.Text =
+                $"网络启动失败（{ex.SocketErrorCode}）。端口可能被占用：请退出同机其它玄鸟，或更换 TCP/发现端口后点「应用」。";
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"网络启动失败：{ex.Message}";
+        }
+
         RefreshNics();
         RefreshDiscovery();
         RefreshSlotStatuses();
         ShowPage(0);
+        ApplyResponsiveLayout(Width);
 
         _statusTimer = Dispatcher.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2);
         _statusTimer.Tick += (_, _) => RefreshSlotStatuses();
         _statusTimer.Start();
+    }
+
+    private void OnPageSizeChanged(object? sender, EventArgs e)
+        => ApplyResponsiveLayout(Width);
+
+    private void ApplyResponsiveLayout(double width)
+    {
+        if (width <= 0) return;
+
+        // 手机 / 窄屏用抽屉；平板横屏与桌面用固定侧栏
+        var compact = width < CompactWidthBreakpoint
+                      || DeviceInfo.Idiom == DeviceIdiom.Phone;
+        _compactLayout = compact;
+
+        PhoneTopBar.IsVisible = compact;
+        if (!compact)
+            _navOpen = false;
+
+        SidePane.WidthRequest = compact ? 260 : 168;
+        SidePane.IsVisible = !compact || _navOpen;
+        NavScrim.IsVisible = compact && _navOpen;
+
+        // 宽屏：主区左侧让出固定侧栏；窄屏主区全宽
+        MainPane.Margin = compact ? new Thickness(0) : new Thickness(168, 0, 0, 0);
+        MainPane.Padding = compact ? new Thickness(12) : new Thickness(16);
+
+        ApplyLayoutActionsPlacement(compact);
+        ApplyOptionsPlacement(compact);
+    }
+
+    private void ApplyOptionsPlacement(bool compact)
+    {
+        if (OptionsBottomGrid == null || HotCard == null || SysCard == null || HotKeysGrid == null)
+            return;
+
+        if (compact)
+        {
+            // 快捷键 / 系统设置纵向堆叠，避免并排挤压
+            OptionsBottomGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            Grid.SetRow(HotCard, 0);
+            Grid.SetColumn(HotCard, 0);
+            Grid.SetColumnSpan(HotCard, 1);
+            Grid.SetRow(SysCard, 1);
+            Grid.SetColumn(SysCard, 0);
+            Grid.SetColumnSpan(SysCard, 1);
+
+            // 快捷键输入改为单列：标签 + 输入
+            HotKeysGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(68)
+            };
+            Grid.SetRow(HotSettingsLabel, 0);
+            Grid.SetColumn(HotSettingsLabel, 0);
+            Grid.SetRow(HotkeySettingsEntry, 0);
+            Grid.SetColumn(HotkeySettingsEntry, 1);
+
+            Grid.SetRow(HotReconnectLabel, 1);
+            Grid.SetColumn(HotReconnectLabel, 0);
+            Grid.SetRow(HotkeyReconnectEntry, 1);
+            Grid.SetColumn(HotkeyReconnectEntry, 1);
+
+            Grid.SetRow(HotExitLabel, 2);
+            Grid.SetColumn(HotExitLabel, 0);
+            Grid.SetRow(HotkeyExitEntry, 2);
+            Grid.SetColumn(HotkeyExitEntry, 1);
+
+            Grid.SetRow(HotLockLabel, 3);
+            Grid.SetColumn(HotLockLabel, 0);
+            Grid.SetRow(HotkeyLockEntry, 3);
+            Grid.SetColumn(HotkeyLockEntry, 1);
+
+            if (OptionsFeatGrid != null && BehColumn != null)
+            {
+                OptionsFeatGrid.ColumnDefinitions = new ColumnDefinitionCollection
+                {
+                    new(GridLength.Star)
+                };
+                Grid.SetRow(FeatColumn, 0);
+                Grid.SetColumn(FeatColumn, 0);
+                Grid.SetRow(BehColumn, 1);
+                Grid.SetColumn(BehColumn, 0);
+                OptionsFeatGrid.RowDefinitions = new RowDefinitionCollection
+                {
+                    new(GridLength.Auto),
+                    new(GridLength.Auto)
+                };
+                OptionsFeatGrid.RowSpacing = 12;
+            }
+        }
+        else
+        {
+            OptionsBottomGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(new GridLength(12)),
+                new(240)
+            };
+            Grid.SetRow(HotCard, 0);
+            Grid.SetColumn(HotCard, 0);
+            Grid.SetColumnSpan(HotCard, 1);
+            Grid.SetRow(SysCard, 0);
+            Grid.SetColumn(SysCard, 2);
+            Grid.SetColumnSpan(SysCard, 1);
+
+            HotKeysGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Auto),
+                new(68),
+                new(new GridLength(12)),
+                new(GridLength.Auto),
+                new(68)
+            };
+            Grid.SetRow(HotSettingsLabel, 0);
+            Grid.SetColumn(HotSettingsLabel, 0);
+            Grid.SetRow(HotkeySettingsEntry, 0);
+            Grid.SetColumn(HotkeySettingsEntry, 1);
+            Grid.SetRow(HotReconnectLabel, 0);
+            Grid.SetColumn(HotReconnectLabel, 3);
+            Grid.SetRow(HotkeyReconnectEntry, 0);
+            Grid.SetColumn(HotkeyReconnectEntry, 4);
+            Grid.SetRow(HotExitLabel, 1);
+            Grid.SetColumn(HotExitLabel, 0);
+            Grid.SetRow(HotkeyExitEntry, 1);
+            Grid.SetColumn(HotkeyExitEntry, 1);
+            Grid.SetRow(HotLockLabel, 1);
+            Grid.SetColumn(HotLockLabel, 3);
+            Grid.SetRow(HotkeyLockEntry, 1);
+            Grid.SetColumn(HotkeyLockEntry, 4);
+
+            if (OptionsFeatGrid != null && BehColumn != null)
+            {
+                OptionsFeatGrid.ColumnDefinitions = new ColumnDefinitionCollection
+                {
+                    new(GridLength.Star),
+                    new(GridLength.Star)
+                };
+                OptionsFeatGrid.RowDefinitions = new RowDefinitionCollection
+                {
+                    new(GridLength.Auto)
+                };
+                OptionsFeatGrid.RowSpacing = 0;
+                Grid.SetRow(FeatColumn, 0);
+                Grid.SetColumn(FeatColumn, 0);
+                Grid.SetRow(BehColumn, 0);
+                Grid.SetColumn(BehColumn, 1);
+            }
+        }
+    }
+
+    private void ApplyLayoutActionsPlacement(bool compact)
+    {
+        if (LayoutActions == null || MatrixBorder == null) return;
+
+        if (compact)
+        {
+            // 操作按钮放到矩阵下方，横排避免挤压
+            Grid.SetRow(MatrixBorder, 2);
+            Grid.SetColumn(MatrixBorder, 0);
+            Grid.SetColumnSpan(MatrixBorder, 2);
+            Grid.SetRow(LayoutActions, 3);
+            Grid.SetColumn(LayoutActions, 0);
+            Grid.SetColumnSpan(LayoutActions, 2);
+            LayoutActions.Margin = new Thickness(0, 12, 0, 0);
+            LayoutActions.ClearValue(WidthRequestProperty);
+            LayoutActions.HorizontalOptions = LayoutOptions.Fill;
+            LayoutDragTipText.IsVisible = false;
+            AddMachineBtn.ClearValue(WidthRequestProperty);
+            RemoveMachineBtn.ClearValue(WidthRequestProperty);
+            ReconnectBtn.ClearValue(WidthRequestProperty);
+            AddMachineBtn.HorizontalOptions = LayoutOptions.Fill;
+            RemoveMachineBtn.HorizontalOptions = LayoutOptions.Fill;
+            ReconnectBtn.HorizontalOptions = LayoutOptions.Fill;
+        }
+        else
+        {
+            Grid.SetRow(MatrixBorder, 2);
+            Grid.SetColumn(MatrixBorder, 0);
+            Grid.SetColumnSpan(MatrixBorder, 1);
+            Grid.SetRow(LayoutActions, 2);
+            Grid.SetColumn(LayoutActions, 1);
+            Grid.SetColumnSpan(LayoutActions, 1);
+            LayoutActions.Margin = new Thickness(14, 0, 0, 0);
+            LayoutActions.WidthRequest = 100;
+            LayoutActions.HorizontalOptions = LayoutOptions.Start;
+            LayoutDragTipText.IsVisible = true;
+            AddMachineBtn.WidthRequest = 100;
+            RemoveMachineBtn.WidthRequest = 100;
+            ReconnectBtn.WidthRequest = 100;
+            AddMachineBtn.HorizontalOptions = LayoutOptions.Center;
+            RemoveMachineBtn.HorizontalOptions = LayoutOptions.Center;
+            ReconnectBtn.HorizontalOptions = LayoutOptions.Center;
+        }
+    }
+
+    private void MenuBtn_Clicked(object? sender, EventArgs e)
+    {
+        _navOpen = !_navOpen;
+        ApplyResponsiveLayout(Width);
+    }
+
+    private void NavScrim_Tapped(object? sender, TappedEventArgs e)
+    {
+        _navOpen = false;
+        ApplyResponsiveLayout(Width);
+    }
+
+    private void ApplyNavButtonTexts()
+    {
+        NavBasicText.Text = Loc.T("Nav.Basic");
+        NavNetworkText.Text = Loc.T("Nav.Network");
+        NavShareText.Text = Loc.T("Nav.Share");
+        NavSecurityText.Text = Loc.T("Nav.Security");
+        NavAdvancedText.Text = Loc.T("Nav.Advanced");
+        AboutBtnText.Text = Loc.T("Btn.About");
+        HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
     }
 
     private void LoadUi()
@@ -117,20 +356,15 @@ public partial class MainPage : ContentPage
         }
 
         Title = Loc.T("App.Name");
+        PhoneTitleLabel.Text = Loc.T("App.Name");
         SearchEntry.Placeholder = Loc.T("Search.Placeholder") + "…";
 
-        NavBasic.Text = Loc.T("Nav.Basic");
-        NavNetwork.Text = Loc.T("Nav.Network");
-        NavShare.Text = Loc.T("Nav.Share");
-        NavSecurity.Text = Loc.T("Nav.Security");
-        NavAdvanced.Text = Loc.T("Nav.Advanced");
-
-        TabBasic.Text = Loc.T("Tab.Basic");
-        TabOptions.Text = Loc.T("Tab.Options");
-        TabNetwork.Text = Loc.T("Tab.Network");
-        TabTransfer.Text = Loc.T("Tab.Transfer");
-        AboutBtn.Text = Loc.T("Btn.About");
-        HelpBtn.Text = Loc.T("Btn.Help");
+        ApplyNavButtonTexts();
+        HelpDocBtn.Text = Loc.T("Help.ShowDoc");
+        RefreshHelpToolbarLabels();
+        RefreshAboutPage();
+        if (PageHelp.IsVisible)
+            ShowHelpDocument();
         ApplyBtn.Text = Loc.T("Btn.Apply");
         ExitBtn.Text = Loc.T("Btn.Exit");
         TrayBtn.Text = _host.Platform.SupportsTray ? Loc.T("Btn.HideTray") : "后台运行";
@@ -554,22 +788,44 @@ public partial class MainPage : ContentPage
         PageOptions.IsVisible = index == 1;
         PageNetwork.IsVisible = index == 2;
         PageTransfer.IsVisible = index == 3;
+        PageSecurity.IsVisible = index == 4;
+        PageAbout.IsVisible = index == 5;
+        PageHelp.IsVisible = index == 6;
 
         try
         {
-            var primary = (Style)Application.Current!.Resources["PrimaryBtn"];
-            var normal = (Style)Application.Current!.Resources["NormalBtn"];
-            var nav = (Style)Application.Current!.Resources["NavBtn"];
-            var navActive = (Style)Application.Current!.Resources["NavBtnActive"];
-            for (var i = 0; i < _tabButtons.Count; i++)
-                _tabButtons[i].Style = i == index ? primary : normal;
-            NavBasic.Style = index == 0 ? navActive : nav;
-            NavSecurity.Style = nav;
-            NavAdvanced.Style = index == 1 ? navActive : nav;
-            NavNetwork.Style = index == 2 ? navActive : nav;
-            NavShare.Style = index == 3 ? navActive : nav;
+            var normal = (Style)Application.Current!.Resources["SideNavBtn"];
+            var active = (Style)Application.Current!.Resources["SideNavBtnActive"];
+            var labelNormal = (Style)Application.Current!.Resources["SideNavLabel"];
+            var labelActive = (Style)Application.Current!.Resources["SideNavLabelActive"];
+
+            void SetNav(Button btn, Label label, bool on)
+            {
+                btn.Style = on ? active : normal;
+                label.Style = on ? labelActive : labelNormal;
+            }
+
+            SetNav(NavBasic, NavBasicText, index == 0);
+            SetNav(NavAdvanced, NavAdvancedText, index == 1);
+            SetNav(NavNetwork, NavNetworkText, index == 2);
+            SetNav(NavShare, NavShareText, index == 3);
+            SetNav(NavSecurity, NavSecurityText, index == 4);
+            SetNav(NavAbout, AboutBtnText, index == 5);
+            SetNav(NavHelp, HelpBtnText, index == 6);
         }
         catch { /* ignore */ }
+
+        if (index == 5)
+            RefreshAboutPage();
+        else if (index == 6)
+            ShowHelpDocument();
+
+        // 窄屏选中菜单后自动收起抽屉
+        if (_compactLayout && _navOpen)
+        {
+            _navOpen = false;
+            ApplyResponsiveLayout(Width);
+        }
     }
 
     private void Search_Changed(object? sender, TextChangedEventArgs e)
@@ -579,23 +835,25 @@ public partial class MainPage : ContentPage
         if (q.Contains("传输") || q.Contains("文件") || q.Contains("共享")) ShowPage(3);
         else if (q.Contains("网络") || q.Contains("发现") || q.Contains("网卡") || q.Contains("端口")) ShowPage(2);
         else if (q.Contains("高级") || q.Contains("热键") || q.Contains("选项") || q.Contains("主题")) ShowPage(1);
-        else if (q.Contains("密钥") || q.Contains("布局") || q.Contains("安全") || q.Contains("基础")) ShowPage(0);
+        else if (q.Contains("密钥") || q.Contains("安全")) ShowPage(4);
+        else if (q.Contains("关于") || q.Contains("版本")) ShowPage(5);
+        else if (q.Contains("帮助") || q.Contains("更新") || q.Contains("诊断") || q.Contains("修复")) ShowPage(6);
+        else if (q.Contains("布局") || q.Contains("基础")) ShowPage(0);
     }
 
     private void Nav_Clicked(object? sender, EventArgs e)
     {
-        if (ReferenceEquals(sender, NavBasic) || ReferenceEquals(sender, NavSecurity)) ShowPage(0);
-        else if (ReferenceEquals(sender, NavAdvanced)) ShowPage(1);
-        else if (ReferenceEquals(sender, NavNetwork)) ShowPage(2);
-        else if (ReferenceEquals(sender, NavShare)) ShowPage(3);
-    }
-
-    private void Tab_Clicked(object? sender, EventArgs e)
-    {
-        if (ReferenceEquals(sender, TabBasic)) ShowPage(0);
-        else if (ReferenceEquals(sender, TabOptions)) ShowPage(1);
-        else if (ReferenceEquals(sender, TabNetwork)) ShowPage(2);
-        else if (ReferenceEquals(sender, TabTransfer)) ShowPage(3);
+        var key = (sender as Button)?.CommandParameter as string ?? "";
+        switch (key)
+        {
+            case "basic": ShowPage(0); break;
+            case "advanced": ShowPage(1); break;
+            case "network": ShowPage(2); break;
+            case "share": ShowPage(3); break;
+            case "security": ShowPage(4); break;
+            case "about": ShowPage(5); break;
+            case "help": ShowPage(6); break;
+        }
     }
 
     private void LayoutMode_Clicked(object? sender, EventArgs e)
@@ -834,27 +1092,239 @@ public partial class MainPage : ContentPage
         _host.Platform.HideToBackground(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
-            about: () => MainThread.BeginInvokeOnMainThread(() => _ = ShowAboutAsync()),
+            about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: () => Application.Current?.Quit());
     }
 
-    private async void About_Clicked(object? sender, EventArgs e)
-        => await ShowAboutAsync();
-
-    private async Task ShowAboutAsync()
+    private void RefreshAboutPage()
     {
         var ver = typeof(MainPage).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
-        await DisplayAlertAsync(Loc.T("About.Title"), string.Format(Loc.T("About.Body"), verText), "OK");
+        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{Math.Max(ver.Build, 0)}";
+        AboutTitleText.Text = Loc.T("About.Title");
+        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
     }
 
-    private async void Help_Clicked(object? sender, EventArgs e)
+    private void RefreshHelpToolbarLabels()
     {
-        var page = new HelpPage(_host);
-        if (Shell.Current != null)
-            await Shell.Current.Navigation.PushModalAsync(page);
+        HelpUpdateBtn.Text = _helpUpdateReady ? Loc.T("Help.ApplyUpdate") : Loc.T("Help.CheckUpdate");
+        HelpDiagBtn.Text = _helpFixReady ? Loc.T("Help.DiagFix") : Loc.T("Help.DiagCheck");
+        HelpUpdateBtn.Style = (Style)Application.Current!.Resources[
+            _helpUpdateReady ? "PrimaryBtn" : "SoftBlueBtn"];
+        HelpDiagBtn.Style = (Style)Application.Current!.Resources[
+            _helpFixReady ? "PrimaryBtn" : "SoftWarnBtn"];
+    }
+
+    private void HelpDoc_Clicked(object? sender, EventArgs e) => ShowHelpDocument();
+
+    private async void HelpUpdate_Clicked(object? sender, EventArgs e)
+    {
+        if (_helpUpdateReady)
+            await ApplyHelpUpdateAsync();
         else
-            await Navigation.PushModalAsync(page);
+            await CheckHelpUpdateAsync();
+    }
+
+    private async void HelpDiag_Clicked(object? sender, EventArgs e)
+    {
+        if (_helpFixReady)
+            await FixHelpDiagAsync();
+        else
+            await CheckHelpDiagAsync();
+    }
+
+    private async Task CheckHelpUpdateAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog(Loc.T("Help.CheckingUpdate"));
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
+            _helpLastCheck = result;
+            _helpUpdateReady = result is { Success: true, UpdateAvailable: true };
+            RefreshHelpToolbarLabels();
+            if (result.Success && result.UpdateAvailable)
+            {
+                var notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
+                    ? result.Message
+                    : $"版本 {result.RemoteVersion}\n\n{result.ReleaseNotes}";
+                ShowHelpLog(notes);
+            }
+            else if (result.Success)
+                ShowHelpLog(string.IsNullOrWhiteSpace(result.Message) ? Loc.T("Help.NoUpdate") : result.Message);
+            else
+                ShowHelpLog(result.Message);
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private async Task ApplyHelpUpdateAsync()
+    {
+        if (_helpLastCheck is not { Success: true, UpdateAvailable: true })
+        {
+            _helpUpdateReady = false;
+            RefreshHelpToolbarLabels();
+            ShowHelpLog(Loc.T("Help.NeedCheckFirst"));
+            return;
+        }
+
+        var ok = await DisplayAlertAsync(
+            Loc.T("Help.ConfirmUpdateTitle"),
+            string.Format(Loc.T("Help.ConfirmUpdate"),
+                _helpLastCheck.RemoteVersion,
+                _helpLastCheck.AssetName ?? Loc.T("Help.AssetUnnamed")),
+            "是", "否");
+        if (!ok) return;
+
+        HelpUpdateProgressBar.IsVisible = true;
+        HelpUpdateProgressBar.Progress = 0.3;
+        ShowHelpLog("正在打开更新页面…");
+        try
+        {
+            var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
+                ? MauiUpdateChecker.ReleasesUrl
+                : _helpLastCheck.ReleaseUrl;
+            await Launcher.Default.OpenAsync(url);
+            ShowHelpLog("已打开 Releases 页面，请下载并安装新版本。\n" + url);
+        }
+        catch (Exception ex)
+        {
+            ShowHelpLog(ex.Message);
+        }
+        finally
+        {
+            HelpUpdateProgressBar.IsVisible = false;
+            HelpUpdateProgressBar.Progress = 0;
+        }
+    }
+
+    private async Task CheckHelpDiagAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog(Loc.T("Help.CheckingConn"));
+            var diag = new MauiConnectionDiagnostics(_host);
+            var report = await diag.CheckAsync().ConfigureAwait(true);
+            _helpFixReady = report.Items.Any(i =>
+                i.Level is MauiDiagnosticLevel.Error or MauiDiagnosticLevel.Warn);
+            RefreshHelpToolbarLabels();
+            var text = report.FormatText();
+            if (!_helpFixReady)
+                text += "\n\n" + Loc.T("Help.NoProblems");
+            ShowHelpLog(text);
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private async Task FixHelpDiagAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            var diag = new MauiConnectionDiagnostics(_host);
+            var progress = new Progress<string>(s =>
+                MainThread.BeginInvokeOnMainThread(() => ShowHelpLog(s)));
+            var report = await diag.FixAsync(progress).ConfigureAwait(true);
+            _helpFixReady = report.Items.Any(i =>
+                i.Level is MauiDiagnosticLevel.Error or MauiDiagnosticLevel.Warn);
+            RefreshHelpToolbarLabels();
+            ShowHelpLog(report.FormatText());
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private void SetHelpBusy(bool busy)
+    {
+        HelpDocBtn.IsEnabled = !busy;
+        HelpUpdateBtn.IsEnabled = !busy;
+        HelpDiagBtn.IsEnabled = !busy;
+    }
+
+    private void ShowHelpDocument()
+    {
+        HelpUpdateProgressBar.IsVisible = false;
+        HelpContent.Children.Clear();
+        HelpContent.Children.Add(HelpDocTitle(Loc.T("Help.Doc.Title")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.Intro")));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Quick")));
+        AddHelpNumbered(Loc.T("Help.Doc.Q1"), Loc.T("Help.Doc.Q2"), Loc.T("Help.Doc.Q3"),
+            Loc.T("Help.Doc.Q4"), Loc.T("Help.Doc.Q5"));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Clip")));
+        AddHelpBullets(Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"), Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4"));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Opts")));
+        AddHelpBullets(Loc.T("Help.Doc.O1"), Loc.T("Help.Doc.O2"), Loc.T("Help.Doc.O3"),
+            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Hot")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.H1")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.H2")));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Net")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.N1")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.N2")));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Update")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.U1")));
+        HelpContent.Children.Add(HelpPara(MauiUpdateChecker.ReleasesUrl));
+        HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Diag")));
+        HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.D1")));
+    }
+
+    private void ShowHelpLog(string text)
+    {
+        HelpContent.Children.Clear();
+        foreach (var line in (text ?? "").Replace("\r\n", "\n").Split('\n'))
+            HelpContent.Children.Add(HelpLogLine(line));
+    }
+
+    private static Label HelpDocTitle(string t) => new()
+    {
+        Text = t,
+        FontSize = 18,
+        FontAttributes = FontAttributes.Bold,
+        Margin = new Thickness(0, 0, 0, 6)
+    };
+
+    private static Label HelpHeading(string t) => new()
+    {
+        Text = t,
+        FontSize = 15,
+        FontAttributes = FontAttributes.Bold,
+        Margin = new Thickness(0, 12, 0, 4)
+    };
+
+    private static Label HelpPara(string t) => new()
+    {
+        Text = t,
+        FontSize = 13,
+        TextColor = (Color)Application.Current!.Resources["Muted"],
+        LineBreakMode = LineBreakMode.WordWrap
+    };
+
+    private static Label HelpLogLine(string t) => new()
+    {
+        Text = t,
+        FontSize = 13,
+        FontFamily = "Consolas",
+        LineBreakMode = LineBreakMode.WordWrap
+    };
+
+    private void AddHelpNumbered(params string[] lines)
+    {
+        for (var i = 0; i < lines.Length; i++)
+            HelpContent.Children.Add(HelpPara($"{i + 1}. {lines[i]}"));
+    }
+
+    private void AddHelpBullets(params string[] lines)
+    {
+        foreach (var line in lines)
+            HelpContent.Children.Add(HelpPara("· " + line));
     }
 
     private void Exit_Clicked(object? sender, EventArgs e)

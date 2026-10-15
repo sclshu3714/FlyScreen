@@ -55,7 +55,18 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         _discovery.AnnounceTcpPort = _settings.TcpPort;
         if (_bindIp != "0.0.0.0")
-            _discovery.Start(_bindIp, _settings.UdpPort, nic?.SubnetMask);
+        {
+            try
+            {
+                _discovery.Start(_bindIp, _settings.UdpPort, nic?.SubnetMask);
+            }
+            catch (SocketException ex)
+            {
+                StatusMessage?.Invoke(
+                    $"UDP 发现端口 {_settings.UdpPort} 绑定失败（{ex.SocketErrorCode}）。" +
+                    "请退出同机其它玄鸟实例，或在网络设置中更换发现端口后点「应用」。");
+            }
+        }
 
         var ct = _cts.Token;
         _ = Task.Run(() => AcceptLoopAsync(ct), ct);
