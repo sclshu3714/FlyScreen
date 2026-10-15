@@ -8,6 +8,8 @@
   <Color x:Key="Muted">#6B7280</Color>
   <Color x:Key="Text">#111827</Color>
   <Color x:Key="Success">#059669</Color>
+  <Color x:Key="Warn">#D97706</Color>
+  <Color x:Key="WarnSoft">#FEF3C7</Color>
   <Color x:Key="WinBg">#F7F8FA</Color>
   <Color x:Key="CardBg">#FFFFFF</Color>
   <Color x:Key="PaneBg">#FFFFFF</Color>

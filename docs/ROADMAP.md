@@ -142,9 +142,9 @@ FlyScreen-{version}-linux-x64.zip          # 或 .AppImage
 FlyScreen-{version}-android.apk
 FlyScreen-{version}-android-tv.apk
 FlyScreen-{version}-harmony.hap
-FlyScreen-{version}-maui-win-x64.zip       # MAUI 双轨 beta，不替代 WPF stable
+FlyScreen-{version}-maui-win-x64.exe       # MAUI 双轨 beta 单文件，不替代 WPF stable
 FlyScreen-{version}-maui-android.apk
-FlyScreen-{version}-maui-osx-arm64.zip     # MAUI Mac Catalyst；Avalonia Mac 仍用 osx-*
+FlyScreen-{version}-maui-osx-arm64         # MAUI Mac Catalyst 单文件；Avalonia Mac 仍用 osx-*
 ```
 
 

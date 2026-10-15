@@ -30,6 +30,17 @@ public static class MauiProgram
             native.HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left;
             native.VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
         });
+
+        // 侧栏搜索：去掉 WinUI Entry 默认白底边框，避免「灰底套白框」
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenSideSearch", (handler, view) =>
+        {
+            if (handler.PlatformView is not Microsoft.UI.Xaml.Controls.TextBox native) return;
+            if (view is not Entry entry) return;
+            if (entry.StyleClass is null || !entry.StyleClass.Contains("SideSearch")) return;
+            native.BorderThickness = new Microsoft.UI.Xaml.Thickness(0);
+            native.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            native.Padding = new Microsoft.UI.Xaml.Thickness(0, 4, 0, 4);
+        });
 #endif
 
         var host = MauiAppHost.EnsureCreated();
@@ -39,8 +50,8 @@ public static class MauiProgram
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
             host.Settings, host.Transfers));
-#elif MACCATALYST
-        // Mac Catalyst：桌面壳可跑；键鼠注入 / 托盘等仍走 Null（W1 Avalonia Mac 另轨）
+#elif MACCATALYST || IOS
+        // Mac / iOS：壳可跑；键鼠注入等仍走 Null（正式桌面 Mac 见 Avalonia）
         host.AttachPlatform(NullMauiPlatformServices.Instance);
 #endif
 

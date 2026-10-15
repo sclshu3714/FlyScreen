@@ -29,6 +29,8 @@ public static class MauiThemeService
         Set("Muted", dark ? "#94A3B8" : "#6B7280");
         Set("Text", dark ? "#E2E8F0" : "#111827");
         Set("Success", dark ? "#34D399" : "#059669");
+        Set("Warn", dark ? "#FBBF24" : "#D97706");
+        Set("WarnSoft", dark ? "#422006" : "#FEF3C7");
         Set("WinBg", dark ? "#0F172A" : "#F7F8FA");
         Set("CardBg", dark ? "#1E293B" : "#FFFFFF");
         Set("PaneBg", dark ? "#111827" : "#FFFFFF");

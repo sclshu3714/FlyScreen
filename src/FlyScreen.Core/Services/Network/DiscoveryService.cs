@@ -40,21 +40,34 @@ public sealed class DiscoveryService : IAsyncDisposable
         _cts = new CancellationTokenSource();
 
         var local = IPAddress.Parse(localIp);
-        _udp = new UdpClient(new IPEndPoint(local, udpPort));
-        _udp.EnableBroadcast = true;
-        _udp.MulticastLoopback = false;
+        // 先建未绑定套接字，再开 ReuseAddress，避免与同机另一实例（WPF/MAUI）争用 UDP 发现端口时直接崩
+        var udp = new UdpClient();
         try
         {
-            // 部分环境（含 WSL 桥接）需要显式允许广播
-            _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
+            udp.ExclusiveAddressUse = false;
+            udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         }
         catch
         {
             // ignore
         }
 
+        udp.Client.Bind(new IPEndPoint(local, udpPort));
+        udp.EnableBroadcast = true;
+        udp.MulticastLoopback = false;
+        try
+        {
+            // 部分环境（含 WSL 桥接）需要显式允许广播
+            udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _udp = udp;
+
         var ct = _cts.Token;
-        var udp = _udp;
         _loop = Task.Run(async () =>
         {
             var announce = AnnounceLoopAsync(udp, ct);

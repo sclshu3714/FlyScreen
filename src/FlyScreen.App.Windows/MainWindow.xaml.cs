@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -12,7 +13,9 @@ using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Update;
 using WinForms = System.Windows.Forms;
+using Media = System.Windows.Media;
 
 namespace FlyScreen;
 
@@ -31,6 +34,10 @@ public partial class MainWindow : Window
     private System.Windows.Point _dragStart;
     private object? _dragItem;
     private bool _syncingNav;
+    private readonly GitHubUpdateService _helpUpdater = new();
+    private UpdateCheckResult? _helpLastCheck;
+    private bool _helpUpdateReady;
+    private bool _helpFixReady;
 
     public MainWindow()
     {
@@ -111,7 +118,13 @@ public partial class MainWindow : Window
         _trayOpen = new WinForms.ToolStripMenuItem(Loc.T("Tray.Open"), null, (_, _) => { Show(); Activate(); });
         _trayReconnect = new WinForms.ToolStripMenuItem(Loc.T("Tray.Reconnect"), null,
             async (_, _) => await _host.Connections.ReconnectNowAsync());
-        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) => ShowAbout());
+        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) =>
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            ShowPage(5);
+        });
         _trayExit = new WinForms.ToolStripMenuItem(Loc.T("Tray.Exit"), null, (_, _) => ExitApp());
         menu.Items.AddRange([_trayOpen, _trayReconnect, _trayAbout, _trayExit]);
         _tray.ContextMenuStrip = menu;
@@ -308,12 +321,13 @@ public partial class MainWindow : Window
         Resources["Str.Add"] = Loc.T("Btn.Add");
         Resources["Str.Search"] = Loc.T("Search.Placeholder");
 
-        TabBasic.Content = Loc.T("Tab.Basic");
-        TabOptions.Content = Loc.T("Tab.Options");
-        TabNetwork.Content = Loc.T("Tab.Network");
-        TabTransfer.Content = Loc.T("Tab.Transfer");
-        AboutBtn.Content = Loc.T("Btn.About");
-        HelpBtn.Content = Loc.T("Btn.Help");
+        AboutBtnText.Text = Loc.T("Btn.About");
+        HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
+        HelpDocBtn.Content = Loc.T("Help.ShowDoc");
+        RefreshHelpToolbarLabels();
+        RefreshAboutPage();
+        if (PageHelp.Visibility == Visibility.Visible)
+            ShowHelpDocument();
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
@@ -964,16 +978,10 @@ public partial class MainWindow : Window
         if (!IsLoaded || _syncingNav) return;
         if (NavNetwork.IsChecked == true) ShowPage(2);
         else if (NavShare.IsChecked == true) ShowPage(3);
+        else if (NavSecurity.IsChecked == true) ShowPage(4);
         else if (NavAdvanced.IsChecked == true) ShowPage(1);
-        else ShowPage(0);
-    }
-
-    private void TopTab_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!IsLoaded || _syncingNav) return;
-        if (TabOptions.IsChecked == true) ShowPage(1);
-        else if (TabNetwork.IsChecked == true) ShowPage(2);
-        else if (TabTransfer.IsChecked == true) ShowPage(3);
+        else if (NavAbout.IsChecked == true) ShowPage(5);
+        else if (NavHelp.IsChecked == true) ShowPage(6);
         else ShowPage(0);
     }
 
@@ -983,6 +991,9 @@ public partial class MainWindow : Window
         PageOptions.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         PageNetwork.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         PageTransfer.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        PageSecurity.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
+        PageAbout.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
+        PageHelp.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
 
         _syncingNav = true;
         try
@@ -990,20 +1001,25 @@ public partial class MainWindow : Window
             switch (index)
             {
                 case 0:
-                    TabBasic.IsChecked = true;
-                    if (NavSecurity.IsChecked != true) NavBasic.IsChecked = true;
+                    NavBasic.IsChecked = true;
                     break;
                 case 1:
-                    TabOptions.IsChecked = true;
                     NavAdvanced.IsChecked = true;
                     break;
                 case 2:
-                    TabNetwork.IsChecked = true;
                     NavNetwork.IsChecked = true;
                     break;
                 case 3:
-                    TabTransfer.IsChecked = true;
                     NavShare.IsChecked = true;
+                    break;
+                case 4:
+                    NavSecurity.IsChecked = true;
+                    break;
+                case 5:
+                    NavAbout.IsChecked = true;
+                    break;
+                case 6:
+                    NavHelp.IsChecked = true;
                     break;
             }
         }
@@ -1011,6 +1027,10 @@ public partial class MainWindow : Window
 
         if (index == 0)
             Dispatcher.BeginInvoke(RedrawArrows, System.Windows.Threading.DispatcherPriority.Loaded);
+        else if (index == 5)
+            RefreshAboutPage();
+        else if (index == 6)
+            ShowHelpDocument();
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -1023,28 +1043,307 @@ public partial class MainWindow : Window
             ShowPage(3);
         else if (q.Contains("快捷") || q.Contains("高级") || q.Contains("选项"))
             ShowPage(1);
-        else if (q.Contains("密钥") || q.Contains("布局") || q.Contains("安全"))
+        else if (q.Contains("密钥") || q.Contains("安全"))
+            ShowPage(4);
+        else if (q.Contains("关于") || q.Contains("版本"))
+            ShowPage(5);
+        else if (q.Contains("帮助") || q.Contains("更新") || q.Contains("诊断") || q.Contains("修复"))
+            ShowPage(6);
+        else if (q.Contains("布局") || q.Contains("基础"))
             ShowPage(0);
     }
 
-    private void About_Click(object sender, RoutedEventArgs e) => ShowAbout();
-
-    private void ShowAbout()
+    private void RefreshAboutPage()
     {
         var ver = typeof(MainWindow).Assembly.GetName().Version;
         var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
-        System.Windows.MessageBox.Show(
-            this,
-            string.Format(Loc.T("About.Body"), verText),
-            Loc.T("About.Title"),
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+        AboutTitleText.Text = Loc.T("About.Title");
+        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
     }
 
-    private void Help_Click(object sender, RoutedEventArgs e)
+    private void RefreshHelpToolbarLabels()
     {
-        var win = new HelpWindow(_host) { Owner = this };
-        win.ShowDialog();
+        HelpUpdateBtn.Content = _helpUpdateReady ? Loc.T("Help.ApplyUpdate") : Loc.T("Help.CheckUpdate");
+        HelpDiagBtn.Content = _helpFixReady ? Loc.T("Help.DiagFix") : Loc.T("Help.DiagCheck");
+        HelpUpdateBtn.Style = (Style)FindResource(_helpUpdateReady ? "PrimaryBtn" : "SoftBlueBtn");
+        HelpDiagBtn.Style = (Style)FindResource(_helpFixReady ? "PrimaryBtn" : "SoftWarnBtn");
+    }
+
+    private void HelpDoc_Click(object sender, RoutedEventArgs e) => ShowHelpDocument();
+
+    private async void HelpUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_helpUpdateReady)
+            await ApplyHelpUpdateAsync();
+        else
+            await CheckHelpUpdateAsync();
+    }
+
+    private async void HelpDiag_Click(object sender, RoutedEventArgs e)
+    {
+        if (_helpFixReady)
+            await FixHelpDiagAsync();
+        else
+            await CheckHelpDiagAsync();
+    }
+
+    private async Task CheckHelpUpdateAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog(Loc.T("Help.CheckingUpdate"));
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
+            _helpLastCheck = result;
+            _helpUpdateReady = result is { Success: true, UpdateAvailable: true };
+            RefreshHelpToolbarLabels();
+
+            if (result.Success && result.UpdateAvailable)
+            {
+                var notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
+                    ? result.Message
+                    : $"版本 {result.RemoteVersion}\n\n{result.ReleaseNotes}";
+                ShowHelpLog(notes);
+            }
+            else if (result.Success)
+            {
+                ShowHelpLog(string.IsNullOrWhiteSpace(result.Message) ? Loc.T("Help.NoUpdate") : result.Message);
+            }
+            else
+            {
+                ShowHelpLog(result.Message);
+            }
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private async Task ApplyHelpUpdateAsync()
+    {
+        if (_helpLastCheck is not { Success: true, UpdateAvailable: true })
+        {
+            _helpUpdateReady = false;
+            RefreshHelpToolbarLabels();
+            ShowHelpLog(Loc.T("Help.NeedCheckFirst"));
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            this,
+            string.Format(
+                Loc.T("Help.ConfirmUpdate"),
+                _helpLastCheck.RemoteVersion,
+                _helpLastCheck.AssetName ?? Loc.T("Help.AssetUnnamed")),
+            Loc.T("Help.ConfirmUpdateTitle"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        SetHelpBusy(true);
+        ShowHelpUpdateProgress(0, indeterminate: false);
+        try
+        {
+            var progress = new Progress<UpdateDownloadProgress>(OnHelpUpdateProgress);
+            var apply = await _helpUpdater.DownloadAndApplyAsync(_helpLastCheck, progress).ConfigureAwait(true);
+            ShowHelpLog(apply.Message);
+            if (apply.ShouldExit)
+            {
+                ShowHelpLog(Loc.T("Help.Restarting"));
+                HelpUpdateProgressBar.IsIndeterminate = true;
+                HelpUpdateProgressBar.Visibility = Visibility.Visible;
+                await Task.Delay(300).ConfigureAwait(true);
+                ExitForUpdate();
+                return;
+            }
+
+            HideHelpUpdateProgress();
+        }
+        finally
+        {
+            if (IsLoaded)
+                SetHelpBusy(false);
+        }
+    }
+
+    private void OnHelpUpdateProgress(UpdateDownloadProgress p)
+    {
+        var msg = string.IsNullOrWhiteSpace(p.Message)
+            ? string.Format(Loc.T("Help.Downloading"), Math.Max(0, p.Percent))
+            : p.Message;
+        ShowHelpLog(msg);
+        ShowHelpUpdateProgress(p.Percent, p.IsIndeterminate);
+    }
+
+    private async Task CheckHelpDiagAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog(Loc.T("Help.CheckingConn"));
+            var diag = new ConnectionDiagnostics(_host);
+            var report = await diag.CheckAsync().ConfigureAwait(true);
+            _helpFixReady = report.Items.Any(i =>
+                i.Level is DiagnosticLevel.Error or DiagnosticLevel.Warn);
+            RefreshHelpToolbarLabels();
+            var text = report.FormatText();
+            if (!_helpFixReady)
+                text += "\n\n" + Loc.T("Help.NoProblems");
+            ShowHelpLog(text);
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private async Task FixHelpDiagAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            var diag = new ConnectionDiagnostics(_host);
+            var progress = new Progress<string>(s => ShowHelpLog(s));
+            var report = await diag.FixAsync(progress).ConfigureAwait(true);
+            _helpFixReady = report.Items.Any(i =>
+                i.Level is DiagnosticLevel.Error or DiagnosticLevel.Warn);
+            RefreshHelpToolbarLabels();
+            ShowHelpLog(report.FormatText());
+            ReloadAfterDiagnostics();
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private void SetHelpBusy(bool busy)
+    {
+        HelpDocBtn.IsEnabled = !busy;
+        HelpUpdateBtn.IsEnabled = !busy;
+        HelpDiagBtn.IsEnabled = !busy;
+        Cursor = busy ? System.Windows.Input.Cursors.Wait : System.Windows.Input.Cursors.Arrow;
+    }
+
+    private void ShowHelpUpdateProgress(double percent, bool indeterminate)
+    {
+        HelpUpdateProgressBar.Visibility = Visibility.Visible;
+        HelpUpdateProgressBar.IsIndeterminate = indeterminate;
+        if (!indeterminate)
+            HelpUpdateProgressBar.Value = Math.Clamp(percent, 0, 100);
+    }
+
+    private void HideHelpUpdateProgress()
+    {
+        HelpUpdateProgressBar.IsIndeterminate = false;
+        HelpUpdateProgressBar.Value = 0;
+        HelpUpdateProgressBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowHelpDocument()
+    {
+        HideHelpUpdateProgress();
+        HelpRich.Document = BuildHelpDocument();
+        HelpRich.Foreground = TryFindResource("Text") as Media.Brush ?? Media.Brushes.Black;
+        HelpRich.Background = Media.Brushes.Transparent;
+    }
+
+    private void ShowHelpLog(string text)
+    {
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(0),
+            FontFamily = new Media.FontFamily("Consolas, Microsoft YaHei UI, Segoe UI"),
+            FontSize = 13,
+            LineHeight = 20,
+            Foreground = TryFindResource("Text") as Media.Brush ?? Media.Brushes.Black
+        };
+        foreach (var line in (text ?? "").Replace("\r\n", "\n").Split('\n'))
+        {
+            doc.Blocks.Add(new Paragraph(new Run(line))
+            {
+                Margin = new Thickness(0, 0, 0, 2)
+            });
+        }
+
+        HelpRich.Document = doc;
+    }
+
+    private FlowDocument BuildHelpDocument()
+    {
+        var muted = TryFindResource("Muted") as Media.Brush ?? Media.Brushes.Gray;
+        var text = TryFindResource("Text") as Media.Brush ?? Media.Brushes.Black;
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(0),
+            FontFamily = new Media.FontFamily("Microsoft YaHei UI, Segoe UI"),
+            FontSize = 13,
+            LineHeight = 22,
+            Foreground = text
+        };
+
+        Paragraph DocTitle(string t) => new(new Run(t)
+        {
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = text
+        })
+        { Margin = new Thickness(0, 0, 0, 10) };
+
+        Paragraph Heading(string t) => new(new Run(t)
+        {
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = text
+        })
+        { Margin = new Thickness(0, 12, 0, 6) };
+
+        Paragraph Para(string t) => new(new Run(t) { Foreground = muted })
+        { Margin = new Thickness(0, 0, 0, 4) };
+
+        List Numbered(params string[] items)
+        {
+            var list = new List { MarkerStyle = TextMarkerStyle.Decimal, Margin = new Thickness(8, 0, 0, 4) };
+            foreach (var item in items)
+                list.ListItems.Add(new ListItem(Para(item)));
+            return list;
+        }
+
+        List Bullets(params string[] items)
+        {
+            var list = new List { MarkerStyle = TextMarkerStyle.Disc, Margin = new Thickness(8, 0, 0, 4) };
+            foreach (var item in items)
+                list.ListItems.Add(new ListItem(Para(item)));
+            return list;
+        }
+
+        doc.Blocks.Add(DocTitle(Loc.T("Help.Doc.Title")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.Intro")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Quick")));
+        doc.Blocks.Add(Numbered(
+            Loc.T("Help.Doc.Q1"), Loc.T("Help.Doc.Q2"), Loc.T("Help.Doc.Q3"),
+            Loc.T("Help.Doc.Q4"), Loc.T("Help.Doc.Q5")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Clip")));
+        doc.Blocks.Add(Bullets(
+            Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"),
+            Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Opts")));
+        doc.Blocks.Add(Bullets(
+            Loc.T("Help.Doc.O1"), Loc.T("Help.Doc.O2"), Loc.T("Help.Doc.O3"),
+            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Hot")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.H1")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.H2")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Net")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.N1")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.N2")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Update")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.U1")));
+        doc.Blocks.Add(Para(GitHubUpdateService.ReleasesUrl));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Diag")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.D1")));
+        return doc;
     }
 
     /// <summary>诊断修复后刷新布局槽位与连接状态显示。</summary>

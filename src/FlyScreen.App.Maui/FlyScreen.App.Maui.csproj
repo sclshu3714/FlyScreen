@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- 默认仅 Windows，避免本机缺 Android SDK / Mac workload 时 VS 设计时连环报错。
-         启用：-p:FlyScreenEnableMauiAndroid=true / -p:FlyScreenEnableMauiMac=true -->
-    <TargetFrameworks>net10.0-windows10.0.19041.0</TargetFrameworks>
-    <TargetFrameworks Condition="'$(FlyScreenEnableMauiAndroid)' == 'true'">$(TargetFrameworks);net10.0-android</TargetFrameworks>
-    <TargetFrameworks Condition="'$(FlyScreenEnableMauiMac)' == 'true'">$(TargetFrameworks);net10.0-maccatalyst</TargetFrameworks>
+    <!-- 与 VS MAUI 模板一致（勿用自定义属性包一层，否则 VS 设计时还原常漏 TFM → NETSDK1005）。
+         仅 Windows：-p:FlyScreenMauiTfms=windows -->
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(FlyScreenMauiTfms)' == 'windows'">net10.0-windows10.0.19041.0</TargetFrameworks>
+
     <OutputType>Exe</OutputType>
     <RootNamespace>FlyScreen.AppMaui</RootNamespace>
     <UseMaui>true</UseMaui>
@@ -16,8 +17,9 @@
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
     <!-- ApplicationDisplayVersion / ApplicationVersion 由 build/FlyScreen.Version.targets 与 Win 同源 -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
     <WindowsPackageType>None</WindowsPackageType>
     <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
@@ -31,8 +33,6 @@
 
   <ItemGroup>
     <MauiIcon Include="Resources\AppIcon\appicon.png" />
-    <!-- 勿再 Copy appicon.ico 到输出根：与 MauiIcon/ApplicationIcon 冲突会触发 NETSDK1152。
-         运行时从 Assets\appicon.ico（下方 Content）或 exe 内嵌图标解析。 -->
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">

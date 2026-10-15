@@ -54,18 +54,75 @@
     <Setter Property="MinimumWidthRequest" Value="88" />
     <Setter Property="Padding" Value="14,0" />
   </Style>
-  <Style x:Key="NavBtn" TargetType="Button">
-    <Setter Property="BackgroundColor" Value="Transparent" />
-    <Setter Property="TextColor" Value="{DynamicResource Text}" />
-    <Setter Property="HorizontalOptions" Value="Fill" />
-    <Setter Property="HeightRequest" Value="40" />
-    <Setter Property="CornerRadius" Value="8" />
-    <Setter Property="Margin" Value="8,2" />
-    <Setter Property="Padding" Value="12,0" />
-  </Style>
-  <Style x:Key="NavBtnActive" TargetType="Button" BasedOn="{StaticResource NavBtn}">
+  <Style x:Key="SoftBlueBtn" TargetType="Button">
     <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
     <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <Style x:Key="SoftWarnBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource WarnSoft}" />
+    <Setter Property="TextColor" Value="{DynamicResource Warn}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Warn}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <!-- 侧栏导航：Button 仅作命中层（彩标 Path+Label 叠在上层，对齐 WPF） -->
+  <Style x:Key="SideNavBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="#01000000" />
+    <Setter Property="TextColor" Value="Transparent" />
+    <Setter Property="BorderWidth" Value="0" />
+    <Setter Property="HeightRequest" Value="40" />
+    <Setter Property="MinimumHeightRequest" Value="40" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="FontSize" Value="1" />
+    <Setter Property="HorizontalOptions" Value="Fill" />
+  </Style>
+  <Style x:Key="SideNavBtnActive" TargetType="Button" BasedOn="{StaticResource SideNavBtn}">
+    <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+  </Style>
+  <!-- 兼容旧名：布局矩阵卡片等仍可能引用 -->
+  <Style x:Key="SideNavItem" TargetType="Border">
+    <Setter Property="BackgroundColor" Value="#01000000" />
+    <Setter Property="StrokeThickness" Value="0" />
+    <Setter Property="HeightRequest" Value="40" />
+    <Setter Property="Margin" Value="8,2" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="HorizontalOptions" Value="Fill" />
+    <Setter Property="StrokeShape">
+      <Setter.Value>
+        <RoundRectangle CornerRadius="8" />
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="SideNavItemActive" TargetType="Border" BasedOn="{StaticResource SideNavItem}">
+    <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+  </Style>
+  <Style x:Key="SideNavLabel" TargetType="Label">
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="VerticalOptions" Value="Center" />
+    <Setter Property="InputTransparent" Value="True" />
+  </Style>
+  <Style x:Key="SideNavLabelActive" TargetType="Label" BasedOn="{StaticResource SideNavLabel}">
+    <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+  </Style>
+  <Style x:Key="SideSearchEntry" TargetType="Entry">
+    <Setter Property="BackgroundColor" Value="Transparent" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="PlaceholderColor" Value="{DynamicResource Muted}" />
+    <Setter Property="HeightRequest" Value="36" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Margin" Value="0" />
   </Style>
   <!-- 与 Win Style Card 一致 -->
   <Style x:Key="Card" TargetType="Border">
