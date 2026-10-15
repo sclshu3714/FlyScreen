@@ -10,7 +10,8 @@
 # 参数：
 #   -Source   已生成的文件，或目录（目录将打成 .zip）
 #   -Rid      平台标识：win-x64 / osx-arm64 / osx-x64 / linux-x64 / linux-arm64 /
-#             android / android-tv / harmony / maui-win-x64 等
+#             android / android-tv / harmony /
+#             maui-win-x64 / maui-android / maui-osx-arm64 / maui-osx-x64 等
 #   -Version  可选；默认走 Resolve-FlyScreenVersion.ps1
 #   -OutDir   输出目录，默认 artifacts/release
 param(
