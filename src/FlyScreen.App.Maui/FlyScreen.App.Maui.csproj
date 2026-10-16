@@ -93,25 +93,51 @@
           Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1')" />
   </Target>
 
-  <!-- SDK 有时签完 *-Signed.apk 后文件消失（仅剩 .idsig）；用已签名的 plain apk 补回，并另存 FlyScreen.apk 便于分发 -->
-  <Target Name="FlyScreen_EnsureSignedApk"
-          AfterTargets="_Sign"
+  <!-- VS IncrementalClean 会清掉未登记的 *-Signed.apk；勿再让脚本缺文件时 exit 1。
+       AfterTargets=Build 在 CLI 上会在 BuildDependsOn 内的 _Sign 之后执行；VS 内 Build 不签包，无文件则跳过。 -->
+  <Target Name="FlyScreen_ProtectApkFileWrites"
+          BeforeTargets="IncrementalClean"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <PropertyGroup>
-      <_FsSignedApk>$(OutDir)$(_AndroidPackage)-Signed.apk</_FsSignedApk>
-      <_FsPlainApk>$(OutDir)$(_AndroidPackage).apk</_FsPlainApk>
-      <_FsStableApk>$(OutDir)FlyScreen.apk</_FsStableApk>
+      <_FsPkgId Condition="'$(_AndroidPackage)' != ''">$(_AndroidPackage)</_FsPkgId>
+      <_FsPkgId Condition="'$(_FsPkgId)' == ''">$(ApplicationId)</_FsPkgId>
     </PropertyGroup>
-    <Copy SourceFiles="$(_FsPlainApk)" DestinationFiles="$(_FsSignedApk)"
-          Condition="Exists('$(_FsPlainApk)') And !Exists('$(_FsSignedApk)')"
-          OverwriteReadOnlyFiles="true" />
-    <Copy SourceFiles="$(_FsSignedApk)" DestinationFiles="$(_FsStableApk)"
-          Condition="Exists('$(_FsSignedApk)')"
-          OverwriteReadOnlyFiles="true" />
-    <Copy SourceFiles="$(_FsPlainApk)" DestinationFiles="$(_FsStableApk)"
-          Condition="!Exists('$(_FsSignedApk)') And Exists('$(_FsPlainApk)')"
-          OverwriteReadOnlyFiles="true" />
-    <Message Importance="High" Text="可安装 APK → $(_FsStableApk) ；亦见 $(_FsSignedApk)" />
+    <ItemGroup>
+      <FileWrites Include="$(OutDir)$(_FsPkgId).apk" />
+      <FileWrites Include="$(OutDir)$(_FsPkgId)-Signed.apk" />
+      <FileWrites Include="$(OutDir)$(_FsPkgId)-Signed.apk.idsig" />
+      <FileWrites Include="$(OutDir)FlyScreen.apk" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="FlyScreen_EnsureSignedApk"
+          AfterTargets="_Sign;SignAndroidPackage;Build"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PropertyGroup>
+      <!-- 末尾不要加 \，否则 powershell -OutDir "....\" 会把引号转义掉 -->
+      <_FsApkDir>$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)</_FsApkDir>
+      <_FsInterApkDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\android\bin</_FsInterApkDir>
+      <_FsPkgId Condition="'$(_AndroidPackage)' != ''">$(_AndroidPackage)</_FsPkgId>
+      <_FsPkgId Condition="'$(_FsPkgId)' == ''">$(ApplicationId)</_FsPkgId>
+      <_FsEnsureScript>$(MSBuildThisFileDirectory)..\..\build\Ensure-MauiSignedApk.ps1</_FsEnsureScript>
+      <_FsKeyStore>$(MSBuildThisFileDirectory)..\..\build\android\flyscreen-sideload.keystore</_FsKeyStore>
+      <_FsPublishOut>$([System.String]::Copy('$(OutDir)').TrimEnd('\'))</_FsPublishOut>
+    </PropertyGroup>
+    <!-- 禁止用未签名 plain 覆盖 Signed（会导致 INSTALL_PARSE_FAILED_NOT_APK）。一律走脚本：校验签名 / 必要时 apksigner 重签。 -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsApkDir)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;"
+          Condition="Exists('$(_FsEnsureScript)')"
+          IgnoreExitCode="true" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsPublishOut)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;"
+          Condition="Exists('$(_FsEnsureScript)') And '$(_FsPublishOut)' != '' And '$(_FsPublishOut)' != '$(_FsApkDir)'"
+          IgnoreExitCode="true" />
+    <ItemGroup>
+      <FileWrites Include="$(_FsApkDir)\$(_FsPkgId).apk" />
+      <FileWrites Include="$(_FsApkDir)\$(_FsPkgId)-Signed.apk" />
+      <FileWrites Include="$(_FsApkDir)\$(_FsPkgId)-Signed.apk.idsig" />
+      <FileWrites Include="$(_FsApkDir)\FlyScreen.apk" />
+    </ItemGroup>
+    <Message Importance="High" Text="FlyScreen APK → $(_FsApkDir)\FlyScreen.apk"
+             Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
   </Target>
 
 </Project>

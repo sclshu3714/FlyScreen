@@ -149,6 +149,9 @@ public sealed class MauiInputRouter : IDisposable
     /// <summary>对端 SwitchFocus 到本机：显示光标并进入「被远程控制」状态。</summary>
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
+        // 已在被控：忽略重复 SwitchFocus，避免 AbsPointer 每次触控都把光标拽回入口点
+        if (_receivingRemoteControl) return;
+
         if (!_controllingRemote
             && Environment.TickCount64 - _lastPhysicalInputTick < LocalActivityGuardMs)
             return;

@@ -40,11 +40,12 @@ public class HandshakeCapsTests
     }
 
     [Fact]
-    public void IntersectCaps_AndroidMobile_NoEdgeMouse()
+    public void IntersectCaps_AndroidMobile_EdgeMouseAndInject_NoLayoutSync()
     {
         LocalPeerIdentity.Configure(caps: PeerCaps.DesktopFull);
         var effective = LocalPeerIdentity.IntersectCaps(PeerCaps.AndroidMobile);
-        Assert.DoesNotContain(PeerCaps.EdgeMouse, effective);
+        Assert.Contains(PeerCaps.EdgeMouse, effective);
+        Assert.Contains(PeerCaps.InjectInput, effective);
         Assert.Contains(PeerCaps.AbsPointer, effective);
         Assert.DoesNotContain(PeerCaps.LayoutSync, effective);
     }

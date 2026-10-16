@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -19,6 +19,10 @@
     <Description>玄鸟 — 跨电脑键鼠与剪贴板共享（灵感来源 Mouse without Borders，中文增强版）</Description>
     <SelfContained Condition="'$(RuntimeIdentifier)' != '' and '$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\wlogo_tu.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets\wlogo_tu.ico" />

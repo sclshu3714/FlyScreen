@@ -700,10 +700,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var menu = new ContextMenu();
+        var menu = new System.Windows.Controls.ContextMenu();
         foreach (var peer in unused)
         {
-            var item = new MenuItem
+            var item = new System.Windows.Controls.MenuItem
             {
                 Header = string.IsNullOrEmpty(peer.Ip) ? peer.MachineName : $"{peer.MachineName}  ({peer.Ip})",
                 Tag = peer

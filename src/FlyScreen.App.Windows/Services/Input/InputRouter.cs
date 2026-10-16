@@ -156,6 +156,9 @@ public sealed class InputRouter : IDisposable
     /// <summary>对端 SwitchFocus 到本机：显示光标并进入「被远程控制」状态。</summary>
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
+        // 已在被控：忽略重复 SwitchFocus，避免 AbsPointer 每次触控都把光标拽回入口点
+        if (_receivingRemoteControl) return;
+
         // 本机正在操作：拒绝对端拽走光标（双向连接时对端误触边缘会发 SwitchFocus）
         if (!_controllingRemote
             && Environment.TickCount64 - _lastPhysicalInputTick < LocalActivityGuardMs)

@@ -151,16 +151,20 @@ public static class PeerCaps
         ClipboardText, ClipboardFiles, DirectTransfer
     ];
 
-    /// <summary>Android 手机/平板（W3）：触控板控桌面 + 文本剪贴板 + 收文件；无 EdgeMouse/LayoutSync。</summary>
+    /// <summary>
+    /// Android 手机/平板：触控板控桌面 + 文本剪贴板 + 收文件；
+    /// 另宣告 EdgeMouse/InjectInput，便于桌面边缘切入并由无障碍服务注入键鼠（须用户授权）。
+    /// 不含 LayoutSync（不参与桌面布局同步主路径）。
+    /// </summary>
     public static readonly string[] AndroidMobile =
     [
-        AbsPointer, ClipboardText, DirectTransfer
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput
     ];
 
     /// <summary>鸿蒙手机/平板（W5a）：对标 AndroidMobile。</summary>
     public static readonly string[] HarmonyMobile =
     [
-        AbsPointer, ClipboardText, DirectTransfer
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput
     ];
 
     /// <summary>鸿蒙电脑（W5b）：对标桌面；API 不足时由宿主降级去掉 EdgeMouse/Capture。</summary>

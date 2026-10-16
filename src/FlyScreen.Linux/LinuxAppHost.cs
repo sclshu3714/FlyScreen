@@ -114,10 +114,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
-                if (!_receivingRemote)
-                    SetReceivingRemote(true);
                 if (p.Relative) Injector.MoveRelative(p.Dx, p.Dy);
                 else Injector.MoveAbsoluteNormalized(p.Nx, p.Ny);
                 if (p.Relative)
@@ -133,18 +132,21 @@ public sealed class LinuxAppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p != null) Injector.MouseButton(p);
                 break;
             }
             case MessageType.MouseWheel:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p != null) Injector.MouseWheel(p);
                 break;
             }
             case MessageType.KeyEvent:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p != null) Injector.Key(p);
                 break;
@@ -176,6 +178,17 @@ public sealed class LinuxAppHost : IAsyncDisposable
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// 与 Win/MAUI 对齐：EdgeMouse 靠 SwitchFocus；AbsPointer（手机触控板）可自动进入被控。
+    /// </summary>
+    private bool EnsureAcceptsRemoteInput(string peer)
+    {
+        if (_receivingRemote) return true;
+        if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
+        SetReceivingRemote(true);
+        return _receivingRemote;
     }
 
     private static bool IsLocalTarget(string? name)
