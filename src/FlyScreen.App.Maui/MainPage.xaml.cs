@@ -26,12 +26,14 @@ public partial class MainPage : ContentPage
     private bool _navOpen;
     private const double CompactWidthBreakpoint = 720;
 
-    // 触屏拖拽互换（不用 DragGestureRecognizer，避免 Android 长按 NRE）
-    private MachineSlot? _panDragSlot;
-    private Border? _panDragBorder;
-    private bool _panDragging;
-    private bool _panMoved;
-    private const double PanDragThreshold = 14;
+    // 矩阵级拖拽：手势挂在 MachineMatrix 上，避免手指移出卡片后 Pan 被 Android 取消
+    private bool _matrixInputWired;
+    private MachineSlot? _matrixTouchSlot;
+    private Border? _matrixTouchBorder;
+    private Point _matrixTouchOrigin;
+    private bool _matrixDragging;
+    private bool _matrixMoved;
+    private const double PanDragThreshold = 12;
 
     public MainPage()
     {
@@ -483,6 +485,8 @@ public partial class MainPage : ContentPage
     {
         // 与 Win UniformGrid 一致：1×4 或 2×2，卡片拉伸填满
         MachineMatrix.IsClippedToBounds = false;
+        // 透明底也要能命中触摸（子卡片 InputTransparent 时事件落到矩阵）
+        MachineMatrix.BackgroundColor = Colors.Transparent;
         MachineMatrix.Children.Clear();
         MachineMatrix.RowDefinitions.Clear();
         MachineMatrix.ColumnDefinitions.Clear();
@@ -498,10 +502,15 @@ public partial class MainPage : ContentPage
         {
             var slot = _slots[i];
             var border = CreateSlotCard(slot);
+            // 非 Win 原生拖放：卡片透明给矩阵，由矩阵级触摸完成拖拽（否则移出卡片边界就断）
+            if (!SupportsNativeDragDrop)
+                border.InputTransparent = true;
             Grid.SetRow(border, i / cols);
             Grid.SetColumn(border, i % cols);
             MachineMatrix.Children.Add(border);
         }
+
+        EnsureMatrixDragInput();
     }
 
     private Border CreateSlotCard(MachineSlot slot)
@@ -623,28 +632,19 @@ public partial class MainPage : ContentPage
         return border;
     }
 
-    /// <summary>WinUI：额外挂原生拖放；全平台主路径为 Pan 拖拽（Android 可靠）。</summary>
+    /// <summary>WinUI/MacCatalyst：原生拖放。Android/iOS：矩阵级触摸拖拽。</summary>
     private static bool SupportsNativeDragDrop =>
         DeviceInfo.Platform == DevicePlatform.WinUI
         || DeviceInfo.Platform == DevicePlatform.MacCatalyst;
 
     private void AttachSlotGestures(Border border, MachineSlot slot)
     {
-        var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) =>
-        {
-            if (_panMoved || _panDragging) return;
-            OnSlotTapped(slot);
-        };
-        border.GestureRecognizers.Add(tap);
-
-        // 全平台：按住滑动即可拖到另一格互换（模拟器鼠标 / 真机触屏）
-        var pan = new PanGestureRecognizer();
-        pan.PanUpdated += (s, e) => OnSlotPan(border, slot, e);
-        border.GestureRecognizers.Add(pan);
-
         if (!SupportsNativeDragDrop)
-            return;
+            return; // 触摸端由 EnsureMatrixDragInput 统一处理
+
+        var tap = new TapGestureRecognizer();
+        tap.Tapped += (_, _) => OnSlotTapped(slot);
+        border.GestureRecognizers.Add(tap);
 
         var drag = new DragGestureRecognizer();
         drag.DragStarting += (_, e) =>
@@ -672,102 +672,186 @@ public partial class MainPage : ContentPage
         border.GestureRecognizers.Add(drop);
     }
 
-    private void OnSlotPan(Border border, MachineSlot slot, PanUpdatedEventArgs e)
+    private void EnsureMatrixDragInput()
     {
-        switch (e.StatusType)
+        if (SupportsNativeDragDrop || _matrixInputWired || MachineMatrix == null)
+            return;
+        _matrixInputWired = true;
+
+#if ANDROID
+        MachineMatrix.HandlerChanged += (_, _) => WireAndroidMatrixTouch();
+        WireAndroidMatrixTouch();
+#else
+        var pointer = new PointerGestureRecognizer();
+        pointer.PointerPressed += (_, e) =>
         {
-            case GestureStatus.Started:
-                _panDragSlot = slot;
-                _panDragBorder = border;
-                _panDragging = false;
-                _panMoved = false;
+            var pos = e.GetPosition(MachineMatrix);
+            if (pos.HasValue) MatrixTouchBegan(pos.Value);
+        };
+        pointer.PointerMoved += (_, e) =>
+        {
+            var pos = e.GetPosition(MachineMatrix);
+            if (pos.HasValue) MatrixTouchMoved(pos.Value);
+        };
+        pointer.PointerReleased += (_, e) =>
+        {
+            var pos = e.GetPosition(MachineMatrix);
+            MatrixTouchEnded(pos ?? _matrixTouchOrigin, cancelled: false);
+        };
+        MachineMatrix.GestureRecognizers.Add(pointer);
+#endif
+    }
+
+#if ANDROID
+    private void WireAndroidMatrixTouch()
+    {
+        if (MachineMatrix.Handler?.PlatformView is not Android.Views.View native)
+            return;
+        native.Touch -= OnAndroidMatrixTouch;
+        native.Touch += OnAndroidMatrixTouch;
+    }
+
+    private void OnAndroidMatrixTouch(object? sender, Android.Views.View.TouchEventArgs e)
+    {
+        var ev = e.Event;
+        if (ev == null || sender is not Android.Views.View native)
+            return;
+
+        // MotionEvent 为像素；MAUI Bounds 为 dp
+        var density = DeviceDisplay.MainDisplayInfo.Density;
+        if (density <= 0) density = 1;
+        var pos = new Point(ev.GetX() / density, ev.GetY() / density);
+
+        switch (ev.ActionMasked)
+        {
+            case Android.Views.MotionEventActions.Down:
+                native.Parent?.RequestDisallowInterceptTouchEvent(true);
+                MatrixTouchBegan(pos);
+                e.Handled = true;
                 break;
-
-            case GestureStatus.Running:
-                if (!ReferenceEquals(_panDragBorder, border)) return;
-                if (!_panDragging
-                    && (Math.Abs(e.TotalX) >= PanDragThreshold || Math.Abs(e.TotalY) >= PanDragThreshold))
-                {
-                    _panDragging = true;
-                    _panMoved = true;
-                    SelectSlotOnly(slot);
-                    border.Opacity = 0.88;
-                    border.ZIndex = 100;
-                    StatusLabel.Text = $"拖动 {slot.DisplayName}，放到目标格松开";
-                    try
-                    {
-                        if (Vibration.Default.IsSupported)
-                            Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(18));
-                    }
-                    catch { /* ignore */ }
-                }
-
-                if (_panDragging)
-                {
-                    border.TranslationX = e.TotalX;
-                    border.TranslationY = e.TotalY;
-                }
+            case Android.Views.MotionEventActions.Move:
+                MatrixTouchMoved(pos);
+                e.Handled = true;
                 break;
-
-            case GestureStatus.Completed:
-            case GestureStatus.Canceled:
-                FinishSlotPan(border, slot, e.TotalX, e.TotalY, cancelled: e.StatusType == GestureStatus.Canceled);
+            case Android.Views.MotionEventActions.Up:
+                native.Parent?.RequestDisallowInterceptTouchEvent(false);
+                MatrixTouchEnded(pos, cancelled: false);
+                e.Handled = true;
+                break;
+            case Android.Views.MotionEventActions.Cancel:
+                native.Parent?.RequestDisallowInterceptTouchEvent(false);
+                MatrixTouchEnded(pos, cancelled: true);
+                e.Handled = true;
                 break;
         }
     }
+#endif
 
-    private void FinishSlotPan(Border border, MachineSlot slot, double totalX, double totalY, bool cancelled)
+    private void MatrixTouchBegan(Point pos)
     {
-        var wasDragging = _panDragging;
-        border.TranslationX = 0;
-        border.TranslationY = 0;
-        border.Opacity = 1;
-        border.ZIndex = 0;
-        _panDragSlot = null;
-        _panDragBorder = null;
-        _panDragging = false;
+        var border = HitTestBorderAt(pos);
+        _matrixTouchBorder = border;
+        _matrixTouchSlot = border?.BindingContext as MachineSlot;
+        _matrixTouchOrigin = pos;
+        _matrixDragging = false;
+        _matrixMoved = false;
+    }
 
-        if (!wasDragging || cancelled)
+    private void MatrixTouchMoved(Point pos)
+    {
+        if (_matrixTouchSlot == null || _matrixTouchBorder == null)
+            return;
+
+        var dx = pos.X - _matrixTouchOrigin.X;
+        var dy = pos.Y - _matrixTouchOrigin.Y;
+        if (!_matrixDragging && (Math.Abs(dx) >= PanDragThreshold || Math.Abs(dy) >= PanDragThreshold))
         {
-            // 轻点留给 Tap；短滑不互换
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () => _panMoved = false);
+            _matrixDragging = true;
+            _matrixMoved = true;
+            SelectSlotOnly(_matrixTouchSlot);
+            _matrixTouchBorder.Opacity = 0.88;
+            _matrixTouchBorder.ZIndex = 100;
+            StatusLabel.Text = $"拖动 {_matrixTouchSlot.DisplayName}，放到目标格松开";
+            try
+            {
+                if (Vibration.Default.IsSupported)
+                    Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(18));
+            }
+            catch { /* ignore */ }
+        }
+
+        if (_matrixDragging)
+        {
+            _matrixTouchBorder.TranslationX = dx;
+            _matrixTouchBorder.TranslationY = dy;
+        }
+    }
+
+    private void MatrixTouchEnded(Point pos, bool cancelled)
+    {
+        var border = _matrixTouchBorder;
+        var slot = _matrixTouchSlot;
+        var wasDragging = _matrixDragging;
+
+        if (border != null)
+        {
+            border.TranslationX = 0;
+            border.TranslationY = 0;
+            border.Opacity = 1;
+            border.ZIndex = 0;
+        }
+
+        _matrixTouchBorder = null;
+        _matrixTouchSlot = null;
+        _matrixDragging = false;
+
+        if (slot == null)
+        {
+            _matrixMoved = false;
             return;
         }
 
-        var target = HitTestDropSlot(border, totalX, totalY);
-        _panMoved = false;
-        if (target == null || ReferenceEquals(target, slot))
+        if (wasDragging && !cancelled)
         {
-            StatusLabel.Text = "未放到其它格子，已取消互换";
-            SelectSlotOnly(slot);
+            var target = HitTestSlotAt(pos);
+            _matrixMoved = false;
+            if (target == null || ReferenceEquals(target, slot))
+            {
+                StatusLabel.Text = "未放到其它格子，已取消互换";
+                SelectSlotOnly(slot);
+                RebuildMatrix();
+                return;
+            }
+
+            SwapSlotData(slot, target);
+            SyncSlotLocalFlags();
+            SelectSlotOnly(target);
             RebuildMatrix();
+            StatusLabel.Text = "已互换位置（请点「应用」同步）";
             return;
         }
 
-        SwapSlotData(slot, target);
-        SyncSlotLocalFlags();
-        SelectSlotOnly(target);
-        RebuildMatrix();
-        StatusLabel.Text = "已互换位置（请点「应用」同步）";
+        // 未拖拽：视为点击 / 双击
+        if (!_matrixMoved && !cancelled)
+            OnSlotTapped(slot);
+        _matrixMoved = false;
     }
 
-    private MachineSlot? HitTestDropSlot(Border dragged, double totalX, double totalY)
+    private Border? HitTestBorderAt(Point pos)
     {
-        // Bounds 相对父 Grid；加上位移后取卡片中心做命中
-        var origin = dragged.Bounds;
-        var cx = origin.Left + origin.Width / 2 + totalX;
-        var cy = origin.Top + origin.Height / 2 + totalY;
-
         foreach (var child in MachineMatrix.Children.OfType<Border>())
         {
-            if (ReferenceEquals(child, dragged)) continue;
+            // 布局 Bounds（不含 Translation），用于起点与落点命中
             var b = child.Bounds;
-            if (cx >= b.Left && cx <= b.Right && cy >= b.Top && cy <= b.Bottom)
-                return child.BindingContext as MachineSlot;
+            if (pos.X >= b.Left && pos.X <= b.Right && pos.Y >= b.Top && pos.Y <= b.Bottom)
+                return child;
         }
 
         return null;
     }
+
+    private MachineSlot? HitTestSlotAt(Point pos)
+        => HitTestBorderAt(pos)?.BindingContext as MachineSlot;
 
     private static void SwapSlotData(MachineSlot a, MachineSlot b)
     {
