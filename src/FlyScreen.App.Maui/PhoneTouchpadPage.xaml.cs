@@ -8,21 +8,27 @@ public partial class PhoneTouchpadPage : ContentPage
     private const int WheelThresholdPx = 18;
     private const int WheelNotch = 120;
     private const int TapSlopPx = 12;
+    private const double CursorSensitivity = 0.0022;
+    /// <summary>IME 组字结束后再发送，避免拼音过程中打断。</summary>
+    private static readonly TimeSpan KeyboardCommitDelay = TimeSpan.FromMilliseconds(420);
 
     private readonly MauiAppHost _host;
     private string? _activePeer;
-    private bool _keyboardMode;
+    private bool _keyboardOpen;
 
     private Point? _padLast;
     private bool _padMoved;
+    private double _cursorNx = 0.5;
+    private double _cursorNy = 0.5;
 
     private Point? _wheelLast;
     private double _wheelAccY;
     private bool _wheelMoved;
 
-    private string _keyboardPrev = "";
     private long _clipboardSeq;
     private bool _suppressKeyboardSync;
+    private CancellationTokenSource? _keyboardCommitCts;
+    private long _lastClickTick;
 
     public PhoneTouchpadPage()
     {
@@ -32,18 +38,28 @@ public partial class PhoneTouchpadPage : ContentPage
         AttachButtonZone(LeftZone, button: 0);
         AttachButtonZone(RightZone, button: 1);
         AttachWheelZone();
-        KeyboardEditor.TextChanged += OnKeyboardTextChanged;
+        KeyboardEntry.TextChanged += OnKeyboardTextChanged;
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     private async void OnLoaded(object? sender, EventArgs e)
     {
-        _host.StatusMessage += msg => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
+        _host.StatusMessage += OnHostStatus;
         await _host.StartAsync();
         PickPeer();
         RefreshStatus();
-        ApplyInputMode(keyboard: false);
+        SetKeyboardOpen(false);
     }
+
+    private void OnUnloaded(object? sender, EventArgs e)
+    {
+        _host.StatusMessage -= OnHostStatus;
+        _keyboardCommitCts?.Cancel();
+    }
+
+    private void OnHostStatus(string msg)
+        => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
 
     private void RefreshStatus()
     {
@@ -62,35 +78,64 @@ public partial class PhoneTouchpadPage : ContentPage
                 && !string.Equals(s, Environment.MachineName, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void ModePad_Clicked(object? sender, EventArgs e) => ApplyInputMode(keyboard: false);
-    private void ModeKey_Clicked(object? sender, EventArgs e) => ApplyInputMode(keyboard: true);
-
-    private void ApplyInputMode(bool keyboard)
+    private async Task EnsureControlSessionAsync()
     {
-        _keyboardMode = keyboard;
-        PadArea.IsVisible = !keyboard;
-        KeyboardArea.IsVisible = keyboard;
+        PickPeer();
+        if (string.IsNullOrEmpty(_activePeer)) return;
 
-        var active = (Style)Application.Current!.Resources["SegBtnActive"];
-        var normal = (Style)Application.Current!.Resources["SegBtn"];
-        ModePadBtn.Style = keyboard ? normal : active;
-        ModeKeyBtn.Style = keyboard ? active : normal;
+        await _host.Connections.SendToAsync(_activePeer, MessageType.SwitchFocus,
+            MessageCodec.JsonBytes(new SwitchFocusPayload
+            {
+                TargetMachine = _activePeer,
+                EntryX = _cursorNx,
+                EntryY = _cursorNy
+            }));
+        StatusLabel.Text = $"控制目标：{_activePeer}";
+    }
 
-        if (keyboard)
+    private void UpdateCursorDot(int dx, int dy)
+    {
+        _cursorNx = Math.Clamp(_cursorNx + dx * CursorSensitivity, 0, 1);
+        _cursorNy = Math.Clamp(_cursorNy + dy * CursorSensitivity, 0, 1);
+        if (CursorDot == null) return;
+        AbsoluteLayout.SetLayoutBounds(CursorDot, new Rect(_cursorNx, _cursorNy, 14, 14));
+        AbsoluteLayout.SetLayoutFlags(CursorDot, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.PositionProportional);
+    }
+
+    private void KeyboardToggle_Clicked(object? sender, EventArgs e)
+        => SetKeyboardOpen(!_keyboardOpen);
+
+    private void DismissKeyboard_Clicked(object? sender, EventArgs e)
+        => SetKeyboardOpen(false);
+
+    private void SetKeyboardOpen(bool open)
+    {
+        _keyboardOpen = open;
+        KeyboardStrip.IsVisible = open;
+        KeyboardToggleBtn.Style = (Style)Application.Current!.Resources[open ? "SegBtnActive" : "NormalBtn"];
+        KeyboardToggleBtn.Text = open ? "键盘·开" : "键盘";
+
+        if (open)
         {
             _suppressKeyboardSync = true;
-            KeyboardEditor.Text = _keyboardPrev;
+            KeyboardEntry.Text = "";
             _suppressKeyboardSync = false;
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), () => KeyboardEditor.Focus());
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), () => KeyboardEntry.Focus());
+            StatusLabel.Text = _activePeer == null
+                ? "键盘已开：请先连接电脑"
+                : $"键盘直发 → {_activePeer}（本地不保留）";
         }
         else
         {
-            KeyboardEditor.Unfocus();
+            _keyboardCommitCts?.Cancel();
+            KeyboardEntry.Unfocus();
+            RefreshStatus();
         }
     }
 
     private void AttachPadGestures()
     {
+        // Pan Completed（未滑动）→ 左键；另挂 Tap 作兜底（ClickAsync 有去抖防双发）
         var pan = new PanGestureRecognizer();
         pan.PanUpdated += OnPadPan;
         PadArea.GestureRecognizers.Add(pan);
@@ -106,12 +151,11 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private async void OnPadPan(object? sender, PanUpdatedEventArgs e)
     {
-        if (_keyboardMode) return;
-
         if (e.StatusType == GestureStatus.Started)
         {
             _padLast = new Point(e.TotalX, e.TotalY);
             _padMoved = false;
+            await EnsureControlSessionAsync();
         }
         else if (e.StatusType == GestureStatus.Running && _padLast is Point prev)
         {
@@ -122,13 +166,20 @@ public partial class PhoneTouchpadPage : ContentPage
             if (Math.Abs(e.TotalX) > TapSlopPx || Math.Abs(e.TotalY) > TapSlopPx)
                 _padMoved = true;
 
+            UpdateCursorDot(dx, dy);
             PickPeer();
             if (string.IsNullOrEmpty(_activePeer)) return;
             await _host.Connections.SendToAsync(_activePeer, MessageType.MouseMove,
                 MessageCodec.JsonBytes(new MouseMovePayload { Relative = true, Dx = dx, Dy = dy }));
         }
         else if (e.StatusType is GestureStatus.Completed or GestureStatus.Canceled)
+        {
+            // 未超过滑动阈值：整段手势视为触控板左键单击
+            if (!_padMoved)
+                await ClickAsync(0);
             _padLast = null;
+            _padMoved = false;
+        }
     }
 
     private void AttachButtonZone(Border zone, int button)
@@ -144,6 +195,7 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private void AttachWheelZone()
     {
+        // Pan Completed（未滑动）→ 中键；另挂 Tap 兜底（去抖）
         var pan = new PanGestureRecognizer();
         pan.PanUpdated += OnWheelPan;
         WheelZone.GestureRecognizers.Add(pan);
@@ -165,6 +217,7 @@ public partial class PhoneTouchpadPage : ContentPage
             _wheelLast = new Point(e.TotalX, e.TotalY);
             _wheelAccY = 0;
             _wheelMoved = false;
+            await EnsureControlSessionAsync();
         }
         else if (e.StatusType == GestureStatus.Running && _wheelLast is Point prev)
         {
@@ -178,14 +231,19 @@ public partial class PhoneTouchpadPage : ContentPage
             {
                 var up = _wheelAccY < 0;
                 _wheelAccY += up ? WheelThresholdPx : -WheelThresholdPx;
-                // 上滑 → 滚轮上（正 Delta）；下滑 → 滚轮下（负 Delta）
                 await WheelAsync(up ? WheelNotch : -WheelNotch);
             }
         }
         else if (e.StatusType is GestureStatus.Completed or GestureStatus.Canceled)
         {
+            if (!_wheelMoved)
+            {
+                FlashZone(WheelZone);
+                await ClickAsync(2);
+            }
             _wheelLast = null;
             _wheelAccY = 0;
+            _wheelMoved = false;
         }
     }
 
@@ -199,7 +257,7 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private async Task WheelAsync(int delta)
     {
-        PickPeer();
+        await EnsureControlSessionAsync();
         if (string.IsNullOrEmpty(_activePeer)) return;
         await _host.Connections.SendToAsync(_activePeer, MessageType.MouseWheel,
             MessageCodec.JsonBytes(new MouseWheelPayload { Delta = delta }));
@@ -207,7 +265,12 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private async Task ClickAsync(int button)
     {
-        PickPeer();
+        // Pan Completed 与 Tap 可能连发：180ms 内同按钮只认一次
+        var now = Environment.TickCount64;
+        if (now - _lastClickTick < 180) return;
+        _lastClickTick = now;
+
+        await EnsureControlSessionAsync();
         if (string.IsNullOrEmpty(_activePeer)) return;
         await _host.Connections.SendToAsync(_activePeer, MessageType.MouseButton,
             MessageCodec.JsonBytes(new MouseButtonPayload { Button = button, Down = true }));
@@ -215,36 +278,41 @@ public partial class PhoneTouchpadPage : ContentPage
             MessageCodec.JsonBytes(new MouseButtonPayload { Button = button, Down = false }));
     }
 
-    private async void OnKeyboardTextChanged(object? sender, TextChangedEventArgs e)
+    private void OnKeyboardTextChanged(object? sender, TextChangedEventArgs e)
     {
-        if (_suppressKeyboardSync || !_keyboardMode) return;
+        if (_suppressKeyboardSync || !_keyboardOpen) return;
+        _keyboardCommitCts?.Cancel();
+        _keyboardCommitCts = new CancellationTokenSource();
+        var ct = _keyboardCommitCts.Token;
+        _ = CommitKeyboardAfterIdleAsync(ct);
+    }
 
-        var next = e.NewTextValue ?? "";
-        var prev = _keyboardPrev;
-        _keyboardPrev = next;
+    private async Task CommitKeyboardAfterIdleAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(KeyboardCommitDelay, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
 
-        PickPeer();
+        var text = KeyboardEntry.Text ?? "";
+        if (string.IsNullOrEmpty(text)) return;
+
+        await EnsureControlSessionAsync();
         if (string.IsNullOrEmpty(_activePeer)) return;
 
-        if (next.Length < prev.Length && prev.StartsWith(next, StringComparison.Ordinal))
-        {
-            var removed = prev.Length - next.Length;
-            for (var i = 0; i < removed; i++)
-                await TapKeyAsync(0x08);
-            return;
-        }
+        await SendTextAsync(text);
 
-        if (next.Length > prev.Length && next.StartsWith(prev, StringComparison.Ordinal))
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            await SendTextAsync(next[prev.Length..]);
-            return;
-        }
-
-        if (next.Length == 0 && prev.Length > 0)
-        {
-            for (var i = 0; i < prev.Length; i++)
-                await TapKeyAsync(0x08);
-        }
+            _suppressKeyboardSync = true;
+            KeyboardEntry.Text = "";
+            _suppressKeyboardSync = false;
+            KeyboardEntry.Focus();
+        });
     }
 
     private async Task SendTextAsync(string text)
@@ -258,7 +326,6 @@ public partial class PhoneTouchpadPage : ContentPage
             return;
         }
 
-        // 中文等：写入对端剪贴板并 Ctrl+V 粘贴
         _clipboardSeq++;
         await _host.Connections.SendToAsync(_activePeer, MessageType.ClipboardText,
             MessageCodec.JsonBytes(new ClipboardTextPayload { Text = text, Sequence = _clipboardSeq }));
@@ -318,41 +385,47 @@ public partial class PhoneTouchpadPage : ContentPage
 
         if (ch is >= '0' and <= '9') return (ushort)ch;
 
-        switch (ch)
+        return ch switch
         {
-            case '!': shift = true; return 0x31;
-            case '@': shift = true; return 0x32;
-            case '#': shift = true; return 0x33;
-            case '$': shift = true; return 0x34;
-            case '%': shift = true; return 0x35;
-            case '^': shift = true; return 0x36;
-            case '&': shift = true; return 0x37;
-            case '*': shift = true; return 0x38;
-            case '(': shift = true; return 0x39;
-            case ')': shift = true; return 0x30;
-            case '-': return 0xBD;
-            case '_': shift = true; return 0xBD;
-            case '=': return 0xBB;
-            case '+': shift = true; return 0xBB;
-            case '[': return 0xDB;
-            case '{': shift = true; return 0xDB;
-            case ']': return 0xDD;
-            case '}': shift = true; return 0xDD;
-            case '\\': return 0xDC;
-            case '|': shift = true; return 0xDC;
-            case ';': return 0xBA;
-            case ':': shift = true; return 0xBA;
-            case '\'': return 0xDE;
-            case '"': shift = true; return 0xDE;
-            case ',': return 0xBC;
-            case '<': shift = true; return 0xBC;
-            case '.': return 0xBE;
-            case '>': shift = true; return 0xBE;
-            case '/': return 0xBF;
-            case '?': shift = true; return 0xBF;
-            case '`': return 0xC0;
-            case '~': shift = true; return 0xC0;
-            default: return 0;
+            '!' => MarkShift(0x31, out shift),
+            '@' => MarkShift(0x32, out shift),
+            '#' => MarkShift(0x33, out shift),
+            '$' => MarkShift(0x34, out shift),
+            '%' => MarkShift(0x35, out shift),
+            '^' => MarkShift(0x36, out shift),
+            '&' => MarkShift(0x37, out shift),
+            '*' => MarkShift(0x38, out shift),
+            '(' => MarkShift(0x39, out shift),
+            ')' => MarkShift(0x30, out shift),
+            '-' => (ushort)0xBD,
+            '_' => MarkShift(0xBD, out shift),
+            '=' => (ushort)0xBB,
+            '+' => MarkShift(0xBB, out shift),
+            '[' => (ushort)0xDB,
+            '{' => MarkShift(0xDB, out shift),
+            ']' => (ushort)0xDD,
+            '}' => MarkShift(0xDD, out shift),
+            '\\' => (ushort)0xDC,
+            '|' => MarkShift(0xDC, out shift),
+            ';' => (ushort)0xBA,
+            ':' => MarkShift(0xBA, out shift),
+            '\'' => (ushort)0xDE,
+            '"' => MarkShift(0xDE, out shift),
+            ',' => (ushort)0xBC,
+            '<' => MarkShift(0xBC, out shift),
+            '.' => (ushort)0xBE,
+            '>' => MarkShift(0xBE, out shift),
+            '/' => (ushort)0xBF,
+            '?' => MarkShift(0xBF, out shift),
+            '`' => (ushort)0xC0,
+            '~' => MarkShift(0xC0, out shift),
+            _ => (ushort)0
+        };
+
+        static ushort MarkShift(ushort vk, out bool shift)
+        {
+            shift = true;
+            return vk;
         }
     }
 
@@ -367,15 +440,6 @@ public partial class PhoneTouchpadPage : ContentPage
         if (string.IsNullOrEmpty(_activePeer)) return;
         await _host.Connections.SendToAsync(_activePeer, MessageType.KeyEvent,
             MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down }));
-    }
-
-    private void ClearKeyboard_Clicked(object? sender, EventArgs e)
-    {
-        _suppressKeyboardSync = true;
-        KeyboardEditor.Text = "";
-        _keyboardPrev = "";
-        _suppressKeyboardSync = false;
-        KeyboardEditor.Focus();
     }
 
     private async void OpenSettings_Clicked(object? sender, EventArgs e)

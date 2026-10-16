@@ -201,7 +201,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
-                if (!_platform.AcceptsRemoteInput) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
                 if (p.Relative) _platform.InjectMouseMoveRelative(p.Dx, p.Dy);
@@ -210,7 +210,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
-                if (!_platform.AcceptsRemoteInput) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p == null) return;
                 _platform.InjectMouseButton(p.Button, p.Down);
@@ -218,7 +218,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.MouseWheel:
             {
-                if (!_platform.AcceptsRemoteInput) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p == null) return;
                 _platform.InjectMouseWheel(p.Delta, p.Horizontal);
@@ -226,7 +226,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.KeyEvent:
             {
-                if (!_platform.AcceptsRemoteInput) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
                 _platform.InjectKey(p.VirtualKey, p.Down, p.Extended);
@@ -248,6 +248,20 @@ public sealed class MauiAppHost : IAsyncDisposable
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// 桌面 EdgeMouse 须 SwitchFocus；手机 AbsPointer 可能漏发 SwitchFocus，
+    /// 在本机未控远端时自动进入被控，避免触控板键鼠被静默丢弃。
+    /// </summary>
+    private bool EnsureAcceptsRemoteInput(string peer)
+    {
+        if (_platform.AcceptsRemoteInput) return true;
+        if (!_platform.SupportsDesktopInput) return false;
+        if (!_platform.IsFocusOnLocalMachine) return false;
+        if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
+        _platform.BeginReceivingRemoteControl(0.5, 0.5);
+        return _platform.AcceptsRemoteInput;
     }
 
     private static bool IsLocalName(string? name)

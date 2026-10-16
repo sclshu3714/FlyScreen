@@ -6,7 +6,10 @@ using FlyScreen.Models;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
 
-/// <summary>Android：无桌面钩子；文本剪贴板监视 + Caps=AndroidMobile。</summary>
+/// <summary>
+/// Android：文本剪贴板 + Caps=AndroidMobile（含 InjectInput/EdgeMouse）。
+/// 被桌面控时依赖无障碍服务注入点击/滑动。
+/// </summary>
 public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 {
     private readonly AppSettings _settings;
@@ -14,6 +17,8 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private readonly MauiClipboardApplySink _clipSink = new();
     private CancellationTokenSource? _clipCts;
     private string? _lastTextKey;
+    private bool _receiving;
+    private bool _promptedAccessibility;
 
     public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
     {
@@ -25,25 +30,56 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool SupportsDesktopInput => false;
     public bool SupportsTray => false;
     public bool SupportsAutoStart => false;
-    public bool IsFocusOnLocalMachine => true;
-    public bool AcceptsRemoteInput => false;
+    public bool IsFocusOnLocalMachine => !_receiving;
+    public bool AcceptsRemoteInput => _receiving && FlyScreenInputAccessibilityService.IsEnabled;
 
-    public event Action<string?>? ControlTargetChanged
-    {
-        add { }
-        remove { }
-    }
+    public event Action<string?>? ControlTargetChanged;
 
     public void StartDesktopInput() { }
     public void StopDesktopInput() { }
     public void SetEasyMouse(bool enabled) { }
-    public void InjectMouseMoveAbsolute(double nx, double ny) { }
-    public void InjectMouseMoveRelative(int dx, int dy) { }
-    public void InjectMouseButton(int button, bool down) { }
-    public void InjectMouseWheel(int delta, bool horizontal) { }
-    public void InjectKey(ushort vk, bool down, bool extended) { }
-    public void BeginReceivingRemoteControl(double entryX, double entryY) { }
-    public void OnCursorOwnerChanged(string ownerMachine) { }
+
+    public void InjectMouseMoveAbsolute(double nx, double ny)
+        => FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
+
+    public void InjectMouseMoveRelative(int dx, int dy)
+        => FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
+
+    public void InjectMouseButton(int button, bool down)
+        => FlyScreenInputAccessibilityService.Instance?.Click(button, down);
+
+    public void InjectMouseWheel(int delta, bool horizontal)
+        => FlyScreenInputAccessibilityService.Instance?.Wheel(delta, horizontal);
+
+    public void InjectKey(ushort vk, bool down, bool extended)
+        => FlyScreenInputAccessibilityService.Instance?.Key(vk, down);
+
+    public void BeginReceivingRemoteControl(double entryX, double entryY)
+    {
+        if (!FlyScreenInputAccessibilityService.IsEnabled)
+        {
+            PromptAccessibilityOnce();
+            return;
+        }
+
+        _receiving = true;
+        FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
+        ControlTargetChanged?.Invoke(null);
+    }
+
+    public void OnCursorOwnerChanged(string ownerMachine)
+    {
+        if (string.IsNullOrWhiteSpace(ownerMachine)) return;
+        var local = string.Equals(ownerMachine, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(ownerMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+        if (local) return;
+        // 光标归电脑：结束本机被控态
+        if (_receiving)
+        {
+            _receiving = false;
+            FlyScreenInputAccessibilityService.Instance?.EndSession();
+        }
+    }
 
     public void StartClipboardMonitor()
     {
@@ -70,12 +106,34 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
     {
-        // 无系统托盘：退到后台，连接继续跑
         var activity = Platform.CurrentActivity;
         activity?.MoveTaskToBack(true);
     }
 
     public void DisposeTray() { }
+
+    private void PromptAccessibilityOnce()
+    {
+        if (_promptedAccessibility) return;
+        _promptedAccessibility = true;
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+            if (page == null)
+            {
+                FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
+                return;
+            }
+
+            var go = await page.DisplayAlertAsync(
+                "需要无障碍权限",
+                "电脑键鼠要控制本机，请开启「玄鸟键鼠注入」无障碍服务。",
+                "去开启",
+                "稍后");
+            if (go)
+                FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
+        });
+    }
 
     private async Task LoopAsync(CancellationToken ct)
     {

@@ -1167,6 +1167,14 @@ public partial class MainPage : ContentPage
         TryAddPeer(peer.MachineName);
     }
 
+    private void DiscoveryItem_DoubleTapped(object? sender, TappedEventArgs e)
+    {
+        var peer = e.Parameter as DiscoveredPeer
+                   ?? (sender as Element)?.BindingContext as DiscoveredPeer;
+        if (peer == null) return;
+        TryAddPeer(peer.MachineName);
+    }
+
     private void AddPeer_Clicked(object? sender, EventArgs e)
     {
         RefreshDiscovery();

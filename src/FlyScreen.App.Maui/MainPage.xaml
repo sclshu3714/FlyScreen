@@ -230,6 +230,11 @@
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Padding="6,8" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <Grid.GestureRecognizers>
+                                                <TapGestureRecognizer NumberOfTapsRequired="2"
+                                                                      Tapped="DiscoveryItem_DoubleTapped"
+                                                                      CommandParameter="{Binding}" />
+                                            </Grid.GestureRecognizers>
                                             <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
                                                 <BoxView WidthRequest="8" HeightRequest="8" Color="{DynamicResource Success}"
                                    CornerRadius="4" VerticalOptions="Center" />

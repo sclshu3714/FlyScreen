@@ -148,6 +148,14 @@ if ($want.Android) {
         '-o', $androidOut
     )
 
+    # SDK 签完常删 *-Signed.apk（只留 .idsig）；发布后再强制补回
+    $ensureScript = Join-Path $RepoRoot 'build\Ensure-MauiSignedApk.ps1'
+    $tfmApkDir = Join-Path $RepoRoot "src\FlyScreen.App.Maui\bin\$Configuration\net10.0-android"
+    if (Test-Path -LiteralPath $ensureScript) {
+        & $ensureScript -OutDir $tfmApkDir -PackageId 'com.xuanniao.flyscreen'
+        & $ensureScript -OutDir $androidOut -PackageId 'com.xuanniao.flyscreen'
+    }
+
     # 优先 *-Signed.apk（已签名可安装）；未签名的 .apk 会导致 packageInfo is null
     $candidates = @(Get-ChildItem -LiteralPath $androidOut -Filter '*.apk' -Recurse -ErrorAction SilentlyContinue)
     if ($candidates.Count -eq 0) {

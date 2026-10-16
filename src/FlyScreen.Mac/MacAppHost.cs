@@ -33,6 +33,8 @@ public sealed class MacAppHost : IAsyncDisposable
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
 
+    private bool _receivingRemote;
+
     private MacAppHost()
     {
         LocalPeerIdentity.Configure(
@@ -98,6 +100,7 @@ public sealed class MacAppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
                 if (p.Relative) Injector.MoveRelative(p.Dx, p.Dy);
@@ -106,18 +109,21 @@ public sealed class MacAppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p != null) Injector.MouseButton(p);
                 break;
             }
             case MessageType.MouseWheel:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p != null) Injector.MouseWheel(p);
                 break;
             }
             case MessageType.KeyEvent:
             {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p != null) Injector.Key(p);
                 break;
@@ -126,11 +132,37 @@ public sealed class MacAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
                 if (p == null) return;
-                if (string.Equals(p.TargetMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
-                    Injector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
+                if (!IsLocalTarget(p.TargetMachine)) return;
+                _receivingRemote = true;
+                Injector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
+                break;
+            }
+            case MessageType.CursorOwner:
+            {
+                var p = MessageCodec.DecodeJson<CursorOwnerPayload>(msg.Payload);
+                if (p == null) return;
+                _receivingRemote = IsLocalTarget(p.OwnerMachine);
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// 与 Win/MAUI/Linux 对齐：EdgeMouse 靠 SwitchFocus；AbsPointer 可自动进入被控。
+    /// </summary>
+    private bool EnsureAcceptsRemoteInput(string peer)
+    {
+        if (_receivingRemote) return true;
+        if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
+        _receivingRemote = true;
+        return true;
+    }
+
+    private static bool IsLocalTarget(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
     }
 
     public async ValueTask DisposeAsync()

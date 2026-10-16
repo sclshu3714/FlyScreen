@@ -80,8 +80,8 @@ public sealed class AppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
-                // 仅在对端已 SwitchFocus 进入被控时注入，避免本机操作时被对端绝对坐标拽走
-                if (!Input.IsReceivingRemoteControl) return;
+                // EdgeMouse 须 SwitchFocus；AbsPointer（手机触控板）可自动进入被控
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
                 // 键鼠注入优先，不在此路径做剪贴板/磁盘 I/O（避免卡鼠标）
@@ -91,7 +91,7 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
-                if (!Input.IsReceivingRemoteControl) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p == null) return;
                 InputInjector.MouseButton(p);
@@ -99,7 +99,7 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.MouseWheel:
             {
-                if (!Input.IsReceivingRemoteControl) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p == null) return;
                 InputInjector.MouseWheel(p);
@@ -107,7 +107,7 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.KeyEvent:
             {
-                if (!Input.IsReceivingRemoteControl) return;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
                 InputInjector.Key(p);
@@ -135,6 +135,19 @@ public sealed class AppHost : IAsyncDisposable
                 HandleLayoutSync(peer, msg.Payload);
                 break;
         }
+    }
+
+    /// <summary>
+    /// EdgeMouse 依赖 SwitchFocus；手机 AbsPointer 可能未发 SwitchFocus，
+    /// 在本机未控远端时自动进入被控，避免触控板键鼠被静默丢弃。
+    /// </summary>
+    private bool EnsureAcceptsRemoteInput(string peer)
+    {
+        if (Input.IsReceivingRemoteControl) return true;
+        if (Input.IsControllingRemote) return false;
+        if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
+        Input.BeginReceivingRemoteControl(0.5, 0.5);
+        return Input.IsReceivingRemoteControl;
     }
 
     /// <summary>本机修改布局后广播给已连接对端。</summary>
