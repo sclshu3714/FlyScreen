@@ -17,6 +17,10 @@
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
     <!-- ApplicationDisplayVersion / ApplicationVersion 由 build/FlyScreen.Version.targets 与 Win 同源 -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <!-- .NET 10 默认 Release 出 aab；内测分发需要 apk。上架 Play 可临时 -p:AndroidPackageFormat=aab -->
+    <AndroidPackageFormat Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">apk</AndroidPackageFormat>
+    <!-- 真机常为 arm/arm64；仅 arm64+x64 时部分机型按 32 位加载会 UnsatisfiedLinkError(n_onCreate) -->
+    <RuntimeIdentifiers Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">android-arm;android-arm64;android-x64</RuntimeIdentifiers>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
@@ -26,13 +30,31 @@
     <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
 
-  <!-- Windows 用 .ico；跨平台图标用 MauiIcon png -->
+  <!-- VS「调试 Android」要求显式符号；否则报「此项目配置未启用调试」 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <AndroidIncludeDebugSymbols>true</AndroidIncludeDebugSymbols>
+  </PropertyGroup>
+
+  <!-- Release 未签名 APK 无法安装（packageInfo is null）。内测旁加载用 sideload keystore；上架 Play 请换正式库并用 -p 覆盖 -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>$(MSBuildThisFileDirectory)..\..\build\android\flyscreen-sideload.keystore</AndroidSigningKeyStore>
+    <AndroidSigningStorePass>flyscreen</AndroidSigningStorePass>
+    <AndroidSigningKeyAlias>flyscreen</AndroidSigningKeyAlias>
+    <AndroidSigningKeyPass>flyscreen</AndroidSigningKeyPass>
+  </PropertyGroup>
+
+  <!-- Windows 用 .ico；跨平台图标/启动图用玄鸟 png（与 Desktop Assets 同源） -->
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <MauiIcon Include="Resources\AppIcon\appicon.png" />
+    <!-- Color=自适应图标底板；与 png 黑底一致，避免启动器回退默认紫标 -->
+    <MauiIcon Include="Resources\AppIcon\appicon.png" Color="#000000" BaseSize="256,256" />
+    <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#000000" BaseSize="256,256" />
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
@@ -61,5 +83,35 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+
+  <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->
+  <Target Name="FlyScreen_PreClearAndroidIntermediates"
+          BeforeTargets="_CleanMonoAndroidIntermediateDir"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1&quot; -Configuration &quot;$(Configuration)&quot; -TargetFramework &quot;$(TargetFramework)&quot;"
+          IgnoreExitCode="true"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1')" />
+  </Target>
+
+  <!-- SDK 有时签完 *-Signed.apk 后文件消失（仅剩 .idsig）；用已签名的 plain apk 补回，并另存 FlyScreen.apk 便于分发 -->
+  <Target Name="FlyScreen_EnsureSignedApk"
+          AfterTargets="_Sign"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PropertyGroup>
+      <_FsSignedApk>$(OutDir)$(_AndroidPackage)-Signed.apk</_FsSignedApk>
+      <_FsPlainApk>$(OutDir)$(_AndroidPackage).apk</_FsPlainApk>
+      <_FsStableApk>$(OutDir)FlyScreen.apk</_FsStableApk>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_FsPlainApk)" DestinationFiles="$(_FsSignedApk)"
+          Condition="Exists('$(_FsPlainApk)') And !Exists('$(_FsSignedApk)')"
+          OverwriteReadOnlyFiles="true" />
+    <Copy SourceFiles="$(_FsSignedApk)" DestinationFiles="$(_FsStableApk)"
+          Condition="Exists('$(_FsSignedApk)')"
+          OverwriteReadOnlyFiles="true" />
+    <Copy SourceFiles="$(_FsPlainApk)" DestinationFiles="$(_FsStableApk)"
+          Condition="!Exists('$(_FsSignedApk)') And Exists('$(_FsPlainApk)')"
+          OverwriteReadOnlyFiles="true" />
+    <Message Importance="High" Text="可安装 APK → $(_FsStableApk) ；亦见 $(_FsSignedApk)" />
+  </Target>
 
 </Project>

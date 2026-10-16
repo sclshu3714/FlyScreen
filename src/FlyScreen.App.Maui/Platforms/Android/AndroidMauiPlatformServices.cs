@@ -26,6 +26,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool SupportsTray => false;
     public bool SupportsAutoStart => false;
     public bool IsFocusOnLocalMachine => true;
+    public bool AcceptsRemoteInput => false;
 
     public event Action<string?>? ControlTargetChanged
     {

@@ -65,6 +65,8 @@ dotnet run --project src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release
 
 改 TFM 后若下拉仍只有项目名/WSL：卸载并重新加载项目，或删除仓库根目录 `.vs` 后重开解决方案。
 
+调试 **Android** 时工具栏配置须为 **Debug**（非 Release）。工程已在 Debug|android 下设置 `DebugSymbols` / `AndroidIncludeDebugSymbols`；若仍提示「此项目配置未启用调试」，确认活动框架为 `net10.0-android` 后重新加载项目。
+
 ---
 
 ## 发布自包含包（Windows / Android / Mac）
@@ -106,10 +108,9 @@ dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
   -p:EnableCompressionInSingleFile=true `
   -o src\FlyScreen.App.Maui\bin\publish\maui-win-x64
 
-# Android Release APK
+# Android Release APK（工程已默认 AndroidPackageFormat=apk；无需再传该属性）
 dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
-  -f net10.0-android -p:FlyScreenEnableMauiAndroid=true `
-  -p:AndroidPackageFormat=apk `
+  -f net10.0-android `
   -o src\FlyScreen.App.Maui\bin\publish\maui-android
 
 # Mac Catalyst 自包含单文件（仅 macOS）
@@ -133,7 +134,15 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 
 - MAUI 包 **不替代** WPF `FlyScreen-{ver}-win-x64.exe` stable。  
 - Android 正式上架签名 / Mac 公证（notarize）需另行配置；本脚本产出供内测分发。  
-- Avalonia Mac 正式桌面包仍见 [build-macos.md](build-macos.md)（Rid：`osx-arm64` / `osx-x64`）。
+- Avalonia Mac 正式桌面包仍见 [build-macos.md](build-macos.md)（Rid：`osx-arm64` / `osx-x64`）。  
+- **应用图标：** `Resources/AppIcon/appicon.png`（`MauiIcon` + `MauiSplashScreen`）；Android 须在 `AndroidManifest` / `MainActivity` 声明 `@mipmap/appicon`，否则启动器可能显示默认图标。换图标后建议清 `bin/obj` 再 `publish`。  
+- **APK 签名：** Release 使用 `build/android/flyscreen-sideload.keystore`（内测旁加载）。请安装目录中的 **`FlyScreen.apk`** 或 **`*-Signed.apk`**（构建后会自动补齐）。若只有 `com.xuanniao.flyscreen.apk` + `*-Signed.apk.idsig`、没有 Signed 本体，该 plain apk 往往已是签名包，亦可安装；上架 Play 需自备正式 keystore。Windows 资源管理器里 APK 文件图标为通用图标属正常。  
+- **XARDF7024（目录不是空的）：** 多为 `obj\...\lp` 等中间目录被占用。关闭正在运行的模拟器安装/资源管理器中打开的输出目录后重编；或先执行：
+  ```powershell
+  powershell -File build\Clean-MauiAndroid.ps1 -Configuration Release -All
+  ```
+  工程会在 Android 清理前自动调用该脚本做强制删除。  
+- **启动闪退 `UnsatisfiedLinkError` / `n_onCreate`：** 多为 APK 缺少 `armeabi-v7a`（32 位）原生库。工程已包含 `android-arm;android-arm64;android-x64`。请安装 **`*-Signed.apk`**，卸载旧包后再装。
 
 ## UI 信息架构（对齐 WPF / Avalonia）
 

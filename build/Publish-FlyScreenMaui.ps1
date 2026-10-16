@@ -148,19 +148,19 @@ if ($want.Android) {
         '-o', $androidOut
     )
 
-    $apk = Get-ChildItem -LiteralPath $androidOut -Filter '*.apk' -Recurse -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    if (-not $apk) {
-        # 部分 SDK 把 apk 放在 bin/.../publish 外；再搜项目 publish 树
-        $apk = Get-ChildItem -Path (Join-Path $RepoRoot 'src\FlyScreen.App.Maui\bin') -Filter '*.apk' -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match 'Release' } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
+    # 优先 *-Signed.apk（已签名可安装）；未签名的 .apk 会导致 packageInfo is null
+    $candidates = @(Get-ChildItem -LiteralPath $androidOut -Filter '*.apk' -Recurse -ErrorAction SilentlyContinue)
+    if ($candidates.Count -eq 0) {
+        $candidates = @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\FlyScreen.App.Maui\bin') -Filter '*.apk' -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'Release|publish' })
     }
+    $apk = $candidates |
+        Sort-Object @{ Expression = { if ($_.Name -match 'Signed') { 0 } else { 1 } } }, LastWriteTime -Descending |
+        Select-Object -First 1
     if (-not $apk) {
         throw "未找到 Android APK，请检查 Android SDK / workload 是否已安装。"
     }
+    Write-Host "使用 APK: $($apk.FullName)"
 
     $named = Invoke-NamePackage -Source $apk.FullName -Rid 'maui-android'
     $results += [pscustomobject]@{ Platform = 'Android'; Path = $apk.FullName; Package = $named.Path }

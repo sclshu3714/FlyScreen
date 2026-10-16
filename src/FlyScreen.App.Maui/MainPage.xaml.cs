@@ -26,6 +26,13 @@ public partial class MainPage : ContentPage
     private bool _navOpen;
     private const double CompactWidthBreakpoint = 720;
 
+    // 触屏拖拽互换（不用 DragGestureRecognizer，避免 Android 长按 NRE）
+    private MachineSlot? _panDragSlot;
+    private Border? _panDragBorder;
+    private bool _panDragging;
+    private bool _panMoved;
+    private const double PanDragThreshold = 14;
+
     public MainPage()
     {
         InitializeComponent();
@@ -235,49 +242,34 @@ public partial class MainPage : ContentPage
         }
     }
 
+    /// <summary>
+    /// 工具栏固定在卡片上方；窄屏只显示图标，宽屏显示图标+文字。
+    /// </summary>
     private void ApplyLayoutActionsPlacement(bool compact)
     {
         if (LayoutActions == null || MatrixBorder == null) return;
 
-        if (compact)
-        {
-            // 操作按钮放到矩阵下方，横排避免挤压
-            Grid.SetRow(MatrixBorder, 2);
-            Grid.SetColumn(MatrixBorder, 0);
-            Grid.SetColumnSpan(MatrixBorder, 2);
-            Grid.SetRow(LayoutActions, 3);
-            Grid.SetColumn(LayoutActions, 0);
-            Grid.SetColumnSpan(LayoutActions, 2);
-            LayoutActions.Margin = new Thickness(0, 12, 0, 0);
-            LayoutActions.ClearValue(WidthRequestProperty);
-            LayoutActions.HorizontalOptions = LayoutOptions.Fill;
-            LayoutDragTipText.IsVisible = false;
-            AddMachineBtn.ClearValue(WidthRequestProperty);
-            RemoveMachineBtn.ClearValue(WidthRequestProperty);
-            ReconnectBtn.ClearValue(WidthRequestProperty);
-            AddMachineBtn.HorizontalOptions = LayoutOptions.Fill;
-            RemoveMachineBtn.HorizontalOptions = LayoutOptions.Fill;
-            ReconnectBtn.HorizontalOptions = LayoutOptions.Fill;
-        }
-        else
-        {
-            Grid.SetRow(MatrixBorder, 2);
-            Grid.SetColumn(MatrixBorder, 0);
-            Grid.SetColumnSpan(MatrixBorder, 1);
-            Grid.SetRow(LayoutActions, 2);
-            Grid.SetColumn(LayoutActions, 1);
-            Grid.SetColumnSpan(LayoutActions, 1);
-            LayoutActions.Margin = new Thickness(14, 0, 0, 0);
-            LayoutActions.WidthRequest = 100;
-            LayoutActions.HorizontalOptions = LayoutOptions.Start;
-            LayoutDragTipText.IsVisible = true;
-            AddMachineBtn.WidthRequest = 100;
-            RemoveMachineBtn.WidthRequest = 100;
-            ReconnectBtn.WidthRequest = 100;
-            AddMachineBtn.HorizontalOptions = LayoutOptions.Center;
-            RemoveMachineBtn.HorizontalOptions = LayoutOptions.Center;
-            ReconnectBtn.HorizontalOptions = LayoutOptions.Center;
-        }
+        Grid.SetRow(LayoutActions, 2);
+        Grid.SetRow(MatrixBorder, 3);
+        LayoutActions.Margin = new Thickness(0, 0, 0, 10);
+        LayoutActions.HorizontalOptions = LayoutOptions.Fill;
+        LayoutActions.ClearValue(WidthRequestProperty);
+
+        // 窄宽或横屏矮屏：隐藏提示文字、按钮只留符号
+        var narrow = compact || Width < 520 || (Height > 0 && Height < 420);
+        LayoutDragTipText.IsVisible = !narrow;
+        ApplyLayoutToolbarLabels(iconOnly: narrow);
+    }
+
+    private void ApplyLayoutToolbarLabels(bool iconOnly)
+    {
+        if (AddMachineBtn == null) return;
+        AddMachineBtn.Text = Loc.T(iconOnly ? "Layout.AddShort" : "Layout.AddTool");
+        RemoveMachineBtn.Text = Loc.T(iconOnly ? "Layout.RemoveShort" : "Layout.RemoveTool");
+        ReconnectBtn.Text = Loc.T(iconOnly ? "Layout.ReconnectShort" : "Layout.ReconnectTool");
+        AddMachineBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
+        RemoveMachineBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
+        ReconnectBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
     }
 
     private void MenuBtn_Clicked(object? sender, EventArgs e)
@@ -353,7 +345,9 @@ public partial class MainPage : ContentPage
         {
             rd["Str.Add"] = Loc.T("Btn.Add");
             rd["Str.Delete"] = Loc.T("Btn.Delete");
+            rd["Str.DeleteTip"] = Loc.T("Tip.DeleteTransfer");
         }
+
 
         Title = Loc.T("App.Name");
         PhoneTitleLabel.Text = Loc.T("App.Name");
@@ -376,9 +370,7 @@ public partial class MainPage : ContentPage
         LayoutTitleText.Text = Loc.T("Layout.Title");
         LayoutHintText.Text = Loc.T("Layout.Hint");
         LayoutDragTipText.Text = Loc.T("Layout.DragTip");
-        AddMachineBtn.Text = Loc.T("Layout.Add");
-        RemoveMachineBtn.Text = Loc.T("Layout.Remove");
-        ReconnectBtn.Text = Loc.T("Layout.Reconnect");
+        ApplyLayoutActionsPlacement(_compactLayout);
 
         FeatTitleText.Text = Loc.T("Feat.Title");
         BehTitleText.Text = Loc.T("Beh.Title");
@@ -469,12 +461,14 @@ public partial class MainPage : ContentPage
         for (var i = 0; i < 4; i++)
         {
             var name = s.MachineSlots[i]?.Trim() ?? "";
+            var env = Environment.MachineName;
+            var envOk = !LocalPeerIdentity.IsBogusMachineName(env);
             var slot = new MachineSlot
             {
                 Index = i,
                 Name = name,
                 IsLocal = string.Equals(name, local, StringComparison.OrdinalIgnoreCase)
-                          || string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase),
+                          || (envOk && string.Equals(name, env, StringComparison.OrdinalIgnoreCase)),
                 Enabled = !string.IsNullOrWhiteSpace(name)
             };
             slot.SetLayoutHint(_twoRow);
@@ -488,6 +482,7 @@ public partial class MainPage : ContentPage
     private void RebuildMatrix()
     {
         // 与 Win UniformGrid 一致：1×4 或 2×2，卡片拉伸填满
+        MachineMatrix.IsClippedToBounds = false;
         MachineMatrix.Children.Clear();
         MachineMatrix.RowDefinitions.Clear();
         MachineMatrix.ColumnDefinitions.Clear();
@@ -628,12 +623,28 @@ public partial class MainPage : ContentPage
         return border;
     }
 
-    /// <summary>单击选中、双击移除、拖拽互换（对齐 Win）。</summary>
+    /// <summary>WinUI：额外挂原生拖放；全平台主路径为 Pan 拖拽（Android 可靠）。</summary>
+    private static bool SupportsNativeDragDrop =>
+        DeviceInfo.Platform == DevicePlatform.WinUI
+        || DeviceInfo.Platform == DevicePlatform.MacCatalyst;
+
     private void AttachSlotGestures(Border border, MachineSlot slot)
     {
         var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) => OnSlotTapped(slot);
+        tap.Tapped += (_, _) =>
+        {
+            if (_panMoved || _panDragging) return;
+            OnSlotTapped(slot);
+        };
         border.GestureRecognizers.Add(tap);
+
+        // 全平台：按住滑动即可拖到另一格互换（模拟器鼠标 / 真机触屏）
+        var pan = new PanGestureRecognizer();
+        pan.PanUpdated += (s, e) => OnSlotPan(border, slot, e);
+        border.GestureRecognizers.Add(pan);
+
+        if (!SupportsNativeDragDrop)
+            return;
 
         var drag = new DragGestureRecognizer();
         drag.DragStarting += (_, e) =>
@@ -661,6 +672,103 @@ public partial class MainPage : ContentPage
         border.GestureRecognizers.Add(drop);
     }
 
+    private void OnSlotPan(Border border, MachineSlot slot, PanUpdatedEventArgs e)
+    {
+        switch (e.StatusType)
+        {
+            case GestureStatus.Started:
+                _panDragSlot = slot;
+                _panDragBorder = border;
+                _panDragging = false;
+                _panMoved = false;
+                break;
+
+            case GestureStatus.Running:
+                if (!ReferenceEquals(_panDragBorder, border)) return;
+                if (!_panDragging
+                    && (Math.Abs(e.TotalX) >= PanDragThreshold || Math.Abs(e.TotalY) >= PanDragThreshold))
+                {
+                    _panDragging = true;
+                    _panMoved = true;
+                    SelectSlotOnly(slot);
+                    border.Opacity = 0.88;
+                    border.ZIndex = 100;
+                    StatusLabel.Text = $"拖动 {slot.DisplayName}，放到目标格松开";
+                    try
+                    {
+                        if (Vibration.Default.IsSupported)
+                            Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(18));
+                    }
+                    catch { /* ignore */ }
+                }
+
+                if (_panDragging)
+                {
+                    border.TranslationX = e.TotalX;
+                    border.TranslationY = e.TotalY;
+                }
+                break;
+
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                FinishSlotPan(border, slot, e.TotalX, e.TotalY, cancelled: e.StatusType == GestureStatus.Canceled);
+                break;
+        }
+    }
+
+    private void FinishSlotPan(Border border, MachineSlot slot, double totalX, double totalY, bool cancelled)
+    {
+        var wasDragging = _panDragging;
+        border.TranslationX = 0;
+        border.TranslationY = 0;
+        border.Opacity = 1;
+        border.ZIndex = 0;
+        _panDragSlot = null;
+        _panDragBorder = null;
+        _panDragging = false;
+
+        if (!wasDragging || cancelled)
+        {
+            // 轻点留给 Tap；短滑不互换
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () => _panMoved = false);
+            return;
+        }
+
+        var target = HitTestDropSlot(border, totalX, totalY);
+        _panMoved = false;
+        if (target == null || ReferenceEquals(target, slot))
+        {
+            StatusLabel.Text = "未放到其它格子，已取消互换";
+            SelectSlotOnly(slot);
+            RebuildMatrix();
+            return;
+        }
+
+        SwapSlotData(slot, target);
+        SyncSlotLocalFlags();
+        SelectSlotOnly(target);
+        RebuildMatrix();
+        StatusLabel.Text = "已互换位置（请点「应用」同步）";
+    }
+
+    private MachineSlot? HitTestDropSlot(Border dragged, double totalX, double totalY)
+    {
+        // Bounds 相对父 Grid；加上位移后取卡片中心做命中
+        var origin = dragged.Bounds;
+        var cx = origin.Left + origin.Width / 2 + totalX;
+        var cy = origin.Top + origin.Height / 2 + totalY;
+
+        foreach (var child in MachineMatrix.Children.OfType<Border>())
+        {
+            if (ReferenceEquals(child, dragged)) continue;
+            var b = child.Bounds;
+            if (cx >= b.Left && cx <= b.Right && cy >= b.Top && cy <= b.Bottom)
+                return child.BindingContext as MachineSlot;
+        }
+
+        return null;
+    }
+
     private static void SwapSlotData(MachineSlot a, MachineSlot b)
     {
         (a.Name, b.Name) = (b.Name, a.Name);
@@ -676,10 +784,12 @@ public partial class MainPage : ContentPage
     private void SyncSlotLocalFlags()
     {
         var local = LocalPeerIdentity.MachineName;
+        var env = Environment.MachineName;
+        var envOk = !LocalPeerIdentity.IsBogusMachineName(env);
         foreach (var s in _slots)
         {
             s.IsLocal = string.Equals(s.Name, local, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(s.Name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+                        || (envOk && string.Equals(s.Name, env, StringComparison.OrdinalIgnoreCase));
             s.Enabled = !s.IsEmpty;
             s.RefreshStatus();
         }
@@ -733,7 +843,7 @@ public partial class MainPage : ContentPage
 
     private void OnSlotTapped(MachineSlot slot)
     {
-        // 双击移除（对齐 Win）；互换改为拖拽
+        // 双击移除（对齐 Win）
         if (_selected == slot && slot.CanRemove
             && Environment.TickCount64 - _lastTapTicks < 400)
         {
@@ -747,7 +857,7 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
         StatusLabel.Text = slot.IsEmpty
             ? "已选空位，可添加电脑"
-            : $"已选 {slot.DisplayName}（拖拽到其他格子互换）";
+            : $"已选 {slot.DisplayName}（按住拖到其他格子互换）";
     }
 
     private long _lastTapTicks;
@@ -1048,7 +1158,7 @@ public partial class MainPage : ContentPage
         var picked = await FilePicker.Default.PickMultipleAsync();
         var files = picked?.ToList() ?? [];
         if (files.Count == 0) return;
-        var paths = files.Select(f => f.FullPath).Where(p => !string.IsNullOrEmpty(p) && File.Exists(p!)).Cast<string>().ToList();
+        var paths = files.Select(f => f?.FullPath).Where(p => !string.IsNullOrEmpty(p) && File.Exists(p!)).Cast<string>().ToList();
         if (paths.Count == 0) return;
 
         await _host.Transfers.StartDirectTransferAsync(peer, _host.Transfers.InboxDirectory, paths);

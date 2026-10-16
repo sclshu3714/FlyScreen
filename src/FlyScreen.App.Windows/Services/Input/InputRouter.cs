@@ -26,6 +26,16 @@ public sealed class InputRouter : IDisposable
     private string? _activePeer;
     private int _lastX;
     private int _lastY;
+    /// <summary>切入远端前本机光标位置；短暂误切回来时恢复，避免甩到屏幕左侧 inset。</summary>
+    private int _savedLocalX;
+    private int _savedLocalY;
+    private bool _hasSavedLocalPos;
+    private long _switchedToRemoteAtTick;
+    /// <summary>本机最近一次物理键鼠时间；用于拒绝对端 SwitchFocus 抢光标。</summary>
+    private long _lastPhysicalInputTick;
+    /// <summary>边缘停留：须持续顶在外缘一小段时间才切换，避免扫过边缘误切。</summary>
+    private int _edgePendingSide;
+    private long _edgeEnterTick;
     /// <summary>控远端时的虚拟光标（含进入边粘滞，防止误甩回本机）。</summary>
     private readonly EdgeMouseVirtualCursor _remoteCursor = new();
     /// <summary>对端相对本机：-1 左, +1 右, -2 上, +2 下。</summary>
@@ -33,6 +43,9 @@ public sealed class InputRouter : IDisposable
     /// <summary>切换控制权后的短冷却，避免落在边缘时立刻被环形逻辑甩回。</summary>
     private long _switchCooldownUntilTick;
     private const int SwitchCooldownMs = 900;
+    private const int EdgeDwellMs = 140;
+    private const int LocalActivityGuardMs = 1000;
+    private const int BriefRemoteMs = 450;
     /// <summary>本进程 UI/钩子线程上是否已将 ShowCursor 压到不可见（仅在该线程读写）。</summary>
     private bool _cursorHiddenOnHookThread;
     private Dispatcher? _hookDispatcher;
@@ -40,6 +53,8 @@ public sealed class InputRouter : IDisposable
 
     public bool EasyMouseEnabled { get; set; } = true;
     public bool IsControllingRemote => _controllingRemote;
+    /// <summary>是否接受对端键鼠注入（须先经 SwitchFocus 进入被控）。</summary>
+    public bool IsReceivingRemoteControl => _receivingRemoteControl;
     /// <summary>光标是否在本机（用于剪贴板文件异步预取，勿在钩子里做重活）。</summary>
     public bool IsFocusOnLocalMachine => _focusOnLocal;
     public string? ActivePeer => _activePeer;
@@ -77,40 +92,54 @@ public sealed class InputRouter : IDisposable
 
     public void TakeLocalControl(double? localX = null, double? localY = null)
     {
-        var screenW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
-        var screenH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
+        VirtualScreen.GetBounds(out var screenL, out var screenT, out var screenW, out var screenH);
         var side = _peerSide;
+        var briefRemote = _switchedToRemoteAtTick > 0
+                          && Environment.TickCount64 - _switchedToRemoteAtTick < BriefRemoteMs;
         _controllingRemote = false;
         _receivingRemoteControl = false;
         _focusOnLocal = true;
         _activePeer = null;
         _peerSide = 0;
+        _edgePendingSide = 0;
+        _switchedToRemoteAtTick = 0;
         ArmSwitchCooldown();
         if (localX is double x && localY is double y)
+        {
             NativeMethods.SetCursorPos((int)x, (int)y);
+            _lastX = (int)x;
+            _lastY = (int)y;
+        }
+        else if (briefRemote && _hasSavedLocalPos)
+        {
+            // 误触边缘立刻回来：回到切入前位置，不要甩到左侧 inset（用户报告的「突然跳到左边」）
+            NativeMethods.SetCursorPos(_savedLocalX, _savedLocalY);
+            _lastX = _savedLocalX;
+            _lastY = _savedLocalY;
+        }
         else
         {
             // 落点靠内侧，避免立刻再次触发边缘切换（环形时尤其明显）
-            var insetX = Math.Max(24, screenW / 12);
-            var insetY = Math.Max(24, screenH / 12);
+            var insetX = Math.Max(48, screenW / 8);
+            var insetY = Math.Max(48, screenH / 8);
             var (vx, vy) = _remoteCursor.Clamped01();
-            var px = screenW / 2;
-            var py = (int)(Math.Clamp(vy, 0.05, 0.95) * Math.Max(1, screenH - 1));
+            var px = screenL + screenW / 2;
+            var py = screenT + (int)(Math.Clamp(vy, 0.05, 0.95) * Math.Max(1, screenH - 1));
             switch (side)
             {
                 case -1: // 从左侧进入本机
-                    px = insetX;
+                    px = screenL + insetX;
                     break;
                 case 1: // 从右侧进入本机
-                    px = screenW - insetX;
+                    px = screenL + screenW - insetX;
                     break;
                 case -2: // 从上方进入
-                    px = (int)(Math.Clamp(vx, 0.05, 0.95) * Math.Max(1, screenW - 1));
-                    py = insetY;
+                    px = screenL + (int)(Math.Clamp(vx, 0.05, 0.95) * Math.Max(1, screenW - 1));
+                    py = screenT + insetY;
                     break;
                 case 2: // 从下方进入
-                    px = (int)(Math.Clamp(vx, 0.05, 0.95) * Math.Max(1, screenW - 1));
-                    py = screenH - insetY;
+                    px = screenL + (int)(Math.Clamp(vx, 0.05, 0.95) * Math.Max(1, screenW - 1));
+                    py = screenT + screenH - insetY;
                     break;
             }
 
@@ -127,6 +156,11 @@ public sealed class InputRouter : IDisposable
     /// <summary>对端 SwitchFocus 到本机：显示光标并进入「被远程控制」状态。</summary>
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
+        // 本机正在操作：拒绝对端拽走光标（双向连接时对端误触边缘会发 SwitchFocus）
+        if (!_controllingRemote
+            && Environment.TickCount64 - _lastPhysicalInputTick < LocalActivityGuardMs)
+            return;
+
         _controllingRemote = false;
         _activePeer = null;
         _peerSide = 0;
@@ -144,7 +178,7 @@ public sealed class InputRouter : IDisposable
         if (!_settings.HideMouseAtEdge) return;
         if (string.IsNullOrWhiteSpace(ownerMachine)) return;
 
-        if (string.Equals(ownerMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        if (IsLocalMachine(ownerMachine))
         {
             ShowLocalCursor();
             return;
@@ -179,11 +213,20 @@ public sealed class InputRouter : IDisposable
         // 控对端需可达，且交集含 InjectInput（旧端无 Caps 视为具备全量本机能力）
         if (!_connections.IsPeerReachable(peer)) return;
         if (!_connections.PeerSupports(peer, PeerCaps.InjectInput)) return;
+        if (_hasSavedLocalPos == false && _lastX != 0)
+        {
+            _savedLocalX = _lastX;
+            _savedLocalY = _lastY;
+            _hasSavedLocalPos = true;
+        }
+
         _controllingRemote = true;
         _receivingRemoteControl = false;
         _focusOnLocal = false;
         _activePeer = peer;
         _peerSide = peerSide;
+        _edgePendingSide = 0;
+        _switchedToRemoteAtTick = Environment.TickCount64;
         _remoteCursor.BeginRemote(entryX, entryY, peerSide);
         ArmSwitchCooldown();
         // 无论是否隐藏光标，控远端时都必须把本机光标钉在中部，否则卡在屏幕边缘无法产生向远端方向的位移
@@ -199,13 +242,10 @@ public sealed class InputRouter : IDisposable
         _ = SendSwitchAsync(peer, sx, sy);
     }
 
-    /// <summary>控远端时将本机光标钉在屏幕中部，用相对位移驱动对端虚拟坐标。</summary>
+    /// <summary>控远端时将本机光标钉在虚拟桌面中部，用相对位移驱动对端虚拟坐标。</summary>
     private void PinLocalCursorForRemoteControl()
     {
-        var screenW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
-        var screenH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
-        var cx = screenW / 2;
-        var cy = screenH / 2;
+        VirtualScreen.GetCenter(out var cx, out var cy);
         NativeMethods.SetCursorPos(cx, cy);
         _lastX = cx;
         _lastY = cy;
@@ -242,8 +282,22 @@ public sealed class InputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
-        var screenW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
-        var screenH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
+        VirtualScreen.GetBounds(out var screenL, out var screenT, out var screenW, out var screenH);
+        var centerX = screenL + screenW / 2;
+        var centerY = screenT + screenH / 2;
+
+        // 记录本机物理活动（注入鼠标已在上方过滤）
+        if (msg is NativeMethods.WM_MOUSEMOVE or NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
+                or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
+        {
+            _lastPhysicalInputTick = Environment.TickCount64;
+            if (!_controllingRemote)
+            {
+                _savedLocalX = info.pt.X;
+                _savedLocalY = info.pt.Y;
+                _hasSavedLocalPos = true;
+            }
+        }
 
         // 物理键鼠夺回：被控时不要因「移动」抢归属（注入偶发漏标会掐断控制端）；仅按键/滚轮视为本机介入
         if (_settings.HideMouseAtEdge
@@ -261,21 +315,26 @@ public sealed class InputRouter : IDisposable
         if (!_controllingRemote && EasyMouseEnabled && _settings.EasyMouse && msg == NativeMethods.WM_MOUSEMOVE
             && !InSwitchCooldown())
         {
-            if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenW, screenH,
+            if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                     out var peer, out var entryX, out var entryY, out var peerSide))
             {
                 SwitchToPeer(peer!, entryX, entryY, peerSide);
                 return (IntPtr)1;
             }
         }
+        else if (!_controllingRemote && msg == NativeMethods.WM_MOUSEMOVE)
+        {
+            // 离开边缘则取消停留计时
+            ClearEdgeDwellIfInside(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
+        }
 
         if (_controllingRemote && !string.IsNullOrEmpty(_activePeer))
         {
             if (msg == NativeMethods.WM_MOUSEMOVE)
             {
-                // 本机光标钉在中部：位移相对屏幕中心（与是否「隐藏边缘光标」无关）
-                var dx = info.pt.X - screenW / 2;
-                var dy = info.pt.Y - screenH / 2;
+                // 本机光标钉在虚拟桌面中部：位移相对该中心（与是否「隐藏边缘光标」无关）
+                var dx = info.pt.X - centerX;
+                var dy = info.pt.Y - centerY;
                 _lastX = info.pt.X;
                 _lastY = info.pt.Y;
 
@@ -300,7 +359,7 @@ public sealed class InputRouter : IDisposable
                 if (!InSwitchCooldown() && TryNavigateFromRemoteVirtual(dx, dy))
                     return (IntPtr)1;
 
-                NativeMethods.SetCursorPos(screenW / 2, screenH / 2);
+                NativeMethods.SetCursorPos(centerX, centerY);
                 return (IntPtr)1;
             }
 
@@ -346,6 +405,9 @@ public sealed class InputRouter : IDisposable
         var msg = wParam.ToInt32();
         var down = msg is NativeMethods.WM_KEYDOWN or NativeMethods.WM_SYSKEYDOWN;
 
+        if (down)
+            _lastPhysicalInputTick = Environment.TickCount64;
+
         if (_settings.HideMouseAtEdge && down)
             TryClaimPhysicalInput();
 
@@ -385,7 +447,7 @@ public sealed class InputRouter : IDisposable
     {
         ShowLocalCursor();
         if (broadcast && _settings.HideMouseAtEdge)
-            _ = BroadcastCursorOwnerAsync(Environment.MachineName);
+            _ = BroadcastCursorOwnerAsync(LocalPeerIdentity.MachineName);
     }
 
     /// <summary>
@@ -475,7 +537,7 @@ public sealed class InputRouter : IDisposable
             if (idx >= 0 && idx < slots.Length && !string.IsNullOrWhiteSpace(slots[idx]))
             {
                 var target = slots[idx]!;
-                if (string.Equals(target, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+                if (IsLocalMachine(target))
                     TakeLocalControl();
                 else
                     SwitchToPeer(target, 0.5, 0.5, ResolvePeerSide(target));
@@ -553,7 +615,7 @@ public sealed class InputRouter : IDisposable
     private int ResolvePeerSide(string peer)
     {
         var slots = GetLayoutSlots();
-        var localIdx = FindSlotIndex(slots, Environment.MachineName);
+        var localIdx = FindLocalSlotIndex(slots);
         var peerIdx = FindSlotIndex(slots, peer);
         if (localIdx < 0 || peerIdx < 0) return 0;
 
@@ -584,93 +646,154 @@ public sealed class InputRouter : IDisposable
         return -1;
     }
 
-    private bool TryDetectEdgePeer(int x, int y, int screenW, int screenH,
+    private int FindLocalSlotIndex(string?[] slots)
+    {
+        var idx = FindSlotIndex(slots, LocalPeerIdentity.MachineName);
+        if (idx >= 0) return idx;
+        var env = Environment.MachineName;
+        if (!LocalPeerIdentity.IsBogusMachineName(env))
+            return FindSlotIndex(slots, env);
+        return -1;
+    }
+
+    private static bool IsLocalMachine(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+            return true;
+        var env = Environment.MachineName;
+        return !LocalPeerIdentity.IsBogusMachineName(env)
+               && string.Equals(name, env, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 仅在「虚拟桌面」外缘且继续向外移动时切换，避免副屏整块被当成主屏右/左边缘。
+    /// </summary>
+    private bool TryDetectEdgePeer(int x, int y, int screenL, int screenT, int screenW, int screenH,
         out string? peer, out double entryX, out double entryY, out int peerSide)
     {
         peer = null;
         entryX = 0.5;
-        entryY = screenH <= 1 ? 0.5 : Math.Clamp(y / (double)(screenH - 1), 0, 1);
+        entryY = screenH <= 1 ? 0.5 : Math.Clamp((y - screenT) / (double)(screenH - 1), 0, 1);
         peerSide = 0;
+
+        var right = screenL + screenW - 1;
+        var bottom = screenT + screenH - 1;
 
         if (_settings.BlockMouseAtCorners)
         {
             const int c = 8;
-            if ((x <= c || x >= screenW - c) && (y <= c || y >= screenH - c))
+            if ((x <= screenL + c || x >= right - c) && (y <= screenT + c || y >= bottom - c))
                 return false;
         }
 
         var slots = GetLayoutSlots();
-        var local = Environment.MachineName;
-        var localIdx = FindSlotIndex(slots, local);
+        var localIdx = FindLocalSlotIndex(slots);
         if (localIdx < 0) return false;
 
         bool IsValidPeer(string? name) =>
             !string.IsNullOrWhiteSpace(name)
-            && !string.Equals(name, local, StringComparison.OrdinalIgnoreCase)
+            && !IsLocalMachine(name)
             && _connections.IsPeerEdgeMouseCapable(name!);
 
-        var nx = screenW <= 1 ? 0.5 : Math.Clamp(x / (double)(screenW - 1), 0, 1);
+        var nx = screenW <= 1 ? 0.5 : Math.Clamp((x - screenL) / (double)(screenW - 1), 0, 1);
         var ey = entryY;
 
-        // 左边缘 → 左侧机器；进入对端右缘（环形时最左→最右）
-        if (x <= 0)
+        // 左边缘 → 左侧机器（须继续向左推 + 停留，避免扫过边缘误切）
+        if (x <= screenL && x <= _lastX)
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: -1);
-            if (IsValidPeer(name))
+            if (IsValidPeer(name) && EdgeDwellReady(-1))
             {
                 peer = name;
                 peerSide = -1;
                 entryX = 0.999;
                 entryY = ey;
+                _edgePendingSide = 0;
                 return true;
             }
+
+            return false;
         }
 
-        // 右边缘 → 右侧机器；进入对端左缘（环形时最右→最左）
-        if (x >= screenW - 1)
+        // 右边缘 → 右侧机器
+        if (x >= right && x >= _lastX)
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: +1);
-            if (IsValidPeer(name))
+            if (IsValidPeer(name) && EdgeDwellReady(1))
             {
                 peer = name;
                 peerSide = 1;
                 entryX = 0.001;
                 entryY = ey;
+                _edgePendingSide = 0;
                 return true;
             }
+
+            return false;
         }
 
-        // 双行：上/下边缘（环形时同列首尾相连）
+        // 双行：上/下边缘
         if (_settings.TwoRow)
         {
-            if (y <= 0)
+            if (y <= screenT && y <= _lastY)
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: -1);
-                if (IsValidPeer(name))
+                if (IsValidPeer(name) && EdgeDwellReady(-2))
                 {
                     peer = name;
                     peerSide = -2;
                     entryX = nx;
                     entryY = 0.999;
+                    _edgePendingSide = 0;
                     return true;
                 }
+
+                return false;
             }
 
-            if (y >= screenH - 1)
+            if (y >= bottom && y >= _lastY)
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: +1);
-                if (IsValidPeer(name))
+                if (IsValidPeer(name) && EdgeDwellReady(2))
                 {
                     peer = name;
                     peerSide = 2;
                     entryX = nx;
                     entryY = 0.001;
+                    _edgePendingSide = 0;
                     return true;
                 }
+
+                return false;
             }
         }
 
+        _edgePendingSide = 0;
         return false;
+    }
+
+    private bool EdgeDwellReady(int side)
+    {
+        var now = Environment.TickCount64;
+        if (_edgePendingSide != side)
+        {
+            _edgePendingSide = side;
+            _edgeEnterTick = now;
+            return false;
+        }
+
+        return now - _edgeEnterTick >= EdgeDwellMs;
+    }
+
+    private void ClearEdgeDwellIfInside(int x, int y, int screenL, int screenT, int screenW, int screenH)
+    {
+        if (_edgePendingSide == 0) return;
+        var right = screenL + screenW - 1;
+        var bottom = screenT + screenH - 1;
+        var onEdge = x <= screenL || x >= right || y <= screenT || y >= bottom;
+        if (!onEdge)
+            _edgePendingSide = 0;
     }
 
     /// <summary>
@@ -702,9 +825,8 @@ public sealed class InputRouter : IDisposable
             return false;
         }
 
-        var local = Environment.MachineName;
         var (vx, vy) = _remoteCursor.Clamped01();
-        if (string.Equals(next, local, StringComparison.OrdinalIgnoreCase))
+        if (IsLocalMachine(next))
         {
             // 远端往右出 → 进本机左边；远端往左出 → 进本机右边
             _peerSide = dirH != 0 ? -dirH : -dirVSide;

@@ -74,6 +74,20 @@
     <Setter Property="MinimumWidthRequest" Value="88" />
     <Setter Property="Padding" Value="14,0" />
   </Style>
+  <!-- 列表行内图标按钮（如传输删除）：无边框、背景透明 -->
+  <Style x:Key="IconActionBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="Transparent" />
+    <Setter Property="TextColor" Value="Transparent" />
+    <Setter Property="BorderColor" Value="Transparent" />
+    <Setter Property="BorderWidth" Value="0" />
+    <Setter Property="WidthRequest" Value="28" />
+    <Setter Property="HeightRequest" Value="28" />
+    <Setter Property="MinimumWidthRequest" Value="28" />
+    <Setter Property="MinimumHeightRequest" Value="28" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="FontSize" Value="1" />
+  </Style>
   <!-- 侧栏导航：Button 仅作命中层（彩标 Path+Label 叠在上层，对齐 WPF） -->
   <Style x:Key="SideNavBtn" TargetType="Button">
     <Setter Property="BackgroundColor" Value="#01000000" />

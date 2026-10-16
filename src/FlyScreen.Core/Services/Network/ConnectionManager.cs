@@ -54,18 +54,25 @@ public sealed class ConnectionManager : IAsyncDisposable
         _listener.Start();
 
         _discovery.AnnounceTcpPort = _settings.TcpPort;
-        if (_bindIp != "0.0.0.0")
+        // 始终启动 UDP 发现。Android 上绑定具体网卡 IP 常收不到广播，优先 bindAny。
+        var announceIp = _bindIp;
+        if (announceIp == "0.0.0.0")
+            announceIp = NicService.ListUsableIpv4Nics().FirstOrDefault()?.IPv4
+                         ?? NicService.ListIpv4Nics().FirstOrDefault()?.IPv4
+                         ?? "0.0.0.0";
+        try
         {
-            try
-            {
-                _discovery.Start(_bindIp, _settings.UdpPort, nic?.SubnetMask);
-            }
-            catch (SocketException ex)
-            {
-                StatusMessage?.Invoke(
-                    $"UDP 发现端口 {_settings.UdpPort} 绑定失败（{ex.SocketErrorCode}）。" +
-                    "请退出同机其它玄鸟实例，或在网络设置中更换发现端口后点「应用」。");
-            }
+            var bindAny = OperatingSystem.IsAndroid()
+                          || string.Equals(announceIp, "0.0.0.0", StringComparison.Ordinal);
+            _discovery.Start(announceIp, _settings.UdpPort, nic?.SubnetMask, bindAny);
+            if (announceIp != "0.0.0.0" && _bindIp == "0.0.0.0")
+                _bindIp = announceIp;
+        }
+        catch (SocketException ex)
+        {
+            StatusMessage?.Invoke(
+                $"UDP 发现端口 {_settings.UdpPort} 绑定失败（{ex.SocketErrorCode}）。" +
+                "请退出同机其它玄鸟实例，或在网络设置中更换发现端口后点「应用」。");
         }
 
         var ct = _cts.Token;

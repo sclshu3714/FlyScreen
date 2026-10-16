@@ -11,6 +11,7 @@ public static class LocalPeerIdentity
     private static string[]? _capsOverride;
     private static string? _machineNameOverride;
     private static string? _resolvedMachineName;
+    private static Func<string?>? _machineNameResolver;
 
     public static string Platform { get; private set; } = DetectPlatform();
     public static string DeviceClass { get; private set; } = PeerDeviceClass.Desktop;
@@ -19,12 +20,31 @@ public static class LocalPeerIdentity
     /// <summary>
     /// 对端可见的本机名。WSL 下 Environment.MachineName 常等于 Windows 主机名，
     /// 会导致发现包被双方当作「自己」丢弃，故自动加发行版后缀。
+    /// Android 上 Environment.MachineName 常为 localhost，需通过 SetMachineNameResolver 注入设备名。
     /// </summary>
     public static string MachineName =>
         _machineNameOverride
         ?? _resolvedMachineName
         ?? (_resolvedMachineName = ResolveMachineName());
 
+    /// <summary>无效本机名（如 Android 的 localhost），不可用于发现/槽位身份。空串不算（空位另判）。</summary>
+    public static bool IsBogusMachineName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        var n = name.Trim();
+        return n.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+               || n.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+               || n.Equals("::1", StringComparison.OrdinalIgnoreCase)
+               || n.Equals("(none)", StringComparison.OrdinalIgnoreCase)
+               || n.Equals("unknown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>平台注入友好设备名（Android 型号/蓝牙名等）。在 Load 设置前调用。</summary>
+    public static void SetMachineNameResolver(Func<string?>? resolver)
+    {
+        _machineNameResolver = resolver;
+        _resolvedMachineName = null;
+    }
     public static string AppVersion =>
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
         ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
@@ -59,11 +79,26 @@ public static class LocalPeerIdentity
 
     private static string ResolveMachineName()
     {
-        var envName = Environment.MachineName?.Trim() ?? "FlyScreen";
+        if (_machineNameResolver != null)
+        {
+            try
+            {
+                var resolved = _machineNameResolver()?.Trim();
+                if (!string.IsNullOrWhiteSpace(resolved) && !IsBogusMachineName(resolved))
+                    return SanitizeMachineName(resolved);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        var envName = Environment.MachineName?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(envName) || IsBogusMachineName(envName))
+            envName = "FlyScreen";
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             return envName;
-
         // 优先 /etc/hostname（若与 Windows 主机名不同，可直接区分）
         try
         {
@@ -93,6 +128,20 @@ public static class LocalPeerIdentity
 
         var candidate = $"{envName}-{distro}";
         return candidate.Length > 63 ? $"{envName}-WSL" : candidate;
+    }
+
+    /// <summary>发现/握手用主机名：去空白，限制长度。</summary>
+    public static string SanitizeMachineName(string name)
+    {
+        var cleaned = new string(name.Trim()
+            .Where(c => !char.IsControl(c))
+            .ToArray())
+            .Replace('\u00A0', ' ');
+        while (cleaned.Contains("  ", StringComparison.Ordinal))
+            cleaned = cleaned.Replace("  ", " ", StringComparison.Ordinal);
+        if (cleaned.Length > 48)
+            cleaned = cleaned[..48].TrimEnd();
+        return string.IsNullOrWhiteSpace(cleaned) ? "FlyScreen" : cleaned;
     }
 
     public static bool IsWsl()

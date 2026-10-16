@@ -32,6 +32,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     public bool SupportsTray => true;
     public bool SupportsAutoStart => true;
     public bool IsFocusOnLocalMachine => _router?.IsFocusOnLocalMachine ?? true;
+    public bool AcceptsRemoteInput => _router?.IsReceivingRemoteControl ?? false;
 
     public event Action<string?>? ControlTargetChanged;
 

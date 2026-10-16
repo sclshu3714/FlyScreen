@@ -16,6 +16,9 @@ public static class NicService
         "Microsoft Wi-Fi Direct", "Kernel Debug", "Loopback", "Virtual Adapter"
     ];
 
+    /// <summary>平台注入的优先 IPv4（如 Android WifiManager），在枚举网卡之前采用。</summary>
+    public static Func<string?>? PreferredIpv4Hint { get; set; }
+
     public static IReadOnlyList<NicInfo> ListIpv4Nics()
         => EnumerateIpv4Nics(usableOnly: false);
 
@@ -77,17 +80,42 @@ public static class NicService
 
         return list
             .OrderByDescending(n => n.IsUp)
-            .ThenBy(n => PreferWifiOrEthernet(n) ? 0 : 1)
+            .ThenBy(n => NicPreferenceRank(n))
             .ThenBy(n => n.Name)
             .ToList();
     }
 
-    private static bool PreferWifiOrEthernet(NicInfo n)
-        => n.Name.Contains("以太网", StringComparison.OrdinalIgnoreCase)
-           || n.Name.Contains("Ethernet", StringComparison.OrdinalIgnoreCase)
-           || n.Name.Contains("Wi-Fi", StringComparison.OrdinalIgnoreCase)
-           || n.Name.Contains("WLAN", StringComparison.OrdinalIgnoreCase);
+    /// <summary>越小越优先：有线/Wi‑Fi &gt; 其它 &gt; 蜂窝。</summary>
+    private static int NicPreferenceRank(NicInfo n)
+    {
+        if (IsCellularAdapter(n)) return 2;
+        if (PreferWifiOrEthernet(n)) return 0;
+        return 1;
+    }
 
+    private static bool PreferWifiOrEthernet(NicInfo n)
+    {
+        var text = n.Name + " " + n.Description;
+        return text.Contains("以太网", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("Ethernet", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("eth", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("Wi-Fi", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("WiFi", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("WLAN", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("wlan", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCellularAdapter(NicInfo n)
+    {
+        var text = n.Name + " " + n.Description;
+        return text.Contains("rmnet", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("ccmni", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("wwan", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("mobile", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("cellular", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("蜂窝", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("手机网络", StringComparison.OrdinalIgnoreCase);
+    }
     private static bool IsVirtualAdapter(NetworkInterface nic)
     {
         var text = nic.Name + " " + nic.Description;
@@ -130,6 +158,27 @@ public static class NicService
     {
         var all = ListUsableIpv4Nics();
         if (all.Count == 0) all = ListIpv4Nics();
+
+        string? hint = null;
+        try { hint = PreferredIpv4Hint?.Invoke(); } catch { /* ignore */ }
+        if (!string.IsNullOrWhiteSpace(hint)
+            && IPAddress.TryParse(hint, out var hintAddr)
+            && IsUsableUnicast(hintAddr))
+        {
+            var byHint = all.FirstOrDefault(n => n.IPv4 == hint);
+            if (byHint != null) return byHint;
+            // 枚举不到时仍用 Wi‑Fi IP 宣告（Android 常见）
+            return new NicInfo
+            {
+                Id = "platform-wifi",
+                Name = "Wi-Fi",
+                Description = "Platform Wi-Fi",
+                IPv4 = hint!,
+                SubnetMask = "255.255.255.0",
+                IsUp = true
+            };
+        }
+
         if (!string.IsNullOrWhiteSpace(ip))
         {
             var byIp = all.FirstOrDefault(n => n.IPv4 == ip);
@@ -142,13 +191,14 @@ public static class NicService
             if (byId != null) return byId;
         }
 
-        // 优先以太网/非虚拟网卡
-        return all.FirstOrDefault(n =>
-                   !n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase) &&
-                   !n.Description.Contains("VMware", StringComparison.OrdinalIgnoreCase) &&
-                   !n.Description.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase) &&
-                   !n.Description.Contains("WSL", StringComparison.OrdinalIgnoreCase) &&
-                   !n.Name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase))
+        // 优先以太网/Wi‑Fi，避开蜂窝与虚拟网卡
+        return all.FirstOrDefault(n => PreferWifiOrEthernet(n) && !IsCellularAdapter(n))
+               ?? all.FirstOrDefault(n => !IsCellularAdapter(n)
+                   && !n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
+                   && !n.Description.Contains("VMware", StringComparison.OrdinalIgnoreCase)
+                   && !n.Description.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase)
+                   && !n.Description.Contains("WSL", StringComparison.OrdinalIgnoreCase)
+                   && !n.Name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase))
                ?? all.FirstOrDefault();
     }
 

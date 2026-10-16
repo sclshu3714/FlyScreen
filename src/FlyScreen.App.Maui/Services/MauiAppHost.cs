@@ -37,12 +37,19 @@ public sealed class MauiAppHost : IAsyncDisposable
 
     private MauiAppHost()
     {
+#if ANDROID
+        // 须在 Load/EnsureLocalMachineSlot 之前：否则会把 localhost 写入槽位
+        LocalPeerIdentity.SetMachineNameResolver(
+            Platforms.Android.AndroidDeviceIdentity.ResolveFriendlyName);
+        NicService.PreferredIpv4Hint = Platforms.Android.AndroidNetworkBootstrap.TryGetWifiIpv4;
+#endif
         var (platform, deviceClass, caps) = DetectIdentity();
         LocalPeerIdentity.Configure(platform: platform, deviceClass: deviceClass, caps: caps);
-        PlatformBanner = $"{platform} · {deviceClass}";
+        PlatformBanner = $"{platform} · {deviceClass} · {LocalPeerIdentity.MachineName}";
 
         Settings = AppSettings.Load();
         Settings.EnsureLocalMachineSlot();
+        Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
@@ -102,6 +109,10 @@ public sealed class MauiAppHost : IAsyncDisposable
     public async Task StartAsync()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
+#if ANDROID
+        Platforms.Android.AndroidNetworkBootstrap.EnsureMulticastLock();
+#endif
+        Settings.EnsureLocalMachineSlot();
         await Connections.StartAsync().ConfigureAwait(false);
         MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -113,7 +124,7 @@ public sealed class MauiAppHost : IAsyncDisposable
 
             _platform.StartClipboardMonitor();
         });
-        StatusMessage?.Invoke($"网络已启动 · {PlatformBanner}");
+        StatusMessage?.Invoke($"网络已启动 · {PlatformBanner} · {Connections.BindIp}");
     }
 
     public async Task RestartNetworkingAsync()
@@ -190,6 +201,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
+                if (!_platform.AcceptsRemoteInput) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
                 if (p.Relative) _platform.InjectMouseMoveRelative(p.Dx, p.Dy);
@@ -198,6 +210,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
+                if (!_platform.AcceptsRemoteInput) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p == null) return;
                 _platform.InjectMouseButton(p.Button, p.Down);
@@ -205,6 +218,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.MouseWheel:
             {
+                if (!_platform.AcceptsRemoteInput) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p == null) return;
                 _platform.InjectMouseWheel(p.Delta, p.Horizontal);
@@ -212,6 +226,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.KeyEvent:
             {
+                if (!_platform.AcceptsRemoteInput) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
                 _platform.InjectKey(p.VirtualKey, p.Down, p.Extended);

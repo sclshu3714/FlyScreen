@@ -45,37 +45,41 @@
                 <!-- ===== 基础设置（电脑布局） ===== -->
                 <Grid x:Name="PageBasic" IsVisible="True">
                     <Border Style="{StaticResource Card}">
-                        <Grid x:Name="LayoutRootGrid" RowDefinitions="Auto,Auto,*,Auto" ColumnDefinitions="*,Auto">
-                            <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                        <!-- 标题 / 提示 / 工具栏 / 卡片矩阵（工具栏在卡片上方，横屏不挤压） -->
+                        <Grid x:Name="LayoutRootGrid" RowDefinitions="Auto,Auto,Auto,*">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
                                 <Label x:Name="LayoutTitleText" Text="电脑布局" FontSize="15" FontAttributes="Bold" VerticalOptions="Center" />
                                 <Border Grid.Column="1" BackgroundColor="{DynamicResource SubtleBg}" StrokeThickness="0"
-                          StrokeShape="RoundRectangle 8" Padding="3" VerticalOptions="Center">
+                                        StrokeShape="RoundRectangle 8" Padding="3" VerticalOptions="Center">
                                     <HorizontalStackLayout>
                                         <Button x:Name="Layout1x4Btn" Text="1×4" Style="{StaticResource SegBtn}" Clicked="LayoutMode_Clicked" />
                                         <Button x:Name="Layout2x2Btn" Text="2×2" Style="{StaticResource SegBtnActive}" Clicked="LayoutMode_Clicked" />
                                     </HorizontalStackLayout>
                                 </Border>
                             </Grid>
-                            <Label x:Name="LayoutHintText" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,10"
-                       Text="格子代表真实摆放位置。点选后可互换/移除；添加后点「应用」会同步到已连接电脑。双击对端卡片可移除。"
-                       TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                            <Label x:Name="LayoutHintText" Grid.Row="1" Margin="0,0,0,8"
+                                   Text="格子代表真实摆放位置。按住卡片拖到另一格可互换；添加/移除后点「应用」同步。双击对端卡片可移除。"
+                                   TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
 
-                            <!-- UniformGrid 式拉伸卡片区（对齐 Win MachineMatrix） -->
-                            <Border x:Name="MatrixBorder" Grid.Row="2" BackgroundColor="{DynamicResource MatrixBg}" Stroke="{DynamicResource Line}"
-                        StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="4">
+                            <HorizontalStackLayout x:Name="LayoutActions" Grid.Row="2" Spacing="8" Margin="0,0,0,10"
+                                                   HorizontalOptions="Fill">
+                                <Label x:Name="LayoutDragTipText" Text="按住拖拽互换" TextColor="{DynamicResource Blue}" FontSize="12"
+                                       VerticalOptions="Center" Margin="0,0,4,0" />
+                                <Button x:Name="AddMachineBtn" Text="＋ 添加" Style="{StaticResource NormalBtn}"
+                                        Margin="0" Padding="10,0" HeightRequest="34" MinimumWidthRequest="36"
+                                        HorizontalOptions="Start" Clicked="AddPeer_Clicked" />
+                                <Button x:Name="RemoveMachineBtn" Text="－ 移除" Style="{StaticResource NormalBtn}"
+                                        Margin="0" Padding="10,0" HeightRequest="34" MinimumWidthRequest="36"
+                                        HorizontalOptions="Start" Clicked="RemovePeer_Clicked" />
+                                <Button x:Name="ReconnectBtn" Text="↻ 刷新" Style="{StaticResource NormalBtn}"
+                                        Margin="0" Padding="10,0" HeightRequest="34" MinimumWidthRequest="36"
+                                        HorizontalOptions="Start" Clicked="Reconnect_Clicked" />
+                            </HorizontalStackLayout>
+
+                            <Border x:Name="MatrixBorder" Grid.Row="3" BackgroundColor="{DynamicResource MatrixBg}" Stroke="{DynamicResource Line}"
+                                    StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="4">
                                 <Grid x:Name="MachineMatrix" />
                             </Border>
-
-                            <VerticalStackLayout x:Name="LayoutActions" Grid.Row="2" Grid.Column="1" Margin="14,0,0,0" WidthRequest="100" Spacing="8">
-                                <Label x:Name="LayoutDragTipText" Text="拖拽互换位置" TextColor="{DynamicResource Blue}" FontSize="12"
-                         HorizontalTextAlignment="Center" Margin="0,0,0,4" />
-                                <Button x:Name="AddMachineBtn" Text="添加电脑" Style="{StaticResource NormalBtn}" WidthRequest="100" Margin="0"
-                          HorizontalOptions="Center" Clicked="AddPeer_Clicked" />
-                                <Button x:Name="RemoveMachineBtn" Text="移除电脑" Style="{StaticResource NormalBtn}" WidthRequest="100" Margin="0"
-                          HorizontalOptions="Center" Clicked="RemovePeer_Clicked" />
-                                <Button x:Name="ReconnectBtn" Text="刷新连接" Style="{StaticResource NormalBtn}" WidthRequest="100" Margin="0"
-                          HorizontalOptions="Center" Clicked="Reconnect_Clicked" />
-                            </VerticalStackLayout>
                         </Grid>
                     </Border>
                 </Grid>
@@ -274,7 +278,7 @@
                                 <Label x:Name="ColPeer" Grid.Column="2" Text="对端" FontAttributes="Bold" FontSize="12" />
                                 <Label x:Name="ColSize" Grid.Column="3" Text="大小" FontAttributes="Bold" FontSize="12" />
                                 <Label x:Name="ColStatus" Grid.Column="4" Text="状态" FontAttributes="Bold" FontSize="12" />
-                                <Label Grid.Column="5" Text="" FontSize="12" />
+                                <Label x:Name="ColOption" Grid.Column="5" Text="操作" FontAttributes="Bold" FontSize="12" />
                             </Grid>
                             <CollectionView x:Name="TransferList" Grid.Row="1" BackgroundColor="{DynamicResource ListBg}">
                                 <CollectionView.EmptyView>
@@ -292,9 +296,15 @@
                                             <Label Grid.Column="2" Text="{Binding PeerName}" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
                                             <Label Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalOptions="Center" />
                                             <Label Grid.Column="4" Text="{Binding Status}" FontSize="12" VerticalOptions="Center" />
-                                            <Button Grid.Column="5" Text="{DynamicResource Str.Delete}" FontSize="11" HeightRequest="28" Padding="4,0"
-                                Style="{StaticResource NormalBtn}"
-                                CommandParameter="{Binding}" Clicked="DeleteTransfer_Clicked" />
+                                            <Grid Grid.Column="5" WidthRequest="28" HeightRequest="28" VerticalOptions="Center">
+                                                <Button Style="{StaticResource IconActionBtn}"
+                                                        CommandParameter="{Binding}" Clicked="DeleteTransfer_Clicked"
+                                                        ToolTipProperties.Text="{DynamicResource Str.DeleteTip}" />
+                                                <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                                                      Fill="#EF4444" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
+                                                      HorizontalOptions="Center" VerticalOptions="Center"
+                                                      InputTransparent="True" />
+                                            </Grid>
                                         </Grid>
                                     </DataTemplate>
                                 </CollectionView.ItemTemplate>

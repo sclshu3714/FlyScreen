@@ -90,6 +90,17 @@ public sealed class AppSettings
         while (MachineSlots.Count < 4)
             MachineSlots.Add("");
 
+        // 迁移历史错误本机名（Android 曾把 localhost 写入槽位）
+        for (var i = 0; i < MachineSlots.Count; i++)
+        {
+            var m = MachineSlots[i]?.Trim() ?? "";
+            if (FlyScreen.Services.Network.LocalPeerIdentity.IsBogusMachineName(m)
+                && !string.Equals(m, local, StringComparison.OrdinalIgnoreCase))
+            {
+                MachineSlots[i] = local;
+            }
+        }
+
         // 只保证本机名在槽位中。绝不能按 Environment.MachineName 清空/改写其它槽：
         // 本机显示名与系统名不同时（/etc/hostname、发行版后缀等），同名槽往往是
         // 局域网里另一台真实机器（例如 WSL 测试时的 Windows 宿主机）。
