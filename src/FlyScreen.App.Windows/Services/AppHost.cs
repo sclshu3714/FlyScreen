@@ -18,8 +18,11 @@ public sealed class AppHost : IAsyncDisposable
     public event Action<string>? StatusMessage;
     /// <summary>收到对端布局并已写入设置（UI 需刷新矩阵）。</summary>
     public event Action<string>? LayoutSyncedFromPeer;
+    /// <summary>收到对端功能/行为并已写入设置（UI 需刷新选项）。</summary>
+    public event Action<string>? BehaviorSyncedFromPeer;
 
-    private int _applyingRemoteLayout;
+    private BehaviorSyncHelper? _behaviorSync;
+    private LayoutSyncHelper? _layoutSync;
 
     private AppHost()
     {
@@ -29,11 +32,31 @@ public sealed class AppHost : IAsyncDisposable
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         Clipboard = new ClipboardMonitor(Settings, Transfers);
+        _behaviorSync = new BehaviorSyncHelper(Settings, Connections);
+        _behaviorSync.StatusMessage += m => StatusMessage?.Invoke(m);
+        _behaviorSync.BehaviorSyncedFromPeer += from =>
+        {
+            Input.EasyMouseEnabled = Settings.EasyMouse;
+            try { BehaviorSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+        };
+        _layoutSync = new LayoutSyncHelper(Settings, Connections);
+        _layoutSync.StatusMessage += m => StatusMessage?.Invoke(m);
+        _layoutSync.LayoutSyncedFromPeer += from =>
+        {
+            // 只刷新 UI；由 MaintainLoop 补连/剪枝，避免整网重启导致状态来回闪
+            RestoreCursorIfLayoutSolo();
+            try { LayoutSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+        };
+        _layoutSync.KickedFromLayout += () =>
+        {
+            // 被踢出布局、断开前：先恢复本机光标
+            Input.RestoreCursorWhenLeavingCluster();
+            try { LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName); } catch { /* ignore */ }
+        };
 
         Connections.StatusMessage += m => StatusMessage?.Invoke(m);
         Transfers.StatusMessage += m => StatusMessage?.Invoke(m);
         Connections.MessageReceived += OnPeerMessage;
-        Connections.PeerLinkChanged += OnPeerLinkChangedForLayout;
 
         // 鼠标回到本机：后台异步预取远程剪贴板（文件收完后再可粘贴，不堵键鼠）
         Input.ControlTargetChanged += peer =>
@@ -131,9 +154,7 @@ public sealed class AppHost : IAsyncDisposable
                 Input.OnCursorOwnerChanged(p.OwnerMachine);
                 break;
             }
-            case MessageType.LayoutSync:
-                HandleLayoutSync(peer, msg.Payload);
-                break;
+            // LayoutSync 由 LayoutSyncHelper 处理
         }
     }
 
@@ -150,100 +171,27 @@ public sealed class AppHost : IAsyncDisposable
         return Input.IsReceivingRemoteControl;
     }
 
-    /// <summary>本机修改布局后广播给已连接对端。</summary>
-    public async Task BroadcastLayoutSyncAsync()
+    /// <summary>本机修改布局后权威替换广播（移除电脑）。</summary>
+    public Task BroadcastLayoutSyncAsync()
     {
-        if (Volatile.Read(ref _applyingRemoteLayout) != 0) return;
-
-        Settings.LayoutRevision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        Settings.EnsureLocalMachineSlot();
-        Settings.Save();
-
-        var payload = MessageCodec.JsonBytes(BuildLayoutPayload());
-        await Connections.BroadcastAsync(MessageType.LayoutSync, payload, PeerCaps.LayoutSync)
-            .ConfigureAwait(false);
-        StatusMessage?.Invoke("布局已同步到其他电脑");
+        var task = _layoutSync?.BroadcastReplaceAsync() ?? Task.CompletedTask;
+        RestoreCursorIfLayoutSolo();
+        return task;
     }
 
-    /// <summary>向指定对端推送当前布局（新连接时补发，不抬高修订号）。</summary>
-    public async Task SendLayoutToPeerAsync(string peer)
+    /// <summary>添加电脑后并集广播，对端自动合并集群（最多 4 台）。</summary>
+    public Task BroadcastLayoutMergeAsync()
+        => _layoutSync?.BroadcastMergeAsync() ?? Task.CompletedTask;
+
+    /// <summary>本机修改高级「功能 / 行为」后广播给已连接对端。</summary>
+    public Task BroadcastBehaviorSyncAsync()
+        => _behaviorSync?.BroadcastAsync() ?? Task.CompletedTask;
+
+    /// <summary>布局仅剩本机时恢复可见光标（移除对端 / 同步后调用）。</summary>
+    public void RestoreCursorIfLayoutSolo()
     {
-        if (Volatile.Read(ref _applyingRemoteLayout) != 0) return;
-        if (Settings.LayoutRevision <= 0) return; // 从未主动同步过则不推，避免抢布局
-        if (!Connections.IsPeerReachable(peer)) return;
-        if (!Connections.PeerSupports(peer, PeerCaps.LayoutSync)) return;
-
-        var payload = MessageCodec.JsonBytes(BuildLayoutPayload());
-        await Connections.SendToAsync(peer, MessageType.LayoutSync, payload).ConfigureAwait(false);
-    }
-
-    private LayoutSyncPayload BuildLayoutPayload()
-    {
-        var slots = Settings.MachineSlots.ToList();
-        while (slots.Count < 4) slots.Add("");
-        if (slots.Count > 4) slots = slots.Take(4).ToList();
-
-        return new LayoutSyncPayload
-        {
-            SourceMachine = LocalPeerIdentity.MachineName,
-            MachineSlots = slots,
-            TwoRow = Settings.TwoRow,
-            Revision = Settings.LayoutRevision
-        };
-    }
-
-    private void HandleLayoutSync(string peer, byte[] payload)
-    {
-        var sync = MessageCodec.DecodeJson<LayoutSyncPayload>(payload);
-        if (sync == null) return;
-        if (IsLocalMachineName(sync.SourceMachine))
-            return;
-
-        if (sync.Revision > 0 && sync.Revision <= Settings.LayoutRevision)
-            return;
-
-        if (sync.MachineSlots == null || sync.MachineSlots.Count == 0)
-            return;
-
-        if (Interlocked.CompareExchange(ref _applyingRemoteLayout, 1, 0) != 0)
-            return;
-
-        try
-        {
-            var slots = sync.MachineSlots.Select(s => s?.Trim() ?? "").ToList();
-            while (slots.Count < 4) slots.Add("");
-            if (slots.Count > 4) slots = slots.Take(4).ToList();
-
-            Settings.MachineSlots = slots;
-            Settings.TwoRow = sync.TwoRow;
-            Settings.LayoutRevision = sync.Revision > 0
-                ? sync.Revision
-                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            Settings.EnsureLocalMachineSlot();
-            Settings.Save();
-
-            var from = string.IsNullOrWhiteSpace(sync.SourceMachine) ? peer : sync.SourceMachine;
-            StatusMessage?.Invoke($"已同步布局 ← {from}");
-            try { LayoutSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
-
-            _ = RestartNetworkingQuietAsync();
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _applyingRemoteLayout, 0);
-        }
-    }
-
-    private async Task RestartNetworkingQuietAsync()
-    {
-        try
-        {
-            await RestartNetworkingAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-            // ignore
-        }
+        if (LayoutSlotMerge.IsOnlyLocal(Settings.MachineSlots, LocalPeerIdentity.MachineName))
+            Input.RestoreCursorWhenLeavingCluster();
     }
 
     private static bool IsLocalMachineName(string? name)
@@ -256,17 +204,12 @@ public sealed class AppHost : IAsyncDisposable
                && string.Equals(name, env, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void OnPeerLinkChangedForLayout(string name, bool outbound, bool inbound)
-    {
-        // 新链路可用时补发布局，让晚加入的电脑也对齐
-        if (!(outbound || inbound)) return;
-        if (Volatile.Read(ref _applyingRemoteLayout) != 0) return;
-        _ = SendLayoutToPeerAsync(name);
-    }
-
     public async ValueTask DisposeAsync()
     {
-        Connections.PeerLinkChanged -= OnPeerLinkChangedForLayout;
+        _layoutSync?.Detach();
+        _layoutSync = null;
+        _behaviorSync?.Detach();
+        _behaviorSync = null;
         Clipboard.Dispose();
         Input.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

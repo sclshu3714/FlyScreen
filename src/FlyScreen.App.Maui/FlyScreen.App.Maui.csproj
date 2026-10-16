@@ -25,8 +25,10 @@
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- 非打包：F5 用 Project 配置；VS 项目右键「发布」对 unpackaged 常不可用，见 Properties/PublishProfiles/SingleFile-win-x64.pubxml -->
     <WindowsPackageType>None</WindowsPackageType>
     <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
+    <IsPublishable>true</IsPublishable>
     <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
 
@@ -50,6 +52,22 @@
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- win-x64 发布：单文件自包含（与 PublishProfiles/SingleFile-win-x64.pubxml / Publish-FlyScreenMaui.ps1 一致） -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
+    <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+  </PropertyGroup>
+
+  <!-- VS / msbuild：dotnet msbuild -t:PublishMauiWinX64 -->
+  <Target Name="PublishMauiWinX64">
+    <PropertyGroup>
+      <_FsMauiWinPub>$(MSBuildThisFileDirectory)bin\publish\maui-win-x64</_FsMauiWinPub>
+    </PropertyGroup>
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectFullPath)&quot; -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o &quot;$(_FsMauiWinPub)&quot;" />
+    <Message Importance="High" Text="MAUI win-x64 → $(_FsMauiWinPub)" />
+  </Target>
 
   <ItemGroup>
     <!-- Color=自适应图标底板；与 png 黑底一致，避免启动器回退默认紫标 -->

@@ -25,6 +25,11 @@ public sealed class EdgeMouseVirtualCursor
     public bool EntryStickyActive { get; private set; }
 
     /// <summary>
+    /// 是否启用进入边粘滞。无障碍模式应关闭：否则慢速沿入口边外推会被 <see cref="ClampInside"/> 清掉过冲，无法回本机。
+    /// </summary>
+    public bool EntryStickyEnabled { get; set; } = true;
+
+    /// <summary>
     /// 开始控制某台对端。
     /// </summary>
     /// <param name="entryX">入口归一化 X</param>
@@ -35,7 +40,7 @@ public sealed class EdgeMouseVirtualCursor
         Nx = Math.Clamp(entryX, 0.02, 0.98);
         Ny = Math.Clamp(entryY, 0.02, 0.98);
         EntryEdge = peerSide == 0 ? 0 : -peerSide;
-        EntryStickyActive = EntryEdge != 0;
+        EntryStickyActive = EntryStickyEnabled && EntryEdge != 0;
     }
 
     public void Set(double nx, double ny)

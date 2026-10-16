@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MAUI Android：APK → artifacts/release/FlyScreen-{ver}-maui-android.apk -->
+  <Import Project="PublishProject.Common.props" />
+  <PropertyGroup>
+    <FlyScreenPublishTitle>发布 MAUI Android APK (maui-android)</FlyScreenPublishTitle>
+    <FlyScreenPublishRid>maui-android</FlyScreenPublishRid>
+    <FlyScreenPublishKind>Apk</FlyScreenPublishKind>
+    <FlyScreenPublishStagingDir>src\FlyScreen.App.Maui\bin\publish\maui-android</FlyScreenPublishStagingDir>
+    <FlyScreenPublishCommand>dotnet publish "src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj" -c Release -f net10.0-android -p:AndroidPackageFormat=apk -o "src\FlyScreen.App.Maui\bin\publish\maui-android"</FlyScreenPublishCommand>
+    <FlyScreenPublishPostCommand>powershell -NoProfile -ExecutionPolicy Bypass -File "build\Ensure-MauiSignedApk.ps1" -OutDir "src\FlyScreen.App.Maui\bin\publish\maui-android" -PackageId "com.xuanniao.flyscreen" -IntermediateDir "src\FlyScreen.App.Maui\obj\Release\net10.0-android\android\bin"</FlyScreenPublishPostCommand>
+  </PropertyGroup>
+  <Import Project="PublishProject.Common.targets" />
+</Project>

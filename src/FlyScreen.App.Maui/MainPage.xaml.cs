@@ -4,6 +4,7 @@ using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Update;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.AppMaui;
@@ -19,7 +20,7 @@ public partial class MainPage : ContentPage
     private IDispatcherTimer? _statusTimer;
     private const string DragSlotKey = "FlyScreen.MachineSlot";
     private readonly MauiUpdateChecker _helpUpdater = new();
-    private MauiUpdateCheckResult? _helpLastCheck;
+    private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
     private bool _helpFixReady;
     private bool _compactLayout;
@@ -62,6 +63,11 @@ public partial class MainPage : ContentPage
             LoadUi();
             ApplyLocalizedUi();
             RebuildMatrix();
+        });
+        _host.BehaviorSyncedFromPeer += _ => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            LoadUi();
+            ApplyLocalizedUi();
         });
         _host.Connections.Discovery.PeersUpdated += _ => MainThread.BeginInvokeOnMainThread(RefreshDiscovery);
         _host.Connections.PeerLinkChanged += (_, _, _) => MainThread.BeginInvokeOnMainThread(RefreshSlotStatuses);
@@ -313,6 +319,7 @@ public partial class MainPage : ContentPage
         HideMouseCheck.IsChecked = s.HideMouseAtEdge;
         DrawCursorCheck.IsChecked = s.DrawMouseCursor;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
         SameSubnetCheck.IsChecked = s.SameSubnetOnly;
         ShowStatusCheck.IsChecked = s.ShowStatusMessages;
         AutoStartCheck.IsChecked = _host.Platform.SupportsAutoStart
@@ -388,6 +395,11 @@ public partial class MainPage : ContentPage
         RelativeMouseLabel.Text = Loc.T("Opt.MoveRel");
         BlockCornersLabel.Text = Loc.T("Opt.BlockCorner");
         EasyMouseLabel.Text = Loc.T("Opt.EasyMouse");
+        EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
+        EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
+        EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
+        EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        RefreshEdgeCrossTip();
 
         HotTitleText.Text = Loc.T("Hot.Title");
         HotSwitchText.Text = Loc.T("Hot.Switch");
@@ -1084,9 +1096,18 @@ public partial class MainPage : ContentPage
         var theme = ThemeDark.IsChecked == true ? MauiThemeService.Dark : MauiThemeService.Light;
         var lang = ReadSelectedLanguage();
 
+        var prevSlots = _host.Settings.MachineSlots.ToList();
+        var newSlots = _slots.Select(s => s.Name).ToList();
+        var prevSet = new HashSet<string>(
+            LayoutSlotMerge.NonEmptyNames(prevSlots), StringComparer.OrdinalIgnoreCase);
+        var newSet = new HashSet<string>(
+            LayoutSlotMerge.NonEmptyNames(newSlots), StringComparer.OrdinalIgnoreCase);
+        var removedAny = prevSet.Any(n => !newSet.Contains(n));
+        var layoutMerge = !removedAny && newSet.Count >= prevSet.Count;
+
         _host.ApplyFromUi(
             KeyEntry.Text ?? "",
-            _slots.Select(s => s.Name).ToList(),
+            newSlots,
             _twoRow,
             tcp,
             udp,
@@ -1108,16 +1129,53 @@ public partial class MainPage : ContentPage
             HotkeyReconnectEntry.Text,
             HotkeyExitEntry.Text,
             theme,
-            lang);
+            lang,
+            ReadEdgeCrossModeUi());
 
         Loc.SetCulture(lang);
         MauiThemeService.Apply(theme, this);
         LoadUi();
         ApplyLocalizedUi();
         RebuildMatrix();
-        await _host.BroadcastLayoutSyncAsync();
+        if (layoutMerge)
+            await _host.BroadcastLayoutMergeAsync();
+        else
+            await _host.BroadcastLayoutSyncAsync();
+        await _host.BroadcastBehaviorSyncAsync();
         await _host.RestartNetworkingAsync();
         StatusLabel.Text = Loc.T("Sys.Applied");
+    }
+
+    private void LoadEdgeCrossModeUi(int mode)
+    {
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossDoubleRadio.IsChecked = mode == 1;
+        EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        RefreshEdgeCrossTip();
+    }
+
+    private int ReadEdgeCrossModeUi()
+    {
+        if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
+        if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        return 0;
+    }
+
+    private void EdgeCrossMode_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+        if (sender is RadioButton { IsChecked: not true }) return;
+        RefreshEdgeCrossTip();
+    }
+
+    private void RefreshEdgeCrossTip()
+    {
+        var key = ReadEdgeCrossModeUi() switch
+        {
+            1 => "Tip.EdgeCross.DoubleTap",
+            2 => "Tip.EdgeCross.SpeedBurst",
+            _ => "Tip.EdgeCross.BarrierFree"
+        };
+        EdgeCrossTipText.Text = Loc.T(key);
     }
 
     private async void Reconnect_Clicked(object? sender, EventArgs e)
@@ -1372,6 +1430,16 @@ public partial class MainPage : ContentPage
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(_helpLastCheck.AssetDownloadUrl))
+        {
+            var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
+                ? MauiUpdateChecker.ReleasesUrl
+                : _helpLastCheck.ReleaseUrl;
+            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url);
+            try { await Launcher.Default.OpenAsync(url); } catch { /* ignore */ }
+            return;
+        }
+
         var ok = await DisplayAlertAsync(
             Loc.T("Help.ConfirmUpdateTitle"),
             string.Format(Loc.T("Help.ConfirmUpdate"),
@@ -1380,16 +1448,32 @@ public partial class MainPage : ContentPage
             "是", "否");
         if (!ok) return;
 
+        SetHelpBusy(true);
         HelpUpdateProgressBar.IsVisible = true;
-        HelpUpdateProgressBar.Progress = 0.3;
-        ShowHelpLog("正在打开更新页面…");
+        HelpUpdateProgressBar.Progress = 0;
         try
         {
-            var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
-                ? MauiUpdateChecker.ReleasesUrl
-                : _helpLastCheck.ReleaseUrl;
-            await Launcher.Default.OpenAsync(url);
-            ShowHelpLog("已打开 Releases 页面，请下载并安装新版本。\n" + url);
+            var progress = new Progress<UpdateDownloadProgress>(p =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    if (p.Percent >= 0)
+                        HelpUpdateProgressBar.Progress = Math.Clamp(p.Percent / 100.0, 0, 1);
+                    if (!string.IsNullOrWhiteSpace(p.Message))
+                        ShowHelpLog(p.Message);
+                });
+            });
+            var apply = await MauiUpdateInstaller.DownloadAndApplyAsync(_helpLastCheck, progress)
+                .ConfigureAwait(true);
+            ShowHelpLog(apply.Message);
+            if (apply.ShouldExit)
+            {
+                ShowHelpLog(Loc.T("Help.Restarting"));
+                await Task.Delay(400).ConfigureAwait(true);
+                Application.Current?.Quit();
+                Environment.Exit(0);
+                return;
+            }
         }
         catch (Exception ex)
         {
@@ -1399,6 +1483,7 @@ public partial class MainPage : ContentPage
         {
             HelpUpdateProgressBar.IsVisible = false;
             HelpUpdateProgressBar.Progress = 0;
+            SetHelpBusy(false);
         }
     }
 

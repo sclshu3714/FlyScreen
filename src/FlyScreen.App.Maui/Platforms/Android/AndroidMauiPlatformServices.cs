@@ -81,6 +81,14 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         }
     }
 
+    public void RestoreCursorWhenLeavingCluster()
+    {
+        if (!_receiving) return;
+        _receiving = false;
+        FlyScreenInputAccessibilityService.Instance?.EndSession();
+        ControlTargetChanged?.Invoke(null);
+    }
+
     public void StartClipboardMonitor()
     {
         _clipCts = new CancellationTokenSource();

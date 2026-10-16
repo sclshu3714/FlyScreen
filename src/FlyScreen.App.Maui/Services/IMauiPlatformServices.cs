@@ -24,6 +24,8 @@ public interface IMauiPlatformServices
     void InjectKey(ushort vk, bool down, bool extended);
     void BeginReceivingRemoteControl(double entryX, double entryY);
     void OnCursorOwnerChanged(string ownerMachine);
+    /// <summary>布局仅剩本机或被踢出集群时恢复本机光标。</summary>
+    void RestoreCursorWhenLeavingCluster();
 
     void StartClipboardMonitor();
     void StopClipboardMonitor();
@@ -61,6 +63,7 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void InjectKey(ushort vk, bool down, bool extended) { }
     public void BeginReceivingRemoteControl(double entryX, double entryY) { }
     public void OnCursorOwnerChanged(string ownerMachine) { }
+    public void RestoreCursorWhenLeavingCluster() { }
     public void StartClipboardMonitor() { }
     public void StopClipboardMonitor() { }
     public void ArmRemoteClipboardForPaste() { }

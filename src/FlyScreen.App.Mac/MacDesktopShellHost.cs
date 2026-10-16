@@ -39,6 +39,12 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         remove => _host.LayoutSyncedFromPeer -= value;
     }
 
+    public event Action<string>? BehaviorSyncedFromPeer
+    {
+        add => _host.BehaviorSyncedFromPeer += value;
+        remove => _host.BehaviorSyncedFromPeer -= value;
+    }
+
     public string PlatformStatusLine
     {
         get
@@ -61,6 +67,8 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();
     public Task BroadcastLayoutSyncAsync() => _host.BroadcastLayoutSyncAsync();
+    public Task BroadcastLayoutMergeAsync() => _host.BroadcastLayoutMergeAsync();
+    public Task BroadcastBehaviorSyncAsync() => _host.BroadcastBehaviorSyncAsync();
 
     public bool GetAutoStartEnabled() => false;
     public void SetAutoStartEnabled(bool enabled) { }

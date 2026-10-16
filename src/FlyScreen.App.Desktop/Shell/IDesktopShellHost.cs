@@ -16,6 +16,7 @@ public interface IDesktopShellHost
 
     event Action<string>? StatusMessage;
     event Action<string>? LayoutSyncedFromPeer;
+    event Action<string>? BehaviorSyncedFromPeer;
 
     /// <summary>侧栏底部附加状态（如会话类型、辅助功能）。</summary>
     string PlatformStatusLine { get; }
@@ -29,6 +30,8 @@ public interface IDesktopShellHost
     Task StartAsync();
     Task RestartNetworkingAsync();
     Task BroadcastLayoutSyncAsync();
+    Task BroadcastLayoutMergeAsync();
+    Task BroadcastBehaviorSyncAsync();
 
     bool GetAutoStartEnabled();
     void SetAutoStartEnabled(bool enabled);

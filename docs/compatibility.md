@@ -23,9 +23,18 @@
 
 ## 3. 平台包与自动更新
 
-- 更新器只下载**本平台**资源（按 OS / RID 匹配文件名）。  
-- Win stable 用户不得被导向未签名的实验包。  
-- 新平台初期可仅提供手动下载，不强制接入自动更新。
+Release 资源命名：`FlyScreen-{version}-{rid}{后缀}`（见 ROADMAP §4.2），发版时各端**各上传一个单文件**。
+
+| 端 | rid 示例 | 检查更新 | 自动安装 |
+|----|----------|----------|----------|
+| WPF Windows stable | `win-x64`（`.exe`） | ✅ 排除 maui | ✅ 下载后自替换 exe 并重启 |
+| MAUI Windows | `maui-win-x64` | ✅ | ✅ 同左（`SelfReplaceInstaller`） |
+| MAUI Android | `maui-android` | ✅ | ✅ 下载 APK → 系统安装界面（需允许未知来源） |
+| Avalonia Mac/Linux | `osx-*` / `linux-*` | ✅ | ✅ 下载后 bash 自替换并重启 |
+| MAUI Mac | `maui-osx-*` | ✅ | ✅ 自替换 |
+
+实现：`FlyScreen.Core/Services/Update/`（`GitHubReleaseClient` + `SelfReplaceInstaller` + 通道匹配）；Android 另见 `AndroidApkUpdater`。  
+同一 Release 挂多端单文件；各端只下载自己的 rid。产物：`artifacts/release/`。
 
 ## 4. 支持矩阵（发版维护）
 

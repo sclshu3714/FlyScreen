@@ -49,7 +49,9 @@ public enum MessageType : byte
     /// <summary>电脑布局同步（槽位 + 1×4/2×2）。</summary>
     LayoutSync = 61,
     /// <summary>当前应显示光标的电脑（其它机器隐藏光标）。</summary>
-    CursorOwner = 62
+    CursorOwner = 62,
+    /// <summary>高级「功能 / 行为」选项同步。</summary>
+    BehaviorSync = 63
 }
 
 public readonly struct NetMessage
@@ -343,6 +345,34 @@ public sealed class LayoutSyncPayload
     public bool TwoRow { get; set; }
     /// <summary>UTC 毫秒时间戳，用于忽略过期布局。</summary>
     public long Revision { get; set; }
+    /// <summary>
+    /// 0=<see cref="LayoutSyncModes.Replace"/> 权威替换；
+    /// 1=<see cref="LayoutSyncModes.Merge"/> 并集；
+    /// 2=<see cref="LayoutSyncModes.MergeReject"/> 合并失败。
+    /// </summary>
+    public int Mode { get; set; }
+}
+
+/// <summary>高级页「功能 / 行为」跨机同步（不含开机自启、热键、主题语言等本机项）。</summary>
+public sealed class BehaviorSyncPayload
+{
+    public string SourceMachine { get; set; } = "";
+    /// <summary>UTC 毫秒时间戳，用于忽略过期设置。</summary>
+    public long Revision { get; set; }
+
+    public bool WrapMouse { get; set; }
+    public bool ShareClipboard { get; set; } = true;
+    public bool TransferFile { get; set; } = true;
+    public bool HideMouseAtEdge { get; set; } = true;
+    public bool DrawMouseCursor { get; set; } = true;
+    public bool SameSubnetOnly { get; set; }
+    public bool ShowStatusMessages { get; set; } = true;
+    public bool BlockScreenSaver { get; set; } = true;
+    public bool MoveMouseRelatively { get; set; }
+    public bool BlockMouseAtCorners { get; set; }
+    public bool EasyMouse { get; set; } = true;
+    /// <summary>0 无障碍 / 1 双击 / 2 极速。</summary>
+    public int EdgeCrossMode { get; set; }
 }
 
 public sealed class CursorOwnerPayload

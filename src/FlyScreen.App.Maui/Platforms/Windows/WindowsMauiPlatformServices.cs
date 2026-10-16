@@ -101,6 +101,9 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     public void OnCursorOwnerChanged(string ownerMachine)
         => _router?.OnCursorOwnerChanged(ownerMachine);
 
+    public void RestoreCursorWhenLeavingCluster()
+        => _router?.RestoreCursorWhenLeavingCluster();
+
     public void StartClipboardMonitor()
     {
         _clipMonitor?.Dispose();

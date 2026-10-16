@@ -29,9 +29,11 @@ public sealed class MacAppHost : IAsyncDisposable
     public MacInputInjector Injector { get; }
     public MacInputCapture Capture { get; }
     public LayoutSyncHelper LayoutSync { get; }
+    public BehaviorSyncHelper BehaviorSync { get; }
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
+    public event Action<string>? BehaviorSyncedFromPeer;
 
     private bool _receivingRemote;
 
@@ -52,7 +54,16 @@ public sealed class MacAppHost : IAsyncDisposable
         LayoutSync.LayoutSyncedFromPeer += peer =>
         {
             LayoutSyncedFromPeer?.Invoke(peer);
-            _ = RestartNetworkingAsync();
+        };
+        LayoutSync.KickedFromLayout += () =>
+        {
+            LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
+        };
+        BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
+        BehaviorSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        BehaviorSync.BehaviorSyncedFromPeer += peer =>
+        {
+            BehaviorSyncedFromPeer?.Invoke(peer);
         };
         Injector = new MacInputInjector();
         Capture = new MacInputCapture();
@@ -79,7 +90,11 @@ public sealed class MacAppHost : IAsyncDisposable
         await Connections.StartAsync().ConfigureAwait(false);
     }
 
-    public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastAsync();
+    public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
+
+    public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
+
+    public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
 
     public void RefreshCapsForPermission()
     {
@@ -168,6 +183,7 @@ public sealed class MacAppHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         LayoutSync.Detach();
+        BehaviorSync.Detach();
         Capture.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         if (ReferenceEquals(_instance, this))

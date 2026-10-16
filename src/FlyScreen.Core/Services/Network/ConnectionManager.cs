@@ -90,11 +90,21 @@ public sealed class ConnectionManager : IAsyncDisposable
         try { _cts?.Cancel(); } catch { /* ignore */ }
         _discovery.Stop();
 
-        foreach (var link in _links.Values)
-            await link.DisposeAsync().ConfigureAwait(false);
-        _links.Clear();
+        await DropAllPeerLinksAsync().ConfigureAwait(false);
 
         _cts = null;
+    }
+
+    /// <summary>断开全部对端链路（保留发现/监听）。被踢出布局时使用。</summary>
+    public async Task DropAllPeerLinksAsync()
+    {
+        foreach (var link in _links.Values.ToArray())
+        {
+            try { await link.DisposeAsync().ConfigureAwait(false); }
+            catch { /* ignore */ }
+        }
+
+        _links.Clear();
     }
 
     public IEnumerable<string> ConfiguredPeers()
@@ -250,6 +260,8 @@ public sealed class ConnectionManager : IAsyncDisposable
         {
             try
             {
+                await PruneUnconfiguredLinksAsync().ConfigureAwait(false);
+
                 foreach (var peer in ConfiguredPeers())
                     await EnsureOutboundAsync(peer, ct).ConfigureAwait(false);
 
@@ -260,6 +272,27 @@ public sealed class ConnectionManager : IAsyncDisposable
             catch { /* ignore */ }
 
             await Task.Delay(2000, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>断开并移除已不在布局中的对端链路。</summary>
+    public async Task DropPeerAsync(string peerName)
+    {
+        if (string.IsNullOrWhiteSpace(peerName)) return;
+        if (!_links.TryRemove(peerName, out var link)) return;
+        try { await link.DisposeAsync().ConfigureAwait(false); }
+        catch { /* ignore */ }
+        PeerLinkChanged?.Invoke(peerName, false, false);
+    }
+
+    /// <summary>清理已不在布局中的对端链路。</summary>
+    public async Task PruneUnconfiguredLinksAsync()
+    {
+        var allowed = new HashSet<string>(ConfiguredPeers(), StringComparer.OrdinalIgnoreCase);
+        foreach (var name in _links.Keys.ToArray())
+        {
+            if (allowed.Contains(name)) continue;
+            await DropPeerAsync(name).ConfigureAwait(false);
         }
     }
 
@@ -467,19 +500,13 @@ public sealed class ConnectionManager : IAsyncDisposable
             }
         }
 
+        // 仅接受已在布局槽位中的电脑；禁止入站自动占空槽（否则移除后会被对端重连加回）
         var configured = ConfiguredPeers().Contains(hs.MachineName, StringComparer.OrdinalIgnoreCase);
-        if (!configured && !_settings.MachineSlots.Any(string.IsNullOrWhiteSpace))
+        if (!configured)
         {
             StatusMessage?.Invoke($"未授权主机尝试连接: {hs.MachineName}");
             await session.DisposeAsync().ConfigureAwait(false);
             return;
-        }
-
-        // 自动填入空槽位
-        if (!configured)
-        {
-            var idx = _settings.MachineSlots.FindIndex(string.IsNullOrWhiteSpace);
-            if (idx >= 0) _settings.MachineSlots[idx] = hs.MachineName;
         }
 
         var ack = MessageCodec.EncodeJson(MessageType.HandshakeAck, LocalPeerIdentity.Enrich(new HandshakePayload
