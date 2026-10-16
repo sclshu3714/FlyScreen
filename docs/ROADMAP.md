@@ -65,7 +65,7 @@
 
 | 层级 | 允许 | 禁止 |
 |------|------|------|
-| Core | `net8.0`、纯 BCL | WPF、WinForms、`DllImport`、各移动 SDK |
+| Core | `net10.0`、纯 BCL | WPF、WinForms、`DllImport`、各移动 SDK |
 | Windows Adapter | Core + Win32 | 被 Mac/Android 工程直接引用实现细节 |
 | App.Windows | Core + Windows Adapter + WPF | 新平台 UI 混写进 MainWindow |
 
@@ -212,8 +212,8 @@ W1–W5 可与 Win 热修并行；热修优先进 Windows 层，合入 Core 须�
 ```text
 FlyScreen.sln
 src/
-  FlyScreen.Core/       # net8.0：协议、网络、模型、本地化、UiMarshal
-  FlyScreen.Windows/    # net8.0-windows：Win32 Native、AutoStart
+  FlyScreen.Core/       # net10.0：协议、网络、模型、本地化、UiMarshal
+  FlyScreen.Windows/    # net10.0-windows：Win32 Native、AutoStart
   FlyScreen.App.Windows/            # WPF App：UI、AppHost、Input、Clipboard、诊断、更新
 ```
 
@@ -299,20 +299,19 @@ src/
 ### 6.3 阶段 W3 — Android 手机 / 平板
 
 **周期：** 6–8 周 · **版本：** 1.4.x · **工程：** `mobile/android`（Kotlin）  
-**进度：** 骨架已落地 — 协议帧对齐 Core、UDP 发现、TCP 握手（Caps）、触控板相对鼠标、前台服务。剪贴板/文件/软键盘待续。见 [runbooks/build-android.md](runbooks/build-android.md)。
+**进度：** 主交付转 **MAUI（W7）** — 触控板/键盘直发、剪贴板文本、直传、可选无障碍被桌面控；`mobile/android` Kotlin 工程仍为早期骨架。见 [runbooks/build-maui.md](runbooks/build-maui.md)、[runbooks/build-android.md](runbooks/build-android.md)。
 
 | 形态 | 角色 | 功能 | 现状 |
 |------|------|------|------|
-| Phone | 控 PC 为主 | 触控板、滚轮、可选软键盘；文本剪贴板；收文件 | ✅ 触控板+滚轮+连接；⏳ 剪贴板/文件/软键盘 |
-| Tablet | 同 Phone | 更大触控板 UI | ✅ flavor `tablet`；布局后续可调 |
+| Phone | 控 PC 为主 | 触控板、滚轮、系统输入法；文本剪贴板；收文件 | ✅ MAUI 触控板/键盘/剪贴板/直传 |
+| Tablet | 同 Phone | 更大触控板 UI | ✅ MAUI 同构 |
 | TV | **本阶段不做** | → W4 | — |
 
-- `DeviceClass=Phone|Tablet`；**无** `EdgeMouse` / `LayoutSync`；有 `AbsPointer`。
-- **主路径：Android 控桌面**；桌面控 Android 不做承诺。
-- 独立 APK；前台服务保活；断线只摘该 peer。
-- **不进入**桌面 1×4/2×2 布局槽（见 device-matrix）。
+- `DeviceClass=Phone|Tablet`；**无** `LayoutSync`；有 `AbsPointer`。MAUI 另宣告 `EdgeMouse`+`InjectInput`（无障碍授权后桌面可切入）。
+- **主路径：Android 控桌面**；**桌面控 Android**：MAUI 可选（无障碍），键码注入降级。
+- 独立 APK；断线只摘该 peer。可出现在布局槽以便邻接（不参与 LayoutSync）。
 
-验收：Phone/Tablet→Win 触控板；文本剪贴板；Win 门禁全过。
+验收：Phone/Tablet→Win 触控板；文本剪贴板；可选 Easy Mouse 切入手机；Win 门禁全过。
 
 ---
 
@@ -377,7 +376,9 @@ src/
 3. ~~Windows：钩子/注入/托盘/自启/文本剪贴板（对照移植，不耦合 WPF 工程）。~~ ✅
 4. ~~Android：触控板 AbsPointer + 文本剪贴板 + 直传；Phone 启动分流。~~ ✅
 5. ~~侧栏 Path 彩标、安全/关于/帮助页、窄屏抽屉与 Android 侧栏可点。~~ ✅
-6. ⏳ Windows / Android 与 WPF 真机交叉联调；图标/启动图；文件剪贴板 OLE 体验打磨  
+6. ~~触控板左键/中键、键盘直发；AbsPointer 门控对齐 Win/MAUI/Linux/Mac；无障碍被控；Signed APK 兜底。~~ ✅（2026-10-16）
+7. ⏳ Windows / Android 与 WPF 真机交叉联调打磨；文件剪贴板 OLE；无障碍键码完整度  
+
 
 #### 不做
 

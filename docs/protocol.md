@@ -53,8 +53,8 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 类别 | 用途 | 多端注意 |
 |------|------|----------|
 | 连接 / 心跳 | 保活与身份 | 移动端后台可能更长心跳间隔，可配置但默认兼容 |
-| 键鼠事件 | 相对/按键/滚轮 | 移动端映射为 AbsPointer 事件类型（新增消息或扩展字段） |
-| 焦点 / 布局 | 切换与同步 | 仅 Desktop+LayoutSync |
+| 键鼠事件 | 相对/按键/滚轮 | Phone 触控板发相对 `MouseMove` + `MouseButton`/`MouseWheel`/`KeyEvent`；桌面以 `SwitchFocus` 或 AbsPointer 自动进入被控后注入 |
+| 焦点 / 布局 | 切换与同步 | `SwitchFocus`：EdgeMouse 切入与 AbsPointer 会话；`LayoutSync` 仅 Desktop 交集 |
 | 剪贴板宣告 / 拉取 | 文本图片文件 | 电视端可能缺省 |
 | 直接传输 | 推路径 | 移动端目标为应用收件箱语义 |
 | 发现 UDP | 局域网 | 移动端注意省电与权限 |
@@ -95,3 +95,4 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 2026-10-14 | W3：Android 握手 Platform=Android、DeviceClass=Phone/Tablet、Caps=AbsPointer+… |
 | 2026-10-14 | W5：HarmonyOS Phone/Tablet/Desktop Caps；Platform=HarmonyOS |
 | 2026-10-14 | W0 收口：Caps 交集门控 + Core.Tests |
+| 2026-10-16 | MAUI `AndroidMobile` / `HarmonyMobile`：AbsPointer+ClipboardText+DirectTransfer，另含 **EdgeMouse+InjectInput**（无 LayoutSync）；桌面 AbsPointer 接收侧 `EnsureAcceptsRemoteInput`（Win/MAUI/Linux/Mac） |

@@ -46,27 +46,29 @@
 
 | 能力 | Android Phone | Android Tablet | Android TV | 鸿蒙手机 | 鸿蒙平板 |
 |------|---------------|----------------|------------|----------|----------|
-| EdgeMouse | ❌ | ❌ | ❌ | ❌ | ❌ |
+| EdgeMouse | ⚠️ 可选² | ⚠️ 可选² | ❌ | ❌ | ❌ |
 | AbsPointer（控桌面） | ✅ | ✅ | ✅ 遥控映射 | ✅ | ✅ |
 | ClipboardText | ✅ | ✅ | ⚠️ | ✅ | ✅ |
 | ClipboardFiles | ⚠️ | ⚠️ | ❌ | ⚠️ | ⚠️ |
 | DirectTransfer | ✅ 收件箱 | ✅ | ⚠️ | ✅ | ✅ |
 | LayoutSync | ❌ | ❌ | ❌ | ❌ | ❌ |
-| InjectInput（被桌面控） | ⚠️ 后期 | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| InjectInput（被桌面控） | ⚠️→✅² | ⚠️→✅² | ⚠️ | ⚠️ | ⚠️ |
 | CaptureInput（当主机） | ❌→触控板充当 | 同左 | 遥控主机 | 同左 | 同左 |
+
+² **MAUI Android（`App.Maui`）**：握手宣告 `EdgeMouse` + `InjectInput`；桌面边缘切入手机后，经**无障碍服务「玄鸟键鼠注入」**派发点击/滑动（须用户授权）。完整键码注入仍受限。Kotlin 独立工程（`mobile/android`）仍为旧 Caps，不含此项。
 
 ### 3.3 一期主路径（产品默认）
 
 1. **Desktop ↔ Desktop**：完整键鼠 + 布局（Wayland 除外）。  
-2. **Phone/Tablet → Desktop**：触控板控键鼠 + 文本剪贴板 + 文件接收。  
+2. **Phone/Tablet → Desktop**：触控板控键鼠 + 文本剪贴板 + 文件接收（MAUI：系统输入法直发对端）。  
 3. **Tv → Desktop**：方向键 / 简易指针遥控。  
-4. **Desktop → Phone**：一期不承诺。
+4. **Desktop → Phone**：MAUI Android 在开启无障碍后支持 Easy Mouse 切入与点击/滑动；完整键盘注入仍为降级。
 
 ## 4. 布局与槽位
 
-- 仅 `DeviceClass=Desktop` 且具备 `LayoutSync` 的设备进入 1×4 / 2×2 布局槽。  
-- Phone / Tablet / Tv 显示在「移动设备 / 其他设备」列表，**不占用**四槽布局（避免破坏现有最多 4 台桌面逻辑）。  
-- 若未来允许多于 4 台桌面，另开版本与协议变更，不在 W0–W5 默认范围。
+- 具备 `LayoutSync` 的 `Desktop` 进入 1×4 / 2×2 布局槽并参与布局同步。  
+- Phone / Tablet **不宣告** `LayoutSync`，但可出现在布局槽中以便边缘邻接（MAUI/WPF 当前行为）；不参与布局广播主路径。  
+- 若未来允许多于 4 台桌面，另开版本与协议变更。
 
 ## 5. 形态差异验收要点
 
@@ -94,3 +96,4 @@
 |------|------|
 | 2026-10-13 | 首版 |
 | 2026-10-14 | Mac/Linux 桌面 ClipboardFiles+DirectTransfer 落地；无头仅直传+文本通道 |
+| 2026-10-16 | MAUI Android：`AndroidMobile` 含 EdgeMouse/InjectInput；无障碍注入；触控板 AbsPointer 主路径完善 |

@@ -20,10 +20,7 @@
     <SelfContained Condition="'$(RuntimeIdentifier)' != '' and '$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Content Include="Assets\wlogo_tu.ico" />
-  </ItemGroup>
-
+  <!-- WPF pack:// URI 需要「资源」(Resource)，不是 Content，也不是「嵌入的资源」(EmbeddedResource) -->
   <ItemGroup>
     <Resource Include="Assets\wlogo_tu.ico" />
   </ItemGroup>

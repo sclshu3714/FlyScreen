@@ -15,13 +15,33 @@
 
 | 能力 | MAUI-Windows | MAUI-Android | MAUI-Mac Catalyst |
 |------|--------------|--------------|-------------------|
-| Caps | `DesktopFull` | `AndroidMobile` | `MacDesktopW1`（壳） |
-| 设置 / 布局 / 发现 / 布局同步 | ✅ | ✅（手机以触控板为主） | ✅ UI 壳 |
-| 边缘键鼠 / 注入 / 热键 | ✅ | ❌ | ❌（走 Null；正式 Mac 见 Avalonia） |
+| Caps | `DesktopFull` | `AndroidMobile`（含 `EdgeMouse`/`InjectInput`/`AbsPointer`；无 `LayoutSync`） | `MacDesktopW1`（壳） |
+| 设置 / 布局 / 发现 | ✅ | ✅（手机以触控板为主；发现支持双击添加） | ✅ UI 壳 |
+| 布局同步（LayoutSync） | ✅ | ❌ 不宣告 | ⏳ |
+| 边缘键鼠 / 热键（主机） | ✅ | —（被控见下） | ❌（走 Null；正式 Mac 见 Avalonia） |
+| 被控注入（收 AbsPointer / SwitchFocus） | ✅ `EnsureAcceptsRemoteInput` | ✅ 无障碍服务（须授权） | ⏳ |
 | 文本剪贴板 | ✅ | ✅ | ⏳ |
 | 文件直传 / 收件箱 | ✅ | ✅ | ⏳ |
 | 托盘 / 开机自启 | ✅ | ❌ | ❌ |
 | 触控板控桌面 | — | ✅ `PhoneTouchpadPage` | — |
+
+### Android 触控板（`PhoneTouchpadPage`）
+
+| 操作 | 行为 |
+|------|------|
+| 滑动 | 相对 `MouseMove` + 虚拟光标点 |
+| 触控区轻点 | 左键（Pan 未滑动完成时；与 Tap 去抖） |
+| 左 / 右键区 | 对应按键 |
+| 中间区轻点 | **中键**；上下滑 = 滚轮 |
+| 「键盘」 | 系统输入法（含系统手写）；停顿后整段直发对端并清空本地，不留文稿 |
+| 会话 | 手势开始发 `SwitchFocus`；桌面 AbsPointer 亦可自动进入被控 |
+
+### Desktop → Android（Easy Mouse）
+
+1. 双方握手 Caps 交集含 `EdgeMouse` + `InjectInput`（重装/重启后生效）。  
+2. 手机：**设置 → 无障碍 →「玄鸟键鼠注入」** 开启（首次切入会弹窗引导）。  
+3. 布局中手机与电脑相邻，鼠标移出对应边缘切入；点击/滑动由无障碍 `dispatchGesture` 注入。  
+4. 完整系统键码注入受 Android 限制，部分键会降级（如 Esc→返回）。
 
 ## 目标平台
 
@@ -136,7 +156,11 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 - Android 正式上架签名 / Mac 公证（notarize）需另行配置；本脚本产出供内测分发。  
 - Avalonia Mac 正式桌面包仍见 [build-macos.md](build-macos.md)（Rid：`osx-arm64` / `osx-x64`）。  
 - **应用图标：** `Resources/AppIcon/appicon.png`（`MauiIcon` + `MauiSplashScreen`）；Android 须在 `AndroidManifest` / `MainActivity` 声明 `@mipmap/appicon`，否则启动器可能显示默认图标。换图标后建议清 `bin/obj` 再 `publish`。  
-- **APK 签名：** Release 使用 `build/android/flyscreen-sideload.keystore`（内测旁加载）。请安装目录中的 **`FlyScreen.apk`** 或 **`*-Signed.apk`**（构建后会自动补齐）。若只有 `com.xuanniao.flyscreen.apk` + `*-Signed.apk.idsig`、没有 Signed 本体，该 plain apk 往往已是签名包，亦可安装；上架 Play 需自备正式 keystore。Windows 资源管理器里 APK 文件图标为通用图标属正常。  
+- **APK 签名：** Release 使用 `build/android/flyscreen-sideload.keystore`（内测旁加载）。请安装 **`FlyScreen.apk`** 或 **`com.xuanniao.flyscreen-Signed.apk`**（须为**已签名**包；勿把未签名 plain 当 Signed 覆盖安装，否则报 `INSTALL_PARSE_FAILED_NOT_APK`）。  
+  - 构建目标 `FlyScreen_EnsureSignedApk`（`_Sign` / `SignAndroidPackage` / `Build` 后）调用 `build/Ensure-MauiSignedApk.ps1`：校验签名块，缺失时用 keystore `apksigner sign` 补齐 Signed + `FlyScreen.apk`，并登记 `FileWrites` 防止 VS `IncrementalClean` 删掉 Signed。  
+  - 发布脚本 `Publish-FlyScreenMaui.ps1` 在 Android 发布后也会再跑一次该脚本。  
+  - 详情见 [build/android/README.md](../../build/android/README.md)。上架 Play 需自备正式 keystore。  
+
 - **XARDF7024（目录不是空的）：** 多为 `obj\...\lp` 等中间目录被占用。关闭正在运行的模拟器安装/资源管理器中打开的输出目录后重编；或先执行：
   ```powershell
   powershell -File build\Clean-MauiAndroid.ps1 -Configuration Release -All

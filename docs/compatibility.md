@@ -18,7 +18,7 @@
 |----------|----------|------|
 | Win 1.0.x (PV1) | Win 1.1.x (PV1/2 扩展可选) | 互通，行为与 1.0 一致 |
 | Win PV1 | Mac PV2 | 互通；Mac 特有 Caps 在 Win 忽略未知字段 |
-| PV2 Desktop | PV2 Phone | 按 Caps 交集；无 EdgeMouse |
+| PV2 Desktop | PV2 Phone | 按 Caps 交集；MAUI Android 可含 EdgeMouse+InjectInput（须无障碍）；Kotlin 旧包通常无 EdgeMouse |
 | PV1 | PV3（破坏性） | 可拒绝并提示升级（实现时明确） |
 
 ## 3. 平台包与自动更新
@@ -51,3 +51,4 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-10-13 | 首版 |
+| 2026-10-16 | Phone Caps：MAUI 可宣告 EdgeMouse/InjectInput；与旧「无 EdgeMouse」表述区分 |
