@@ -45,6 +45,9 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
         return base.GetDataPresent(format);
     }
 
+    // .NET 10：基类 GetData 已标 obsolete，OLE 延迟文件粘贴仍须覆盖；TryGetData 路径后续再迁
+    [Obsolete("DataObject.GetData is obsolete; kept for OLE FileDrop compatibility.")]
+#pragma warning disable WFDEV005
     public override object? GetData(string format, bool autoConvert)
     {
         if (IsDropEffectFormat(format))
@@ -59,6 +62,7 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
         return base.GetData(format, autoConvert);
     }
 
+    [Obsolete("DataObject.GetData is obsolete; kept for OLE FileDrop compatibility.")]
     public override object? GetData(Type format)
     {
         if (format == typeof(string[]))
@@ -69,6 +73,7 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
 
         return base.GetData(format);
     }
+#pragma warning restore WFDEV005
 
     private void EnsurePullStarted()
     {

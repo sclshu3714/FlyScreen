@@ -23,6 +23,8 @@
 
 GUI 与 CLI **共用** `LinuxAppHost`（设置、连接、发现、注入路由）。
 
+被控接收与 Win/MAUI 对齐：`EnsureAcceptsRemoteInput` — 已 `SwitchFocus` 或对端具备 `AbsPointer` 时可自动进入被控，再注入 `MouseMove`/`MouseButton`/`MouseWheel`/`KeyEvent`。
+
 ## Caps 与会话
 
 | 会话 | Caps 倾向 |
@@ -146,3 +148,10 @@ WantedBy=multi-user.target
 ```
 
 配置文件默认：`~/.config/FlyScreen/settings.json`（或 .NET `ApplicationData` 对应路径）。
+
+## 修订
+
+| 日期 | 说明 |
+|------|------|
+| 2026-10-16 | AbsPointer 被控：EnsureAcceptsRemoteInput 对齐 Win/MAUI |
+

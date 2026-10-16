@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |----|------|
 | 基准 | **Windows Desktop**（`FlyScreen.App.Windows`，stable 唯一交付） |
-| 统计日 | 2026-10-15 |
+| 统计日 | 2026-10-16 |
 | 图例 | **完整** = 与 Win 对标可用 · **骨架** = 工程/协议已通、主路径未齐 · **占位** = API/UI 有入口未落地 · **—** = 非本阶段目标 · **❌** = 明确不做 |
 
 相对完成度按「对标 Win 的必达能力」粗算，仅供排期，非精确工时。
@@ -19,12 +19,12 @@
 | Linux X11 | W2 | `Linux` + `App.Linux` | **~45%** | GUI + 文本剪贴板/直传/Inbox；CLI `send`/`inbox`/`clip`；无边缘捕获 |
 | Linux Wayland | W2 | 同上 | **~35%** | 同 X11 传输路径；无 EdgeMouse；注入占位 |
 | Linux 无头 | W2 | 同上 | **~35%** | CLI/Daemon：直传落盘 + 文本宣告；无系统粘贴、无键鼠 |
-| Android Phone/Tablet | W3 | `mobile/android` | **~35%** | 触控板控桌面 + 发现/握手/前台服务；无剪贴板/文件/软键盘 |
+| Android Phone/Tablet | W3 / W7 | `App.Maui`（主）+ `mobile/android` | **~55%** | MAUI：触控板/键盘直发、剪贴板文本、直传；可选无障碍被桌面控；Kotlin 工程仍骨架 |
 | Android TV | W4 | — | **0%** | 未开工 |
 | 鸿蒙手机/平板 | W5a | `mobile/harmony/phone` | **~30%** | ArkTS 触控板壳 + 共享连接层；剪贴板/文件未做 |
 | 鸿蒙电脑 | W5b | `mobile/harmony/desktop` | **~20%** | 设置/槽位壳 + Caps；无注入/捕获/布局同步 |
 | 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~60%** | Mac/Linux 共用壳；侧栏 Path 彩标 + 七页导航已与 Win 对齐 |
-| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~75%** | 双轨 beta：Win DesktopFull + Android 触控板/剪贴板/直传；UI 信息架构与 Win 对齐（含窄屏抽屉） |
+| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~80%** | Win DesktopFull + Android 触控板/键盘/剪贴板/直传 + 无障碍被控；UI 与 Win 对齐 |
 
 ---
 
@@ -60,15 +60,15 @@
 
 对标目标见 [device-matrix.md](device-matrix.md)；「Win」列表示**桌面作为被控端是否已具备接收能力**（基准侧）。
 
-| 能力 | 桌面被控（Win） | Android | 鸿蒙手机/平板 |
-|------|-----------------|---------|----------------|
-| AbsPointer / 触控板相对移动 | 完整（可收 MouseMove） | **骨架（已发相对移动）** | **骨架** |
-| 滚轮 | 完整 | 骨架 | 占位 |
-| 软键盘 → KeyEvent | 完整 | — | — |
-| 文本剪贴板 | 完整 | — | — |
-| 文件接收（DirectTransfer） | 完整 | — | — |
-| 前台保活 | — | 骨架 | — |
-| EdgeMouse / LayoutSync | 桌面能力 | ❌ 非目标 | ❌ 非目标 |
+| 能力 | 桌面被控（Win / MAUI Win / Linux / Mac） | Android（MAUI） | 鸿蒙手机/平板 |
+|------|------------------------------------------|-----------------|----------------|
+| AbsPointer / 触控板相对移动 | **完整**（`EnsureAcceptsRemoteInput`：AbsPointer 可自动进入被控） | **完整**（相对移动 + SwitchFocus） | **骨架** |
+| 触控区轻点 / 左右键 / 中键 | 完整 | **完整**（Pad=左键；中区轻点=中键；上下滑=滚轮） | 占位 |
+| 系统输入法 → 对端 | 完整（KeyEvent / 剪贴板粘贴） | **完整**（本地不留稿，停顿后直发） | — |
+| 文本剪贴板 | 完整 | ✅ | — |
+| 文件接收（DirectTransfer） | 完整 | ✅ | — |
+| Desktop → Phone（Easy Mouse） | 桌面发送 | ⚠️ 须开「玄鸟键鼠注入」无障碍；点击/滑动为主 | ❌ |
+| LayoutSync | 桌面能力 | ❌ 不宣告 | ❌ |
 
 ---
 
@@ -96,12 +96,12 @@
 | W0 | Core 拆分 + Caps 地基 | **100%** | 拆分 + 握手 Caps 协商门控 + 单测；Adapter 深迁非阻塞 |
 | W1 | macOS | **~45%** | 剪贴板文本 + 直传/Inbox；键鼠主路径未齐 |
 | W2 | Linux | **~45%** | GUI/CLI 传输路径；键鼠主路径未齐 |
-| W3 | Android 手机/平板 | **~35%** | 触控板主路径骨架；剪贴板/文件未做 |
+| W3 | Android 手机/平板 | **~55%** | MAUI 主路径可用；Kotlin 独立工程仍骨架 |
 | W4 | Android TV | **0%** | — |
 | W5a | 鸿蒙手机/平板 | **~30%** | 对标 W3 骨架级 |
 | W5b | 鸿蒙电脑 | **~20%** | 壳 + 降级 Caps；无桌面键鼠 |
 | W6 | Avalonia 统一桌面 UI | **~60%** | 共用壳 + 直传/传输列表；侧栏与七页已对齐 Win；键鼠主路径未齐 |
-| W7 | MAUI 跨平台 UI | **~75%** | Win/Android 能力接线 + UI 同构（Path 侧栏、窄屏抽屉）；真机联调与 OLE 仍待打磨 |
+| W7 | MAUI 跨平台 UI | **~80%** | AbsPointer 四端对齐；Android 无障碍被控 + 签名 APK 兜底；OLE/真机打磨仍待 |
 
 ---
 
@@ -126,3 +126,4 @@
 | 2026-10-14 | 传输核心抽到 Core；Mac/Linux 桌面文本剪贴板+直传；Linux CLI send/inbox/clip |
 | 2026-10-15 | W7：MAUI 双轨对齐（Win DesktopFull 适配 + Android 触控板） |
 | 2026-10-15 | UI 同构：安全密钥独立页；关于/帮助改页内；侧栏彩色 Path 图标；MAUI 窄屏抽屉+Android 可点；Desktop/MAUI 对齐 WPF |
+| 2026-10-16 | AbsPointer 门控对齐 Win/MAUI/Linux/Mac；触控板左键/中键；键盘直发；Android EdgeMouse+无障碍注入；Signed APK 补齐 |

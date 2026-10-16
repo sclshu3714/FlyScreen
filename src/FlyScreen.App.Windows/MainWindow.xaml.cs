@@ -315,11 +315,9 @@ public partial class MainWindow : Window
 
     private void ApplyLocalizedUi()
     {
-        // 供 DataTemplate 使用的动态文案
-        Resources["Str.Delete"] = Loc.T("Btn.Delete");
-        Resources["Str.DeleteTip"] = Loc.T("Tip.DeleteTransfer");
-        Resources["Str.Add"] = Loc.T("Btn.Add");
-        Resources["Str.Search"] = Loc.T("Search.Placeholder");
+        // DataTemplate 内文案（StringBox 可通知绑定刷新）
+        SetStr("Str.DeleteTip", Loc.T("Tip.DeleteTransfer"));
+        SetStr("Str.Add", Loc.T("Btn.Add"));
 
         AboutBtnText.Text = Loc.T("Btn.About");
         HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
@@ -423,6 +421,12 @@ public partial class MainWindow : Window
         TransferList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
         DiscoveryList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
         DiscoveryList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
+    }
+
+    private void SetStr(string key, string value)
+    {
+        if (Resources[key] is StringBox box)
+            box.Value = value;
     }
 
     private static void SetOpt(System.Windows.Controls.CheckBox box, string contentKey, string tipKey)

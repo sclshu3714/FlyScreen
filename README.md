@@ -17,7 +17,8 @@
 - **[docs/status.md](docs/status.md)** — 各端完成情况（以 Win 为基准）
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
-当前 **stable** 仍为 Windows WPF；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。
+当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
+MAUI Android：触控板/键盘控桌面；桌面控手机需开启「玄鸟键鼠注入」无障碍服务（详见 [docs/status.md](docs/status.md)）。
 
 ## 相对 Mouse without Borders 的改进
 
@@ -38,9 +39,11 @@
 | 场景 | 要求 |
 |------|------|
 | 运行（自包含发布包） | Windows 10/11 x64，**无需**再装 .NET |
-| 运行（依赖框架构建） | Windows 10/11 + **[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)**（须选 Desktop，不是普通 Runtime） |
-| 开发编译 | .NET 8 SDK |
+| 运行（依赖框架构建） | Windows 10/11 + **[.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)**（须选 Desktop，不是普通 Runtime） |
+| 开发编译 | **.NET 10 SDK**（含 Windows Desktop；MAUI 另需对应 workload） |
 | 权限 | 建议管理员（全局键鼠钩子） |
+
+各端目标框架统一为 `net10.0` / `net10.0-windows7.0` / MAUI `net10.0-android` 等，详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 编译运行
 
@@ -66,7 +69,7 @@ dotnet run --project src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c R
 日常 Win 开发打开 `FlyScreen.sln` 即可。  
 macOS / Linux / Android / 鸿蒙 / MAUI 构建说明见 [docs/README.md](docs/README.md)（MAUI 见 [docs/runbooks/build-maui.md](docs/runbooks/build-maui.md)）。
 
-输出目录：`src\FlyScreen.App.Windows\bin\Release\net8.0-windows\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
+输出目录：`src\FlyScreen.App.Windows\bin\Release\net10.0-windows7.0\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
 
 ## 版本号（跟最新 Git 标签走，与提交无关）
 
@@ -133,7 +136,7 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 说明拷贝的是 `bin\Release\...` 依赖框架版，而目标机只有 .NET Runtime、没有 Desktop Runtime。
 
 1. **推荐**：改用上面的自包含 `publish` 产物；或  
-2. 安装 [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/8.0)，用 `dotnet --list-runtimes` 确认存在 `Microsoft.WindowsDesktop.App 8.0.x`。
+2. 安装 [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0)，用 `dotnet --list-runtimes` 确认存在 `Microsoft.WindowsDesktop.App 10.0.x`。
 
 ## 使用方法
 
@@ -200,3 +203,4 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 - 局域网发现、多网卡、开机自启、托盘、单实例
 - 深色主题、多语言、GitHub 更新、连接诊断
 - 三端 UI 同构（WPF / Avalonia Desktop / MAUI）：七页导航 + 安全页密钥
+- MAUI Android：触控板控桌面（含中键/滚轮）、系统键盘直发对端；可选无障碍被桌面 Easy Mouse 控制

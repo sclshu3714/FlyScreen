@@ -11,9 +11,9 @@
 | [runbooks/release-windows.md](runbooks/release-windows.md) | Windows 发版步骤 |
 | [runbooks/build-macos.md](runbooks/build-macos.md) | macOS（W1）工程与构建 |
 | [runbooks/build-linux.md](runbooks/build-linux.md) | Linux（W2）GUI / CLI / Daemon |
-| [runbooks/build-android.md](runbooks/build-android.md) | Android（W3）触控板控桌面 |
+| [runbooks/build-android.md](runbooks/build-android.md) | Android Kotlin 骨架（W3）；日常请用 MAUI |
 | [runbooks/build-harmony.md](runbooks/build-harmony.md) | 鸿蒙（W5）手机/平板 + 电脑 |
-| [runbooks/build-maui.md](runbooks/build-maui.md) | **MAUI 跨平台 UI（W7）** |
+| [runbooks/build-maui.md](runbooks/build-maui.md) | **MAUI 跨平台 UI（W7）**：Win/Android 触控板、无障碍、APK 签名 |
 
 当前产品仍以 **Windows 桌面（WPF）** 为唯一 stable 交付；Mac / Linux / Android / 鸿蒙 / MAUI 按 ROADMAP 分期，独立工程与独立安装包。
 

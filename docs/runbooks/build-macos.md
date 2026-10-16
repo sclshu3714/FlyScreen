@@ -55,3 +55,14 @@ powershell -File build/Name-FlyScreenPackage.ps1 -Source artifacts/osx-x64 -Rid 
 4. 确认握手日志中 Mac 侧 `Platform=macOS`、`ProtocolVersion=2`。  
 
 完整 EdgeMouse 主机捕获与剪贴板见 ROADMAP W1 第 3–7 周。
+
+## 被控接收
+
+与 Win/MAUI/Linux 对齐：MacAppHost.EnsureAcceptsRemoteInput — SwitchFocus 或对端 AbsPointer 时可注入键鼠。
+
+## 修订
+
+| 日期 | 说明 |
+|------|------|
+| 2026-10-16 | AbsPointer / SwitchFocus 被控门控对齐 |
+

@@ -65,8 +65,10 @@
 
 ## H. Caps 门控（W0+）
 
-- [ ] 对端若仅有移动端 Caps（无 `EdgeMouse`），布局中不因边缘切换切到该对端
-- [ ] `dotnet test tests/FlyScreen.Core.Tests` 通过（握手 / Caps 交集）
+- [ ] 对端 Caps **无** `EdgeMouse` 时：布局中不因边缘切换切到该对端
+- [ ] 对端为 MAUI Android（Caps 含 `EdgeMouse`+`InjectInput`）且已开无障碍：边缘可切入；点击/滑动可用
+- [ ] 手机触控板：滑动移光标；轻点=左键；中区轻点=中键；系统键盘输入出现在本机（AbsPointer / SwitchFocus）
+- [ ] `dotnet test tests/FlyScreen.Core.Tests` 通过（握手 / Caps 交集；`AndroidMobile` 含 EdgeMouse/Inject、无 LayoutSync）
 
 ## 结论
 

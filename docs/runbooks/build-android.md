@@ -9,16 +9,18 @@ mobile/android/          # 独立 Gradle/Kotlin 工程（不进 FlyScreen.sln）
 
 与桌面共用**线级协议**（帧头 + JSON 字段 PascalCase），**不引用** .NET 程序集。
 
-## 能力（Caps）
+> **说明：** 日常内测/联调请优先使用 **MAUI** 工程（`FlyScreen.App.Maui`，见 [build-maui.md](build-maui.md)）。本目录 `mobile/android` 为早期 Kotlin 骨架，Caps 与能力落后于 MAUI。
+
+## 能力（Caps）— Kotlin 骨架
 
 | 项 | 值 |
 |----|-----|
 | Platform | `Android` |
 | DeviceClass | `Phone` 或 `Tablet`（按 smallestWidthDp≥600） |
 | Caps | `AbsPointer`, `ClipboardText`, `DirectTransfer` |
-| 不含 | `EdgeMouse`, `LayoutSync`, `CaptureInput` |
+| 不含 | `EdgeMouse`, `LayoutSync`, `CaptureInput`, `InjectInput` |
 
-主路径：**手机/平板触控板 → 控制 Windows/桌面鼠标**。
+MAUI 当前 Caps 见 `PeerCaps.AndroidMobile`（另含 EdgeMouse/InjectInput）。主路径：**触控板 → 控制桌面鼠标**。
 
 ## 环境要求
 
@@ -85,3 +87,4 @@ powershell -File build\Name-FlyScreenPackage.ps1 `
 |------|------|
 | 2026-10-14 | W3 骨架：协议、发现、握手、触控板、前台服务 |
 | 2026-10-15 | 版本与 Win Git 标签规则对齐（Gradle 自动解析） |
+| 2026-10-16 | 注明主交付转 MAUI；本工程 Caps 仍为旧集合 |

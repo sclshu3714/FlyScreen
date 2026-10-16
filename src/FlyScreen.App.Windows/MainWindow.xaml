@@ -1,7 +1,7 @@
 ﻿<Window x:Class="FlyScreen.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:system="clr-namespace:System;assembly=System.Runtime"
+        xmlns:local="clr-namespace:FlyScreen"
         Title="玄鸟"
         Icon="pack://application:,,,/Assets/wlogo_tu.ico"
         Height="640" Width="960"
@@ -479,10 +479,8 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <system:String x:Key="Str.Delete">删除</system:String>
-        <system:String x:Key="Str.DeleteTip">删除</system:String>
-        <system:String x:Key="Str.Add">添加</system:String>
-        <system:String x:Key="Str.Search">搜索设置</system:String>
+        <local:StringBox x:Key="Str.DeleteTip" Value="删除"/>
+        <local:StringBox x:Key="Str.Add" Value="添加"/>
 
         <Style TargetType="ListView">
             <Setter Property="Background" Value="{DynamicResource ListBg}"/>
@@ -571,7 +569,8 @@
                         <Grid>
                             <TextBox x:Name="SearchBox" BorderThickness="0" Background="Transparent" Height="36"
                        VerticalContentAlignment="Center" TextChanged="SearchBox_TextChanged"/>
-                            <TextBlock x:Name="SearchPlaceholderText" Text="{DynamicResource Str.Search}"
+                            <TextBlock x:Name="SearchPlaceholderText"
+                         Text="搜索设置"
                          Foreground="{DynamicResource Placeholder}" FontSize="13"
                          VerticalAlignment="Center" IsHitTestVisible="False">
                                 <TextBlock.Style>
@@ -1005,7 +1004,9 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <DockPanel Margin="6,8">
-                                            <Button DockPanel.Dock="Right" Content="{DynamicResource Str.Add}" Padding="10,0" Height="28" MinWidth="56"
+                                            <Button DockPanel.Dock="Right"
+                              Content="{Binding Value, Source={StaticResource Str.Add}}"
+                              Padding="10,0" Height="28" MinWidth="56"
                               Margin="8,0,0,0" Click="AddDiscovered_Click" Tag="{Binding}"/>
                                             <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource Success}"
                               Margin="0,0,10,0" VerticalAlignment="Center"/>
@@ -1070,7 +1071,7 @@
                                             <DataTemplate>
                                                 <Button Style="{StaticResource IconActionBtn}"
                                                         Click="DeleteTransfer_Click" Tag="{Binding}"
-                                                        ToolTip="{DynamicResource Str.DeleteTip}">
+                                                        ToolTip="{Binding Value, Source={StaticResource Str.DeleteTip}}">
                                                     <Viewbox Width="14" Height="14">
                                                         <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
                                                     </Viewbox>
