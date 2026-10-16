@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Avalonia Mac 单文件 → artifacts/release/FlyScreen-{ver}-osx-arm64 -->
+  <Import Project="PublishProject.Common.props" />
+  <PropertyGroup>
+    <FlyScreenPublishRequiresMac>true</FlyScreenPublishRequiresMac>
+    <FlyScreenPublishTitle>发布 Avalonia Mac (osx-arm64)</FlyScreenPublishTitle>
+    <FlyScreenPublishRid>osx-arm64</FlyScreenPublishRid>
+    <FlyScreenPublishKind>UnixBin</FlyScreenPublishKind>
+    <FlyScreenPublishStagingDir>src/FlyScreen.App.Mac/bin/publish/osx-arm64</FlyScreenPublishStagingDir>
+    <FlyScreenPublishCommand>dotnet publish "src/FlyScreen.App.Mac/FlyScreen.App.Mac.csproj" -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "src/FlyScreen.App.Mac/bin/publish/osx-arm64"</FlyScreenPublishCommand>
+  </PropertyGroup>
+  <Import Project="PublishProject.Common.targets" />
+</Project>

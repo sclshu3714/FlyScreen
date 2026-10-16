@@ -14,6 +14,7 @@
 | [runbooks/build-android.md](runbooks/build-android.md) | Android Kotlin 骨架（W3）；日常请用 MAUI |
 | [runbooks/build-harmony.md](runbooks/build-harmony.md) | 鸿蒙（W5）手机/平板 + 电脑 |
 | [runbooks/build-maui.md](runbooks/build-maui.md) | **MAUI 跨平台 UI（W7）**：Win/Android 触控板、无障碍、APK 签名 |
+| [../build/README.md](../build/README.md) | **VS 发布项目**：`build/FlyScreen.Publish.*` 右键生成即发布各端 |
 
 当前产品仍以 **Windows 桌面（WPF）** 为唯一 stable 交付；Mac / Linux / Android / 鸿蒙 / MAUI 按 ROADMAP 分期，独立工程与独立安装包。
 

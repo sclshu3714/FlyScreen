@@ -117,11 +117,14 @@ function Find-SingleFileBinary {
 if ($want.Windows) {
     $winOut = Join-Path $OutRoot 'maui-win-x64'
     if (Test-Path -LiteralPath $winOut) { Remove-Item -LiteralPath $winOut -Recurse -Force }
+    # RuntimeIdentifierOverride：规避 WinAppSDK RID 冲突；勿仅用 -r（见 MS unpackaged CLI 文档）
     Invoke-DotNetPublish -Label 'MAUI-Windows (single-file)' -PublishArgs @(
         'publish', $proj,
         '-c', $Configuration,
         '-f', 'net10.0-windows10.0.19041.0',
-        '-r', 'win-x64',
+        '-p:RuntimeIdentifierOverride=win-x64',
+        '-p:WindowsPackageType=None',
+        '-p:WindowsAppSDKSelfContained=true',
         '--self-contained', 'true',
         '-p:PublishSingleFile=true',
         '-p:IncludeNativeLibrariesForSelfExtract=true',

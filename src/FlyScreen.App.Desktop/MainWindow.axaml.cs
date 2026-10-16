@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
@@ -18,6 +19,7 @@ using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi;
 
@@ -40,7 +42,7 @@ public partial class MainWindow : Window
     private Control? _dragHighlight;
     private Cursor? _savedCursor;
     private readonly GitHubReleaseChecker _helpUpdater = new();
-    private ReleaseCheckResult? _helpLastCheck;
+    private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
     private bool _helpFixReady;
 
@@ -261,6 +263,11 @@ public partial class MainWindow : Window
             ApplyLayoutFromSettings();
             StatusText.Text = $"已同步布局 ← {from}";
         });
+        _host.BehaviorSyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
+        {
+            ApplyBehaviorFromSettings();
+            StatusText.Text = $"已同步功能与行为 ← {from}";
+        });
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.UIThread.Post(RefreshDiscovery);
 
@@ -318,6 +325,7 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
 
         var autoStart = _host.SupportsAutoStart && (_host.GetAutoStartEnabled() || s.AutoStart);
         AutoStartCheck.IsChecked = autoStart;
@@ -415,12 +423,64 @@ public partial class MainWindow : Window
         SetOpt(MoveRelCheck, "Opt.MoveRel", "Tip.MoveRel");
         SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
         SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
+        EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
+        EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
+        EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
+        EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        WireEdgeCrossRadios();
+        RefreshEdgeCrossTip();
     }
 
     private static void SetOpt(CheckBox box, string contentKey, string tipKey)
     {
         box.Content = Loc.T(contentKey);
         ToolTip.SetTip(box, Loc.T(tipKey));
+    }
+
+    private void WireEdgeCrossRadios()
+    {
+        EdgeCrossBarrierRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
+        EdgeCrossBarrierRadio.IsCheckedChanged += EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.IsCheckedChanged += EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.IsCheckedChanged += EdgeCrossMode_Changed;
+    }
+
+    private void LoadEdgeCrossModeUi(int mode)
+    {
+        EdgeCrossBarrierRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossDoubleRadio.IsChecked = mode == 1;
+        EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        WireEdgeCrossRadios();
+        RefreshEdgeCrossTip();
+    }
+
+    private int ReadEdgeCrossModeUi()
+    {
+        if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
+        if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        return 0;
+    }
+
+    private void EdgeCrossMode_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton { IsChecked: not true }) return;
+        RefreshEdgeCrossTip();
+    }
+
+    private void RefreshEdgeCrossTip()
+    {
+        var key = ReadEdgeCrossModeUi() switch
+        {
+            1 => "Tip.EdgeCross.DoubleTap",
+            2 => "Tip.EdgeCross.SpeedBurst",
+            _ => "Tip.EdgeCross.BarrierFree"
+        };
+        EdgeCrossTipText.Text = Loc.T(key);
     }
 
     private void ApplySettingsFromUi()
@@ -439,6 +499,7 @@ public partial class MainWindow : Window
         s.MoveMouseRelatively = MoveRelCheck.IsChecked == true;
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
+        s.EdgeCrossMode = ReadEdgeCrossModeUi();
 
         if (_host.SupportsAutoStart)
         {
@@ -480,9 +541,27 @@ public partial class MainWindow : Window
     {
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
+        await _host.BroadcastBehaviorSyncAsync();
         await _host.RestartNetworkingAsync();
         SyncSlotLocalFlags();
         StatusText.Text = Loc.T("Sys.Applied");
+    }
+
+    private void ApplyBehaviorFromSettings()
+    {
+        var s = _host.Settings;
+        WrapMouseCheck.IsChecked = s.WrapMouse;
+        ShareClipboardCheck.IsChecked = s.ShareClipboard;
+        TransferFileCheck.IsChecked = s.TransferFile;
+        HideMouseCheck.IsChecked = s.HideMouseAtEdge;
+        DrawCursorCheck.IsChecked = s.DrawMouseCursor;
+        SameSubnetCheck.IsChecked = s.SameSubnetOnly;
+        ShowStatusCheck.IsChecked = s.ShowStatusMessages;
+        BlockSaverCheck.IsChecked = s.BlockScreenSaver;
+        MoveRelCheck.IsChecked = s.MoveMouseRelatively;
+        BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
+        EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
     }
 
     private void Hide_Click(object? sender, RoutedEventArgs e)
@@ -635,16 +714,46 @@ public partial class MainWindow : Window
             return;
         }
 
-        var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
-            ? GitHubReleaseChecker.ReleasesUrl
-            : _helpLastCheck.ReleaseUrl;
-        var msg =
-            $"请下载安装 {_helpLastCheck.RemoteVersion}" +
-            (string.IsNullOrWhiteSpace(_helpLastCheck.AssetName) ? "" : $"（{_helpLastCheck.AssetName}）") +
-            "。已打开发布页；自动替换安装请在 Windows 端使用。";
-        ShowHelpLog(msg + "\n\n" + url);
-        TryOpenUrl(url);
-        await Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(_helpLastCheck.AssetDownloadUrl))
+        {
+            var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
+                ? GitHubReleaseChecker.ReleasesUrl
+                : _helpLastCheck.ReleaseUrl;
+            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url);
+            TryOpenUrl(url);
+            return;
+        }
+
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog("正在下载并安装更新…");
+            var progress = new Progress<UpdateDownloadProgress>(p =>
+            {
+                if (!string.IsNullOrWhiteSpace(p.Message))
+                    Dispatcher.UIThread.Post(() => ShowHelpLog(p.Message));
+            });
+            var apply = await _helpUpdater.DownloadAndApplyAsync(_helpLastCheck, progress)
+                .ConfigureAwait(true);
+            ShowHelpLog(apply.Message);
+            if (apply.ShouldExit)
+            {
+                ShowHelpLog(Loc.T("Help.Restarting"));
+                await Task.Delay(400).ConfigureAwait(true);
+                if (Application.Current?.ApplicationLifetime is IControlledApplicationLifetime lifetime)
+                    lifetime.Shutdown();
+                else
+                    Environment.Exit(0);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowHelpLog(ex.Message);
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
     }
 
     private async Task CheckHelpDiagAsync()
@@ -880,10 +989,31 @@ public partial class MainWindow : Window
         for (var i = 0; i < 4; i++)
         {
             var name = i < s.MachineSlots.Count ? s.MachineSlots[i] : "";
+            name = string.IsNullOrWhiteSpace(name) ? "" : name.Trim();
             var slot = _slots[i];
-            slot.Name = string.IsNullOrWhiteSpace(name) ? "" : name;
+            slot.Name = name;
             slot.Enabled = !string.IsNullOrWhiteSpace(name);
-            slot.IsLocal = string.Equals(slot.Name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
+            slot.IsLocal = string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
+            if (slot.IsLocal)
+            {
+                slot.OutboundOk = true;
+                slot.InboundOk = true;
+            }
+            else if (!string.IsNullOrEmpty(name))
+            {
+                var st = _host.Connections.GetPeerStatus(name);
+                slot.OutboundOk = st.Outbound;
+                slot.InboundOk = st.Inbound;
+                if (!string.IsNullOrEmpty(st.DiscoveredIp))
+                    slot.ResolvedIp = st.DiscoveredIp;
+            }
+            else
+            {
+                slot.OutboundOk = false;
+                slot.InboundOk = false;
+                slot.ResolvedIp = "";
+            }
+
             slot.RefreshStatus();
         }
 
@@ -1325,8 +1455,8 @@ public partial class MainWindow : Window
         slot.RefreshStatus();
         PersistSlots();
         RefreshDiscovery();
-        StatusText.Text = $"已移除 {name}，可在局域网自动发现中再添加";
-        _ = RestartAfterSlotChangeAsync();
+        StatusText.Text = $"已移除 {name}，将从所有已连接电脑布局中踢出";
+        _ = RemovePeerAndSyncAsync(name);
     }
 
     private void TryAddPeer(DiscoveredPeer peer)
@@ -1346,7 +1476,7 @@ public partial class MainWindow : Window
         var empty = _slots.FirstOrDefault(s => string.IsNullOrWhiteSpace(s.Name));
         if (empty == null)
         {
-            StatusText.Text = "没有空的机器槽位，请先移除一台电脑。";
+            StatusText.Text = "没有空的机器槽位（最多 4 台），请先移除一台电脑。";
             return;
         }
 
@@ -1359,8 +1489,8 @@ public partial class MainWindow : Window
         empty.RefreshStatus();
         PersistSlots();
         RefreshDiscovery();
-        StatusText.Text = $"已添加 {peer.MachineName}";
-        _ = RestartAfterSlotChangeAsync();
+        StatusText.Text = $"已添加 {peer.MachineName}，正在与对端合并布局";
+        _ = RestartAfterSlotChangeAsync(merge: true);
     }
 
     private void PersistSlots()
@@ -1384,12 +1514,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RestartAfterSlotChangeAsync()
+    private async Task RestartAfterSlotChangeAsync(bool merge)
     {
         try
         {
-            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            if (merge)
+                await _host.BroadcastLayoutMergeAsync().ConfigureAwait(true);
+            else
+                await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
             await _host.RestartNetworkingAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private async Task RemovePeerAndSyncAsync(string removedPeer)
+    {
+        try
+        {
+            await _host.Connections.DropPeerAsync(removedPeer).ConfigureAwait(true);
+            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
+            // Desktop 壳无 InputRouter；被踢/仅本机时由各平台 Host 的 LayoutSync 回调恢复光标
         }
         catch
         {

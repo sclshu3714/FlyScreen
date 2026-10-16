@@ -67,6 +67,7 @@ dotnet run --project src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c R
 | `mobile/harmony` | 鸿蒙 ArkTS：手机/平板 + 电脑（W5） |
 
 日常 Win 开发打开 `FlyScreen.sln` 即可。  
+**发布（VS）**：展开 `build`，右键 `FlyScreen.Publish.*` → **生成**；最终单文件在 `artifacts/release/`（见 [build/README.md](build/README.md)）。  
 macOS / Linux / Android / 鸿蒙 / MAUI 构建说明见 [docs/README.md](docs/README.md)（MAUI 见 [docs/runbooks/build-maui.md](docs/runbooks/build-maui.md)）。
 
 输出目录：`src\FlyScreen.App.Windows\bin\Release\net10.0-windows7.0\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。

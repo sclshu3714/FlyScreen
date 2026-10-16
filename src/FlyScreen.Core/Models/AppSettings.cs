@@ -11,9 +11,15 @@ public sealed class AppSettings
     public bool TwoRow { get; set; }
     /// <summary>最近一次布局修订（UTC 毫秒），用于跨机同步去重。</summary>
     public long LayoutRevision { get; set; }
+    /// <summary>最近一次功能/行为修订（UTC 毫秒），用于跨机同步去重。</summary>
+    public long BehaviorRevision { get; set; }
     public bool WrapMouse { get; set; }
     public bool ShareClipboard { get; set; } = true;
     public bool TransferFile { get; set; } = true;
+    /// <summary>
+    /// 隐藏光标：启用时同一时刻仅活动电脑显示光标，其余隐藏；
+    /// 关闭时非活动电脑光标居中可见（仍钉中采集位移）。属性名历史兼容。
+    /// </summary>
     public bool HideMouseAtEdge { get; set; } = true;
     public bool DrawMouseCursor { get; set; } = true;
     public bool SameSubnetOnly { get; set; }
@@ -22,6 +28,8 @@ public sealed class AppSettings
     public bool BlockMouseAtCorners { get; set; }
     public bool ShowStatusMessages { get; set; } = true;
     public bool EasyMouse { get; set; } = true;
+    /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
+    public int EdgeCrossMode { get; set; }
     /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
     public bool AutoStart { get; set; }
     /// <summary>启动时静默检查 GitHub Release 更新。</summary>

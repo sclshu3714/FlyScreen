@@ -66,6 +66,7 @@ public partial class MainWindow : Window
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
         _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
+        _host.BehaviorSyncedFromPeer += OnBehaviorSyncedFromPeer;
 
         _host.Clipboard.Start(this);
         await _host.StartAsync();
@@ -158,6 +159,7 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
         // 注册表与设置任一为开则视为开启，并写回一致状态
         var autoStart = AutoStartHelper.IsEnabled() || s.AutoStart;
         AutoStartCheck.IsChecked = autoStart;
@@ -409,6 +411,11 @@ public partial class MainWindow : Window
         SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
         SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
 
+        EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
+        EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
+        EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
+        EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        RefreshEdgeCrossTip();
         foreach (var item in _host.Transfers.Items)
             item.RefreshLocalized();
 
@@ -435,10 +442,45 @@ public partial class MainWindow : Window
         box.ToolTip = Loc.T(tipKey);
     }
 
+    private void LoadEdgeCrossModeUi(int mode)
+    {
+        EdgeCrossBarrierRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossDoubleRadio.IsChecked = mode == 1;
+        EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        EdgeCrossBarrierRadio.Checked += EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.Checked += EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.Checked += EdgeCrossMode_Changed;
+        RefreshEdgeCrossTip();
+    }
+
+    private int ReadEdgeCrossModeUi()
+    {
+        if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
+        if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        return 0;
+    }
+
+    private void EdgeCrossMode_Changed(object sender, RoutedEventArgs e) => RefreshEdgeCrossTip();
+
+    private void RefreshEdgeCrossTip()
+    {
+        var key = ReadEdgeCrossModeUi() switch
+        {
+            1 => "Tip.EdgeCross.DoubleTap",
+            2 => "Tip.EdgeCross.SpeedBurst",
+            _ => "Tip.EdgeCross.BarrierFree"
+        };
+        EdgeCrossTipText.Text = Loc.T(key);
+    }
+
     private async void Apply_Click(object sender, RoutedEventArgs e)
     {
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
+        await _host.BroadcastBehaviorSyncAsync();
         await _host.RestartNetworkingAsync();
         StatusText.Text = Loc.T("Sys.Applied");
         SyncSlotLocalFlags();
@@ -451,6 +493,34 @@ public partial class MainWindow : Window
             ApplyLayoutFromSettings();
             StatusText.Text = $"已同步布局 ← {from}";
         });
+    }
+
+    private void OnBehaviorSyncedFromPeer(string from)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            ApplyBehaviorFromSettings();
+            StatusText.Text = $"已同步功能与行为 ← {from}";
+        });
+    }
+
+    /// <summary>用设置中的功能/行为选项刷新高级页 UI（对端同步时调用）。</summary>
+    private void ApplyBehaviorFromSettings()
+    {
+        var s = _host.Settings;
+        WrapMouseCheck.IsChecked = s.WrapMouse;
+        ShareClipboardCheck.IsChecked = s.ShareClipboard;
+        TransferFileCheck.IsChecked = s.TransferFile;
+        HideMouseCheck.IsChecked = s.HideMouseAtEdge;
+        DrawCursorCheck.IsChecked = s.DrawMouseCursor;
+        SameSubnetCheck.IsChecked = s.SameSubnetOnly;
+        ShowStatusCheck.IsChecked = s.ShowStatusMessages;
+        BlockSaverCheck.IsChecked = s.BlockScreenSaver;
+        MoveRelCheck.IsChecked = s.MoveMouseRelatively;
+        BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
+        EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
+        _host.Input.EasyMouseEnabled = s.EasyMouse;
     }
 
     /// <summary>用设置中的 MachineSlots / TwoRow 刷新矩阵 UI（对端同步时调用）。</summary>
@@ -480,20 +550,27 @@ public partial class MainWindow : Window
             }
             else
             {
-                slot.OutboundOk = false;
-                slot.InboundOk = false;
-                slot.RefreshStatus();
                 if (!string.IsNullOrEmpty(name))
                 {
-                    var ip = _host.Connections.Discovery.FindIp(name);
-                    if (ip != null) slot.ResolvedIp = ip;
-                    var reachable = _host.Connections.IsPeerReachable(name);
-                    if (reachable)
+                    var st = _host.Connections.GetPeerStatus(name);
+                    slot.OutboundOk = st.Outbound;
+                    slot.InboundOk = st.Inbound;
+                    if (!string.IsNullOrEmpty(st.DiscoveredIp))
+                        slot.ResolvedIp = st.DiscoveredIp;
+                    else
                     {
-                        // PeerLinkChanged 会再刷新；先标为连接中
-                        slot.RefreshStatus();
+                        var ip = _host.Connections.Discovery.FindIp(name);
+                        if (ip != null) slot.ResolvedIp = ip;
                     }
                 }
+                else
+                {
+                    slot.OutboundOk = false;
+                    slot.InboundOk = false;
+                    slot.ResolvedIp = "";
+                }
+
+                slot.RefreshStatus();
             }
         }
 
@@ -781,8 +858,8 @@ public partial class MainWindow : Window
         PersistSlots();
         RefreshDiscovery();
         RedrawArrows();
-        StatusText.Text = $"已移除 {name}，可在局域网自动发现中再添加";
-        _ = RestartAfterSlotChangeAsync();
+        StatusText.Text = $"已移除 {name}，将从所有已连接电脑布局中踢出";
+        _ = RemovePeerAndSyncAsync(name);
     }
 
     private void TryAddPeer(DiscoveredPeer peer)
@@ -802,7 +879,7 @@ public partial class MainWindow : Window
         var empty = _slots.FirstOrDefault(s => string.IsNullOrWhiteSpace(s.Name));
         if (empty == null)
         {
-            System.Windows.MessageBox.Show("没有空的机器槽位，请先移除一台电脑。", "玄鸟");
+            System.Windows.MessageBox.Show("没有空的机器槽位（最多 4 台），请先移除一台电脑。", "玄鸟");
             return;
         }
 
@@ -816,8 +893,8 @@ public partial class MainWindow : Window
         PersistSlots();
         RefreshDiscovery();
         RedrawArrows();
-        StatusText.Text = $"已添加 {peer.MachineName}";
-        _ = RestartAfterSlotChangeAsync();
+        StatusText.Text = $"已添加 {peer.MachineName}，正在与对端合并布局";
+        _ = RestartAfterSlotChangeAsync(merge: true);
     }
 
     private void PersistSlots()
@@ -832,16 +909,35 @@ public partial class MainWindow : Window
         SyncSlotLocalFlags();
     }
 
-    private async Task RestartAfterSlotChangeAsync()
+    private async Task RestartAfterSlotChangeAsync(bool merge)
     {
         try
         {
-            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            if (merge)
+                await _host.BroadcastLayoutMergeAsync().ConfigureAwait(true);
+            else
+                await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
             await _host.RestartNetworkingAsync().ConfigureAwait(true);
         }
         catch
         {
             // ignore reconnect errors
+        }
+    }
+
+    private async Task RemovePeerAndSyncAsync(string removedPeer)
+    {
+        try
+        {
+            await _host.Connections.DropPeerAsync(removedPeer).ConfigureAwait(true);
+            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
+            _host.RestoreCursorIfLayoutSolo();
+        }
+        catch
+        {
+            // ignore
         }
     }
 

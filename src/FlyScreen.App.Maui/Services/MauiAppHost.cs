@@ -27,11 +27,13 @@ public sealed class MauiAppHost : IAsyncDisposable
     public AppSettings Settings { get; }
     public ConnectionManager Connections { get; }
     public LayoutSyncHelper LayoutSync { get; }
+    public BehaviorSyncHelper BehaviorSync { get; }
     public FileTransferService Transfers { get; }
     public IMauiPlatformServices Platform => _platform;
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
+    public event Action<string>? BehaviorSyncedFromPeer;
 
     public string PlatformBanner { get; }
 
@@ -57,7 +59,21 @@ public sealed class MauiAppHost : IAsyncDisposable
         LayoutSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
         LayoutSync.LayoutSyncedFromPeer += peer =>
         {
+            // 只通知 UI；MaintainLoop 负责补连/剪枝，避免反复 Restart 闪烁
+            RestoreCursorIfLayoutSolo();
             LayoutSyncedFromPeer?.Invoke(peer);
+        };
+        LayoutSync.KickedFromLayout += () =>
+        {
+            _platform.RestoreCursorWhenLeavingCluster();
+            LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
+        };
+        BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
+        BehaviorSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        BehaviorSync.BehaviorSyncedFromPeer += peer =>
+        {
+            _platform.SetEasyMouse(Settings.EasyMouse);
+            BehaviorSyncedFromPeer?.Invoke(peer);
             _ = RestartNetworkingAsync();
         };
         Connections.StatusMessage += msg => StatusMessage?.Invoke(msg);
@@ -134,7 +150,18 @@ public sealed class MauiAppHost : IAsyncDisposable
         _platform.SetEasyMouse(Settings.EasyMouse);
     }
 
-    public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastAsync();
+    public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
+
+    public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
+
+    public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    /// <summary>布局仅剩本机时恢复可见光标。</summary>
+    public void RestoreCursorIfLayoutSolo()
+    {
+        if (LayoutSlotMerge.IsOnlyLocal(Settings.MachineSlots, LocalPeerIdentity.MachineName))
+            _platform.RestoreCursorWhenLeavingCluster();
+    }
 
     public void ApplyFromUi(
         string securityKey,
@@ -160,7 +187,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         string? hotkeyReconnect = null,
         string? hotkeyExit = null,
         string? uiTheme = null,
-        string? uiLanguage = null)
+        string? uiLanguage = null,
+        int edgeCrossMode = 0)
     {
         Settings.SecurityKey = securityKey.Trim();
         Settings.MachineSlots = slots.Select(s => s.Trim()).ToList();
@@ -172,6 +200,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.ShareClipboard = shareClipboard;
         Settings.TransferFile = transferFile;
         Settings.EasyMouse = easyMouse;
+        Settings.EdgeCrossMode = edgeCrossMode is >= 0 and <= 2 ? edgeCrossMode : 0;
         Settings.SameSubnetOnly = sameSubnet;
         Settings.HideMouseAtEdge = hideMouseAtEdge;
         Settings.DrawMouseCursor = drawMouseCursor;
@@ -193,6 +222,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         if (_platform.SupportsAutoStart)
             _platform.SetAutoStartEnabled(autoStart);
         _platform.SetEasyMouse(easyMouse);
+        RestoreCursorIfLayoutSolo();
     }
 
     private void OnPeerMessage(string peer, NetMessage msg)
@@ -277,6 +307,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         _platform.StopDesktopInput();
         _platform.DisposeTray();
         LayoutSync.Detach();
+        BehaviorSync.Detach();
         await Connections.DisposeAsync().ConfigureAwait(false);
         Settings.Save();
         if (ReferenceEquals(_instance, this))

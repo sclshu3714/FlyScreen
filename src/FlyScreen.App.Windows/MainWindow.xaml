@@ -1,4 +1,4 @@
-﻿<Window x:Class="FlyScreen.MainWindow"
+<Window x:Class="FlyScreen.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FlyScreen"
@@ -850,8 +850,8 @@
                           ToolTip="在已连接电脑之间共享剪贴板。复制文本、图片等内容后，鼠标移到目标机再粘贴。"/>
                                 <CheckBox x:Name="TransferFileCheck" Content="启用文件传输" Margin="20,4,0,4"
                           ToolTip="允许通过剪贴板按需传输文件，以及「文件传输」页的直接推送。关闭后仍可共享文本/图片剪贴板。"/>
-                                <CheckBox x:Name="HideMouseCheck" Content="控制远端时隐藏本机边缘光标"
-                          ToolTip="进入远端时隐藏本机光标（本机光标仍会钉在屏幕中部以采集位移）。关闭后本机中部仍可见光标，不影响跨机移动。"/>
+                                <CheckBox x:Name="HideMouseCheck" Content="隐藏光标"
+                          ToolTip="启用后已连接电脑同一时间只有 1 台活动并显示光标，其余隐藏；某台物理鼠标活动时立即成为活动机。关闭后非活动电脑光标居中显示。"/>
                                 <CheckBox x:Name="DrawCursorCheck" Content="绘制鼠标光标（预留）"
                           ToolTip="预留选项：在远端屏幕上绘制虚拟光标。当前版本尚未启用实际绘制逻辑。"/>
                                 <CheckBox x:Name="SameSubnetCheck" Content="仅同网段连接"
@@ -871,6 +871,18 @@
                           ToolTip="屏幕四角附近不触发边缘切换，减少误触（例如移向关闭按钮时）。"/>
                                 <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"
                           ToolTip="启用后，将鼠标移出屏幕边缘即可切换到布局中相邻的电脑。"/>
+                                <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" Margin="0,10,0,4"
+                                           Foreground="{DynamicResource Muted}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
+                                                 Margin="0,0,12,0" Checked="EdgeCrossMode_Changed"/>
+                                    <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
+                                                 Margin="0,0,12,0" Checked="EdgeCrossMode_Changed"/>
+                                    <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                                                 Checked="EdgeCrossMode_Changed"/>
+                                </StackPanel>
+                                <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,4"/>
                             </StackPanel>
                         </Grid>
                     </Border>

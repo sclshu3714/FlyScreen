@@ -117,12 +117,30 @@ pwsh -File build/Publish-FlyScreenMaui.ps1 -Platforms Mac -MacRid maccatalyst-x6
 | Android | `…/maui-android/*.apk` | `maui-android` | `FlyScreen-{ver}-maui-android.apk` |
 | Mac Catalyst | `…/maui-osx-arm64/` 单文件可执行 | `maui-osx-arm64` / `maui-osx-x64` | `FlyScreen-{ver}-maui-osx-arm64`（无扩展名） |
 
+### Visual Studio（推荐：右键生成 = 发布）
+
+MAUI Windows 为 **非打包**，VS 项目右键「发布」会灰色。各端统一用解决方案 **`build`** 下的发布项目（详见 [build/README.md](../../build/README.md)）：
+
+| 右键生成 | 产物 |
+|----------|------|
+| `FlyScreen.Publish.MauiWin` | `…/maui-win-x64/*.exe` |
+| `FlyScreen.Publish.MauiAndroid` | `…/maui-android/*.apk` |
+| `FlyScreen.Publish.MauiMac` | `…/maui-osx-arm64/`（**仅 macOS**） |
+
+另有 WPF / Avalonia：`Publish.Win`、`Publish.Linux`、`Publish.Mac`。均未勾进「生成解决方案」。
+
+CLI 仍可用：`Publish-FlyScreenMaui.ps1 -Platforms Windows` 等。
+
 脚本内部等价命令：
 
 ```powershell
-# Windows 自包含单文件
+# Windows 自包含单文件（RuntimeIdentifierOverride 为官方推荐）
 dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
-  -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained true `
+  -f net10.0-windows10.0.19041.0 `
+  -p:RuntimeIdentifierOverride=win-x64 `
+  -p:WindowsPackageType=None `
+  -p:WindowsAppSDKSelfContained=true `
+  --self-contained true `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:EnableCompressionInSingleFile=true `

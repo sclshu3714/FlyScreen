@@ -30,8 +30,7 @@ public sealed class MauiInputRouter : IDisposable
     private bool _hasSavedLocalPos;
     private long _switchedToRemoteAtTick;
     private long _lastPhysicalInputTick;
-    private int _edgePendingSide;
-    private long _edgeEnterTick;
+    private readonly EdgeCrossGate _edgeGate = new();
     /// <summary>控远端时的虚拟光标（含进入边粘滞，防止误甩回本机）。</summary>
     private readonly EdgeMouseVirtualCursor _remoteCursor = new();
     /// <summary>对端相对本机：-1 左, +1 右, -2 上, +2 下。</summary>
@@ -39,11 +38,10 @@ public sealed class MauiInputRouter : IDisposable
     /// <summary>切换控制权后的短冷却，避免落在边缘时立刻被环形逻辑甩回。</summary>
     private long _switchCooldownUntilTick;
     private const int SwitchCooldownMs = 900;
-    private const int EdgeDwellMs = 140;
     private const int LocalActivityGuardMs = 1000;
     private const int BriefRemoteMs = 450;
-    /// <summary>本进程 UI/钩子线程上是否已将 ShowCursor 压到不可见（仅在该线程读写）。</summary>
-    private bool _cursorHiddenOnHookThread;
+    /// <summary>本机是否为当前活动电脑（显示操作光标的那一台）。</summary>
+    private bool _isCursorOwner = true;
     private SynchronizationContext? _hookSync;
     private long _lastCursorOwnerBroadcastTick;
 
@@ -97,7 +95,7 @@ public sealed class MauiInputRouter : IDisposable
         _focusOnLocal = true;
         _activePeer = null;
         _peerSide = 0;
-        _edgePendingSide = 0;
+        _edgeGate.Reset();
         _switchedToRemoteAtTick = 0;
         ArmSwitchCooldown();
         if (localX is double x && localY is double y)
@@ -167,14 +165,17 @@ public sealed class MauiInputRouter : IDisposable
         ControlTargetChanged?.Invoke(null);
     }
 
-    /// <summary>对端宣告光标归属：非本机则隐藏；正在控远端且 Owner=当前对端时保持控制（勿误掐）。</summary>
+    /// <summary>
+    /// 对端宣告活动电脑：启用「隐藏光标」时非活动机隐藏；关闭时非活动机居中可见。
+    /// 正在控远端且 Owner=当前对端时保持控制（勿误掐）。
+    /// </summary>
     public void OnCursorOwnerChanged(string ownerMachine)
     {
-        if (!_settings.HideMouseAtEdge) return;
         if (string.IsNullOrWhiteSpace(ownerMachine)) return;
 
         if (IsLocalMachine(ownerMachine))
         {
+            _isCursorOwner = true;
             ShowLocalCursor();
             return;
         }
@@ -184,14 +185,16 @@ public sealed class MauiInputRouter : IDisposable
             && !string.IsNullOrEmpty(_activePeer)
             && string.Equals(ownerMachine, _activePeer, StringComparison.OrdinalIgnoreCase))
         {
-            HideLocalCursor();
+            _isCursorOwner = false;
             _focusOnLocal = false;
+            ApplyInactiveCursorPresentation();
             return;
         }
 
-        // 光标归其它机器：隐藏本机光标；若在控远端则放下（第三方抢了归属）
-        HideLocalCursor();
+        // 活动权归其它机器：本机变为非活动；若在控远端则放下（第三方抢了归属）
+        _isCursorOwner = false;
         _focusOnLocal = false;
+        ApplyInactiveCursorPresentation();
         if (_controllingRemote)
         {
             _controllingRemote = false;
@@ -220,16 +223,16 @@ public sealed class MauiInputRouter : IDisposable
         _focusOnLocal = false;
         _activePeer = peer;
         _peerSide = peerSide;
-        _edgePendingSide = 0;
+        SyncEdgeCrossMode();
+        _edgeGate.Reset();
         _switchedToRemoteAtTick = Environment.TickCount64;
+        _remoteCursor.EntryStickyEnabled = _edgeGate.UseEntrySticky;
         _remoteCursor.BeginRemote(entryX, entryY, peerSide);
         ArmSwitchCooldown();
+        _isCursorOwner = false;
         PinLocalCursorForRemoteControl();
-        if (_settings.HideMouseAtEdge)
-        {
-            HideLocalCursor();
-            _ = BroadcastCursorOwnerAsync(peer);
-        }
+        ApplyInactiveCursorPresentation();
+        _ = BroadcastCursorOwnerAsync(peer);
 
         ControlTargetChanged?.Invoke(peer);
         var (sx, sy) = _remoteCursor.Clamped01();
@@ -292,31 +295,36 @@ public sealed class MauiInputRouter : IDisposable
             }
         }
 
-        if (_settings.HideMouseAtEdge
-            && msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
+        // 物理键鼠夺回活动权（注入已在上方过滤，故被控时移动也可夺回）
+        if (msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
         {
             TryClaimPhysicalInput();
         }
-        else if (_settings.HideMouseAtEdge && msg == NativeMethods.WM_MOUSEMOVE
-                 && !_receivingRemoteControl && !_controllingRemote)
+        else if (msg == NativeMethods.WM_MOUSEMOVE && !_controllingRemote)
         {
             TryClaimPhysicalInput();
         }
 
-        if (!_controllingRemote && EasyMouseEnabled && _settings.EasyMouse && msg == NativeMethods.WM_MOUSEMOVE
-            && !InSwitchCooldown())
+        if (!_controllingRemote && msg == NativeMethods.WM_MOUSEMOVE)
         {
-            if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
-                    out var peer, out var entryX, out var entryY, out var peerSide))
+            SyncEdgeCrossMode();
+            var nxObs = screenW <= 1 ? 0.5 : Math.Clamp((info.pt.X - screenL) / (double)(screenW - 1), 0, 1);
+            var nyObs = screenH <= 1 ? 0.5 : Math.Clamp((info.pt.Y - screenT) / (double)(screenH - 1), 0, 1);
+            var rightObs = screenL + screenW - 1;
+            var bottomObs = screenT + screenH - 1;
+            var onEdge = info.pt.X <= screenL || info.pt.X >= rightObs || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
+            _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
+
+            if (EasyMouseEnabled && _settings.EasyMouse && !InSwitchCooldown())
             {
-                SwitchToPeer(peer!, entryX, entryY, peerSide);
-                return (IntPtr)1;
+                if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
+                        out var peer, out var entryX, out var entryY, out var peerSide))
+                {
+                    SwitchToPeer(peer!, entryX, entryY, peerSide);
+                    return (IntPtr)1;
+                }
             }
-        }
-        else if (!_controllingRemote && msg == NativeMethods.WM_MOUSEMOVE)
-        {
-            ClearEdgeDwellIfInside(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
         }
 
         if (_controllingRemote && !string.IsNullOrEmpty(_activePeer))
@@ -346,7 +354,7 @@ public sealed class MauiInputRouter : IDisposable
                     _ = SendMouseMoveAsync(_activePeer, nx, ny);
                 }
 
-                // 远端出界：粘滞 + 过冲后，按布局找下一台（支持环形）
+                SyncEdgeCrossMode();
                 if (!InSwitchCooldown() && TryNavigateFromRemoteVirtual(dx, dy))
                     return (IntPtr)1;
 
@@ -399,7 +407,7 @@ public sealed class MauiInputRouter : IDisposable
         if (down)
             _lastPhysicalInputTick = Environment.TickCount64;
 
-        if (_settings.HideMouseAtEdge && down)
+        if (down)
             TryClaimPhysicalInput();
 
         // Ctrl+Alt+热键
@@ -420,14 +428,13 @@ public sealed class MauiInputRouter : IDisposable
     }
 
     /// <summary>
-    /// 本机物理键鼠活动：显示本机光标，广播「光标归本机」，停止被远程控制状态。
-    /// 正在主动控制远端时不抢（光标应留在对端）。
+    /// 本机物理键鼠活动：成为活动电脑、显示光标，并通知其它机器进入非活动态。
+    /// 正在主动控制远端时不抢（活动面应留在对端）。
     /// </summary>
     private void TryClaimPhysicalInput()
     {
-        if (!_settings.HideMouseAtEdge) return;
-        if (_controllingRemote) return; // 本机正在控远端：继续隐藏本机光标，输入仍转发
-        if (!_receivingRemoteControl && !_cursorHiddenOnHookThread) return; // 已是本机操作且光标可见
+        if (_controllingRemote) return; // 本机正在控远端：输入仍转发，活动面在对端
+        if (_isCursorOwner && !_receivingRemoteControl) return; // 已是活动机
         if (InSwitchCooldown() && _receivingRemoteControl) return; // 刚切入被控，忽略切入瞬间误判
 
         _receivingRemoteControl = false;
@@ -436,9 +443,42 @@ public sealed class MauiInputRouter : IDisposable
 
     private void BecomeCursorOwner(bool broadcast)
     {
+        _isCursorOwner = true;
         ShowLocalCursor();
-        if (broadcast && _settings.HideMouseAtEdge)
+        if (broadcast)
             _ = BroadcastCursorOwnerAsync(LocalPeerIdentity.MachineName);
+    }
+
+    /// <summary>
+    /// 退出集群 / 布局仅剩本机 / 断开前：结束远端控制态并强制显示本机光标。
+    /// </summary>
+    public void RestoreCursorWhenLeavingCluster()
+    {
+        var wasRemote = _controllingRemote || _receivingRemoteControl || !_isCursorOwner;
+        _controllingRemote = false;
+        _receivingRemoteControl = false;
+        _activePeer = null;
+        _peerSide = 0;
+        _focusOnLocal = true;
+        _isCursorOwner = true;
+        _edgeGate.Reset();
+        ShowLocalCursor();
+        if (wasRemote)
+        {
+            try { ControlTargetChanged?.Invoke(null); } catch { /* ignore */ }
+        }
+    }
+
+    /// <summary>非活动机：启用隐藏则藏光标；关闭则居中可见。</summary>
+    private void ApplyInactiveCursorPresentation()
+    {
+        if (_settings.HideMouseAtEdge)
+            HideLocalCursor();
+        else
+        {
+            ShowLocalCursor();
+            PinLocalCursorForRemoteControl();
+        }
     }
 
     /// <summary>
@@ -471,8 +511,6 @@ public sealed class MauiInputRouter : IDisposable
             while (NativeMethods.ShowCursor(false) >= 0)
             {
             }
-
-            _cursorHiddenOnHookThread = true;
         });
     }
 
@@ -484,8 +522,6 @@ public sealed class MauiInputRouter : IDisposable
             while (NativeMethods.ShowCursor(true) < 0)
             {
             }
-
-            _cursorHiddenOnHookThread = false;
         });
     }
 
@@ -670,17 +706,17 @@ public sealed class MauiInputRouter : IDisposable
 
         var nx = screenW <= 1 ? 0.5 : Math.Clamp((x - screenL) / (double)(screenW - 1), 0, 1);
         var ey = entryY;
+        var now = Environment.TickCount64;
 
         if (x <= screenL && x <= _lastX)
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: -1);
-            if (IsValidPeer(name) && EdgeDwellReady(-1))
+            if (IsValidPeer(name) && _edgeGate.TryAdmit(-1, now))
             {
                 peer = name;
                 peerSide = -1;
                 entryX = 0.999;
                 entryY = ey;
-                _edgePendingSide = 0;
                 return true;
             }
 
@@ -690,13 +726,12 @@ public sealed class MauiInputRouter : IDisposable
         if (x >= right && x >= _lastX)
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: +1);
-            if (IsValidPeer(name) && EdgeDwellReady(1))
+            if (IsValidPeer(name) && _edgeGate.TryAdmit(1, now))
             {
                 peer = name;
                 peerSide = 1;
                 entryX = 0.001;
                 entryY = ey;
-                _edgePendingSide = 0;
                 return true;
             }
 
@@ -708,13 +743,12 @@ public sealed class MauiInputRouter : IDisposable
             if (y <= screenT && y <= _lastY)
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: -1);
-                if (IsValidPeer(name) && EdgeDwellReady(-2))
+                if (IsValidPeer(name) && _edgeGate.TryAdmit(-2, now))
                 {
                     peer = name;
                     peerSide = -2;
                     entryX = nx;
                     entryY = 0.999;
-                    _edgePendingSide = 0;
                     return true;
                 }
 
@@ -724,13 +758,12 @@ public sealed class MauiInputRouter : IDisposable
             if (y >= bottom && y >= _lastY)
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: +1);
-                if (IsValidPeer(name) && EdgeDwellReady(2))
+                if (IsValidPeer(name) && _edgeGate.TryAdmit(2, now))
                 {
                     peer = name;
                     peerSide = 2;
                     entryX = nx;
                     entryY = 0.001;
-                    _edgePendingSide = 0;
                     return true;
                 }
 
@@ -738,31 +771,18 @@ public sealed class MauiInputRouter : IDisposable
             }
         }
 
-        _edgePendingSide = 0;
         return false;
     }
 
-    private bool EdgeDwellReady(int side)
+    private void SyncEdgeCrossMode()
     {
-        var now = Environment.TickCount64;
-        if (_edgePendingSide != side)
+        var mode = _settings.EdgeCrossMode switch
         {
-            _edgePendingSide = side;
-            _edgeEnterTick = now;
-            return false;
-        }
-
-        return now - _edgeEnterTick >= EdgeDwellMs;
-    }
-
-    private void ClearEdgeDwellIfInside(int x, int y, int screenL, int screenT, int screenW, int screenH)
-    {
-        if (_edgePendingSide == 0) return;
-        var right = screenL + screenW - 1;
-        var bottom = screenT + screenH - 1;
-        var onEdge = x <= screenL || x >= right || y <= screenT || y >= bottom;
-        if (!onEdge)
-            _edgePendingSide = 0;
+            1 => EdgeCrossMode.DoubleTap,
+            2 => EdgeCrossMode.SpeedBurst,
+            _ => EdgeCrossMode.BarrierFree
+        };
+        _edgeGate.Mode = mode;
     }
 
     /// <summary>
@@ -773,9 +793,26 @@ public sealed class MauiInputRouter : IDisposable
     {
         if (string.IsNullOrEmpty(_activePeer)) return false;
 
+        var now = Environment.TickCount64;
+        var (cx0, cy0) = _remoteCursor.Clamped01();
+
         // 粘滞进入边 + 过冲：避免入口微抖立刻甩回本机
         if (!_remoteCursor.TryGetExitDirection(dx, dy, _settings.TwoRow, out var dirH, out var dirVSide))
+        {
+            // 过冲积累中已算出界几何边，勿标成「内侧」，否则极速 inlandDepth 会被贴边坐标冲掉
+            var onGeomEdge = _remoteCursor.Nx <= 0 || _remoteCursor.Nx >= 1
+                || (_settings.TwoRow && (_remoteCursor.Ny <= 0 || _remoteCursor.Ny >= 1));
+            _edgeGate.Observe(cx0, cy0, onGeomEdge, now);
             return false;
+        }
+
+        var exitSide = dirH != 0 ? dirH : dirVSide;
+        if (!_edgeGate.TryAdmitRemoteExit(exitSide, cx0, cy0, dx, dy, now))
+        {
+            if (_edgeGate.ShouldClampVirtualCursorOnReject)
+                _remoteCursor.ClampInside();
+            return false;
+        }
 
         // dirVSide 为 -2/+2；布局邻居查找用 -1/+1
         var dirV = dirVSide == 0 ? 0 : (dirVSide < 0 ? -1 : 1);

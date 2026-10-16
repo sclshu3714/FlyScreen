@@ -502,7 +502,7 @@
                   <CheckBox x:Name="WrapMouseCheck" Content="环形鼠标（首尾相连）"/>
                   <CheckBox x:Name="ShareClipboardCheck" Content="共享剪贴板"/>
                   <CheckBox x:Name="TransferFileCheck" Content="启用文件传输" Margin="20,3,0,3"/>
-                  <CheckBox x:Name="HideMouseCheck" Content="控制远端时隐藏本机边缘光标"/>
+                  <CheckBox x:Name="HideMouseCheck" Content="隐藏光标"/>
                   <CheckBox x:Name="DrawCursorCheck" Content="绘制鼠标光标（预留）"/>
                   <CheckBox x:Name="SameSubnetCheck" Content="仅同网段连接"/>
                   <CheckBox x:Name="ShowStatusCheck" Content="显示状态消息"/>
@@ -514,6 +514,15 @@
                   <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"/>
                   <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"/>
                   <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"/>
+                  <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" Margin="0,8,0,4"
+                             Foreground="{DynamicResource Muted}"/>
+                  <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,4">
+                    <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"/>
+                    <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"/>
+                    <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"/>
+                  </StackPanel>
+                  <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
+                             Foreground="{DynamicResource Muted}" FontSize="12"/>
                 </StackPanel>
               </Grid>
             </Border>

@@ -135,16 +135,18 @@ FlyScreen/
 示例（后缀仅为常见形态，发版以构建结果为准）：
 
 ```text
-FlyScreen-{version}-win-x64.exe
-FlyScreen-{version}-osx-arm64.zip          # 或 .dmg / .app 打包结果
-FlyScreen-{version}-osx-x64.zip
-FlyScreen-{version}-linux-x64.zip          # 或 .AppImage
-FlyScreen-{version}-android.apk
+FlyScreen-{version}-win-x64.exe            # WPF stable 单文件
+FlyScreen-{version}-osx-arm64              # Avalonia Mac 单文件（无扩展名）
+FlyScreen-{version}-osx-x64
+FlyScreen-{version}-linux-x64              # Avalonia Linux 单文件（无扩展名）
+FlyScreen-{version}-linux-arm64
+FlyScreen-{version}-android.apk            # Kotlin 骨架（若有）
 FlyScreen-{version}-android-tv.apk
 FlyScreen-{version}-harmony.hap
-FlyScreen-{version}-maui-win-x64.exe       # MAUI 双轨 beta 单文件，不替代 WPF stable
+FlyScreen-{version}-maui-win-x64.exe       # MAUI 双轨 beta，不替代 WPF stable
 FlyScreen-{version}-maui-android.apk
-FlyScreen-{version}-maui-osx-arm64         # MAUI Mac Catalyst 单文件；Avalonia Mac 仍用 osx-*
+FlyScreen-{version}-maui-osx-arm64         # MAUI Mac Catalyst 单文件
+# 目录产物仅作中间态；发版优先单文件。旧 zip 仍可被 Name-FlyScreenPackage 从目录打出。
 ```
 
 

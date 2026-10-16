@@ -29,9 +29,11 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public LinuxSessionKind SessionKind { get; }
     public ILinuxInputInjector Injector { get; private set; }
     public LayoutSyncHelper LayoutSync { get; }
+    public BehaviorSyncHelper BehaviorSync { get; }
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
+    public event Action<string>? BehaviorSyncedFromPeer;
     /// <summary>被远程控制时指针归一化坐标更新（供 GUI 软件光标）。</summary>
     public event Action<double, double>? RemotePointerMoved;
     /// <summary>是否处于「被对端操控本机」状态。</summary>
@@ -61,8 +63,20 @@ public sealed class LinuxAppHost : IAsyncDisposable
         LayoutSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
         LayoutSync.LayoutSyncedFromPeer += peer =>
         {
+            if (LayoutSlotMerge.IsOnlyLocal(Settings.MachineSlots, LocalPeerIdentity.MachineName))
+                Injector.EnsureCursorVisible();
             LayoutSyncedFromPeer?.Invoke(peer);
-            _ = RestartNetworkingAsync();
+        };
+        LayoutSync.KickedFromLayout += () =>
+        {
+            Injector.EnsureCursorVisible();
+            LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
+        };
+        BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
+        BehaviorSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        BehaviorSync.BehaviorSyncedFromPeer += peer =>
+        {
+            BehaviorSyncedFromPeer?.Invoke(peer);
         };
         Connections.StatusMessage += msg => StatusMessage?.Invoke(msg);
         Connections.MessageReceived += OnPeerMessage;
@@ -84,7 +98,11 @@ public sealed class LinuxAppHost : IAsyncDisposable
         await Connections.StartAsync().ConfigureAwait(false);
     }
 
-    public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastAsync();
+    public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
+
+    public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
+
+    public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
 
     public void RefreshCaps()
     {
@@ -211,6 +229,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         LayoutSync.Detach();
+        BehaviorSync.Detach();
         if (Injector is IDisposable d)
             d.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

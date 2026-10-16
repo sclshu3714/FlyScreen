@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MAUI Windows：独立 exe → artifacts/release/FlyScreen-{ver}-maui-win-x64.exe -->
+  <Import Project="PublishProject.Common.props" />
+  <PropertyGroup>
+    <FlyScreenPublishTitle>发布 MAUI Windows 独立 exe (maui-win-x64)</FlyScreenPublishTitle>
+    <FlyScreenPublishRid>maui-win-x64</FlyScreenPublishRid>
+    <FlyScreenPublishKind>Exe</FlyScreenPublishKind>
+    <FlyScreenPublishStagingDir>src\FlyScreen.App.Maui\bin\publish\maui-win-x64</FlyScreenPublishStagingDir>
+    <FlyScreenPublishCommand>dotnet publish "src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj" -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "src\FlyScreen.App.Maui\bin\publish\maui-win-x64"</FlyScreenPublishCommand>
+  </PropertyGroup>
+  <Import Project="PublishProject.Common.targets" />
+</Project>
