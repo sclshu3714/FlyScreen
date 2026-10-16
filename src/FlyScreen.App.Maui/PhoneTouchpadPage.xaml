@@ -3,27 +3,112 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="FlyScreen.AppMaui.PhoneTouchpadPage"
              Title="触控板"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="{StaticResource WinBg}">
-  <Grid RowDefinitions="Auto,*,Auto" Padding="16">
-    <VerticalStackLayout Spacing="8">
-      <Label Text="玄鸟 · 触控板" FontSize="20" FontAttributes="Bold" />
-      <Label x:Name="StatusLabel" Text="连接桌面后滑动即可控制鼠标"
-             TextColor="{StaticResource Muted}" FontSize="12" />
-      <Button Text="打开设置" Style="{StaticResource NormalBtn}" Clicked="OpenSettings_Clicked" />
-    </VerticalStackLayout>
+  <!-- 顶栏 + 按键区(1/3) + 手写/键盘区(2/3) -->
+  <Grid RowDefinitions="Auto,*,2*" Padding="12" RowSpacing="10">
 
-    <Border Grid.Row="1" Margin="0,12" BackgroundColor="{StaticResource CardBg}"
-            Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
-      <Grid x:Name="PadArea" BackgroundColor="Transparent">
-        <Label Text="触控板区域" TextColor="{StaticResource Muted}"
-               HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+    <!-- 顶栏：标题/状态 | 手写·键盘开关 | 设置 -->
+    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+      <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+        <Label Text="玄鸟 · 触控板" FontSize="18" FontAttributes="Bold" />
+        <Label x:Name="StatusLabel" Text="连接桌面后即可控制"
+               TextColor="{StaticResource Muted}" FontSize="11" LineBreakMode="TailTruncation" />
+      </VerticalStackLayout>
+
+      <Border Grid.Column="1" BackgroundColor="{StaticResource SubtleBg}" StrokeThickness="0"
+              StrokeShape="RoundRectangle 8" Padding="3" VerticalOptions="Center">
+        <HorizontalStackLayout>
+          <Button x:Name="ModePadBtn" Text="手写" Style="{StaticResource SegBtnActive}"
+                  Clicked="ModePad_Clicked" />
+          <Button x:Name="ModeKeyBtn" Text="键盘" Style="{StaticResource SegBtn}"
+                  Clicked="ModeKey_Clicked" />
+        </HorizontalStackLayout>
+      </Border>
+
+      <Button x:Name="SettingsBtn" Grid.Column="2" Text="⚙ 设置"
+              Style="{StaticResource NormalBtn}"
+              MinimumWidthRequest="0" HeightRequest="34" Padding="10,0"
+              VerticalOptions="Center" Clicked="OpenSettings_Clicked" />
+    </Grid>
+
+    <!-- 第一行：左键 | 滚轮 | 右键 -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+      <Border x:Name="LeftZone" BackgroundColor="{StaticResource CardBg}"
+              Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="4"
+                             InputTransparent="True">
+          <Label Text="⬤" FontSize="10" TextColor="{StaticResource Blue}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="左键" FontSize="15" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="点击" FontSize="11" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+      </Border>
+
+      <Border x:Name="WheelZone" Grid.Column="1" BackgroundColor="{StaticResource CardBg}"
+              Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="2"
+                             InputTransparent="True">
+          <Label Text="↑" FontSize="14" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="滚轮" FontSize="15" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="中键 · 上下滑" FontSize="11" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="↓" FontSize="14" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+      </Border>
+
+      <Border x:Name="RightZone" Grid.Column="2" BackgroundColor="{StaticResource CardBg}"
+              Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="4"
+                             InputTransparent="True">
+          <Label Text="⬤" FontSize="10" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="右键" FontSize="15" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="点击" FontSize="11" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+      </Border>
+    </Grid>
+
+    <!-- 第二行：手写触控区 / 键盘输入区 -->
+    <Border Grid.Row="2" BackgroundColor="{StaticResource CardBg}"
+            Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12"
+            Padding="0">
+      <Grid>
+        <!-- 手写 / 光标移动 -->
+        <Grid x:Name="PadArea" IsVisible="True" BackgroundColor="Transparent">
+          <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center"
+                               Spacing="6" InputTransparent="True">
+            <Label Text="触控板" FontSize="16" FontAttributes="Bold"
+                   TextColor="{StaticResource Muted}" HorizontalTextAlignment="Center" />
+            <Label Text="滑动移动光标 · 轻点相当于左键"
+                   FontSize="12" TextColor="{StaticResource Muted}"
+                   HorizontalTextAlignment="Center" />
+          </VerticalStackLayout>
+        </Grid>
+
+        <!-- 键盘输入 -->
+        <Grid x:Name="KeyboardArea" IsVisible="False" Padding="12" RowDefinitions="*,Auto">
+          <Editor x:Name="KeyboardEditor"
+                  Placeholder="在此输入，文字会发到对端电脑…"
+                  AutoSize="Disabled"
+                  FontSize="16"
+                  BackgroundColor="Transparent" />
+          <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
+            <Label Text="支持中文；退格会同步到电脑"
+                   TextColor="{StaticResource Muted}" FontSize="11"
+                   VerticalOptions="Center" />
+            <Button Grid.Column="1" Text="清空" Style="{StaticResource NormalBtn}"
+                    MinimumWidthRequest="64" Padding="12,0" Clicked="ClearKeyboard_Clicked" />
+          </Grid>
+        </Grid>
       </Grid>
     </Border>
-
-    <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8">
-      <Button Text="左键" Style="{StaticResource PrimaryBtn}" Clicked="Left_Clicked" />
-      <Button Grid.Column="1" Text="右键" Style="{StaticResource NormalBtn}" Clicked="Right_Clicked" />
-      <Button Grid.Column="2" Text="滚轮↓" Style="{StaticResource NormalBtn}" Clicked="Wheel_Clicked" />
-    </Grid>
   </Grid>
 </ContentPage>

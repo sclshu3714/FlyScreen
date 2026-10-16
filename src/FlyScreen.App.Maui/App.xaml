@@ -12,6 +12,7 @@
       <conv:PercentToProgressConverter x:Key="PercentToProgress" />
       <x:String x:Key="Str.Add">添加</x:String>
       <x:String x:Key="Str.Delete">删除</x:String>
+      <x:String x:Key="Str.DeleteTip">删除此记录</x:String>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

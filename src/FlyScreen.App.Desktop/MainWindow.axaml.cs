@@ -1423,6 +1423,15 @@ public partial class MainWindow : Window
         TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
     }
 
+    private void DeleteTransfer_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { Tag: TransferItem item })
+        {
+            _host.Transfers.RemoveItem(item, deleteCache: true);
+            TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
+        }
+    }
+
     private void OpenInbox_Click(object? sender, RoutedEventArgs e)
     {
         var inbox = _host.Transfers.InboxDirectory;

@@ -80,6 +80,8 @@ public sealed class AppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
+                // 仅在对端已 SwitchFocus 进入被控时注入，避免本机操作时被对端绝对坐标拽走
+                if (!Input.IsReceivingRemoteControl) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
                 // 键鼠注入优先，不在此路径做剪贴板/磁盘 I/O（避免卡鼠标）
@@ -89,6 +91,7 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
+                if (!Input.IsReceivingRemoteControl) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p == null) return;
                 InputInjector.MouseButton(p);
@@ -96,6 +99,7 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.MouseWheel:
             {
+                if (!Input.IsReceivingRemoteControl) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p == null) return;
                 InputInjector.MouseWheel(p);
@@ -103,6 +107,7 @@ public sealed class AppHost : IAsyncDisposable
             }
             case MessageType.KeyEvent:
             {
+                if (!Input.IsReceivingRemoteControl) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
                 InputInjector.Key(p);
@@ -112,7 +117,7 @@ public sealed class AppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
                 if (p == null) return;
-                if (string.Equals(p.TargetMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+                if (IsLocalMachineName(p.TargetMachine))
                 {
                     // 对端鼠标进入本机：显示光标；剪贴板预取由 ControlTargetChanged 异步触发
                     Input.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
@@ -167,7 +172,7 @@ public sealed class AppHost : IAsyncDisposable
 
         return new LayoutSyncPayload
         {
-            SourceMachine = Environment.MachineName,
+            SourceMachine = LocalPeerIdentity.MachineName,
             MachineSlots = slots,
             TwoRow = Settings.TwoRow,
             Revision = Settings.LayoutRevision
@@ -178,7 +183,7 @@ public sealed class AppHost : IAsyncDisposable
     {
         var sync = MessageCodec.DecodeJson<LayoutSyncPayload>(payload);
         if (sync == null) return;
-        if (string.Equals(sync.SourceMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        if (IsLocalMachineName(sync.SourceMachine))
             return;
 
         if (sync.Revision > 0 && sync.Revision <= Settings.LayoutRevision)
@@ -226,6 +231,16 @@ public sealed class AppHost : IAsyncDisposable
         {
             // ignore
         }
+    }
+
+    private static bool IsLocalMachineName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+            return true;
+        var env = Environment.MachineName;
+        return !LocalPeerIdentity.IsBogusMachineName(env)
+               && string.Equals(name, env, StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnPeerLinkChangedForLayout(string name, bool outbound, bool inbound)

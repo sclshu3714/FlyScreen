@@ -10,6 +10,8 @@ public interface IMauiPlatformServices
     bool SupportsTray { get; }
     bool SupportsAutoStart { get; }
     bool IsFocusOnLocalMachine { get; }
+    /// <summary>是否接受对端键鼠注入（桌面：须先 SwitchFocus 进入被控）。</summary>
+    bool AcceptsRemoteInput { get; }
 
     void StartDesktopInput();
     void StopDesktopInput();
@@ -47,6 +49,7 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public bool SupportsTray => false;
     public bool SupportsAutoStart => false;
     public bool IsFocusOnLocalMachine => true;
+    public bool AcceptsRemoteInput => false;
 
     public void StartDesktopInput() { }
     public void StopDesktopInput() { }

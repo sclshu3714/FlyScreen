@@ -31,15 +31,21 @@ public sealed class DiscoveryService : IAsyncDisposable
 
     public event Action<IReadOnlyList<DiscoveredPeer>>? PeersUpdated;
 
-    public void Start(string localIp, int udpPort, string? subnetMask = null)
+    /// <param name="announceIp">发现包中宣告的本机 IPv4（对端用来回连）。</param>
+    /// <param name="bindAny">true 时绑定 0.0.0.0（Android 等上绑定单网卡 IP 常收不到广播）。</param>
+    public void Start(string announceIp, int udpPort, string? subnetMask = null, bool bindAny = false)
     {
         Stop();
-        BoundIp = localIp;
+        BoundIp = string.IsNullOrWhiteSpace(announceIp) ? "0.0.0.0" : announceIp;
         UdpPort = udpPort;
-        _subnetBroadcast = TryComputeBroadcast(localIp, subnetMask);
+        _subnetBroadcast = BoundIp == "0.0.0.0"
+            ? null
+            : TryComputeBroadcast(BoundIp, subnetMask);
         _cts = new CancellationTokenSource();
 
-        var local = IPAddress.Parse(localIp);
+        var bindAddr = bindAny || BoundIp == "0.0.0.0"
+            ? IPAddress.Any
+            : IPAddress.Parse(BoundIp);
         // 先建未绑定套接字，再开 ReuseAddress，避免与同机另一实例（WPF/MAUI）争用 UDP 发现端口时直接崩
         var udp = new UdpClient();
         try
@@ -52,7 +58,18 @@ public sealed class DiscoveryService : IAsyncDisposable
             // ignore
         }
 
-        udp.Client.Bind(new IPEndPoint(local, udpPort));
+        try
+        {
+            udp.Client.Bind(new IPEndPoint(bindAddr, udpPort));
+        }
+        catch (SocketException) when (!bindAny && bindAddr != IPAddress.Any)
+        {
+            // 单地址绑定失败时回退 Any（常见于 Android / 切换 Wi‑Fi 后）
+            udp.Dispose();
+            Start(announceIp, udpPort, subnetMask, bindAny: true);
+            return;
+        }
+
         udp.EnableBroadcast = true;
         udp.MulticastLoopback = false;
         try
