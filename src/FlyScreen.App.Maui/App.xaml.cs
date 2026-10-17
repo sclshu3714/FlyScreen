@@ -28,6 +28,9 @@ public partial class App : Application
 #if WINDOWS
         Services.MauiWindowIcon.Apply(window);
 #endif
+#if ANDROID
+        Services.VirtualCursorOverlay.Attach(window);
+#endif
         return window;
     }
 

@@ -1259,6 +1259,7 @@ public partial class MainPage : ContentPage
 
     private void RemoveSlot(MachineSlot slot)
     {
+        var name = slot.Name;
         slot.Name = "";
         slot.IsLocal = false;
         slot.Enabled = false;
@@ -1266,9 +1267,28 @@ public partial class MainPage : ContentPage
         slot.InboundOk = false;
         slot.RefreshStatus();
         _selected = null;
+        PersistSlotsFromUi();
+        if (!string.IsNullOrWhiteSpace(name))
+            _host.Connections.ClearLayoutJoin(name);
         RebuildMatrix();
         RefreshDiscovery();
-        StatusLabel.Text = "已移除（请点「应用」同步）";
+        StatusLabel.Text = string.IsNullOrWhiteSpace(name) ? "已移除" : $"已移除 {name}";
+        if (!string.IsNullOrWhiteSpace(name))
+            _ = RemovePeerAndSyncAsync(name);
+    }
+
+    private async Task RemovePeerAndSyncAsync(string name)
+    {
+        try
+        {
+            await _host.Connections.DropPeerAsync(name);
+            await _host.BroadcastLayoutSyncAsync();
+            await _host.Connections.PruneUnconfiguredLinksAsync();
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     private void TryAddPeer(string name)
@@ -1290,10 +1310,35 @@ public partial class MainPage : ContentPage
         empty.Enabled = true;
         empty.IsLocal = false;
         empty.RefreshStatus();
+        PersistSlotsFromUi();
+        _host.Connections.ArmLayoutJoin(name);
         RebuildMatrix();
-        StatusLabel.Text = $"已添加 {name}";
+        StatusLabel.Text = $"已添加 {name}，正在连接";
         RefreshDiscovery();
         ShowPage(0);
+        _ = ConnectAddedPeerAsync();
+    }
+
+    private void PersistSlotsFromUi()
+    {
+        var slots = _slots.Select(s => s.Name?.Trim() ?? "").ToList();
+        while (slots.Count < 4) slots.Add("");
+        _host.Settings.MachineSlots = slots;
+        _host.Settings.EnsureLocalMachineSlot();
+        _host.Settings.Save();
+    }
+
+    private async Task ConnectAddedPeerAsync()
+    {
+        try
+        {
+            await _host.BroadcastLayoutMergeAsync();
+            await _host.Connections.ReconnectNowAsync();
+        }
+        catch
+        {
+            // 密钥不一致时由连接层提示
+        }
     }
 
     private async void DirectTransfer_Clicked(object? sender, EventArgs e)

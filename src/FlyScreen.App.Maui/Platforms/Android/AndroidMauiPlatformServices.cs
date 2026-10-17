@@ -46,7 +46,11 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
         if (AccessibilityCursorShowing())
+        {
+            VirtualCursorOverlay.Hide();
             return;
+        }
+        VirtualCursorOverlay.ShowNormalized(nx, ny);
         if (!_cursorViaOverlay)
             _cursorViaOverlay = FlyScreenCursorOverlay.TryBegin(nx, ny);
         if (_cursorViaOverlay)
@@ -61,7 +65,11 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
         if (AccessibilityCursorShowing())
+        {
+            VirtualCursorOverlay.Hide();
             return;
+        }
+        VirtualCursorOverlay.MoveByPixels(dx, dy);
         if (_cursorViaOverlay)
             FlyScreenCursorOverlay.MoveRelative(dx, dy);
     }
@@ -78,6 +86,8 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
         _receiving = true;
+        if (!FlyScreenCursorOverlay.CanDraw())
+            PromptOverlayOnce();
         if (FlyScreenInputAccessibilityService.IsEnabled)
         {
             _cursorViaOverlay = false;
@@ -160,6 +170,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         _receiving = false;
         _cursorViaOverlay = false;
+        VirtualCursorOverlay.Hide();
         FlyScreenCursorOverlay.End();
         FlyScreenInputAccessibilityService.Instance?.EndSession();
     }

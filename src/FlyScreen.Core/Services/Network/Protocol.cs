@@ -101,6 +101,10 @@ public sealed class HandshakePayload
     /// <summary>1 = 现网 Win；≥2 携带 Platform / DeviceClass / Caps（缺省兼容 v1）。</summary>
     public int ProtocolVersion { get; set; } = 1;
     public bool IsReply { get; set; }
+    /// <summary>发起方刚刚把对端加入布局，请对端在密钥一致且有空位时把本机加进布局。</summary>
+    public bool RequestLayoutJoin { get; set; }
+    /// <summary>拒绝原因：key=安全密钥不一致，full=对端布局已满。空表示接受。</summary>
+    public string? RejectReason { get; set; }
 
     // --- ProtocolVersion ≥ 2 可选扩展（旧端忽略未知 JSON 字段）---
     public string? Platform { get; set; }

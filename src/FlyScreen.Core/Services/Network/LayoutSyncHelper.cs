@@ -24,12 +24,15 @@ public sealed class LayoutSyncHelper
         _connections = connections;
         _connections.PeerLinkChanged += OnPeerLinkChanged;
         _connections.MessageReceived += OnMessageReceived;
+        _connections.TryAcceptLayoutJoin = TryAcceptLayoutJoin;
     }
 
     public void Detach()
     {
         _connections.PeerLinkChanged -= OnPeerLinkChanged;
         _connections.MessageReceived -= OnMessageReceived;
+        if (_connections.TryAcceptLayoutJoin == TryAcceptLayoutJoin)
+            _connections.TryAcceptLayoutJoin = null;
     }
 
     /// <summary>权威替换广播（移除电脑后）。</summary>
@@ -85,6 +88,28 @@ public sealed class LayoutSyncHelper
             Revision = _settings.LayoutRevision,
             Mode = mode
         };
+    }
+
+    /// <summary>对端刚把本机加入布局并请求回加。密钥已在握手里核对过。</summary>
+    private bool TryAcceptLayoutJoin(string peerName)
+    {
+        if (string.IsNullOrWhiteSpace(peerName) || IsLocalName(peerName))
+            return false;
+        if (LayoutSlotMerge.ContainsName(_settings.MachineSlots, peerName))
+            return true;
+        if (!LayoutSlotMerge.TryMerge(_settings.MachineSlots, [peerName], out var merged))
+        {
+            StatusMessage?.Invoke($"无法添加 {peerName}：布局已满（最多 {LayoutSlotMerge.MaxSlots} 台）");
+            return false;
+        }
+
+        _settings.MachineSlots = merged;
+        _settings.LayoutRevision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _settings.EnsureLocalMachineSlot();
+        _settings.Save();
+        StatusMessage?.Invoke($"已自动添加 {peerName}");
+        try { LayoutSyncedFromPeer?.Invoke(peerName); } catch { /* ignore */ }
+        return true;
     }
 
     private void OnMessageReceived(string peer, NetMessage msg)

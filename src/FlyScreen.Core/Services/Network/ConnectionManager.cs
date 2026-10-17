@@ -18,6 +18,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private string _bindIp = "0.0.0.0";
+    private readonly ConcurrentDictionary<string, long> _layoutJoinUntil = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, long> _keyMismatchNotice = new(StringComparer.OrdinalIgnoreCase);
 
     public string LocalMachine => LocalPeerIdentity.MachineName;
     public DiscoveryService Discovery => _discovery;
@@ -26,6 +28,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     public event Action<string, bool, bool>? PeerLinkChanged;
     public event Action<string, NetMessage>? MessageReceived;
     public event Action<string>? StatusMessage;
+    /// <summary>入站握手密钥正确，且对端请求加入布局。返回 false 则拒绝连接。</summary>
+    public Func<string, bool>? TryAcceptLayoutJoin;
 
     public ConnectionManager(AppSettings settings) => _settings = settings;
 
@@ -191,6 +195,19 @@ public sealed class ConnectionManager : IAsyncDisposable
         }
     }
 
+    /// <summary>随后约 45 秒内，连向该电脑的握手会请求对方把本机加入布局。</summary>
+    public void ArmLayoutJoin(string peerName)
+    {
+        if (string.IsNullOrWhiteSpace(peerName)) return;
+        _layoutJoinUntil[peerName.Trim()] = Environment.TickCount64 + 45_000;
+    }
+
+    public void ClearLayoutJoin(string peerName)
+    {
+        if (string.IsNullOrWhiteSpace(peerName)) return;
+        _layoutJoinUntil.TryRemove(peerName.Trim(), out _);
+    }
+
     public async Task ReconnectNowAsync()
     {
         if (_cts == null) return;
@@ -279,6 +296,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     public async Task DropPeerAsync(string peerName)
     {
         if (string.IsNullOrWhiteSpace(peerName)) return;
+        ClearLayoutJoin(peerName);
         if (!_links.TryRemove(peerName, out var link)) return;
         try { await link.DisposeAsync().ConfigureAwait(false); }
         catch { /* ignore */ }
@@ -347,7 +365,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 MachineName = LocalMachine,
                 SecurityKey = _settings.SecurityKey,
-                LocalIp = _bindIp
+                LocalIp = _bindIp,
+                RequestLayoutJoin = IsLayoutJoinArmed(peerName)
             }));
             await session.SendRawAsync(hs).ConfigureAwait(false);
 
@@ -361,12 +380,17 @@ public sealed class ConnectionManager : IAsyncDisposable
             }
 
             var ack = MessageCodec.DecodeJson<HandshakePayload>(ackMsg.Value.Payload);
-            if (ack == null || !ValidateKey(ack.SecurityKey))
+            if (ack == null || ack.RejectReason == "full" || ack.RejectReason == "key" || !ValidateKey(ack.SecurityKey))
             {
+                if (ack?.RejectReason == "full")
+                    StatusMessage?.Invoke($"{peerName} 的电脑布局已满，无法自动添加");
+                else if (ack != null)
+                    ReportKeyMismatch(peerName);
                 UnwireSession(session);
                 await session.DisposeAsync().ConfigureAwait(false);
                 return;
             }
+            ClearLayoutJoin(peerName);
 
             var remote = PeerRemoteInfo.FromHandshake(ack);
             session.SetPeerIdentity(peerName, remote);
@@ -483,8 +507,16 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (session.Authenticated) return;
 
         var hs = MessageCodec.DecodeJson<HandshakePayload>(msg.Payload);
-        if (hs == null || !ValidateKey(hs.SecurityKey) || string.IsNullOrWhiteSpace(hs.MachineName))
+        if (hs == null || string.IsNullOrWhiteSpace(hs.MachineName))
         {
+            await session.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        if (!ValidateKey(hs.SecurityKey))
+        {
+            ReportKeyMismatch(hs.MachineName);
+            await SendHandshakeRejectAsync(session, "key").ConfigureAwait(false);
             await session.DisposeAsync().ConfigureAwait(false);
             return;
         }
@@ -502,6 +534,17 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         // 仅接受已在布局槽位中的电脑；禁止入站自动占空槽（否则移除后会被对端重连加回）
         var configured = ConfiguredPeers().Contains(hs.MachineName, StringComparer.OrdinalIgnoreCase);
+        if (!configured && hs.RequestLayoutJoin && TryAcceptLayoutJoin != null)
+        {
+            if (TryAcceptLayoutJoin(hs.MachineName))
+                configured = true;
+            else
+            {
+                await SendHandshakeRejectAsync(session, "full").ConfigureAwait(false);
+                await session.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+        }
         if (!configured)
         {
             StatusMessage?.Invoke($"未授权主机尝试连接: {hs.MachineName}");
@@ -543,6 +586,35 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     private void NotifyLink(string name, PeerLink link)
         => PeerLinkChanged?.Invoke(name, link.Outbound is { IsAlive: true }, link.Inbound is { IsAlive: true });
+
+    private bool IsLayoutJoinArmed(string peerName)
+    {
+        if (!_layoutJoinUntil.TryGetValue(peerName, out var until)) return false;
+        if (Environment.TickCount64 <= until) return true;
+        _layoutJoinUntil.TryRemove(peerName, out _);
+        return false;
+    }
+
+    private void ReportKeyMismatch(string peerName)
+    {
+        var now = Environment.TickCount64;
+        if (_keyMismatchNotice.TryGetValue(peerName, out var last) && now - last < 8000)
+            return;
+        _keyMismatchNotice[peerName] = now;
+        StatusMessage?.Invoke($"与 {peerName} 的安全密钥不一致，无法连接");
+    }
+
+    private static async Task SendHandshakeRejectAsync(PeerSession session, string reason)
+    {
+        var reject = MessageCodec.EncodeJson(MessageType.HandshakeAck, new HandshakePayload
+        {
+            MachineName = LocalPeerIdentity.MachineName,
+            RejectReason = reason,
+            IsReply = true
+        });
+        try { await session.SendRawAsync(reject).ConfigureAwait(false); }
+        catch { /* 对端已断开 */ }
+    }
 
     private bool ValidateKey(string? key)
         => !string.IsNullOrEmpty(key) &&

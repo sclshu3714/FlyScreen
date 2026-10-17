@@ -10,7 +10,7 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
 /// 电脑鼠标穿入本机时的指针。使用「显示在其他应用上层」，不依赖无障碍服务。
-/// 全屏透明层只画箭头；小块窗口在 MIUI 上经常被裁没。
+/// 箭头是一块小窗，跟着坐标移动，玄鸟退到后台后仍盖在其他应用上。
 /// </summary>
 public static class FlyScreenCursorOverlay
 {
@@ -122,13 +122,21 @@ public static class FlyScreenCursorOverlay
         EnsureView();
         if (_wm == null || _cursor == null || _lp == null) return;
         RefreshScreen();
-        _cursor.SetNormalized((float)nx, (float)ny);
+        _lp.X = 0;
+        _lp.Y = 0;
+        _lp.Width = Math.Max(_screenW, 1);
+        _lp.Height = Math.Max(_screenH, 1);
+        _cursor.SetPoint((float)nx, (float)ny, _screenW, _screenH);
         try
         {
             if (!_added)
             {
                 _wm.AddView(_cursor, _lp);
                 _added = true;
+            }
+            else
+            {
+                _wm.UpdateViewLayout(_cursor, _lp);
             }
             _cursor.Invalidate();
         }
@@ -183,49 +191,49 @@ public static class FlyScreenCursorOverlay
         private readonly global::Android.Graphics.Paint _fill;
         private readonly global::Android.Graphics.Paint _stroke;
         private readonly Path _arrow;
+
         private float _nx = 0.5f;
         private float _ny = 0.5f;
+        private int _screenW = 1080;
+        private int _screenH = 1920;
 
         public PointerView(Context context, float density) : base(context)
         {
             _density = density <= 0 ? 2f : density;
             SetWillNotDraw(false);
+            SetLayerType(LayerType.Software, null);
             SetBackgroundColor(global::Android.Graphics.Color.Transparent);
             _fill = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
-            _fill.Color = global::Android.Graphics.Color.Rgb(37, 99, 235);
+            _fill.Color = global::Android.Graphics.Color.White;
             _fill.SetStyle(global::Android.Graphics.Paint.Style.Fill);
             _stroke = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
-            _stroke.Color = global::Android.Graphics.Color.White;
-            _stroke.StrokeWidth = 2.5f;
+            _stroke.Color = global::Android.Graphics.Color.Black;
+            _stroke.StrokeWidth = 0.55f;
+            _stroke.StrokeJoin = global::Android.Graphics.Paint.Join.Round;
             _stroke.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
             _arrow = new Path();
-            _arrow.MoveTo(0, 0);
-            _arrow.LineTo(0, 22);
-            _arrow.LineTo(6, 17);
-            _arrow.LineTo(11, 26);
-            _arrow.LineTo(15, 24);
-            _arrow.LineTo(10, 15);
-            _arrow.LineTo(17, 15);
+            _arrow.MoveTo(1, 1);
+            _arrow.LineTo(1, 26);
+            _arrow.LineTo(7, 20);
+            _arrow.LineTo(12, 30);
+            _arrow.LineTo(16, 28);
+            _arrow.LineTo(11, 18);
+            _arrow.LineTo(18, 18);
             _arrow.Close();
         }
 
-        public void SetNormalized(float nx, float ny)
+        public void SetPoint(float nx, float ny, int screenW, int screenH)
         {
             _nx = nx;
             _ny = ny;
+            _screenW = Math.Max(screenW, 1);
+            _screenH = Math.Max(screenH, 1);
         }
 
         protected override void OnDraw(Canvas canvas)
         {
-            var w = Width;
-            var h = Height;
-            if (w <= 1 || h <= 1)
-            {
-                var dm = Resources?.DisplayMetrics;
-                w = dm?.WidthPixels ?? 0;
-                h = dm?.HeightPixels ?? 0;
-            }
-            if (w <= 1 || h <= 1) return;
+            var w = Width > 1 ? Width : _screenW;
+            var h = Height > 1 ? Height : _screenH;
             canvas.Save();
             canvas.Translate(_nx * (w - 1), _ny * (h - 1));
             canvas.Scale(_density, _density);
@@ -237,6 +245,22 @@ public static class FlyScreenCursorOverlay
 
     private static void RefreshScreen()
     {
+        try
+        {
+            var size = new global::Android.Graphics.Point();
+            _wm?.DefaultDisplay?.GetRealSize(size);
+            if (size.X > 0 && size.Y > 0)
+            {
+                _screenW = size.X;
+                _screenH = size.Y;
+                return;
+            }
+        }
+        catch
+        {
+            /* 旧接口失败时用 DisplayMetrics */
+        }
+
         var dm = global::Android.App.Application.Context?.Resources?.DisplayMetrics;
         if (dm == null) return;
         _screenW = dm.WidthPixels;
