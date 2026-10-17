@@ -43,11 +43,10 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void InjectMouseMoveAbsolute(double nx, double ny)
     {
-        if (PreferAccessibilityCursor())
-        {
+        if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
+        if (AccessibilityCursorShowing())
             return;
-        }
         if (!_cursorViaOverlay)
             _cursorViaOverlay = FlyScreenCursorOverlay.TryBegin(nx, ny);
         if (_cursorViaOverlay)
@@ -59,11 +58,10 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void InjectMouseMoveRelative(int dx, int dy)
     {
         if (!_receiving && !FlyScreenInputAccessibilityService.IsEnabled) return;
-        if (PreferAccessibilityCursor())
-        {
+        if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
+        if (AccessibilityCursorShowing())
             return;
-        }
         if (_cursorViaOverlay)
             FlyScreenCursorOverlay.MoveRelative(dx, dy);
     }
@@ -85,6 +83,17 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             _cursorViaOverlay = false;
             FlyScreenCursorOverlay.End();
             FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
+            var entryXCopy = entryX;
+            var entryYCopy = entryY;
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await Task.Delay(400);
+                if (!_receiving || AccessibilityCursorShowing()) return;
+                if (FlyScreenCursorOverlay.TryBegin(entryXCopy, entryYCopy))
+                    _cursorViaOverlay = true;
+                else
+                    PromptOverlayOnce();
+            });
         }
         else if (FlyScreenCursorOverlay.TryBegin(entryX, entryY))
         {
@@ -155,10 +164,11 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         FlyScreenInputAccessibilityService.Instance?.EndSession();
     }
 
-    /// <summary>服务已连接时改走无障碍叠层，并关掉可能挡住它的悬浮窗指针。</summary>
-    private bool PreferAccessibilityCursor()
+    /// <summary>无障碍全屏层已经加上时，关掉悬浮窗指针，避免两套叠在一起。</summary>
+    private bool AccessibilityCursorShowing()
     {
-        if (!FlyScreenInputAccessibilityService.IsEnabled) return false;
+        if (FlyScreenInputAccessibilityService.Instance?.IsCursorVisible != true)
+            return false;
         if (_cursorViaOverlay)
         {
             _cursorViaOverlay = false;
