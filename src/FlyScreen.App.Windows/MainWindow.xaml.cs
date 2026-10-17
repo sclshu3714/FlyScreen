@@ -891,6 +891,7 @@ public partial class MainWindow : Window
         empty.InboundOk = false;
         empty.RefreshStatus();
         PersistSlots();
+        _host.Connections.ArmLayoutJoin(peer.MachineName);
         RefreshDiscovery();
         RedrawArrows();
         StatusText.Text = $"已添加 {peer.MachineName}，正在与对端合并布局";

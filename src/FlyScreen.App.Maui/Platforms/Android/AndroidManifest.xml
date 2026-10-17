@@ -26,6 +26,9 @@
   <uses-permission android:name="android.permission.VIBRATE" />
   <!-- 电脑鼠标穿入本机时画指针。与无障碍服务无关。 -->
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <!-- 自动更新：安装本地下载的 APK -->
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>
