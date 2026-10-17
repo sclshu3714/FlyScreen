@@ -67,8 +67,12 @@
       <Setter Property="BorderThickness" Value="0"/>
     </Style>
     <Style TargetType="ListBoxItem">
+      <!-- 默认主题用 RelativeSource 找 ItemsControl，容器尚未入树时会报绑定错误 -->
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="Padding" Value="4,2"/>
       <Setter Property="Template">
         <Setter.Value>
@@ -151,6 +155,7 @@
       </Setter>
     </Style>
     <Style TargetType="ComboBoxItem">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Height" Value="30"/>
       <Setter Property="Padding" Value="10,0"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>

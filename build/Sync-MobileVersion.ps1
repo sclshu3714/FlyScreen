@@ -1,4 +1,4 @@
-# 将 Android / 鸿蒙版本与 Win 端 Git 标签规则对齐。
+﻿# 将 Android / 鸿蒙版本与 Win 端 Git 标签规则对齐。
 # 用法（仓库根目录）：
 #   powershell -File build\Sync-MobileVersion.ps1
 #   powershell -File build\Sync-MobileVersion.ps1 -Version 1.1.0

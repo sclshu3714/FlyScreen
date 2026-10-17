@@ -1,4 +1,4 @@
-# 按 docs/ROADMAP.md §4.2 命名发布物：
+﻿# 按 docs/ROADMAP.md §4.2 命名发布物：
 #   FlyScreen-{version}-{rid}{实际后缀}
 # 后缀以 Source 文件/打包产物为准（.exe/.apk/.hap/.zip/.dmg/.AppImage/...），不以文档示例强制。
 #

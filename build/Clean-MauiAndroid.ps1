@@ -1,4 +1,4 @@
-# 缓解 XARDF7024（RemoveDirFixed: 目录不是空的）——强制删掉 Android 中间目录。
+﻿# 缓解 XARDF7024（RemoveDirFixed: 目录不是空的）——强制删掉 Android 中间目录。
 # 用法：
 #   powershell -File build\Clean-MauiAndroid.ps1
 #   powershell -File build\Clean-MauiAndroid.ps1 -Configuration Release -TargetFramework net10.0-android

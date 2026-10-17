@@ -1,4 +1,4 @@
-# 与 build/FlyScreen.Version.targets 同一规则：
+﻿# 与 build/FlyScreen.Version.targets 同一规则：
 # Version = 最新 vX.Y.Z 标签的 patch + 1；无标签则 1.0.0
 # VersionCode = major*10000 + minor*100 + patch（单调递增）
 # 覆盖：-Version 1.1.0

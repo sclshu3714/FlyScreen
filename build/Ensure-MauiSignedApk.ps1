@@ -1,4 +1,4 @@
-# 补齐 *-Signed.apk / FlyScreen.apk。绝不覆盖已签名的 Signed；缺失时用 keystore 对 plain 重新签名。
+﻿# 补齐 *-Signed.apk / FlyScreen.apk。绝不覆盖已签名的 Signed；缺失时用 keystore 对 plain 重新签名。
 param(
     [Parameter(Mandatory = $true)]
     [string]$OutDir,
@@ -13,12 +13,72 @@ param(
 
     [string]$KeyAlias = 'flyscreen',
 
-    [string]$KeyPass = 'flyscreen'
+    [string]$KeyPass = 'flyscreen',
+
+    # VS 存档在 MSBuild 返回后会把 *-Signed.apk 改名为包名。此开关在改名完成后把文件拷回。
+    [switch]$RestoreAfterVisualStudio,
+
+    [switch]$ApplyIdeRestore
 )
 
 $ErrorActionPreference = 'Stop'
 $OutDir = $OutDir.Trim().Trim('"').TrimEnd('\', '/')
 $PackageId = $PackageId.Trim().Trim('"')
+
+function Start-RestoreAfterVisualStudio {
+    if (-not $RestoreAfterVisualStudio) { return }
+    $self = $PSCommandPath
+    if (-not $self) { $self = $MyInvocation.ScriptName }
+    $exe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    # Win32_Process 不在 MSBuild 的作业里，生成结束不会把补回进程一起杀掉。
+    $cmd = "`"$exe`" -NoProfile -ExecutionPolicy Bypass -File `"$self`" -OutDir `"$OutDir`" -PackageId `"$PackageId`" -ApplyIdeRestore"
+    $started = $false
+    try {
+        $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
+        $started = ($result.ReturnValue -eq 0)
+    }
+    catch { }
+    if (-not $started) {
+        Start-Process -FilePath $exe -WindowStyle Hidden -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $self,
+            '-OutDir', $OutDir, '-PackageId', $PackageId, '-ApplyIdeRestore'
+        ) | Out-Null
+    }
+}
+
+if ($ApplyIdeRestore) {
+    $plainWait = Join-Path $OutDir "$PackageId.apk"
+    $signedWait = Join-Path $OutDir "$PackageId-Signed.apk"
+    $stableWait = Join-Path $OutDir 'FlyScreen.apk'
+    $archiveRoot = Join-Path $env:LOCALAPPDATA 'Xamarin\Mono for Android\Archives'
+    for ($i = 0; $i -lt 80; $i++) {
+        $hasPlain = Test-Path -LiteralPath $plainWait
+        $hasSigned = Test-Path -LiteralPath $signedWait
+        # IDE 会把 *-Signed.apk 改名为包名。包名还在、Signed 不在时，把同一份字节拷回去。
+        if ($hasPlain -and -not $hasSigned) {
+            $len1 = (Get-Item -LiteralPath $plainWait).Length
+            Start-Sleep -Milliseconds 400
+            if ((Test-Path -LiteralPath $signedWait) -or -not (Test-Path -LiteralPath $plainWait)) { continue }
+            $len2 = (Get-Item -LiteralPath $plainWait).Length
+            if ($len1 -ne $len2 -or $len2 -lt 1024) { continue }
+            Copy-Item -LiteralPath $plainWait -Destination $signedWait -Force
+            Copy-Item -LiteralPath $plainWait -Destination $stableWait -Force
+            if (Test-Path -LiteralPath $archiveRoot) {
+                $hit = Get-ChildItem -LiteralPath $archiveRoot -Recurse -Filter "$PackageId.apk" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) -and $_.Length -eq $len2 } |
+                    Sort-Object LastWriteTime -Descending |
+                    Select-Object -First 1
+                if ($hit) {
+                    Copy-Item -LiteralPath $plainWait -Destination (Join-Path $hit.DirectoryName "$PackageId-Signed.apk") -Force
+                    Copy-Item -LiteralPath $plainWait -Destination (Join-Path $hit.DirectoryName 'FlyScreen.apk') -Force
+                }
+            }
+            exit 0
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    exit 0
+}
 $IntermediateDir = $IntermediateDir.Trim().Trim('"').TrimEnd('\', '/')
 $KeyStore = $KeyStore.Trim().Trim('"')
 
@@ -125,7 +185,9 @@ if (-not (Test-Path -LiteralPath $plain) -and $IntermediateDir -ne '' -and (Test
 # Signed 已存在且带签名：不要覆盖
 if ((Test-Path -LiteralPath $signed) -and (Test-ApkHasV2Signature $signed)) {
     Copy-Item -LiteralPath $signed -Destination $stable -Force
-    Write-Host "Ensure-MauiSignedApk: Signed 已有效 → $stable"
+    Copy-Item -LiteralPath $signed -Destination $plain -Force
+    Write-Host "Ensure-MauiSignedApk: Signed 已有效 → $signed"
+    Start-RestoreAfterVisualStudio
     exit 0
 }
 
@@ -158,6 +220,9 @@ else {
 
 if (Test-Path -LiteralPath $signed) {
     Copy-Item -LiteralPath $signed -Destination $stable -Force
-    Write-Host "Ensure-MauiSignedApk: 可安装 APK → $stable"
+    # VS 存档复制的是不带 -Signed 的包名；用已签名内容覆盖，安装才不会 NOT_APK
+    Copy-Item -LiteralPath $signed -Destination $plain -Force
+    Write-Host "Ensure-MauiSignedApk: 可安装 APK → $signed"
+    Start-RestoreAfterVisualStudio
 }
 exit 0

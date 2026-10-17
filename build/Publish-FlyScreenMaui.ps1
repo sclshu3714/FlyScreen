@@ -1,4 +1,4 @@
-# MAUI 双轨 beta：发布 Windows / Android / Mac Catalyst 自包含包，并按 ROADMAP §4.2 命名。
+﻿# MAUI 双轨 beta：发布 Windows / Android / Mac Catalyst 自包含包，并按 ROADMAP §4.2 命名。
 # 不替代 WPF win-x64 stable。
 #
 # Windows / Mac：PublishSingleFile 单文件可执行；Android：APK。
