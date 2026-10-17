@@ -3,13 +3,14 @@ using Android.Content;
 using Android.Graphics;
 using Android.OS;
 using Android.Views;
-using AndroidX.Core.View;
+using Path = Android.Graphics.Path;
 using View = Android.Views.View;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
 /// 电脑鼠标穿入本机时的指针。使用「显示在其他应用上层」，不依赖无障碍服务。
+/// 全屏透明层只画箭头；小块窗口在 MIUI 上经常被裁没。
 /// </summary>
 public static class FlyScreenCursorOverlay
 {
@@ -20,7 +21,7 @@ public static class FlyScreenCursorOverlay
     private static double _ny = 0.5;
 
     private static IWindowManager? _wm;
-    private static View? _cursor;
+    private static PointerView? _cursor;
     private static WindowManagerLayoutParams? _lp;
     private static int _screenW = 1080;
     private static int _screenH = 1920;
@@ -121,10 +122,7 @@ public static class FlyScreenCursorOverlay
         EnsureView();
         if (_wm == null || _cursor == null || _lp == null) return;
         RefreshScreen();
-        var x = (int)(nx * Math.Max(_screenW - 1, 1));
-        var y = (int)(ny * Math.Max(_screenH - 1, 1));
-        _lp.X = x - _lp.Width / 2;
-        _lp.Y = y - _lp.Height / 2;
+        _cursor.SetNormalized((float)nx, (float)ny);
         try
         {
             if (!_added)
@@ -132,10 +130,7 @@ public static class FlyScreenCursorOverlay
                 _wm.AddView(_cursor, _lp);
                 _added = true;
             }
-            else
-            {
-                _wm.UpdateViewLayout(_cursor, _lp);
-            }
+            _cursor.Invalidate();
         }
         catch
         {
@@ -159,25 +154,85 @@ public static class FlyScreenCursorOverlay
         if (_wm == null) return;
 
         var density = ctx.Resources?.DisplayMetrics?.Density ?? 2f;
-        var size = (int)(18 * density);
-        _cursor = new View(ctx);
-        _cursor.SetBackgroundColor(global::Android.Graphics.Color.Argb(220, 37, 99, 235));
-        ViewCompat.SetElevation(_cursor, 24f);
+        _cursor = new PointerView(ctx, density);
 
         var type = WindowManagerTypes.SystemAlert;
         if (OperatingSystem.IsAndroidVersionAtLeast(26))
             type = WindowManagerTypes.ApplicationOverlay;
 
         _lp = new WindowManagerLayoutParams(
-            size, size, type,
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.MatchParent,
+            type,
             WindowManagerFlags.NotFocusable
             | WindowManagerFlags.NotTouchable
-            | WindowManagerFlags.LayoutNoLimits
+            | WindowManagerFlags.NotTouchModal
             | WindowManagerFlags.LayoutInScreen,
             Format.Translucent)
         {
-            Gravity = GravityFlags.Top | GravityFlags.Left
+            Gravity = GravityFlags.Top | GravityFlags.Left,
+            Alpha = 1f
         };
+        if (OperatingSystem.IsAndroidVersionAtLeast(28))
+            _lp.LayoutInDisplayCutoutMode = LayoutInDisplayCutoutMode.ShortEdges;
+    }
+
+    private sealed class PointerView : View
+    {
+        private readonly float _density;
+        private readonly global::Android.Graphics.Paint _fill;
+        private readonly global::Android.Graphics.Paint _stroke;
+        private readonly Path _arrow;
+        private float _nx = 0.5f;
+        private float _ny = 0.5f;
+
+        public PointerView(Context context, float density) : base(context)
+        {
+            _density = density <= 0 ? 2f : density;
+            SetWillNotDraw(false);
+            SetBackgroundColor(global::Android.Graphics.Color.Transparent);
+            _fill = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
+            _fill.Color = global::Android.Graphics.Color.Rgb(37, 99, 235);
+            _fill.SetStyle(global::Android.Graphics.Paint.Style.Fill);
+            _stroke = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
+            _stroke.Color = global::Android.Graphics.Color.White;
+            _stroke.StrokeWidth = 2.5f;
+            _stroke.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
+            _arrow = new Path();
+            _arrow.MoveTo(0, 0);
+            _arrow.LineTo(0, 22);
+            _arrow.LineTo(6, 17);
+            _arrow.LineTo(11, 26);
+            _arrow.LineTo(15, 24);
+            _arrow.LineTo(10, 15);
+            _arrow.LineTo(17, 15);
+            _arrow.Close();
+        }
+
+        public void SetNormalized(float nx, float ny)
+        {
+            _nx = nx;
+            _ny = ny;
+        }
+
+        protected override void OnDraw(Canvas canvas)
+        {
+            var w = Width;
+            var h = Height;
+            if (w <= 1 || h <= 1)
+            {
+                var dm = Resources?.DisplayMetrics;
+                w = dm?.WidthPixels ?? 0;
+                h = dm?.HeightPixels ?? 0;
+            }
+            if (w <= 1 || h <= 1) return;
+            canvas.Save();
+            canvas.Translate(_nx * (w - 1), _ny * (h - 1));
+            canvas.Scale(_density, _density);
+            canvas.DrawPath(_arrow, _fill);
+            canvas.DrawPath(_arrow, _stroke);
+            canvas.Restore();
+        }
     }
 
     private static void RefreshScreen()

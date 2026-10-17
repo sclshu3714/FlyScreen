@@ -4,17 +4,19 @@ using Android.App;
 using Android.Content;
 using Android.Graphics;
 using Android.OS;
+using Android.Provider;
+using Android.Util;
 using Android.Views;
 using Android.Views.Accessibility;
-using AndroidX.Core.View;
+using Android.Widget;
 using Path = Android.Graphics.Path;
 using View = Android.Views.View;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 系统手势接口，并在服务已开启时用无障碍叠层画指针。
-/// 叠层窗口必须在主线程添加；悬浮窗在小米后台经常加不上。
+/// 系统手势接口，并在服务已开启时画指针。
+/// 小米会裁掉带 LayoutNoLimits 的小块无障碍窗，所以用全屏透明层自己画箭头。
 /// </summary>
 [Service(
     Label = "@string/flyscreen_accessibility_label",
@@ -28,16 +30,21 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     private readonly Handler _ui = new(Looper.MainLooper!);
     private readonly object _cursorGate = new();
+    private FlushRunnable? _flush;
     private IWindowManager? _wm;
-    private View? _cursorView;
+    private PointerView? _cursorView;
     private WindowManagerLayoutParams? _cursorLp;
     private float _nx = 0.5f;
     private float _ny = 0.5f;
     private bool _cursorWanted;
     private bool _cursorScheduled;
     private bool _cursorVisible;
+    private bool _reportedAddFailure;
     private int _screenW = 1080;
     private int _screenH = 1920;
+
+    /// <summary>全屏指针层已经加到 WindowManager。加不上时为 false，调用方可改走悬浮窗。</summary>
+    public bool IsCursorVisible => _cursorVisible;
 
     protected override void OnServiceConnected()
     {
@@ -248,37 +255,41 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         if (_wm == null) return;
 
         var density = Resources?.DisplayMetrics?.Density ?? 2f;
-        var size = (int)(18 * density);
-        _cursorView = new View(this);
-        _cursorView.SetBackgroundColor(global::Android.Graphics.Color.Argb(220, 37, 99, 235));
-        ViewCompat.SetElevation(_cursorView, 24f);
-
-        var type = Build.VERSION.SdkInt >= BuildVersionCodes.O
-            ? WindowManagerTypes.AccessibilityOverlay
-            : WindowManagerTypes.SystemAlert;
-
+        _cursorView = new PointerView(this, density);
         _cursorLp = new WindowManagerLayoutParams(
-            size, size, type,
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.MatchParent,
+            WindowManagerTypes.AccessibilityOverlay,
             WindowManagerFlags.NotFocusable
             | WindowManagerFlags.NotTouchable
-            | WindowManagerFlags.LayoutNoLimits
+            | WindowManagerFlags.NotTouchModal
             | WindowManagerFlags.LayoutInScreen,
             Format.Translucent)
         {
             Gravity = GravityFlags.Top | GravityFlags.Left,
             X = 0,
-            Y = 0
+            Y = 0,
+            Alpha = 1f
         };
+        if (OperatingSystem.IsAndroidVersionAtLeast(28))
+            _cursorLp.LayoutInDisplayCutoutMode = LayoutInDisplayCutoutMode.ShortEdges;
     }
 
     private void ScheduleCursor()
     {
+        if (Looper.MainLooper != null && Looper.MyLooper() == Looper.MainLooper)
+        {
+            FlushCursor();
+            return;
+        }
+
         lock (_cursorGate)
         {
             if (_cursorScheduled) return;
             _cursorScheduled = true;
         }
-        _ui.Post(FlushCursor);
+        _flush ??= new FlushRunnable(this);
+        _ui.Post(_flush);
     }
 
     private void FlushCursor()
@@ -302,26 +313,48 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         RefreshScreenSize();
         EnsureCursorOverlay();
         if (_wm == null || _cursorView == null || _cursorLp == null) return;
-        var x = (int)(nx * Math.Max(_screenW - 1, 1));
-        var y = (int)(ny * Math.Max(_screenH - 1, 1));
-        _cursorLp.X = x - _cursorLp.Width / 2;
-        _cursorLp.Y = y - _cursorLp.Height / 2;
-        try
+        _cursorView.SetNormalized(nx, ny);
+        if (!_cursorVisible && !TryAddCursor())
         {
-            if (!_cursorVisible)
+            ReportAddFailure();
+            return;
+        }
+
+        _cursorVisible = true;
+        _cursorView.Invalidate();
+    }
+
+    private bool TryAddCursor()
+    {
+        if (_wm == null || _cursorView == null || _cursorLp == null) return false;
+        var types = new List<WindowManagerTypes> { WindowManagerTypes.AccessibilityOverlay, WindowManagerTypes.SystemAlert };
+        if (OperatingSystem.IsAndroidVersionAtLeast(26))
+            types.Insert(1, WindowManagerTypes.ApplicationOverlay);
+        foreach (var type in types)
+        {
+            if (type == WindowManagerTypes.ApplicationOverlay && !Settings.CanDrawOverlays(this))
+                continue;
+            _cursorLp.Type = type;
+            try
             {
                 _wm.AddView(_cursorView, _cursorLp);
-                _cursorVisible = true;
+                Log.Info("FlyScreen", $"cursor window added type={type}");
+                return true;
             }
-            else
+            catch (System.Exception ex)
             {
-                _wm.UpdateViewLayout(_cursorView, _cursorLp);
+                Log.Warn("FlyScreen", $"cursor add {type} failed: {ex.Message}");
+                try { _wm.RemoveView(_cursorView); } catch { /* 未加上 */ }
             }
         }
-        catch
-        {
-            _cursorVisible = false;
-        }
+        return false;
+    }
+
+    private void ReportAddFailure()
+    {
+        if (_reportedAddFailure) return;
+        _reportedAddFailure = true;
+        Toast.MakeText(this, "看不到指针时，请允许玄鸟「显示在其他应用上层」和「后台弹出界面」", ToastLength.Long)?.Show();
     }
 
     private void HideCursor()
@@ -336,6 +369,72 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         HideCursor();
         _cursorView = null;
         _cursorLp = null;
+    }
+
+    private sealed class FlushRunnable : Java.Lang.Object, Java.Lang.IRunnable
+    {
+        private readonly FlyScreenInputAccessibilityService _service;
+        public FlushRunnable(FlyScreenInputAccessibilityService service) => _service = service;
+        public void Run() => _service.FlushCursor();
+    }
+
+    /// <summary>盖住全屏但不吃触摸，只在归一化坐标处画箭头。避免小窗在 MIUI 上被裁成 0。</summary>
+    private sealed class PointerView : View
+    {
+        private readonly float _density;
+        private readonly global::Android.Graphics.Paint _fill;
+        private readonly global::Android.Graphics.Paint _stroke;
+        private readonly Path _arrow;
+        private float _nx = 0.5f;
+        private float _ny = 0.5f;
+
+        public PointerView(Context context, float density) : base(context)
+        {
+            _density = density <= 0 ? 2f : density;
+            SetWillNotDraw(false);
+            SetBackgroundColor(global::Android.Graphics.Color.Transparent);
+            _fill = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
+            _fill.Color = global::Android.Graphics.Color.Rgb(37, 99, 235);
+            _fill.SetStyle(global::Android.Graphics.Paint.Style.Fill);
+            _stroke = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
+            _stroke.Color = global::Android.Graphics.Color.White;
+            _stroke.StrokeWidth = 2.5f;
+            _stroke.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
+            _arrow = new Path();
+            _arrow.MoveTo(0, 0);
+            _arrow.LineTo(0, 22);
+            _arrow.LineTo(6, 17);
+            _arrow.LineTo(11, 26);
+            _arrow.LineTo(15, 24);
+            _arrow.LineTo(10, 15);
+            _arrow.LineTo(17, 15);
+            _arrow.Close();
+        }
+
+        public void SetNormalized(float nx, float ny)
+        {
+            _nx = nx;
+            _ny = ny;
+        }
+
+        protected override void OnDraw(Canvas canvas)
+        {
+            var w = Width;
+            var h = Height;
+            if (w <= 1 || h <= 1)
+            {
+                var dm = Resources?.DisplayMetrics;
+                w = dm?.WidthPixels ?? 0;
+                h = dm?.HeightPixels ?? 0;
+            }
+            if (w <= 1 || h <= 1) return;
+            canvas.Save();
+            canvas.Translate(_nx * (w - 1), _ny * (h - 1));
+            canvas.Scale(_density, _density);
+            canvas.DrawPath(_arrow, _fill);
+            canvas.DrawPath(_arrow, _stroke);
+            canvas.Restore();
+        }
     }
 
 }
