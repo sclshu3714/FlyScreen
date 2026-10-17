@@ -17,8 +17,9 @@
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
     <!-- ApplicationDisplayVersion / ApplicationVersion 由 build/FlyScreen.Version.targets 与 Win 同源 -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
-    <!-- .NET 10 默认 Release 出 aab；内测分发需要 apk。上架 Play 可临时 -p:AndroidPackageFormat=aab -->
+    <!-- .NET 10 默认 AndroidPackageFormats=aab;apk，Release 会再走一遍 aab，并在生成通用 apk 时删掉 *-Signed.apk。内测只出 apk。 -->
     <AndroidPackageFormat Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">apk</AndroidPackageFormat>
+    <AndroidPackageFormats Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">apk</AndroidPackageFormats>
     <!-- 真机常为 arm/arm64；仅 arm64+x64 时部分机型按 32 位加载会 UnsatisfiedLinkError(n_onCreate) -->
     <RuntimeIdentifiers Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">android-arm;android-arm64;android-x64</RuntimeIdentifiers>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
@@ -111,8 +112,7 @@
           Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1')" />
   </Target>
 
-  <!-- VS IncrementalClean 会清掉未登记的 *-Signed.apk；勿再让脚本缺文件时 exit 1。
-       AfterTargets=Build 在 CLI 上会在 BuildDependsOn 内的 _Sign 之后执行；VS 内 Build 不签包，无文件则跳过。 -->
+  <!-- 登记 APK，避免下次 IncrementalClean 把未出现在上一轮 FileWrites 里的 Signed / FlyScreen.apk 删掉。 -->
   <Target Name="FlyScreen_ProtectApkFileWrites"
           BeforeTargets="IncrementalClean"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
@@ -128,8 +128,23 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    CLI：Build 内部会 _Sign，结束后补一次。
+    VS 右键存档：SignAndroidPackage 之后，IDE 会删掉非 *-Signed.apk，再把 *-Signed.apk 改名为包名。
+    不要挂在 _CopyPackage 上，否则会提前生成 -Signed.apk，_Sign 被当成已完成而跳过。
+    RestoreAfterVisualStudio 在 IDE 改名之后把 -Signed.apk / FlyScreen.apk 拷回去。
+  -->
   <Target Name="FlyScreen_EnsureSignedApk"
-          AfterTargets="_Sign;SignAndroidPackage;Build"
+          AfterTargets="SignAndroidPackage"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <CallTarget Targets="FlyScreen_EnsureSignedApkCore" />
+  </Target>
+  <Target Name="FlyScreen_EnsureSignedApkOnCliBuild"
+          AfterTargets="Build"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(BuildingInsideVisualStudio)' != 'true'">
+    <CallTarget Targets="FlyScreen_EnsureSignedApkCore" />
+  </Target>
+  <Target Name="FlyScreen_EnsureSignedApkCore"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <PropertyGroup>
       <!-- 末尾不要加 \，否则 powershell -OutDir "....\" 会把引号转义掉 -->
@@ -139,14 +154,11 @@
       <_FsPkgId Condition="'$(_FsPkgId)' == ''">$(ApplicationId)</_FsPkgId>
       <_FsEnsureScript>$(MSBuildThisFileDirectory)..\..\build\Ensure-MauiSignedApk.ps1</_FsEnsureScript>
       <_FsKeyStore>$(MSBuildThisFileDirectory)..\..\build\android\flyscreen-sideload.keystore</_FsKeyStore>
-      <_FsPublishOut>$([System.String]::Copy('$(OutDir)').TrimEnd('\'))</_FsPublishOut>
+      <_FsIdeRestoreArgs> -RestoreAfterVisualStudio</_FsIdeRestoreArgs>
     </PropertyGroup>
-    <!-- 禁止用未签名 plain 覆盖 Signed（会导致 INSTALL_PARSE_FAILED_NOT_APK）。一律走脚本：校验签名 / 必要时 apksigner 重签。 -->
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsApkDir)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;"
+    <!-- 只跑一次。OutDir 用绝对路径，避免和相对 OutDir 再执行一遍。 -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsApkDir)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;$(_FsIdeRestoreArgs)"
           Condition="Exists('$(_FsEnsureScript)')"
-          IgnoreExitCode="true" />
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsPublishOut)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;"
-          Condition="Exists('$(_FsEnsureScript)') And '$(_FsPublishOut)' != '' And '$(_FsPublishOut)' != '$(_FsApkDir)'"
           IgnoreExitCode="true" />
     <ItemGroup>
       <FileWrites Include="$(_FsApkDir)\$(_FsPkgId).apk" />

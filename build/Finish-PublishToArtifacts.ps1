@@ -1,4 +1,4 @@
-# 从发布输出目录挑出「单个」可执行/安装包，按 ROADMAP §4.2 复制到 artifacts/release：
+﻿# 从发布输出目录挑出「单个」可执行/安装包，按 ROADMAP §4.2 复制到 artifacts/release：
 #   FlyScreen-{version}-{rid}{ext}
 #
 # 用法：

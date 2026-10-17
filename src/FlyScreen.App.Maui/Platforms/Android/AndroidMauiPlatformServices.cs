@@ -8,7 +8,7 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
 /// Android：文本剪贴板 + Caps=AndroidMobile（含 InjectInput/EdgeMouse）。
-/// 被桌面控时依赖无障碍服务注入点击/滑动。
+/// 无障碍服务已开启时用它的叠层画指针（后台也能显示）。悬浮窗只在服务未开启时兜底。
 /// </summary>
 public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 {
@@ -18,7 +18,9 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private CancellationTokenSource? _clipCts;
     private string? _lastTextKey;
     private bool _receiving;
-    private bool _promptedAccessibility;
+    private bool _cursorViaOverlay;
+    private bool _promptedOverlay;
+    private bool _promptedTouchInjection;
 
     public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
     {
@@ -31,7 +33,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool SupportsTray => false;
     public bool SupportsAutoStart => false;
     public bool IsFocusOnLocalMachine => !_receiving;
-    public bool AcceptsRemoteInput => _receiving && FlyScreenInputAccessibilityService.IsEnabled;
+    public bool AcceptsRemoteInput => _receiving;
 
     public event Action<string?>? ControlTargetChanged;
 
@@ -40,30 +42,59 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void SetEasyMouse(bool enabled) { }
 
     public void InjectMouseMoveAbsolute(double nx, double ny)
-        => FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
+    {
+        if (PreferAccessibilityCursor())
+        {
+            FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
+            return;
+        }
+        if (!_cursorViaOverlay)
+            _cursorViaOverlay = FlyScreenCursorOverlay.TryBegin(nx, ny);
+        if (_cursorViaOverlay)
+            FlyScreenCursorOverlay.MoveAbsolute(nx, ny);
+        else if (_receiving)
+            PromptOverlayOnce();
+    }
 
     public void InjectMouseMoveRelative(int dx, int dy)
-        => FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
+    {
+        if (!_receiving && !FlyScreenInputAccessibilityService.IsEnabled) return;
+        if (PreferAccessibilityCursor())
+        {
+            FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
+            return;
+        }
+        if (_cursorViaOverlay)
+            FlyScreenCursorOverlay.MoveRelative(dx, dy);
+    }
 
     public void InjectMouseButton(int button, bool down)
-        => FlyScreenInputAccessibilityService.Instance?.Click(button, down);
+        => InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Click(button, down));
 
     public void InjectMouseWheel(int delta, bool horizontal)
-        => FlyScreenInputAccessibilityService.Instance?.Wheel(delta, horizontal);
+        => InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Wheel(delta, horizontal));
 
     public void InjectKey(ushort vk, bool down, bool extended)
-        => FlyScreenInputAccessibilityService.Instance?.Key(vk, down);
+        => InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Key(vk, down));
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
-        if (!FlyScreenInputAccessibilityService.IsEnabled)
-        {
-            PromptAccessibilityOnce();
-            return;
-        }
-
         _receiving = true;
-        FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
+        if (FlyScreenInputAccessibilityService.IsEnabled)
+        {
+            _cursorViaOverlay = false;
+            FlyScreenCursorOverlay.End();
+            FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
+        }
+        else if (FlyScreenCursorOverlay.TryBegin(entryX, entryY))
+        {
+            _cursorViaOverlay = true;
+        }
+        else
+        {
+            _cursorViaOverlay = false;
+            PromptOverlayOnce();
+        }
         ControlTargetChanged?.Invoke(null);
     }
 
@@ -75,17 +106,13 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         if (local) return;
         // 光标归电脑：结束本机被控态
         if (_receiving)
-        {
-            _receiving = false;
-            FlyScreenInputAccessibilityService.Instance?.EndSession();
-        }
+            EndRemoteCursor();
     }
 
     public void RestoreCursorWhenLeavingCluster()
     {
         if (!_receiving) return;
-        _receiving = false;
-        FlyScreenInputAccessibilityService.Instance?.EndSession();
+        EndRemoteCursor();
         ControlTargetChanged?.Invoke(null);
     }
 
@@ -120,10 +147,64 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void DisposeTray() { }
 
-    private void PromptAccessibilityOnce()
+    private void EndRemoteCursor()
     {
-        if (_promptedAccessibility) return;
-        _promptedAccessibility = true;
+        _receiving = false;
+        _cursorViaOverlay = false;
+        FlyScreenCursorOverlay.End();
+        FlyScreenInputAccessibilityService.Instance?.EndSession();
+    }
+
+    /// <summary>服务已连接时改走无障碍叠层，并关掉可能挡住它的悬浮窗指针。</summary>
+    private bool PreferAccessibilityCursor()
+    {
+        if (!FlyScreenInputAccessibilityService.IsEnabled) return false;
+        if (_cursorViaOverlay)
+        {
+            _cursorViaOverlay = false;
+            FlyScreenCursorOverlay.End();
+        }
+        return true;
+    }
+
+    /// <summary>点击、滑动、按键才会走系统手势接口。鼠标穿入本身不请求这项授权。</summary>
+    private void InjectTouch(Action inject)
+    {
+        if (FlyScreenInputAccessibilityService.IsEnabled)
+        {
+            inject();
+            return;
+        }
+        PromptTouchInjectionOnce();
+    }
+
+    private void PromptOverlayOnce()
+    {
+        if (_promptedOverlay) return;
+        _promptedOverlay = true;
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+            if (page == null)
+            {
+                OpenOverlaySettings();
+                return;
+            }
+
+            var go = await page.DisplayAlertAsync(
+                "需要悬浮窗权限",
+                "电脑鼠标移入本机时，只在屏幕上显示指针。请允许「显示在其他应用上层」。这不是无障碍权限，也和穿边模式里的「无障碍」无关。",
+                "去开启",
+                "稍后");
+            if (go)
+                OpenOverlaySettings();
+        });
+    }
+
+    private void PromptTouchInjectionOnce()
+    {
+        if (_promptedTouchInjection) return;
+        _promptedTouchInjection = true;
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             var page = Application.Current?.Windows.FirstOrDefault()?.Page;
@@ -134,13 +215,24 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             }
 
             var go = await page.DisplayAlertAsync(
-                "需要无障碍权限",
-                "电脑键鼠要控制本机，请开启「玄鸟键鼠注入」无障碍服务。",
+                "模拟点击需要系统接口",
+                "指针移入不需要无障碍权限。在其他应用上点击或滑动时，Android 只提供「玄鸟键鼠注入」这项系统服务，它和设置里的穿边模式「无障碍」不是一回事。",
                 "去开启",
                 "稍后");
             if (go)
                 FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
         });
+    }
+
+    private static void OpenOverlaySettings()
+    {
+        var ctx = global::Android.App.Application.Context;
+        if (ctx == null) return;
+        var uri = global::Android.Net.Uri.Parse("package:" + ctx.PackageName);
+        var intent = new global::Android.Content.Intent(
+            global::Android.Provider.Settings.ActionManageOverlayPermission, uri);
+        intent.AddFlags(global::Android.Content.ActivityFlags.NewTask);
+        ctx.StartActivity(intent);
     }
 
     private async Task LoopAsync(CancellationToken ct)

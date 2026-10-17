@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="flyscreen_accessibility_desc">允许玄鸟在电脑鼠标移入本机时注入点击与滑动（用于键鼠控制手机/平板）。请仅在信任的局域网环境开启。</string>
+  <string name="flyscreen_accessibility_desc">仅用于在其他应用上模拟点击和滑动。鼠标移入本机、显示指针不需要这项服务。请仅在信任的局域网环境开启。</string>
   <string name="flyscreen_accessibility_label">玄鸟键鼠注入</string>
 </resources>

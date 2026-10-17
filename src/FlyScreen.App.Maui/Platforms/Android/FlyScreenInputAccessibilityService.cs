@@ -13,8 +13,8 @@ using View = Android.Views.View;
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 无障碍服务：接收桌面 EasyMouse / 键鼠注入（点击、滑动、光标叠加层）。
-/// 用户须在系统设置中手动开启「玄鸟键鼠注入」。
+/// 系统手势接口，并在服务已开启时用无障碍叠层画指针。
+/// 叠层窗口必须在主线程添加；悬浮窗在小米后台经常加不上。
 /// </summary>
 [Service(
     Label = "@string/flyscreen_accessibility_label",
@@ -26,11 +26,15 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 {
     public static FlyScreenInputAccessibilityService? Instance { get; private set; }
 
+    private readonly Handler _ui = new(Looper.MainLooper!);
+    private readonly object _cursorGate = new();
     private IWindowManager? _wm;
     private View? _cursorView;
     private WindowManagerLayoutParams? _cursorLp;
     private float _nx = 0.5f;
     private float _ny = 0.5f;
+    private bool _cursorWanted;
+    private bool _cursorScheduled;
     private bool _cursorVisible;
     private int _screenW = 1080;
     private int _screenH = 1920;
@@ -67,33 +71,44 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     public void BeginSession(double entryX, double entryY)
     {
-        RefreshScreenSize();
-        _nx = (float)Math.Clamp(entryX, 0, 1);
-        _ny = (float)Math.Clamp(entryY, 0, 1);
-        ShowCursor();
-        MoveCursorOverlay();
+        lock (_cursorGate)
+        {
+            _nx = (float)Math.Clamp(entryX, 0, 1);
+            _ny = (float)Math.Clamp(entryY, 0, 1);
+            _cursorWanted = true;
+        }
+        ScheduleCursor();
     }
 
     public void EndSession()
     {
-        HideCursor();
+        lock (_cursorGate)
+            _cursorWanted = false;
+        ScheduleCursor();
     }
 
     public void MoveAbsolute(double nx, double ny)
     {
-        _nx = (float)Math.Clamp(nx, 0, 1);
-        _ny = (float)Math.Clamp(ny, 0, 1);
-        ShowCursor();
-        MoveCursorOverlay();
+        lock (_cursorGate)
+        {
+            _nx = (float)Math.Clamp(nx, 0, 1);
+            _ny = (float)Math.Clamp(ny, 0, 1);
+            _cursorWanted = true;
+        }
+        ScheduleCursor();
     }
 
     public void MoveRelative(int dx, int dy)
     {
-        if (_screenW <= 0 || _screenH <= 0) RefreshScreenSize();
-        _nx = Math.Clamp(_nx + dx / (float)_screenW, 0f, 1f);
-        _ny = Math.Clamp(_ny + dy / (float)_screenH, 0f, 1f);
-        ShowCursor();
-        MoveCursorOverlay();
+        lock (_cursorGate)
+        {
+            var w = Math.Max(_screenW, 1);
+            var h = Math.Max(_screenH, 1);
+            _nx = Math.Clamp(_nx + dx / (float)w, 0f, 1f);
+            _ny = Math.Clamp(_ny + dy / (float)h, 0f, 1f);
+            _cursorWanted = true;
+        }
+        ScheduleCursor();
     }
 
     public void Click(int button, bool down)
@@ -176,7 +191,10 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     };
 
     private (float x, float y) ToPixels()
-        => (_nx * Math.Max(_screenW - 1, 1), _ny * Math.Max(_screenH - 1, 1));
+    {
+        lock (_cursorGate)
+            return (_nx * Math.Max(_screenW - 1, 1), _ny * Math.Max(_screenH - 1, 1));
+    }
 
     private void RefreshScreenSize()
     {
@@ -241,7 +259,10 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
         _cursorLp = new WindowManagerLayoutParams(
             size, size, type,
-            WindowManagerFlags.NotFocusable | WindowManagerFlags.NotTouchable | WindowManagerFlags.LayoutNoLimits,
+            WindowManagerFlags.NotFocusable
+            | WindowManagerFlags.NotTouchable
+            | WindowManagerFlags.LayoutNoLimits
+            | WindowManagerFlags.LayoutInScreen,
             Format.Translucent)
         {
             Gravity = GravityFlags.Top | GravityFlags.Left,
@@ -250,17 +271,57 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         };
     }
 
-    private void ShowCursor()
+    private void ScheduleCursor()
     {
-        if (_cursorVisible) return;
+        lock (_cursorGate)
+        {
+            if (_cursorScheduled) return;
+            _cursorScheduled = true;
+        }
+        _ui.Post(FlushCursor);
+    }
+
+    private void FlushCursor()
+    {
+        bool want;
+        float nx, ny;
+        lock (_cursorGate)
+        {
+            want = _cursorWanted;
+            nx = _nx;
+            ny = _ny;
+            _cursorScheduled = false;
+        }
+
+        if (!want)
+        {
+            HideCursor();
+            return;
+        }
+
+        RefreshScreenSize();
         EnsureCursorOverlay();
         if (_wm == null || _cursorView == null || _cursorLp == null) return;
+        var x = (int)(nx * Math.Max(_screenW - 1, 1));
+        var y = (int)(ny * Math.Max(_screenH - 1, 1));
+        _cursorLp.X = x - _cursorLp.Width / 2;
+        _cursorLp.Y = y - _cursorLp.Height / 2;
         try
         {
-            _wm.AddView(_cursorView, _cursorLp);
-            _cursorVisible = true;
+            if (!_cursorVisible)
+            {
+                _wm.AddView(_cursorView, _cursorLp);
+                _cursorVisible = true;
+            }
+            else
+            {
+                _wm.UpdateViewLayout(_cursorView, _cursorLp);
+            }
         }
-        catch { /* already added */ }
+        catch
+        {
+            _cursorVisible = false;
+        }
     }
 
     private void HideCursor()
@@ -277,14 +338,5 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         _cursorLp = null;
     }
 
-    private void MoveCursorOverlay()
-    {
-        if (_cursorLp == null || _cursorView == null || !_cursorVisible) return;
-        var (x, y) = ToPixels();
-        var half = _cursorLp.Width / 2;
-        _cursorLp.X = (int)x - half;
-        _cursorLp.Y = (int)y - half;
-        try { _wm?.UpdateViewLayout(_cursorView, _cursorLp); } catch { /* ignore */ }
-    }
 }
 #endif

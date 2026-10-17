@@ -66,6 +66,39 @@
              Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（code=$(FlyScreenVersionCode)；提交不改变此版本）" />
   </Target>
 
+  <!--
+    _GenerateJavaStubs 的输入不含 ApplicationVersion。Git 版本变了清单仍显示 1.0.0，
+    右键存档就会写成 versionName=1.0.0 / versionCode=1。
+  -->
+  <Target Name="FlyScreen_AndroidVersionInput"
+          AfterTargets="ResolveVersionFromGitTag"
+          Condition="'$(UseMaui)' == 'true' And $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(Version)' != '' And '$(IntermediateOutputPath)' != ''">
+    <PropertyGroup>
+      <_FsAndroidVersionFile>$(IntermediateOutputPath)flyscreen.version</_FsAndroidVersionFile>
+      <_FsAndroidVersionWant>$(Version)|$(FlyScreenVersionCode)</_FsAndroidVersionWant>
+      <_FsManifestPath>$(IntermediateOutputPath)AndroidManifest.xml</_FsManifestPath>
+      <_FsManifestText Condition="Exists('$(_FsManifestPath)')">$([System.IO.File]::ReadAllText('$(_FsManifestPath)'))</_FsManifestText>
+      <_FsNameNeedle>android:versionName=&quot;$(Version)&quot;</_FsNameNeedle>
+      <_FsCodeNeedle>android:versionCode=&quot;$(FlyScreenVersionCode)&quot;</_FsCodeNeedle>
+      <_FsManifestStale Condition="!Exists('$(_FsManifestPath)') Or !$(_FsManifestText.Contains('$(_FsNameNeedle)')) Or !$(_FsManifestText.Contains('$(_FsCodeNeedle)'))">true</_FsManifestStale>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(_FsAndroidVersionFile)" Condition="Exists('$(_FsAndroidVersionFile)')">
+      <Output TaskParameter="Lines" PropertyName="_FsAndroidVersionHave" />
+    </ReadLinesFromFile>
+    <WriteLinesToFile File="$(_FsAndroidVersionFile)"
+                      Lines="$(_FsAndroidVersionWant)"
+                      Overwrite="true"
+                      Condition="'$(_FsAndroidVersionHave)' != '$(_FsAndroidVersionWant)'" />
+    <Delete Files="$(IntermediateOutputPath)stamp\_GenerateJavaStubs.stamp"
+            Condition="'$(_FsManifestStale)' == 'true'" />
+    <ItemGroup>
+      <_GenerateJavaStubsInputs Include="$(_FsAndroidVersionFile)" />
+    </ItemGroup>
+    <Message Importance="High"
+             Condition="'$(_FsManifestStale)' == 'true'"
+             Text="Android 清单版本与 $(Version)（code=$(FlyScreenVersionCode)）不一致，将重新生成" />
+  </Target>
+
   <Target Name="WritePublishVersion" AfterTargets="Publish">
     <PropertyGroup>
       <_VerOutDir Condition="'$(PublishDir)' != ''">$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_VerOutDir>
