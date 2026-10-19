@@ -122,16 +122,20 @@ public partial class ProgramEditorWindow : Window
     {
         _outputSince = DateTime.Now;
         _outputLastWritten = null;
-        OutputText.Inlines.Clear();
-        OutputEmptyText.IsVisible = true;
+        OutputText?.Inlines?.Clear();
+        if (OutputEmptyText != null)
+            OutputEmptyText.IsVisible = true;
     }
 
     private void ApplyOutputExpanded(bool expanded)
     {
         _outputExpanded = expanded;
-        OutputBody.IsVisible = expanded;
-        OutputToggleGlyph.Text = expanded ? "▼" : "▲";
-        ToolTip.SetTip(OutputDock, expanded ? Loc.T("Prog.OutputHide") : Loc.T("Prog.OutputShow"));
+        if (OutputBody != null)
+            OutputBody.IsVisible = expanded;
+        if (OutputToggleGlyph != null)
+            OutputToggleGlyph.Text = expanded ? "▼" : "▲";
+        if (OutputDock != null)
+            ToolTip.SetTip(OutputDock, expanded ? Loc.T("Prog.OutputHide") : Loc.T("Prog.OutputShow"));
         if (expanded)
             ScrollOutputToEnd();
     }
@@ -145,24 +149,28 @@ public partial class ProgramEditorWindow : Window
     /// <summary>Inlines 追加，避免 ItemsSource 整表刷新。</summary>
     private void RefreshOutput()
     {
+        var inlines = OutputText?.Inlines;
+        if (inlines == null || OutputEmptyText == null) return;
         var items = AppLog.Snapshot(false, _program.Id, _program.Name)
             .Where(e => e.Time >= _outputSince)
             .ToList();
         var chunk = AppLog.FormatNewLines(items, ref _outputLastWritten);
         if (chunk != null)
-            OutputText.Inlines.Add(new Run(chunk));
-        OutputEmptyText.IsVisible = OutputText.Inlines.Count == 0;
+            inlines.Add(new Run(chunk));
+        OutputEmptyText.IsVisible = inlines.Count == 0;
         if (chunk != null && _outputExpanded)
             ScrollOutputToEnd();
     }
 
     private void ScrollOutputToEnd()
     {
-        if (!_outputExpanded || OutputText.Inlines.Count == 0) return;
+        var inlines = OutputText?.Inlines;
+        if (!_outputExpanded || inlines == null || OutputScroll == null || inlines.Count == 0)
+            return;
         OutputScroll.ScrollToEnd();
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_outputExpanded) return;
+            if (!_outputExpanded || OutputScroll == null) return;
             var max = Math.Max(0, OutputScroll.Extent.Height - OutputScroll.Viewport.Height);
             OutputScroll.Offset = new Vector(OutputScroll.Offset.X, max);
         }, DispatcherPriority.Loaded);
@@ -214,6 +222,7 @@ public partial class ProgramEditorWindow : Window
 
     private void UpdateCaretLine()
     {
+        if (CodeBox == null) return;
         var idx = CodeBox.CaretIndex;
         var text = CodeBox.Text ?? "";
         _caretLine = 1;
@@ -227,6 +236,7 @@ public partial class ProgramEditorWindow : Window
 
     private void RefreshLineNumbers()
     {
+        if (LineNumbers == null || CodeBox == null) return;
         var text = (CodeBox.Text ?? "").Replace("\r\n", "\n");
         var lines = Math.Max(1, text.Split('\n').Length);
         LineNumbers.Children.Clear();

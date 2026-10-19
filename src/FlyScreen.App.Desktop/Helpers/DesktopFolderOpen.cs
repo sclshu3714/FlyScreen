@@ -1,11 +1,12 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace FlyScreen.DesktopUi.Helpers;
 
 /// <summary>
-/// 跨平台打开目录。Linux 上不能对文件夹路径 UseShellExecute（常直接失败）；
-/// sudo 启动时需降权到 SUDO_USER 并带上 DISPLAY/DBUS，文件管理器才能弹出。
+/// 跨平台打开目录。Linux 上不能对文件夹路径 UseShellExecute；
+/// WSL 下优先用 Windows explorer.exe；sudo 时再降权到 SUDO_USER。
 /// </summary>
 internal static class DesktopFolderOpen
 {
@@ -28,9 +29,16 @@ internal static class DesktopFolderOpen
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             return TryStartProcess("open", [directory], out error);
 
-        // —— Linux / WSL ——
-        if (TryOpenViaWslExplorer(directory, out error))
-            return true;
+        var errors = new List<string>();
+
+        // WSL：用资源管理器最稳（root 下 gio/xdg-open 常无文件管理器关联）
+        if (IsWsl())
+        {
+            if (TryOpenViaWslExplorer(directory, out var wslErr))
+                return true;
+            if (!string.IsNullOrWhiteSpace(wslErr))
+                errors.Add(wslErr);
+        }
 
         var sudoUser = Environment.GetEnvironmentVariable("SUDO_USER");
         var asRoot = string.Equals(Environment.UserName, "root", StringComparison.OrdinalIgnoreCase)
@@ -38,25 +46,111 @@ internal static class DesktopFolderOpen
 
         if (asRoot && !string.IsNullOrWhiteSpace(sudoUser) && sudoUser != "root")
         {
-            if (TryOpenAsUser(sudoUser!, directory, out error))
+            if (TryOpenAsUser(sudoUser!, directory, out var userErr))
                 return true;
+            if (!string.IsNullOrWhiteSpace(userErr))
+                errors.Add(userErr);
         }
 
-        if (TryStartProcess("xdg-open", [directory], out error))
-            return true;
-        if (TryStartProcess("gio", ["open", directory], out error))
+        // 本机桌面：常见文件管理器（避免仅依赖 gio 的 MIME 关联）
+        foreach (var (bin, args) in new (string, string[])[]
+                 {
+                     ("xdg-open", [directory]),
+                     ("nautilus", [directory]),
+                     ("dolphin", [directory]),
+                     ("thunar", [directory]),
+                     ("pcmanfm", [directory]),
+                     ("gio", ["open", directory]),
+                 })
+        {
+            if (TryStartProcess(bin, args, out var e))
+                return true;
+            if (!string.IsNullOrWhiteSpace(e) && !errors.Contains(e))
+                errors.Add(e);
+        }
+
+        // 最后再试一次 WSL explorer（有的环境 /mnt/wslg 不存在但仍是 WSL）
+        if (!IsWsl() && TryOpenViaWslExplorer(directory, out var lastErr))
             return true;
 
-        error ??= "无法打开文件管理器（请确认已安装 xdg-open）";
+        error = errors.Count > 0
+            ? string.Join("；", errors.Take(2))
+            : "无法打开文件管理器";
+        if (asRoot)
+            error += "（建议用普通用户启动：./FlyScreen --gui）";
+        return false;
+    }
+
+    private static bool IsWsl()
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")))
+            return true;
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_INTEROP")))
+            return true;
+        if (Directory.Exists("/mnt/wslg") || Directory.Exists("/mnt/c/Windows"))
+            return true;
+        try
+        {
+            var ver = File.ReadAllText("/proc/version");
+            if (ver.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
+                || ver.Contains("WSL", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        catch
+        {
+            /* ignore */
+        }
+
         return false;
     }
 
     private static bool TryOpenViaWslExplorer(string directory, out string? error)
     {
         error = null;
-        if (!Directory.Exists("/mnt/wslg") && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME")))
+        var winPath = TryMapToWindowsPath(directory);
+        if (string.IsNullOrWhiteSpace(winPath))
+        {
+            error = "wslpath 无法转换路径";
             return false;
+        }
 
+        foreach (var explorer in ExplorerCandidates())
+        {
+            try
+            {
+                using var exp = Process.Start(new ProcessStartInfo
+                {
+                    FileName = explorer,
+                    ArgumentList = { winPath },
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                });
+                if (exp == null) continue;
+                // explorer.exe 成功时也常返回 1
+                _ = exp.WaitForExit(1500);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+        }
+
+        error ??= "无法启动 explorer.exe";
+        return false;
+    }
+
+    private static IEnumerable<string> ExplorerCandidates()
+    {
+        yield return "explorer.exe";
+        yield return "/mnt/c/Windows/explorer.exe";
+        yield return "/mnt/c/WINDOWS/explorer.exe";
+    }
+
+    private static string? TryMapToWindowsPath(string directory)
+    {
         try
         {
             using var map = Process.Start(new ProcessStartInfo
@@ -68,27 +162,74 @@ internal static class DesktopFolderOpen
                 RedirectStandardError = true,
                 CreateNoWindow = true
             });
-            if (map == null) return false;
-            var winPath = map.StandardOutput.ReadToEnd().Trim();
-            map.WaitForExit(3000);
-            if (map.ExitCode != 0 || string.IsNullOrWhiteSpace(winPath))
-                return false;
-
-            using var exp = Process.Start(new ProcessStartInfo
+            if (map != null)
             {
-                FileName = "explorer.exe",
-                ArgumentList = { winPath },
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-            // explorer 常返回非 0，但窗口已开
-            return exp != null;
+                var winPath = map.StandardOutput.ReadToEnd().Trim();
+                map.WaitForExit(3000);
+                if (map.ExitCode == 0 && !string.IsNullOrWhiteSpace(winPath))
+                    return winPath;
+            }
         }
-        catch (Exception ex)
+        catch
         {
-            error = ex.Message;
-            return false;
+            /* fall through */
         }
+
+        // 手工拼 \\wsl$\Distro\...
+        var distro = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME");
+        if (string.IsNullOrWhiteSpace(distro))
+            distro = TryReadWslDistroName();
+        if (string.IsNullOrWhiteSpace(distro))
+            return null;
+
+        var unix = Path.GetFullPath(directory).Replace('\\', '/');
+        if (!unix.StartsWith('/'))
+            return null;
+        var unc = $@"\\wsl$\{distro}{unix.Replace('/', '\\')}";
+        return unc;
+    }
+
+    private static string? TryReadWslDistroName()
+    {
+        try
+        {
+            // /etc/hostname 有时是 DESKTOP-xxx-WSL，不是发行版名；优先 interop 环境
+            var envFile = "/proc/sys/kernel/osrelease";
+            _ = envFile;
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        // 常见：从 /mnt/c/ 存在时仍可用 wsl.exe -l
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = "wsl.exe",
+                ArgumentList = { "-l", "-q", "--running" },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.Unicode
+            });
+            if (p == null) return null;
+            var text = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(3000);
+            foreach (var line in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                var name = line.Trim().TrimStart('\uFEFF');
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        return null;
     }
 
     private static bool TryOpenAsUser(string user, string directory, out string? error)
@@ -98,8 +239,7 @@ internal static class DesktopFolderOpen
         var xauth = Environment.GetEnvironmentVariable("XAUTHORITY");
         if (string.IsNullOrWhiteSpace(xauth))
         {
-            var home = Path.Combine("/home", user);
-            var candidate = Path.Combine(home, ".Xauthority");
+            var candidate = Path.Combine("/home", user, ".Xauthority");
             if (File.Exists(candidate))
                 xauth = candidate;
         }
@@ -107,22 +247,22 @@ internal static class DesktopFolderOpen
         var uid = TryResolveUid(user);
         var dbus = uid >= 0 ? $"unix:path=/run/user/{uid}/bus" : null;
 
-        var envArgs = new List<string>
-        {
-            $"DISPLAY={display}"
-        };
+        var envArgs = new List<string> { $"DISPLAY={display}" };
         if (!string.IsNullOrWhiteSpace(xauth))
             envArgs.Add($"XAUTHORITY={xauth}");
         if (!string.IsNullOrWhiteSpace(dbus))
             envArgs.Add($"DBUS_SESSION_BUS_ADDRESS={dbus}");
-        envArgs.Add("xdg-open");
-        envArgs.Add(directory);
 
-        // runuser（util-linux）优先；失败再试 sudo -n -u
-        if (TryStartProcess("runuser", Prepend(["-u", user, "--", "env"], envArgs), out error))
-            return true;
-        if (TryStartProcess("sudo", Prepend(["-n", "-u", user, "env"], envArgs), out error))
-            return true;
+        // 先试资源管理器（用户会话），再 xdg-open
+        foreach (var opener in new[] { "xdg-open", "nautilus", "dolphin", "thunar" })
+        {
+            var args = new List<string>(envArgs) { opener, directory };
+            if (TryStartProcess("runuser", Prepend(["-u", user, "--", "env"], args), out error))
+                return true;
+            if (TryStartProcess("sudo", Prepend(["-n", "-u", user, "env"], args), out error))
+                return true;
+        }
+
         return false;
     }
 
@@ -181,7 +321,7 @@ internal static class DesktopFolderOpen
             }
 
             if (!p.WaitForExit(4000))
-                return true; // 仍在跑，多半已拉起文件管理器
+                return true;
 
             if (p.ExitCode == 0)
                 return true;
