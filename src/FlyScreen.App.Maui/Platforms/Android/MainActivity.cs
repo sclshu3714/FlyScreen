@@ -1,6 +1,8 @@
 using Android.App;
 using Android.Content.PM;
 using Android.OS;
+using FlyScreen.AppMaui.Platforms.Android;
+using FlyScreen.AppMaui.Services;
 
 namespace FlyScreen.AppMaui;
 
@@ -13,4 +15,32 @@ namespace FlyScreen.AppMaui;
                            ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 public class MainActivity : MauiAppCompatActivity
 {
+    protected override void OnPause()
+    {
+        base.OnPause();
+        // 退到后台：解除触控板屏蔽，电脑键鼠可控制本机其他应用并显示指针
+        try
+        {
+            if (MauiAppHost.EnsureCreated().Platform is AndroidMauiPlatformServices android)
+                android.NotifyAppBackgrounded();
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        try
+        {
+            if (MauiAppHost.EnsureCreated().Platform is AndroidMauiPlatformServices android)
+                android.NotifyAppForegrounded();
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
 }

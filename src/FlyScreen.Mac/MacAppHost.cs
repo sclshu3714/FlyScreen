@@ -1,6 +1,7 @@
 using FlyScreen.Mac.Input;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 
@@ -48,9 +49,9 @@ public sealed class MacAppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
-        Transfers.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Transfers.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
-        LayoutSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
         {
             LayoutSyncedFromPeer?.Invoke(peer);
@@ -60,7 +61,7 @@ public sealed class MacAppHost : IAsyncDisposable
             LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
         };
         BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
-        BehaviorSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        BehaviorSync.StatusMessage += PublishStatus;
         BehaviorSync.BehaviorSyncedFromPeer += peer =>
         {
             BehaviorSyncedFromPeer?.Invoke(peer);
@@ -68,9 +69,15 @@ public sealed class MacAppHost : IAsyncDisposable
         Injector = new MacInputInjector();
         Capture = new MacInputCapture();
 
-        Connections.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Connections.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
-        Capture.StatusChanged += msg => StatusMessage?.Invoke(msg);
+        Capture.StatusChanged += PublishStatus;
+    }
+
+    private void PublishStatus(string message)
+    {
+        AppLog.RecordStatus(message);
+        StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
     public async Task StartAsync()
@@ -79,7 +86,7 @@ public sealed class MacAppHost : IAsyncDisposable
 
         RefreshCapsForPermission();
         await Connections.StartAsync().ConfigureAwait(false);
-        StatusMessage?.Invoke(AccessibilityPermission.IsTrusted()
+        PublishStatus(AccessibilityPermission.IsTrusted()
             ? "网络已启动；辅助功能已授权。"
             : "网络已启动；辅助功能未授权 — 可连接，但键鼠注入/捕获不可用。");
     }

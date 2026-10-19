@@ -1,6 +1,7 @@
 using FlyScreen.Linux.Environment;
 using FlyScreen.Linux.Input;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 
@@ -58,9 +59,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
         Connections = new ConnectionManager(Settings);
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
-        Transfers.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Transfers.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
-        LayoutSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
         {
             if (LayoutSlotMerge.IsOnlyLocal(Settings.MachineSlots, LocalPeerIdentity.MachineName))
@@ -73,13 +74,19 @@ public sealed class LinuxAppHost : IAsyncDisposable
             LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
         };
         BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
-        BehaviorSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        BehaviorSync.StatusMessage += PublishStatus;
         BehaviorSync.BehaviorSyncedFromPeer += peer =>
         {
             BehaviorSyncedFromPeer?.Invoke(peer);
         };
-        Connections.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Connections.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
+    }
+
+    private void PublishStatus(string message)
+    {
+        AppLog.RecordStatus(message);
+        StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
     public async Task StartAsync()
@@ -88,7 +95,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
 
         RefreshCaps();
         await Connections.StartAsync().ConfigureAwait(false);
-        StatusMessage?.Invoke(
+        PublishStatus(
             $"网络已启动 | {LinuxRuntimeEnvironment.Describe()} | 注入={Injector.BackendName}({(Injector.IsAvailable ? "可用" : "不可用")})");
     }
 

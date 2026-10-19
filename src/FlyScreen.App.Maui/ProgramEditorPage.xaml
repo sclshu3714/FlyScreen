@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FlyScreen.AppMaui.ProgramEditorPage"
+             Title="编辑程序">
+  <Grid RowDefinitions="Auto,*,Auto" Padding="12">
+    <VerticalStackLayout Spacing="6">
+      <Label x:Name="TitleText" FontAttributes="Bold" FontSize="14" />
+      <Label x:Name="BpHintText" TextColor="{DynamicResource Muted}" FontSize="11" />
+      <ScrollView Orientation="Horizontal">
+        <HorizontalStackLayout Spacing="6">
+          <Button x:Name="BtnSave" Text="保存" Style="{StaticResource NormalBtn}" Clicked="Save_Clicked" />
+          <Button x:Name="BtnDebug" Text="调试" Style="{StaticResource NormalBtn}" Clicked="Debug_Clicked" />
+          <Button x:Name="BtnBreakpoint" Text="断点" Style="{StaticResource NormalBtn}" Clicked="Breakpoint_Clicked" />
+          <Button x:Name="BtnClearBp" Text="取消断点" Style="{StaticResource NormalBtn}" Clicked="ClearBp_Clicked" />
+          <Button x:Name="BtnClearAllBp" Text="清除断点" Style="{StaticResource NormalBtn}" Clicked="ClearAllBp_Clicked" />
+          <Button x:Name="BtnRun" Text="运行" Style="{StaticResource SoftBlueBtn}" Clicked="Run_Clicked" />
+          <Button x:Name="BtnStop" Text="停止" Style="{StaticResource NormalBtn}" Clicked="Stop_Clicked" />
+        </HorizontalStackLayout>
+      </ScrollView>
+    </VerticalStackLayout>
+    <Editor x:Name="CodeBox" Grid.Row="1" FontFamily="Consolas" FontSize="13" AutoSize="Disabled"
+            VerticalOptions="Fill" HorizontalOptions="Fill" />
+    <Button Grid.Row="2" Text="关闭" Margin="0,8,0,0" Style="{StaticResource NormalBtn}" Clicked="Close_Clicked" />
+  </Grid>
+</ContentPage>

@@ -36,6 +36,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public event Action<string?>? ControlTargetChanged;
 
+    public void SetRemotePointerSuppressed(bool suppressed) { /* 桌面不需要触控板屏蔽 */ }
+
     public void StartDesktopInput()
     {
         _router?.Dispose();

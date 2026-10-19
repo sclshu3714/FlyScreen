@@ -50,12 +50,28 @@ public partial class PhoneTouchpadPage : ContentPage
         PickPeer();
         RefreshStatus();
         SetKeyboardOpen(false);
+        // 触控板控制对端：屏蔽电脑穿透鼠标，避免双指针；本机外接鼠标照常
+        _host.Platform.SetRemotePointerSuppressed(true);
     }
 
     private void OnUnloaded(object? sender, EventArgs e)
     {
         _host.StatusMessage -= OnHostStatus;
         _keyboardCommitCts?.Cancel();
+        _host.Platform.SetRemotePointerSuppressed(false);
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        _host.Platform.SetRemotePointerSuppressed(true);
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        // 进入设置页时解除屏蔽，设置界面可接收电脑穿入指针
+        _host.Platform.SetRemotePointerSuppressed(false);
     }
 
     private void OnHostStatus(string msg)

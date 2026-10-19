@@ -90,16 +90,28 @@ public static class NativeMethods
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref uint pvAttribute, int cbAttribute);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOZORDER = 0x0004;
+    public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_FRAMECHANGED = 0x0020;
+
     /// <summary>
     /// 按应用淡/深色同步系统标题栏（沉浸式深色 + Win11 标题栏/边框色）。
+    /// Win10 在窗口首次显示前写入 DWM 属性不会重绘标题栏，须再发 FRAMECHANGED。
     /// </summary>
     public static void ApplyTitleBarTheme(IntPtr hwnd, bool dark)
     {
         if (hwnd == IntPtr.Zero) return;
 
         var useDark = dark ? 1 : 0;
-        if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int)) != 0)
-            _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useDark, sizeof(int));
+        // Win10 1809 用 19，20H1+ / Win11 用 20；部分 Win10 对 20 返回成功但不生效，两个都写
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int));
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useDark, sizeof(int));
 
         // Win11：标题栏/文字/边框对齐应用主题；Win10 上属性失败可忽略
         // COLORREF 为 0x00BBGGRR
@@ -109,6 +121,10 @@ public static class NativeMethods
         _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref caption, sizeof(uint));
         _ = DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ref text, sizeof(uint));
         _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref border, sizeof(uint));
+
+        // 等价于用户拉动/最小化后再恢复：强制重算非客户区，让标题栏立刻换色
+        _ = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 
     public const int SW_RESTORE = 9;

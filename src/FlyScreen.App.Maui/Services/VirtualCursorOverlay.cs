@@ -21,8 +21,8 @@ public static class VirtualCursorOverlay
     private static readonly object Gate = new();
     private static double _nx = 0.5;
     private static double _ny = 0.5;
-    private static bool _visible;
 #if ANDROID
+    private static bool _visible;
     private static CursorView? _view;
 #endif
 
@@ -43,7 +43,9 @@ public static class VirtualCursorOverlay
         {
             _nx = Math.Clamp(nx, 0, 1);
             _ny = Math.Clamp(ny, 0, 1);
+#if ANDROID
             _visible = true;
+#endif
         }
 #if ANDROID
         MainThread.BeginInvokeOnMainThread(() =>
@@ -64,7 +66,9 @@ public static class VirtualCursorOverlay
         {
             _nx = Math.Clamp(_nx + dx / w, 0, 1);
             _ny = Math.Clamp(_ny + dy / h, 0, 1);
+#if ANDROID
             _visible = true;
+#endif
         }
 #if ANDROID
         MainThread.BeginInvokeOnMainThread(() =>
@@ -77,9 +81,9 @@ public static class VirtualCursorOverlay
 
     public static void Hide()
     {
+#if ANDROID
         lock (Gate)
             _visible = false;
-#if ANDROID
         MainThread.BeginInvokeOnMainThread(() => _view?.Invalidate());
 #endif
     }

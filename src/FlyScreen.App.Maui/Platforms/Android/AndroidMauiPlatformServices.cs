@@ -1,5 +1,6 @@
 #if ANDROID
 using FlyScreen.AppMaui.Services;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Models;
@@ -7,8 +8,10 @@ using FlyScreen.Models;
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// Android：文本剪贴板 + Caps=AndroidMobile（含 InjectInput/EdgeMouse）。
-/// 无障碍服务已开启时用它的叠层画指针（后台也能显示）。悬浮窗只在服务未开启时兜底。
+/// Android 键鼠接收：
+/// 1) 悬浮小窗画指针（其他应用上层可见）
+/// 2) 未加窗成功前绝不关掉无障碍/应用内箭头（避免「能点但看不见」）
+/// 3) 电脑主动穿入时解除触控板屏蔽
 /// </summary>
 public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 {
@@ -18,9 +21,10 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private CancellationTokenSource? _clipCts;
     private string? _lastTextKey;
     private bool _receiving;
-    private bool _cursorViaOverlay;
     private bool _promptedOverlay;
     private bool _promptedTouchInjection;
+    private bool _remotePointerSuppressed;
+    private bool _touchpadWantsSuppress;
 
     public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
     {
@@ -33,9 +37,42 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool SupportsTray => false;
     public bool SupportsAutoStart => false;
     public bool IsFocusOnLocalMachine => !_receiving;
-    public bool AcceptsRemoteInput => _receiving;
+    public bool AcceptsRemoteInput => _receiving && !_remotePointerSuppressed;
 
     public event Action<string?>? ControlTargetChanged;
+
+    public void SetRemotePointerSuppressed(bool suppressed)
+    {
+        _touchpadWantsSuppress = suppressed;
+        ApplySuppressState();
+    }
+
+    /// <summary>Activity OnPause：退后台时允许电脑控制本机并显示指针。</summary>
+    public void NotifyAppBackgrounded()
+    {
+        if (!_remotePointerSuppressed) return;
+        _remotePointerSuppressed = false;
+        AppLog.Info("已退到后台：允许电脑键鼠穿入并显示指针");
+    }
+
+    /// <summary>Activity OnResume：若仍在触控板页，恢复屏蔽。</summary>
+    public void NotifyAppForegrounded()
+    {
+        ApplySuppressState();
+    }
+
+    private void ApplySuppressState()
+    {
+        // 正在被电脑控制时，不以触控板屏蔽盖过（否则指针永远起不来）
+        var want = _touchpadWantsSuppress && !_receiving;
+        if (_remotePointerSuppressed == want) return;
+        _remotePointerSuppressed = want;
+        if (want && _receiving)
+        {
+            EndRemoteCursor();
+            ControlTargetChanged?.Invoke(null);
+        }
+    }
 
     public void StartDesktopInput() { }
     public void StopDesktopInput() { }
@@ -43,78 +80,58 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void InjectMouseMoveAbsolute(double nx, double ny)
     {
+        if (_remotePointerSuppressed || !_receiving) return;
+
         if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
-        if (AccessibilityCursorShowing())
-        {
-            VirtualCursorOverlay.Hide();
-            return;
-        }
-        VirtualCursorOverlay.ShowNormalized(nx, ny);
-        if (!_cursorViaOverlay)
-            _cursorViaOverlay = FlyScreenCursorOverlay.TryBegin(nx, ny);
-        if (_cursorViaOverlay)
-            FlyScreenCursorOverlay.MoveAbsolute(nx, ny);
-        else if (_receiving)
-            PromptOverlayOnce();
+
+        UpdateCursorVisual(nx, ny, relative: false, 0, 0);
     }
 
     public void InjectMouseMoveRelative(int dx, int dy)
     {
-        if (!_receiving && !FlyScreenInputAccessibilityService.IsEnabled) return;
+        if (_remotePointerSuppressed || !_receiving) return;
+
         if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
-        if (AccessibilityCursorShowing())
-        {
-            VirtualCursorOverlay.Hide();
-            return;
-        }
-        VirtualCursorOverlay.MoveByPixels(dx, dy);
-        if (_cursorViaOverlay)
-            FlyScreenCursorOverlay.MoveRelative(dx, dy);
+
+        UpdateCursorVisual(0, 0, relative: true, dx, dy);
     }
 
     public void InjectMouseButton(int button, bool down)
-        => InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Click(button, down));
+    {
+        if (_remotePointerSuppressed || !_receiving) return;
+        InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Click(button, down));
+    }
 
     public void InjectMouseWheel(int delta, bool horizontal)
-        => InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Wheel(delta, horizontal));
+    {
+        if (_remotePointerSuppressed || !_receiving) return;
+        InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Wheel(delta, horizontal));
+    }
 
     public void InjectKey(ushort vk, bool down, bool extended)
-        => InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Key(vk, down));
+    {
+        if (_remotePointerSuppressed || !_receiving) return;
+        InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Key(vk, down));
+    }
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
+        // 电脑主动穿入：强制允许接收（触控板屏蔽让路）
+        _remotePointerSuppressed = false;
         _receiving = true;
-        if (!FlyScreenCursorOverlay.CanDraw())
-            PromptOverlayOnce();
+
         if (FlyScreenInputAccessibilityService.IsEnabled)
         {
-            _cursorViaOverlay = false;
-            FlyScreenCursorOverlay.End();
+            // 先开无障碍会话；悬浮窗未确认前保持画箭头
+            FlyScreenInputAccessibilityService.Instance!.SetDrawCursor(true);
             FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
-            var entryXCopy = entryX;
-            var entryYCopy = entryY;
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                await Task.Delay(400);
-                if (!_receiving || AccessibilityCursorShowing()) return;
-                if (FlyScreenCursorOverlay.TryBegin(entryXCopy, entryYCopy))
-                    _cursorViaOverlay = true;
-                else
-                    PromptOverlayOnce();
-            });
         }
-        else if (FlyScreenCursorOverlay.TryBegin(entryX, entryY))
-        {
-            _cursorViaOverlay = true;
-        }
-        else
-        {
-            _cursorViaOverlay = false;
-            PromptOverlayOnce();
-        }
+
+        UpdateCursorVisual(entryX, entryY, relative: false, 0, 0);
         ControlTargetChanged?.Invoke(null);
+        AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} a11y={FlyScreenInputAccessibilityService.IsEnabled}");
     }
 
     public void OnCursorOwnerChanged(string ownerMachine)
@@ -123,7 +140,6 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         var local = string.Equals(ownerMachine, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(ownerMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
         if (local) return;
-        // 光标归电脑：结束本机被控态
         if (_receiving)
             EndRemoteCursor();
     }
@@ -166,29 +182,61 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void DisposeTray() { }
 
+    /// <summary>
+    /// 指针显示策略（关键）：
+    /// - 有权限就尝试悬浮小窗；成功后才关掉备用箭头
+    /// - 失败则继续用无障碍箭头 + 应用内箭头，绝不能三路全关
+    /// </summary>
+    private void UpdateCursorVisual(double nx, double ny, bool relative, int dx, int dy)
+    {
+        if (FlyScreenCursorOverlay.CanDraw())
+        {
+            if (!FlyScreenCursorOverlay.IsShowing)
+            {
+                if (relative)
+                    FlyScreenCursorOverlay.TryBegin(0.5, 0.5);
+                else
+                    FlyScreenCursorOverlay.TryBegin(nx, ny);
+            }
+
+            if (FlyScreenCursorOverlay.IsShowing)
+            {
+                if (relative)
+                    FlyScreenCursorOverlay.MoveRelative(dx, dy);
+                else
+                    FlyScreenCursorOverlay.MoveAbsolute(nx, ny);
+
+                // 仅在悬浮窗真正加成功后关掉备用箭头
+                FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(false);
+                VirtualCursorOverlay.Hide();
+                return;
+            }
+        }
+        else
+        {
+            PromptOverlayOnce();
+        }
+
+        // 备用：无障碍箭头（可盖其他应用）+ 应用内箭头（前台兜底）——绝不能全关
+        FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(true);
+        if (relative)
+            VirtualCursorOverlay.MoveByPixels(dx, dy);
+        else
+            VirtualCursorOverlay.ShowNormalized(nx, ny);
+
+        if (FlyScreenCursorOverlay.CanDraw() && !string.IsNullOrEmpty(FlyScreenCursorOverlay.LastError))
+            AppLog.Warn($"悬浮指针未显示，已用备用箭头。原因: {FlyScreenCursorOverlay.LastError}");
+    }
+
     private void EndRemoteCursor()
     {
         _receiving = false;
-        _cursorViaOverlay = false;
         VirtualCursorOverlay.Hide();
         FlyScreenCursorOverlay.End();
         FlyScreenInputAccessibilityService.Instance?.EndSession();
+        ApplySuppressState();
     }
 
-    /// <summary>无障碍全屏层已经加上时，关掉悬浮窗指针，避免两套叠在一起。</summary>
-    private bool AccessibilityCursorShowing()
-    {
-        if (FlyScreenInputAccessibilityService.Instance?.IsCursorVisible != true)
-            return false;
-        if (_cursorViaOverlay)
-        {
-            _cursorViaOverlay = false;
-            FlyScreenCursorOverlay.End();
-        }
-        return true;
-    }
-
-    /// <summary>点击、滑动、按键才会走系统手势接口。鼠标穿入本身不请求这项授权。</summary>
     private void InjectTouch(Action inject)
     {
         if (FlyScreenInputAccessibilityService.IsEnabled)
@@ -214,7 +262,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
             var go = await page.DisplayAlertAsync(
                 "需要悬浮窗权限",
-                "电脑鼠标移入本机时，只在屏幕上显示指针。请允许「显示在其他应用上层」。这不是无障碍权限，也和穿边模式里的「无障碍」无关。",
+                "电脑鼠标控制手机时要看到指针，请允许「显示在其他应用上层」。",
                 "去开启",
                 "稍后");
             if (go)
@@ -237,7 +285,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
             var go = await page.DisplayAlertAsync(
                 "模拟点击需要系统接口",
-                "指针移入不需要无障碍权限。在其他应用上点击或滑动时，Android 只提供「玄鸟键鼠注入」这项系统服务，它和设置里的穿边模式「无障碍」不是一回事。",
+                "在其他应用上点击/滑动需要开启「玄鸟键鼠注入」无障碍服务。",
                 "去开启",
                 "稍后");
             if (go)

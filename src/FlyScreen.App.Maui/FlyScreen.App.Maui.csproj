@@ -22,6 +22,12 @@
     <AndroidPackageFormats Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">apk</AndroidPackageFormats>
     <!-- 真机常为 arm/arm64；仅 arm64+x64 时部分机型按 32 位加载会 UnsatisfiedLinkError(n_onCreate) -->
     <RuntimeIdentifiers Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">android-arm;android-arm64;android-x64</RuntimeIdentifiers>
+    <!--
+      默认 Marshal Methods 只在 JNI_OnLoad 里 RegisterNatives，不导出 Java_crc…_n_1onCreate。
+      真机若登记失败，启动即 UnsatisfiedLinkError: MauiApplication.n_onCreate。
+      关闭后改走传统 JNI 符号，和生成的 Java 包装一致。
+    -->
+    <AndroidEnableMarshalMethods Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">false</AndroidEnableMarshalMethods>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>

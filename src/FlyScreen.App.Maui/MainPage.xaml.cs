@@ -3,7 +3,9 @@ using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 using FlyScreen.Services.Update;
 using Microsoft.Maui.Controls.Shapes;
 
@@ -15,6 +17,7 @@ public partial class MainPage : ContentPage
     private ObservableCollection<DiscoveredPeer> _discovery = [];
     private readonly ObservableCollection<MachineSlot> _slots = [];
     private int _pageIndex;
+    private bool _initialPageChosen;
     private bool _twoRow = true;
     private MachineSlot? _selected;
     private IDispatcherTimer? _statusTimer;
@@ -58,6 +61,11 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
         PlatformLabel.Text = _host.PlatformBanner;
         _host.StatusMessage += msg => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
+        AppLog.Changed += () => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (PageLog.IsVisible)
+                RefreshLogPage();
+        });
         _host.LayoutSyncedFromPeer += _ => MainThread.BeginInvokeOnMainThread(() =>
         {
             LoadUi();
@@ -90,7 +98,14 @@ public partial class MainPage : ContentPage
         RefreshNics();
         RefreshDiscovery();
         RefreshSlotStatuses();
-        ShowPage(0);
+        // 弹窗关闭可能再次触发 Loaded，不要强制回到「基础」
+        if (!_initialPageChosen)
+        {
+            _initialPageChosen = true;
+            ShowPage(0);
+        }
+        else
+            ShowPage(_pageIndex);
         ApplyResponsiveLayout(Width);
 
         _statusTimer = Dispatcher.CreateTimer();
@@ -299,7 +314,19 @@ public partial class MainPage : ContentPage
         NavShareText.Text = Loc.T("Nav.Share");
         NavSecurityText.Text = Loc.T("Nav.Security");
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
+        NavProgramsText.Text = Loc.T("Nav.Programs");
+        NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
+        LogTitleText.Text = Loc.T("Log.Title");
+        LogHintText.Text = Loc.T("Log.Hint");
+        LogErrorsOnlyLabel.Text = Loc.T("Log.ErrorsOnly");
+        LogClearBtn.Text = Loc.T("Log.Clear");
+        ProgTitleText.Text = Loc.T("Prog.Title");
+        ProgHintText.Text = Loc.T("Prog.Hint");
+        ProgAddBtn.Text = Loc.T("Prog.Add");
+        ProgDeleteBtn.Text = Loc.T("Prog.Delete");
+        ProgStartBtn.Text = Loc.T("Prog.Start");
+        ProgStopBtn.Text = Loc.T("Prog.Stop");
         HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
     }
 
@@ -997,6 +1024,8 @@ public partial class MainPage : ContentPage
         PageSecurity.IsVisible = index == 4;
         PageAbout.IsVisible = index == 5;
         PageHelp.IsVisible = index == 6;
+        PageLog.IsVisible = index == 7;
+        PagePrograms.IsVisible = index == 8;
 
         try
         {
@@ -1018,6 +1047,8 @@ public partial class MainPage : ContentPage
             SetNav(NavSecurity, NavSecurityText, index == 4);
             SetNav(NavAbout, AboutBtnText, index == 5);
             SetNav(NavHelp, HelpBtnText, index == 6);
+            SetNav(NavLog, NavLogText, index == 7);
+            SetNav(NavPrograms, NavProgramsText, index == 8);
         }
         catch { /* ignore */ }
 
@@ -1025,6 +1056,10 @@ public partial class MainPage : ContentPage
             RefreshAboutPage();
         else if (index == 6)
             ShowHelpDocument();
+        else if (index == 7)
+            RefreshLogPage();
+        else if (index == 8)
+            RefreshProgramsPage();
 
         // 窄屏选中菜单后自动收起抽屉
         if (_compactLayout && _navOpen)
@@ -1042,6 +1077,8 @@ public partial class MainPage : ContentPage
         else if (q.Contains("网络") || q.Contains("发现") || q.Contains("网卡") || q.Contains("端口")) ShowPage(2);
         else if (q.Contains("高级") || q.Contains("热键") || q.Contains("选项") || q.Contains("主题")) ShowPage(1);
         else if (q.Contains("密钥") || q.Contains("安全")) ShowPage(4);
+        else if (q.Contains("程序") || q.Contains("脚本") || q.Contains("python")) ShowPage(8);
+        else if (q.Contains("日志") || q.Contains("错误")) ShowPage(7);
         else if (q.Contains("关于") || q.Contains("版本")) ShowPage(5);
         else if (q.Contains("帮助") || q.Contains("更新") || q.Contains("诊断") || q.Contains("修复")) ShowPage(6);
         else if (q.Contains("布局") || q.Contains("基础")) ShowPage(0);
@@ -1059,8 +1096,126 @@ public partial class MainPage : ContentPage
             case "security": ShowPage(4); break;
             case "about": ShowPage(5); break;
             case "help": ShowPage(6); break;
+            case "log": ShowPage(7); break;
+            case "programs": ShowPage(8); break;
         }
     }
+
+    private void RefreshProgramsPage()
+    {
+        var svc = ProgramService.Instance;
+        foreach (var p in svc.Catalog.Items)
+        {
+            svc.Catalog.RefreshSize(p);
+            svc.Runner.SyncStatus(p);
+        }
+        ProgList.ItemsSource = null;
+        ProgList.ItemsSource = svc.Catalog.Items;
+    }
+
+    private IEnumerable<UserProgram> SelectedPrograms()
+        => ProgramService.Instance.Catalog.Items.Where(p => p.IsSelected);
+
+    private Task PushModalAsync(Page page)
+        => Navigation.PushModalAsync(new NavigationPage(page));
+
+    private async void ProgAdd_Clicked(object? sender, EventArgs e)
+    {
+        var page = new ProgramAddPage();
+        await PushModalAsync(page);
+        var ok = await page.Result;
+        ShowPage(8);
+        if (!ok) return;
+        try
+        {
+            ProgramService.Instance.Catalog.Create(
+                page.ProgramName, page.SelectedLanguage, page.NamespaceValue, page.FileNameValue);
+            RefreshProgramsPage();
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.Add"), ex.Message, "OK");
+        }
+    }
+
+    private async void ProgDelete_Clicked(object? sender, EventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.Delete"), Loc.T("Prog.SelectFirst"), "OK");
+            return;
+        }
+        if (!await DisplayAlertAsync(Loc.T("Prog.Delete"), Loc.T("Prog.ConfirmDelete"), "OK", "Cancel"))
+            return;
+        await ProgramService.Instance.Runner.DeleteManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgStart_Clicked(object? sender, EventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.Start"), Loc.T("Prog.SelectFirst"), "OK");
+            return;
+        }
+        await ProgramService.Instance.Runner.StartManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgStop_Clicked(object? sender, EventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.Stop"), Loc.T("Prog.SelectFirst"), "OK");
+            return;
+        }
+        await ProgramService.Instance.Runner.StopManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowStart_Clicked(object? sender, EventArgs e)
+    {
+        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        try { await ProgramService.Instance.Runner.StartAsync(prog); }
+        catch (Exception ex) { await DisplayAlertAsync(Loc.T("Prog.ActStart"), ex.Message, "OK"); }
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowEdit_Clicked(object? sender, EventArgs e)
+    {
+        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        var page = new ProgramEditorPage(prog);
+        await PushModalAsync(page);
+        await page.WhenClosed;
+        ShowPage(8);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowDelete_Clicked(object? sender, EventArgs e)
+    {
+        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        if (!await DisplayAlertAsync(Loc.T("Prog.ActDelete"), Loc.T("Prog.ConfirmDelete"), "OK", "Cancel"))
+            return;
+        try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
+        catch (Exception ex) { await DisplayAlertAsync(Loc.T("Prog.ActDelete"), ex.Message, "OK"); }
+        RefreshProgramsPage();
+    }
+
+    private void RefreshLogPage()
+    {
+        LogList.ItemsSource = AppLog.Snapshot(LogErrorsOnlyCheck.IsChecked);
+    }
+
+    private void LogFilter_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+        if (PageLog.IsVisible)
+            RefreshLogPage();
+    }
+
+    private void LogClear_Clicked(object? sender, EventArgs e) => AppLog.Clear();
 
     private void LayoutMode_Clicked(object? sender, EventArgs e)
     {

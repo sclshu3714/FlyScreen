@@ -33,14 +33,14 @@ public sealed class AppHost : IAsyncDisposable
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         Clipboard = new ClipboardMonitor(Settings, Transfers);
         _behaviorSync = new BehaviorSyncHelper(Settings, Connections);
-        _behaviorSync.StatusMessage += m => StatusMessage?.Invoke(m);
+        _behaviorSync.StatusMessage += PublishStatus;
         _behaviorSync.BehaviorSyncedFromPeer += from =>
         {
             Input.EasyMouseEnabled = Settings.EasyMouse;
             try { BehaviorSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
         };
         _layoutSync = new LayoutSyncHelper(Settings, Connections);
-        _layoutSync.StatusMessage += m => StatusMessage?.Invoke(m);
+        _layoutSync.StatusMessage += PublishStatus;
         _layoutSync.LayoutSyncedFromPeer += from =>
         {
             // 只刷新 UI；由 MaintainLoop 补连/剪枝，避免整网重启导致状态来回闪
@@ -54,8 +54,8 @@ public sealed class AppHost : IAsyncDisposable
             try { LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName); } catch { /* ignore */ }
         };
 
-        Connections.StatusMessage += m => StatusMessage?.Invoke(m);
-        Transfers.StatusMessage += m => StatusMessage?.Invoke(m);
+        Connections.StatusMessage += PublishStatus;
+        Transfers.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
 
         // 鼠标回到本机：后台异步预取远程剪贴板（文件收完后再可粘贴，不堵键鼠）
@@ -76,6 +76,12 @@ public sealed class AppHost : IAsyncDisposable
             if (Input.IsFocusOnLocalMachine)
                 Clipboard.ArmRemoteClipboardForPaste();
         };
+    }
+
+    private void PublishStatus(string message)
+    {
+        AppLog.RecordStatus(message);
+        StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
     public static AppHost EnsureCreated()

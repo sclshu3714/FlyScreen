@@ -1,4 +1,5 @@
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 
@@ -56,7 +57,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
-        LayoutSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
         {
             // 只通知 UI；MaintainLoop 负责补连/剪枝，避免反复 Restart 闪烁
@@ -69,15 +70,15 @@ public sealed class MauiAppHost : IAsyncDisposable
             LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
         };
         BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
-        BehaviorSync.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        BehaviorSync.StatusMessage += PublishStatus;
         BehaviorSync.BehaviorSyncedFromPeer += peer =>
         {
             _platform.SetEasyMouse(Settings.EasyMouse);
             BehaviorSyncedFromPeer?.Invoke(peer);
             _ = RestartNetworkingAsync();
         };
-        Connections.StatusMessage += msg => StatusMessage?.Invoke(msg);
-        Transfers.StatusMessage += msg => StatusMessage?.Invoke(msg);
+        Connections.StatusMessage += PublishStatus;
+        Transfers.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
 
         Transfers.RemoteInlineAnnounced += () =>
@@ -122,6 +123,12 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
     }
 
+    private void PublishStatus(string message)
+    {
+        AppLog.RecordStatus(message);
+        StatusMessage?.Invoke(AppLog.ForStatusBar(message));
+    }
+
     public async Task StartAsync()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
@@ -140,7 +147,7 @@ public sealed class MauiAppHost : IAsyncDisposable
 
             _platform.StartClipboardMonitor();
         });
-        StatusMessage?.Invoke($"网络已启动 · {PlatformBanner} · {Connections.BindIp}");
+        PublishStatus($"网络已启动 · {PlatformBanner} · {Connections.BindIp}");
     }
 
     public async Task RestartNetworkingAsync()
@@ -266,6 +273,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
                 if (p == null) return;
+                // BeginReceiving 在触控板屏蔽态会直接拒绝，不进入被控
                 if (IsLocalName(p.TargetMachine))
                     _platform.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
                 break;

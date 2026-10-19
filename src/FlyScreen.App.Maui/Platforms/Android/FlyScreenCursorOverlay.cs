@@ -2,18 +2,22 @@
 using Android.Content;
 using Android.Graphics;
 using Android.OS;
+using Android.Util;
 using Android.Views;
+using FlyScreen.Services;
 using Path = Android.Graphics.Path;
 using View = Android.Views.View;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 电脑鼠标穿入本机时的指针。使用「显示在其他应用上层」，不依赖无障碍服务。
-/// 箭头是一块小窗，跟着坐标移动，玄鸟退到后台后仍盖在其他应用上。
+/// 电脑鼠标穿入本机时的指针：一块小悬浮窗跟着坐标移动。
+/// 全屏透明层在部分国产 ROM 上会加窗成功却不绘制；小窗更稳。
 /// </summary>
 public static class FlyScreenCursorOverlay
 {
+    private const float CursorDp = 36f;
+
     private static readonly object Gate = new();
     private static bool _scheduled;
     private static bool _wantVisible;
@@ -25,7 +29,9 @@ public static class FlyScreenCursorOverlay
     private static WindowManagerLayoutParams? _lp;
     private static int _screenW = 1080;
     private static int _screenH = 1920;
+    private static int _cursorPx = 72;
     private static bool _added;
+    private static string? _lastError;
 
     public static bool CanDraw()
     {
@@ -33,19 +39,31 @@ public static class FlyScreenCursorOverlay
         return ctx != null && global::Android.Provider.Settings.CanDrawOverlays(ctx);
     }
 
-    public static bool IsShowing => _added;
+    /// <summary>窗体已真正加到 WindowManager。</summary>
+    public static bool IsShowing
+    {
+        get { lock (Gate) return _added && _wantVisible; }
+    }
 
+    public static string? LastError => _lastError;
+
+    /// <summary>请求显示。返回值表示本帧已成功加窗（或已在显示）。</summary>
     public static bool TryBegin(double nx, double ny)
     {
-        if (!CanDraw()) return false;
+        if (!CanDraw())
+        {
+            _lastError = "无悬浮窗权限";
+            return false;
+        }
+
         lock (Gate)
         {
             _wantVisible = true;
             _nx = Math.Clamp(nx, 0, 1);
             _ny = Math.Clamp(ny, 0, 1);
         }
-        Schedule();
-        return true;
+
+        return FlushNow();
     }
 
     public static void MoveAbsolute(double nx, double ny)
@@ -63,16 +81,10 @@ public static class FlyScreenCursorOverlay
     {
         lock (Gate)
         {
-            if (_screenW <= 0 || _screenH <= 0)
-            {
-                _nx = Math.Clamp(_nx + dx / 1080d, 0, 1);
-                _ny = Math.Clamp(_ny + dy / 1920d, 0, 1);
-            }
-            else
-            {
-                _nx = Math.Clamp(_nx + dx / (double)_screenW, 0, 1);
-                _ny = Math.Clamp(_ny + dy / (double)_screenH, 0, 1);
-            }
+            var w = Math.Max(_screenW, 1);
+            var h = Math.Max(_screenH, 1);
+            _nx = Math.Clamp(_nx + dx / (double)w, 0, 1);
+            _ny = Math.Clamp(_ny + dy / (double)h, 0, 1);
             _wantVisible = true;
         }
         Schedule();
@@ -92,11 +104,45 @@ public static class FlyScreenCursorOverlay
             if (_scheduled) return;
             _scheduled = true;
         }
-        MainThread.BeginInvokeOnMainThread(Flush);
+
+        if (MainThread.IsMainThread)
+        {
+            Flush();
+            return;
+        }
+
+        MainThread.BeginInvokeOnMainThread(() => Flush());
     }
 
-    private static void Flush()
+    /// <summary>在主线程同步刷新；非主线程则切过去并等待结果。</summary>
+    private static bool FlushNow()
     {
+        if (MainThread.IsMainThread)
+            return Flush();
+
+        var tcs = new TaskCompletionSource<bool>();
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try { tcs.TrySetResult(Flush()); }
+            catch (Exception ex) { tcs.TrySetException(ex); }
+        });
+        try
+        {
+            return tcs.Task.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            AppLog.Warn($"悬浮指针 FlushNow: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool Flush()
+    {
+        lock (Gate)
+            _scheduled = false;
+
         bool want;
         double nx, ny;
         lock (Gate)
@@ -104,46 +150,65 @@ public static class FlyScreenCursorOverlay
             want = _wantVisible;
             nx = _nx;
             ny = _ny;
-            _scheduled = false;
         }
 
         if (!want)
         {
             Hide();
-            return;
+            return false;
         }
 
         if (!CanDraw())
         {
             Hide();
-            return;
+            _lastError = "无悬浮窗权限";
+            return false;
         }
 
-        EnsureView();
-        if (_wm == null || _cursor == null || _lp == null) return;
+        if (!EnsureView())
+            return false;
+
         RefreshScreen();
-        _lp.X = 0;
-        _lp.Y = 0;
-        _lp.Width = Math.Max(_screenW, 1);
-        _lp.Height = Math.Max(_screenH, 1);
-        _cursor.SetPoint((float)nx, (float)ny, _screenW, _screenH);
+        PlaceWindow(nx, ny);
+
         try
         {
             if (!_added)
             {
-                _wm.AddView(_cursor, _lp);
+                _wm!.AddView(_cursor, _lp);
                 _added = true;
+                _lastError = null;
+                Log.Info("FlyScreen", $"cursor overlay added {_cursorPx}px @ ({_lp!.X},{_lp.Y})");
+                AppLog.Info("悬浮指针已显示（其他应用上层）");
             }
             else
             {
-                _wm.UpdateViewLayout(_cursor, _lp);
+                _wm!.UpdateViewLayout(_cursor, _lp);
             }
-            _cursor.Invalidate();
+
+            _cursor!.Invalidate();
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
             _added = false;
+            _lastError = ex.Message;
+            Log.Warn("FlyScreen", "cursor overlay add/update failed: " + ex.Message);
+            AppLog.Warn($"悬浮指针加窗失败: {ex.Message}");
+            return false;
         }
+    }
+
+    private static void PlaceWindow(double nx, double ny)
+    {
+        var size = _cursorPx;
+        var x = (int)Math.Round(nx * Math.Max(_screenW - 1, 1));
+        var y = (int)Math.Round(ny * Math.Max(_screenH - 1, 1));
+        // 箭头尖在左上角
+        _lp!.X = Math.Clamp(x, 0, Math.Max(_screenW - size, 0));
+        _lp.Y = Math.Clamp(y, 0, Math.Max(_screenH - size, 0));
+        _lp.Width = size;
+        _lp.Height = size;
     }
 
     private static void Hide()
@@ -153,25 +218,36 @@ public static class FlyScreenCursorOverlay
         _added = false;
     }
 
-    private static void EnsureView()
+    private static bool EnsureView()
     {
-        if (_cursor != null && _wm != null && _lp != null) return;
+        if (_cursor != null && _wm != null && _lp != null) return true;
         var ctx = global::Android.App.Application.Context;
-        if (ctx == null) return;
+        if (ctx == null)
+        {
+            _lastError = "Application.Context 为空";
+            return false;
+        }
+
         _wm = ctx.GetSystemService(Context.WindowService) as IWindowManager;
-        if (_wm == null) return;
+        if (_wm == null)
+        {
+            _lastError = "WindowManager 为空";
+            return false;
+        }
 
         var density = ctx.Resources?.DisplayMetrics?.Density ?? 2f;
+        _cursorPx = Math.Max(48, (int)(CursorDp * density));
         _cursor = new PointerView(ctx, density);
 
-        var type = WindowManagerTypes.SystemAlert;
-        if (OperatingSystem.IsAndroidVersionAtLeast(26))
-            type = WindowManagerTypes.ApplicationOverlay;
+        var type = OperatingSystem.IsAndroidVersionAtLeast(26)
+            ? WindowManagerTypes.ApplicationOverlay
+            : WindowManagerTypes.SystemAlert;
 
         _lp = new WindowManagerLayoutParams(
-            ViewGroup.LayoutParams.MatchParent,
-            ViewGroup.LayoutParams.MatchParent,
+            _cursorPx,
+            _cursorPx,
             type,
+            // 不加 LayoutNoLimits：小米等 ROM 会裁掉带该标志的小窗
             WindowManagerFlags.NotFocusable
             | WindowManagerFlags.NotTouchable
             | WindowManagerFlags.NotTouchModal
@@ -179,10 +255,50 @@ public static class FlyScreenCursorOverlay
             Format.Translucent)
         {
             Gravity = GravityFlags.Top | GravityFlags.Left,
-            Alpha = 1f
+            X = 0,
+            Y = 0,
+            Alpha = 1f,
+            Title = "FlyScreenCursor"
         };
         if (OperatingSystem.IsAndroidVersionAtLeast(28))
             _lp.LayoutInDisplayCutoutMode = LayoutInDisplayCutoutMode.ShortEdges;
+
+        return true;
+    }
+
+    private static void RefreshScreen()
+    {
+        try
+        {
+            var size = new global::Android.Graphics.Point();
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+            {
+                var bounds = _wm?.CurrentWindowMetrics?.Bounds;
+                if (bounds != null && bounds.Width() > 0 && bounds.Height() > 0)
+                {
+                    _screenW = bounds.Width();
+                    _screenH = bounds.Height();
+                    return;
+                }
+            }
+
+            _wm?.DefaultDisplay?.GetRealSize(size);
+            if (size.X > 0 && size.Y > 0)
+            {
+                _screenW = size.X;
+                _screenH = size.Y;
+                return;
+            }
+        }
+        catch
+        {
+            /* fall through */
+        }
+
+        var dm = global::Android.App.Application.Context?.Resources?.DisplayMetrics;
+        if (dm == null) return;
+        _screenW = dm.WidthPixels;
+        _screenH = dm.HeightPixels;
     }
 
     private sealed class PointerView : View
@@ -190,27 +306,38 @@ public static class FlyScreenCursorOverlay
         private readonly float _density;
         private readonly global::Android.Graphics.Paint _fill;
         private readonly global::Android.Graphics.Paint _stroke;
+        private readonly global::Android.Graphics.Paint _glow;
         private readonly Path _arrow;
-
-        private float _nx = 0.5f;
-        private float _ny = 0.5f;
-        private int _screenW = 1080;
-        private int _screenH = 1920;
 
         public PointerView(Context context, float density) : base(context)
         {
             _density = density <= 0 ? 2f : density;
             SetWillNotDraw(false);
+            // 硬件层在部分机型上对 TYPE_APPLICATION_OVERLAY 会整层不画
             SetLayerType(LayerType.Software, null);
             SetBackgroundColor(global::Android.Graphics.Color.Transparent);
-            _fill = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
-            _fill.Color = global::Android.Graphics.Color.White;
+
+            // 高对比：亮黄填充 + 黑描边，深浅背景下都看得见
+            _fill = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
+            {
+                Color = global::Android.Graphics.Color.Rgb(255, 214, 10)
+            };
             _fill.SetStyle(global::Android.Graphics.Paint.Style.Fill);
-            _stroke = new global::Android.Graphics.Paint(PaintFlags.AntiAlias);
-            _stroke.Color = global::Android.Graphics.Color.Black;
-            _stroke.StrokeWidth = 0.55f;
+
+            _stroke = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
+            {
+                Color = global::Android.Graphics.Color.Black,
+                StrokeWidth = 1.8f
+            };
             _stroke.StrokeJoin = global::Android.Graphics.Paint.Join.Round;
             _stroke.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
+
+            _glow = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
+            {
+                Color = global::Android.Graphics.Color.Argb(90, 0, 0, 0)
+            };
+            _glow.SetStyle(global::Android.Graphics.Paint.Style.Fill);
+
             _arrow = new Path();
             _arrow.MoveTo(1, 1);
             _arrow.LineTo(1, 26);
@@ -222,49 +349,17 @@ public static class FlyScreenCursorOverlay
             _arrow.Close();
         }
 
-        public void SetPoint(float nx, float ny, int screenW, int screenH)
-        {
-            _nx = nx;
-            _ny = ny;
-            _screenW = Math.Max(screenW, 1);
-            _screenH = Math.Max(screenH, 1);
-        }
-
         protected override void OnDraw(Canvas canvas)
         {
-            var w = Width > 1 ? Width : _screenW;
-            var h = Height > 1 ? Height : _screenH;
+            var scale = Math.Max(Width, Height) / 32f;
+            if (scale < 0.5f) scale = _density;
             canvas.Save();
-            canvas.Translate(_nx * (w - 1), _ny * (h - 1));
-            canvas.Scale(_density, _density);
+            canvas.Scale(scale, scale);
+            canvas.DrawPath(_arrow, _glow);
             canvas.DrawPath(_arrow, _fill);
             canvas.DrawPath(_arrow, _stroke);
             canvas.Restore();
         }
-    }
-
-    private static void RefreshScreen()
-    {
-        try
-        {
-            var size = new global::Android.Graphics.Point();
-            _wm?.DefaultDisplay?.GetRealSize(size);
-            if (size.X > 0 && size.Y > 0)
-            {
-                _screenW = size.X;
-                _screenH = size.Y;
-                return;
-            }
-        }
-        catch
-        {
-            /* 旧接口失败时用 DisplayMetrics */
-        }
-
-        var dm = global::Android.App.Application.Context?.Resources?.DisplayMetrics;
-        if (dm == null) return;
-        _screenW = dm.WidthPixels;
-        _screenH = dm.HeightPixels;
     }
 }
 #endif
