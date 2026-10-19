@@ -193,17 +193,12 @@
           </Border>
           <Border x:Name="OutputBody" Height="150" Visibility="Collapsed">
             <Grid>
-              <ListBox x:Name="OutputList" BorderThickness="0" Background="{DynamicResource ListBg}"
-                       FontFamily="Consolas, Cascadia Mono" FontSize="12"
-                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                       ScrollViewer.VerticalScrollBarVisibility="Auto">
-                <ListBox.ItemTemplate>
-                  <DataTemplate>
-                    <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,1"
-                               Foreground="{DynamicResource Text}"/>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+              <!-- 只读 TextBox + AppendText：避免 ListBox 集合变更整表重绘闪烁 -->
+              <TextBox x:Name="OutputBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                       BorderThickness="0" Background="{DynamicResource ListBg}"
+                       FontFamily="Consolas, Cascadia Mono" FontSize="12" Padding="8,4"
+                       Foreground="{DynamicResource Text}" CaretBrush="{DynamicResource Text}"/>
               <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
                          Foreground="{DynamicResource Muted}" FontSize="12"
                          HorizontalAlignment="Center" VerticalAlignment="Center"

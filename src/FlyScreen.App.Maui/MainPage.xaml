@@ -88,7 +88,8 @@
                 <ScrollView x:Name="PageOptions" IsVisible="False" VerticalScrollBarVisibility="Never">
                     <Grid RowDefinitions="Auto,Auto" RowSpacing="10" Padding="0,0,0,4">
                         <Border Style="{StaticResource Card}" Padding="12,10">
-                            <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*" ColumnSpacing="16">
+                            <!-- 宽屏三列；窄屏由 ApplyOptionsPlacement 改为单列堆叠 -->
+                            <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*,*" ColumnSpacing="12">
                                 <VerticalStackLayout x:Name="FeatColumn" Spacing="0">
                                     <Label x:Name="FeatTitleText" Text="功能" FontAttributes="Bold" Margin="0,0,0,4" />
                                     <!-- Spacing=8；列勿锁死 20px（会裁掉勾选图标） -->
@@ -143,17 +144,19 @@
                                         <CheckBox x:Name="EasyMouseCheck" IsChecked="True" VerticalOptions="Center" />
                                         <Label x:Name="EasyMouseLabel" Text="轻松鼠标（移出边缘切换）" VerticalOptions="Center" FontSize="13" />
                                     </HorizontalStackLayout>
-                                    <Label x:Name="EdgeCrossTitleText" Text="穿边模式" TextColor="{DynamicResource Muted}"
-                                           FontSize="12" Margin="0,8,0,2" />
-                                    <FlexLayout Wrap="Wrap" AlignItems="Center" Margin="0,0,0,2">
-                                        <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
-                                                     IsChecked="True" Margin="0,0,12,4"
-                                                     CheckedChanged="EdgeCrossMode_Changed" />
-                                        <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
-                                                     Margin="0,0,12,4" CheckedChanged="EdgeCrossMode_Changed" />
-                                        <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
-                                                     Margin="0,0,0,4" CheckedChanged="EdgeCrossMode_Changed" />
-                                    </FlexLayout>
+                                </VerticalStackLayout>
+                                <VerticalStackLayout x:Name="EdgeCrossColumn" Grid.Column="2" Spacing="0">
+                                    <Label x:Name="EdgeCrossTitleText" Text="穿边模式" FontAttributes="Bold" Margin="0,0,0,4" />
+                                    <!-- 独立列内纵向排列，避免窄列横排挤换行 -->
+                                    <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
+                                                 IsChecked="True" FontSize="13" Margin="0,1"
+                                                 CheckedChanged="EdgeCrossMode_Changed" />
+                                    <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
+                                                 FontSize="13" Margin="0,1"
+                                                 CheckedChanged="EdgeCrossMode_Changed" />
+                                    <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                                                 FontSize="13" Margin="0,1,0,6"
+                                                 CheckedChanged="EdgeCrossMode_Changed" />
                                     <Label x:Name="EdgeCrossTipText" Text="" TextColor="{DynamicResource Muted}"
                                            FontSize="11" LineBreakMode="WordWrap" />
                                 </VerticalStackLayout>

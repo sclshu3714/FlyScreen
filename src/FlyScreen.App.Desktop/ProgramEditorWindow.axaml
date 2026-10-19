@@ -116,15 +116,12 @@
           </Border>
           <Border x:Name="OutputBody" Height="150" IsVisible="False">
             <Grid>
-              <ListBox x:Name="OutputList" Background="{DynamicResource ListBg}"
-                       FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="12"
-                       BorderThickness="0">
-                <ListBox.ItemTemplate>
-                  <DataTemplate DataType="diag:AppLogEntry">
-                    <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,1"/>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+              <ScrollViewer x:Name="OutputScroll" Background="{DynamicResource ListBg}"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="OutputText" TextWrapping="Wrap" Margin="8,4"
+                           FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="12"/>
+              </ScrollViewer>
               <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
                          Foreground="{DynamicResource Muted}" FontSize="12"
                          HorizontalAlignment="Center" VerticalAlignment="Center"

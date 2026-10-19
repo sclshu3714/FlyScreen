@@ -923,12 +923,14 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                        <Grid>
+                        <!-- 宽屏三列；窄屏由 OptionsFeatGrid_SizeChanged 改为单列堆叠 -->
+                        <Grid x:Name="OptionsFeatGrid" SizeChanged="OptionsFeatGrid_SizeChanged">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition/>
-                                <ColumnDefinition/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="FeatColumn" Margin="0,0,10,0">
                                 <TextBlock x:Name="FeatTitleText" Text="功能" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <CheckBox x:Name="WrapMouseCheck" Content="环形鼠标（首尾相连）"
                           ToolTip="布局最左与最右（或最上与最下）首尾相连：鼠标从一侧移出可绕到另一侧有电脑的槽位。仅相邻槽位有电脑时才会切换。"/>
@@ -945,7 +947,7 @@
                                 <CheckBox x:Name="ShowStatusCheck" Content="显示状态消息"
                           ToolTip="在窗口底部显示连接、传输等状态提示信息。"/>
                             </StackPanel>
-                            <StackPanel Grid.Column="1">
+                            <StackPanel x:Name="BehColumn" Grid.Column="1" Margin="5,0">
                                 <TextBlock x:Name="BehTitleText" Text="行为" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <CheckBox x:Name="AutoStartCheck" Content="开机自动启动并连接"
                           ToolTip="登录后约 15 秒以管理员权限启动（任务计划程序）。因需提权，不能用普通启动项。"/>
@@ -957,18 +959,17 @@
                           ToolTip="屏幕四角附近不触发边缘切换，减少误触（例如移向关闭按钮时）。"/>
                                 <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"
                           ToolTip="启用后，将鼠标移出屏幕边缘即可切换到布局中相邻的电脑。"/>
-                                <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" Margin="0,10,0,4"
-                                           Foreground="{DynamicResource Muted}"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                    <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
-                                                 Margin="0,0,12,0" Checked="EdgeCrossMode_Changed"/>
-                                    <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
-                                                 Margin="0,0,12,0" Checked="EdgeCrossMode_Changed"/>
-                                    <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
-                                                 Checked="EdgeCrossMode_Changed"/>
-                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="EdgeCrossColumn" Grid.Column="2" Margin="10,0,0,0">
+                                <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
+                                             Margin="0,0,0,4" Checked="EdgeCrossMode_Changed"/>
+                                <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
+                                             Margin="0,0,0,4" Checked="EdgeCrossMode_Changed"/>
+                                <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                                             Margin="0,0,0,8" Checked="EdgeCrossMode_Changed"/>
                                 <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
-                                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,4"/>
+                                           Foreground="{DynamicResource Muted}" FontSize="12"/>
                             </StackPanel>
                         </Grid>
                     </Border>

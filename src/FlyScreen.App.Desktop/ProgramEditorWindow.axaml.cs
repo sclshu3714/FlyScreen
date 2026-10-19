@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -20,13 +19,13 @@ public partial class ProgramEditorWindow : Window
     private readonly UserProgram _program;
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
-    private readonly ObservableCollection<AppLogEntry> _outputItems = [];
     private int _caretLine = 1;
     private bool _toolModeUpdating;
     private bool _toolsCompact;
     private bool _outputExpanded;
     private bool _outputRefreshPending;
     private DateTime _outputSince = DateTime.MinValue;
+    private AppLogEntry? _outputLastWritten;
 
     public ProgramEditorWindow() : this(new UserProgram { Name = "design" })
     {
@@ -48,7 +47,6 @@ public partial class ProgramEditorWindow : Window
         OutputTitleText.Text = Loc.T("Prog.Output");
         OutputClearBtn.Content = Loc.T("Prog.OutputClear");
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
-        OutputList.ItemsSource = _outputItems;
         ApplyOutputExpanded(false);
 
         CodeBox.Text = _catalog.ReadSource(program);
@@ -62,7 +60,29 @@ public partial class ProgramEditorWindow : Window
         };
         Opened += (_, _) => UpdateToolMode();
         AppLog.Changed += OnAppLogChanged;
-        Closed += (_, _) => AppLog.Changed -= OnAppLogChanged;
+        // 关闭立即返回；若仍在运行/调试则后台异步停止
+        Closed += (_, _) => StopOnCloseIfNeeded();
+    }
+
+    private int _closeStopArmed;
+
+    /// <summary>关闭编辑器：不阻塞 UI；运行中则 fire-and-forget 停止进程。</summary>
+    private void StopOnCloseIfNeeded()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _closeStopArmed, 1) != 0) return;
+        AppLog.Changed -= OnAppLogChanged;
+        if (!_runner.IsRunning(_program.Id)) return;
+
+        var prog = _program;
+        var runner = _runner;
+        _ = Task.Run(async () =>
+        {
+            try { await runner.StopAsync(prog).ConfigureAwait(false); }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex, $"关闭编辑器时停止「{prog.Name}」失败", prog.Id, prog.Name);
+            }
+        });
     }
 
     private void OnAppLogChanged()
@@ -86,7 +106,8 @@ public partial class ProgramEditorWindow : Window
     private void OutputClear_Click(object? sender, RoutedEventArgs e)
     {
         _outputSince = DateTime.Now;
-        _outputItems.Clear();
+        _outputLastWritten = null;
+        OutputText.Inlines.Clear();
         OutputEmptyText.IsVisible = true;
     }
 
@@ -96,6 +117,8 @@ public partial class ProgramEditorWindow : Window
         OutputBody.IsVisible = expanded;
         OutputToggleGlyph.Text = expanded ? "▼" : "▲";
         ToolTip.SetTip(OutputDock, expanded ? Loc.T("Prog.OutputHide") : Loc.T("Prog.OutputShow"));
+        if (expanded)
+            ScrollOutputToEnd();
     }
 
     private void EnsureOutputVisible()
@@ -104,36 +127,31 @@ public partial class ProgramEditorWindow : Window
             ApplyOutputExpanded(true);
     }
 
-    /// <summary>增量同步输出列表，避免整表重绑导致闪烁。</summary>
+    /// <summary>Inlines 追加，避免 ItemsSource 整表刷新。</summary>
     private void RefreshOutput()
     {
         var items = AppLog.Snapshot(false, _program.Id, _program.Name)
             .Where(e => e.Time >= _outputSince)
             .ToList();
-
-        var common = 0;
-        var n = Math.Min(_outputItems.Count, items.Count);
-        while (common < n && SameOutputEntry(_outputItems[common], items[common]))
-            common++;
-
-        for (var i = _outputItems.Count - 1; i >= common; i--)
-            _outputItems.RemoveAt(i);
-
-        var added = false;
-        for (var i = common; i < items.Count; i++)
-        {
-            _outputItems.Add(items[i]);
-            added = true;
-        }
-
-        OutputEmptyText.IsVisible = _outputItems.Count == 0;
-        if (added && _outputExpanded && _outputItems.Count > 0)
-            OutputList.ScrollIntoView(_outputItems[^1]);
+        var chunk = AppLog.FormatNewLines(items, ref _outputLastWritten);
+        if (chunk != null)
+            OutputText.Inlines.Add(new Run(chunk));
+        OutputEmptyText.IsVisible = OutputText.Inlines.Count == 0;
+        if (chunk != null && _outputExpanded)
+            ScrollOutputToEnd();
     }
 
-    private static bool SameOutputEntry(AppLogEntry a, AppLogEntry b)
-        => ReferenceEquals(a, b)
-           || (a.Time == b.Time && a.Level == b.Level && a.Message == b.Message);
+    private void ScrollOutputToEnd()
+    {
+        if (!_outputExpanded || OutputText.Inlines.Count == 0) return;
+        OutputScroll.ScrollToEnd();
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_outputExpanded) return;
+            var max = Math.Max(0, OutputScroll.Extent.Height - OutputScroll.Viewport.Height);
+            OutputScroll.Offset = new Vector(OutputScroll.Offset.X, max);
+        }, DispatcherPriority.Loaded);
+    }
 
     private static void SetTool(Button button, TextBlock label, string key)
     {

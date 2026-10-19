@@ -1,3 +1,6 @@
+using System.Collections.ObjectModel;
+using System.Text;
+
 namespace FlyScreen.Services;
 
 public enum AppLogLevel
@@ -144,6 +147,64 @@ public static class AppLog
             Items.Clear();
         try { Changed?.Invoke(); } catch { /* ignore */ }
     }
+
+    /// <summary>
+    /// 计算相对 <paramref name="lastWritten"/> 的新增日志文本（仅追加，绝不重放旧行）。
+    /// 环缓冲丢掉 last 时只接上 Time 更新的行，避免整表重刷。
+    /// </summary>
+    public static string? FormatNewLines(IReadOnlyList<AppLogEntry> snapshot, ref AppLogEntry? lastWritten)
+    {
+        var start = FindAppendStart(snapshot, lastWritten);
+        if (start >= snapshot.Count) return null;
+
+        var sb = new StringBuilder();
+        for (var i = start; i < snapshot.Count; i++)
+        {
+            sb.AppendLine(snapshot[i].Display);
+            lastWritten = snapshot[i];
+        }
+        return sb.Length == 0 ? null : sb.ToString();
+    }
+
+    /// <summary>列表增量追加（不从头部 RemoveAt，避免 ObservableCollection 触发整表重绘）。</summary>
+    public static bool SyncTo(
+        ObservableCollection<AppLogEntry> ui,
+        IReadOnlyList<AppLogEntry> snapshot)
+    {
+        AppLogEntry? last = ui.Count > 0 ? ui[^1] : null;
+        var start = FindAppendStart(snapshot, last);
+        var added = false;
+        for (var i = start; i < snapshot.Count; i++)
+        {
+            ui.Add(snapshot[i]);
+            added = true;
+        }
+        return added;
+    }
+
+    private static int FindAppendStart(IReadOnlyList<AppLogEntry> snapshot, AppLogEntry? last)
+    {
+        if (last == null) return 0;
+
+        var idx = -1;
+        for (var i = 0; i < snapshot.Count; i++)
+        {
+            if (ReferenceEquals(snapshot[i], last) || SameEntry(snapshot[i], last))
+                idx = i;
+        }
+        if (idx >= 0) return idx + 1;
+
+        // last 已被环缓冲丢掉：禁止从 0 重放，只接更晚的时间戳
+        for (var i = 0; i < snapshot.Count; i++)
+        {
+            if (snapshot[i].Time > last.Time)
+                return i;
+        }
+        return snapshot.Count;
+    }
+
+    private static bool SameEntry(AppLogEntry a, AppLogEntry b)
+        => a.Time == b.Time && a.Level == b.Level && a.Message == b.Message;
 
     private static void Add(AppLogLevel level, string message, string? programId = null, string? programName = null)
     {
