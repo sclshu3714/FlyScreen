@@ -65,14 +65,15 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     private void ApplySuppressState()
     {
-        // 正在被电脑控制时，不以触控板屏蔽盖过（否则指针永远起不来）
-        var want = _touchpadWantsSuppress && !_receiving;
+        // 触控板页优先：屏蔽电脑键鼠，避免双指针；离开触控板后再允许穿入
+        var want = _touchpadWantsSuppress;
         if (_remotePointerSuppressed == want) return;
         _remotePointerSuppressed = want;
         if (want && _receiving)
         {
             EndRemoteCursor();
             ControlTargetChanged?.Invoke(null);
+            AppLog.Info("触控板已启用：已断开电脑键鼠控制");
         }
     }
 
@@ -121,7 +122,13 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
-        // 电脑主动穿入：强制允许接收（触控板屏蔽让路）
+        // 触控板正在控制电脑时，拒绝被电脑反控
+        if (_touchpadWantsSuppress)
+        {
+            AppLog.Info("触控板模式：忽略电脑键鼠穿入");
+            return;
+        }
+
         _remotePointerSuppressed = false;
         _receiving = true;
 

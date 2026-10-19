@@ -29,7 +29,7 @@ public sealed class FlyScreenCursorOverlayService : Service
     public const string ActionEnd = "flyscreen.cursor.END";
     private const int NotifyId = 42;
     private const string ChannelId = "flyscreen.cursor";
-    private const float CursorDp = 40f;
+    private const float CursorDp = 28f;
     private const double RefW = 1920;
     private const double RefH = 1080;
 
@@ -299,10 +299,12 @@ public sealed class FlyScreenCursorOverlayService : Service
     private void PlaceWindow(double nx, double ny)
     {
         var size = _cursorPx;
+        // 热点在箭头左上角：必须能到达屏幕最底/最右像素。
+        // 勿用 screen-size 钳位，否则底部会空出一块点不到的区域。
         var x = (int)Math.Round(nx * Math.Max(_screenW - 1, 1));
         var y = (int)Math.Round(ny * Math.Max(_screenH - 1, 1));
-        _lp!.X = Math.Clamp(x, 0, Math.Max(_screenW - size, 0));
-        _lp.Y = Math.Clamp(y, 0, Math.Max(_screenH - size, 0));
+        _lp!.X = Math.Clamp(x, 0, Math.Max(_screenW - 1, 0));
+        _lp.Y = Math.Clamp(y, 0, Math.Max(_screenH - 1, 0));
         _lp.Width = size;
         _lp.Height = size;
     }
@@ -418,7 +420,7 @@ public sealed class FlyScreenCursorOverlayService : Service
         var density = viewCtx.Resources?.DisplayMetrics?.Density
                       ?? Resources?.DisplayMetrics?.Density
                       ?? 2f;
-        _cursorPx = Math.Max(56, (int)(CursorDp * density));
+        _cursorPx = Math.Max(40, (int)(CursorDp * density));
         _cursor = new PointerView(viewCtx, density);
 
         var type = OperatingSystem.IsAndroidVersionAtLeast(26)
@@ -432,7 +434,8 @@ public sealed class FlyScreenCursorOverlayService : Service
             WindowManagerFlags.NotFocusable
             | WindowManagerFlags.NotTouchable
             | WindowManagerFlags.NotTouchModal
-            | WindowManagerFlags.LayoutInScreen,
+            | WindowManagerFlags.LayoutInScreen
+            | WindowManagerFlags.LayoutNoLimits,
             Format.Translucent)
         {
             Gravity = GravityFlags.Top | GravityFlags.Left,
@@ -454,6 +457,15 @@ public sealed class FlyScreenCursorOverlayService : Service
         {
             if (OperatingSystem.IsAndroidVersionAtLeast(30))
             {
+                // 用整屏 Maximum，避免 Current 不含导航条导致底部够不着
+                var max = _wm?.MaximumWindowMetrics?.Bounds;
+                if (max != null && max.Width() > 0 && max.Height() > 0)
+                {
+                    _screenW = max.Width();
+                    _screenH = max.Height();
+                    return;
+                }
+
                 var bounds = _wm?.CurrentWindowMetrics?.Bounds;
                 if (bounds != null && bounds.Width() > 0 && bounds.Height() > 0)
                 {
@@ -516,14 +528,14 @@ public sealed class FlyScreenCursorOverlayService : Service
 
             _fill = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
             {
-                Color = global::Android.Graphics.Color.Rgb(255, 214, 10)
+                Color = global::Android.Graphics.Color.White
             };
             _fill.SetStyle(global::Android.Graphics.Paint.Style.Fill);
 
             _stroke = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
             {
                 Color = global::Android.Graphics.Color.Black,
-                StrokeWidth = 2f
+                StrokeWidth = 1.6f
             };
             _stroke.StrokeJoin = global::Android.Graphics.Paint.Join.Round;
             _stroke.SetStyle(global::Android.Graphics.Paint.Style.Stroke);
