@@ -391,10 +391,10 @@
         <Style x:Key="ProgToolIcon" TargetType="Viewbox">
             <Setter Property="Width" Value="14"/>
             <Setter Property="Height" Value="14"/>
-            <Setter Property="Stretch" Value="Uniform"/>
-            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="Stretch" Value="Fill"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Margin" Value="0,0,5,5"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding ProgToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                     <Setter Property="Margin" Value="0"/>
@@ -1203,7 +1203,7 @@
                                     <Button x:Name="ProgAddBtn" Style="{StaticResource SoftBlueBtn}"
                                             MinWidth="36" Padding="10,0" Margin="0,0,8,0"
                                             Click="ProgAdd_Click" ToolTip="添加程序">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                             <Viewbox Style="{StaticResource ProgToolIcon}">
                                                 <Path Data="{StaticResource GeoAdd}"
                                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
@@ -1214,7 +1214,7 @@
                                     <Button x:Name="ProgDeleteBtn" Style="{StaticResource SoftBlueBtn}"
                                             MinWidth="36" Padding="10,0" Margin="0,0,8,0"
                                             Click="ProgDelete_Click" ToolTip="删除程序">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                             <Viewbox Style="{StaticResource ProgToolIcon}">
                                                 <Path Data="{StaticResource GeoDelete}"
                                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
@@ -1225,7 +1225,7 @@
                                     <Button x:Name="ProgStartBtn" Style="{StaticResource SoftBlueBtn}"
                                             MinWidth="36" Padding="10,0" Margin="0,0,8,0"
                                             Click="ProgStart_Click" ToolTip="启动程序">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                             <Viewbox Style="{StaticResource ProgToolIcon}">
                                                 <Path Data="{StaticResource GeoPlay}"
                                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
@@ -1236,7 +1236,7 @@
                                     <Button x:Name="ProgStopBtn" Style="{StaticResource SoftBlueBtn}"
                                             MinWidth="36" Padding="10,0" Margin="0"
                                             Click="ProgStop_Click" ToolTip="停止程序">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                             <Viewbox Style="{StaticResource ProgToolIcon}">
                                                 <Path Data="{StaticResource GeoStop}"
                                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
