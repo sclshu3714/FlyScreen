@@ -28,6 +28,10 @@
     <StreamGeometry x:Key="GeoAbout">M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z</StreamGeometry>
     <StreamGeometry x:Key="GeoHelp">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,19H11V17H13M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7C10.9,7 10,7.89 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,10.1 15.55,11.05 14.07,12.25L15.07,11.25Z</StreamGeometry>
     <StreamGeometry x:Key="GeoDelete">M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoAdd">M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoStop">M6,6H18V18H6V6Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoEdit">M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -73,6 +77,54 @@
       <Setter Property="CornerRadius" Value="8"/>
       <Setter Property="MinWidth" Value="88"/>
       <Setter Property="Margin" Value="8,0,0,0"/>
+    </Style>
+    <Style Selector="Button.progTool">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="MinWidth" Value="36"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.progIcon">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Width" Value="30"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="MinWidth" Value="30"/>
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0,0,4,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <!-- 程序列表勾选列：去掉全局 CheckBox 左 Padding，避免 28px 列裁切 -->
+    <Style Selector="CheckBox.progCheck">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="Width" Value="20"/>
+      <Setter Property="Height" Value="20"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="CheckBox.progCheck /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
+    <Style Selector="ListBox.progList">
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+    <Style Selector="ListBox.progList ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="MinHeight" Value="36"/>
     </Style>
     <Style Selector="Button.softWarn">
       <Setter Property="Background" Value="{DynamicResource WarnSoft}"/>
@@ -689,31 +741,106 @@
                   <TextBlock x:Name="ProgTitleText" Text="程序" FontSize="15" FontWeight="SemiBold"/>
                   <TextBlock x:Name="ProgHintText" Text="管理可单文件运行的脚本与程序。"
                              Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap"/>
-                  <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="ProgAddBtn" Content="添加程序" Click="ProgAdd_Click"/>
-                    <Button x:Name="ProgDeleteBtn" Content="删除程序" Click="ProgDelete_Click"/>
-                    <Button x:Name="ProgStartBtn" Content="启动程序" Click="ProgStart_Click"/>
-                    <Button x:Name="ProgStopBtn" Content="停止程序" Click="ProgStop_Click"/>
-                  </StackPanel>
-                </StackPanel>
-                <ListBox x:Name="ProgList" Background="{DynamicResource ListBg}">
-                  <ListBox.ItemTemplate>
-                    <DataTemplate DataType="prog:UserProgram">
-                      <Grid ColumnDefinitions="28,*,90,70,70,Auto" Margin="0,4">
-                        <CheckBox IsChecked="{Binding IsSelected}"/>
-                        <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0"/>
-                        <TextBlock Grid.Column="2" Text="{Binding LanguageText}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="4" Text="{Binding StatusText}" VerticalAlignment="Center"/>
-                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
-                          <Button Content="启动" Tag="{Binding}" Click="ProgRowStart_Click" Padding="8,2"/>
-                          <Button Content="编辑" Tag="{Binding}" Click="ProgRowEdit_Click" Padding="8,2"/>
-                          <Button Content="删除" Tag="{Binding}" Click="ProgRowDelete_Click" Padding="8,2"/>
+                  <Border x:Name="ProgToolBarHost" HorizontalAlignment="Left"
+                          SizeChanged="ProgToolBarHost_SizeChanged">
+                    <StackPanel x:Name="ProgToolBar" Orientation="Horizontal" Spacing="8">
+                      <Button x:Name="ProgAddBtn" Classes="progTool" Click="ProgAdd_Click"
+                              ToolTip.Tip="添加程序">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                            <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoAdd}"/>
+                          </Viewbox>
+                          <TextBlock x:Name="ProgAddBtnText" Text="添加程序" VerticalAlignment="Center" FontSize="13"/>
                         </StackPanel>
-                      </Grid>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
+                      </Button>
+                      <Button x:Name="ProgDeleteBtn" Classes="progTool" Click="ProgDelete_Click"
+                              ToolTip.Tip="删除程序">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                            <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoDelete}"/>
+                          </Viewbox>
+                          <TextBlock x:Name="ProgDeleteBtnText" Text="删除程序" VerticalAlignment="Center" FontSize="13"/>
+                        </StackPanel>
+                      </Button>
+                      <Button x:Name="ProgStartBtn" Classes="progTool" Click="ProgStart_Click"
+                              ToolTip.Tip="启动程序">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                            <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoPlay}"/>
+                          </Viewbox>
+                          <TextBlock x:Name="ProgStartBtnText" Text="启动程序" VerticalAlignment="Center" FontSize="13"/>
+                        </StackPanel>
+                      </Button>
+                      <Button x:Name="ProgStopBtn" Classes="progTool" Click="ProgStop_Click"
+                              ToolTip.Tip="停止程序">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                            <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoStop}"/>
+                          </Viewbox>
+                          <TextBlock x:Name="ProgStopBtnText" Text="停止程序" VerticalAlignment="Center" FontSize="13"/>
+                        </StackPanel>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
+                <Grid RowDefinitions="Auto,*">
+                  <Grid ColumnDefinitions="40,*,90,70,70,176" Margin="0,0,0,4" MinHeight="32"
+                        Background="{DynamicResource SubtleBg}">
+                    <CheckBox x:Name="ProgSelectAll" Classes="progCheck"
+                              IsCheckedChanged="ProgSelectAll_Changed"/>
+                    <TextBlock x:Name="ProgColName" Grid.Column="1" Text="程序名称" FontWeight="SemiBold"
+                               FontSize="12" VerticalAlignment="Center" Margin="6,0"/>
+                    <TextBlock x:Name="ProgColLang" Grid.Column="2" Text="语言" FontWeight="SemiBold"
+                               FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ProgColSize" Grid.Column="3" Text="大小" FontWeight="SemiBold"
+                               FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ProgColStatus" Grid.Column="4" Text="状态" FontWeight="SemiBold"
+                               FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ProgColActions" Grid.Column="5" Text="操作" FontWeight="SemiBold"
+                               FontSize="12" VerticalAlignment="Center"/>
+                  </Grid>
+                  <ListBox x:Name="ProgList" Grid.Row="1" Classes="progList"
+                           Background="{DynamicResource ListBg}">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate DataType="prog:UserProgram">
+                        <Grid ColumnDefinitions="40,*,90,70,70,176" MinHeight="36">
+                          <CheckBox Classes="progCheck" IsChecked="{Binding IsSelected}"/>
+                          <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0"/>
+                          <TextBlock Grid.Column="2" Text="{Binding LanguageText}" VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="3" Text="{Binding SizeText}" VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="4" Text="{Binding StatusText}" VerticalAlignment="Center"/>
+                          <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowStart_Click" ToolTip.Tip="启动">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#059669" Data="{StaticResource GeoPlay}"/>
+                              </Viewbox>
+                            </Button>
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowEdit_Click" ToolTip.Tip="编辑">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#2563EB" Data="{StaticResource GeoEdit}"/>
+                              </Viewbox>
+                            </Button>
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowLog_Click" ToolTip.Tip="日志">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#F97316" Data="{StaticResource GeoLog}"/>
+                              </Viewbox>
+                            </Button>
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowShare_Click" ToolTip.Tip="共享">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#10B981" Data="{StaticResource GeoShare}"/>
+                              </Viewbox>
+                            </Button>
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowDelete_Click" Margin="0" ToolTip.Tip="删除">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
+                              </Viewbox>
+                            </Button>
+                          </StackPanel>
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </Grid>
               </DockPanel>
             </Border>
           </Grid>

@@ -29,6 +29,10 @@ public partial class MainPage : ContentPage
     private bool _compactLayout;
     private bool _navOpen;
     private const double CompactWidthBreakpoint = 720;
+    private string? _logProgramId;
+    private string? _logProgramName;
+    private bool _openProgramLog;
+    private bool _progSelectAllUpdating;
 
     // 矩阵级拖拽：手势挂在 MachineMatrix 上，避免手指移出卡片后 Pan 被 Android 取消
     private bool _matrixInputWired;
@@ -140,6 +144,7 @@ public partial class MainPage : ContentPage
 
         ApplyLayoutActionsPlacement(compact);
         ApplyOptionsPlacement(compact);
+        ApplyProgToolbarLabels(iconOnly: compact || width < 560);
     }
 
     private void ApplyOptionsPlacement(bool compact)
@@ -295,6 +300,27 @@ public partial class MainPage : ContentPage
         ReconnectBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
     }
 
+    // 与文字同行的符号，避免 Path 叠字导致垂直错位
+    private const string ProgIcAdd = "＋";
+    private const string ProgIcDelete = "✕";
+    private const string ProgIcStart = "▶";
+    private const string ProgIcStop = "■";
+
+    /// <summary>程序页工具栏：宽屏符号+文字，窄屏只留符号（垂直天然居中）。</summary>
+    private void ApplyProgToolbarLabels(bool iconOnly)
+    {
+        if (ProgAddBtn == null) return;
+        ProgAddBtn.Text = iconOnly ? ProgIcAdd : $"{ProgIcAdd}  {Loc.T("Prog.Add")}";
+        ProgDeleteBtn.Text = iconOnly ? ProgIcDelete : $"{ProgIcDelete}  {Loc.T("Prog.Delete")}";
+        ProgStartBtn.Text = iconOnly ? ProgIcStart : $"{ProgIcStart}  {Loc.T("Prog.Start")}";
+        ProgStopBtn.Text = iconOnly ? ProgIcStop : $"{ProgIcStop}  {Loc.T("Prog.Stop")}";
+        var pad = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
+        ProgAddBtn.Padding = pad;
+        ProgDeleteBtn.Padding = pad;
+        ProgStartBtn.Padding = pad;
+        ProgStopBtn.Padding = pad;
+    }
+
     private void MenuBtn_Clicked(object? sender, EventArgs e)
     {
         _navOpen = !_navOpen;
@@ -323,10 +349,16 @@ public partial class MainPage : ContentPage
         LogClearBtn.Text = Loc.T("Log.Clear");
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T("Prog.Hint");
-        ProgAddBtn.Text = Loc.T("Prog.Add");
-        ProgDeleteBtn.Text = Loc.T("Prog.Delete");
-        ProgStartBtn.Text = Loc.T("Prog.Start");
-        ProgStopBtn.Text = Loc.T("Prog.Stop");
+        ToolTipProperties.SetText(ProgAddBtn, Loc.T("Prog.Add"));
+        ToolTipProperties.SetText(ProgDeleteBtn, Loc.T("Prog.Delete"));
+        ToolTipProperties.SetText(ProgStartBtn, Loc.T("Prog.Start"));
+        ToolTipProperties.SetText(ProgStopBtn, Loc.T("Prog.Stop"));
+        ProgColName.Text = Loc.T("Prog.ColName");
+        ProgColLang.Text = Loc.T("Prog.ColLang");
+        ProgColSize.Text = Loc.T("Prog.ColSize");
+        ProgColStatus.Text = Loc.T("Prog.ColStatus");
+        ProgColActions.Text = Loc.T("Prog.ColActions");
+        ApplyProgToolbarLabels(_compactLayout || Width > 0 && Width < 560);
         HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
     }
 
@@ -1057,7 +1089,16 @@ public partial class MainPage : ContentPage
         else if (index == 6)
             ShowHelpDocument();
         else if (index == 7)
+        {
+            if (!_openProgramLog)
+            {
+                _logProgramId = null;
+                _logProgramName = null;
+            }
+            _openProgramLog = false;
+            RefreshLogHint();
             RefreshLogPage();
+        }
         else if (index == 8)
             RefreshProgramsPage();
 
@@ -1115,6 +1156,13 @@ public partial class MainPage : ContentPage
 
     private IEnumerable<UserProgram> SelectedPrograms()
         => ProgramService.Instance.Catalog.Items.Where(p => p.IsSelected);
+
+    private void ProgSelectAll_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+        if (_progSelectAllUpdating) return;
+        foreach (var p in ProgramService.Instance.Catalog.Items)
+            p.IsSelected = e.Value;
+    }
 
     private Task PushModalAsync(Page page)
         => Navigation.PushModalAsync(new NavigationPage(page));
@@ -1204,9 +1252,52 @@ public partial class MainPage : ContentPage
         RefreshProgramsPage();
     }
 
+    private void ProgRowLog_Clicked(object? sender, EventArgs e)
+    {
+        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        _logProgramId = prog.Id;
+        _logProgramName = prog.Name;
+        _openProgramLog = true;
+        ShowPage(7);
+    }
+
+    private async void ProgRowShare_Clicked(object? sender, EventArgs e)
+    {
+        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        var share = ProgramShareService.Current;
+        if (share == null)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.ActShare"), Loc.T("Prog.ShareNone"), "OK");
+            return;
+        }
+
+        try
+        {
+            var result = await share.ShareAsync(prog);
+            var text = result.Reachable == 0
+                ? Loc.T("Prog.ShareNone")
+                : string.Format(Loc.T("Prog.ShareSent"), result.Sent);
+            await DisplayAlertAsync(Loc.T("Prog.ActShare"), text, "OK");
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.ActShare"), ex.Message, "OK");
+        }
+    }
+
+    private void RefreshLogHint()
+    {
+        LogHintText.Text = string.IsNullOrEmpty(_logProgramName)
+            ? Loc.T("Log.Hint")
+            : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
+    }
+
     private void RefreshLogPage()
     {
-        LogList.ItemsSource = AppLog.Snapshot(LogErrorsOnlyCheck.IsChecked);
+        LogList.ItemsSource = AppLog.Snapshot(
+            LogErrorsOnlyCheck.IsChecked,
+            _logProgramId,
+            _logProgramName);
     }
 
     private void LogFilter_Changed(object? sender, CheckedChangedEventArgs e)

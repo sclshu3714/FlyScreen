@@ -47,6 +47,11 @@ public partial class MainWindow : Window
     private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
     private bool _helpFixReady;
+    private bool _progToolModeUpdating;
+    private bool _progToolsCompact;
+    private string? _logProgramId;
+    private string? _logProgramName;
+    private bool _openProgramLog;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -408,10 +413,24 @@ public partial class MainWindow : Window
         LogClearBtn.Content = Loc.T("Log.Clear");
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T("Prog.Hint");
-        ProgAddBtn.Content = Loc.T("Prog.Add");
-        ProgDeleteBtn.Content = Loc.T("Prog.Delete");
-        ProgStartBtn.Content = Loc.T("Prog.Start");
-        ProgStopBtn.Content = Loc.T("Prog.Stop");
+        ProgAddBtnText.Text = Loc.T("Prog.Add");
+        ProgDeleteBtnText.Text = Loc.T("Prog.Delete");
+        ProgStartBtnText.Text = Loc.T("Prog.Start");
+        ProgStopBtnText.Text = Loc.T("Prog.Stop");
+        ToolTip.SetTip(ProgAddBtn, Loc.T("Prog.Add"));
+        ToolTip.SetTip(ProgDeleteBtn, Loc.T("Prog.Delete"));
+        ToolTip.SetTip(ProgStartBtn, Loc.T("Prog.Start"));
+        ToolTip.SetTip(ProgStopBtn, Loc.T("Prog.Stop"));
+        ProgColName.Text = Loc.T("Prog.ColName");
+        ProgColLang.Text = Loc.T("Prog.ColLang");
+        ProgColSize.Text = Loc.T("Prog.ColSize");
+        ProgColStatus.Text = Loc.T("Prog.ColStatus");
+        ProgColActions.Text = Loc.T("Prog.ColActions");
+        ToolTip.SetTip(ProgAddBtn, ProgAddBtnText.Text);
+        ToolTip.SetTip(ProgDeleteBtn, ProgDeleteBtnText.Text);
+        ToolTip.SetTip(ProgStartBtn, ProgStartBtnText.Text);
+        ToolTip.SetTip(ProgStopBtn, ProgStopBtnText.Text);
+        UpdateProgToolMode();
         HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
         HelpDocBtn.Content = Loc.T("Help.ShowDoc");
         RefreshHelpToolbarLabels();
@@ -661,9 +680,21 @@ public partial class MainWindow : Window
         else if (index == 6)
             ShowHelpDocument();
         else if (index == 7)
+        {
+            if (!_openProgramLog)
+            {
+                _logProgramId = null;
+                _logProgramName = null;
+            }
+            _openProgramLog = false;
+            RefreshLogHint();
             RefreshLogPage();
+        }
         else if (index == 8)
+        {
             RefreshProgramsPage();
+            Dispatcher.UIThread.Post(UpdateProgToolMode, DispatcherPriority.Loaded);
+        }
     }
 
     private void RefreshProgramsPage()
@@ -680,6 +711,53 @@ public partial class MainWindow : Window
 
     private IEnumerable<UserProgram> SelectedPrograms()
         => ProgramService.Instance.Catalog.Items.Where(p => p.IsSelected);
+
+    private void ProgSelectAll_Changed(object? sender, RoutedEventArgs e)
+    {
+        var on = ProgSelectAll.IsChecked == true;
+        foreach (var p in ProgramService.Instance.Catalog.Items)
+            p.IsSelected = on;
+    }
+
+    private void ProgToolBarHost_SizeChanged(object? sender, SizeChangedEventArgs e)
+        => UpdateProgToolMode();
+
+    /// <summary>程序页工具栏：放得下时图标+文字，放不下时只留图标。</summary>
+    private void UpdateProgToolMode()
+    {
+        if (!IsLoaded || _progToolModeUpdating || ProgToolBarHost.Bounds.Width <= 1)
+            return;
+        _progToolModeUpdating = true;
+        try
+        {
+            var available = ProgToolBarHost.Bounds.Width;
+            // 先显示文字再测；否则 DesiredSize 偏小，永远不切回宽屏
+            SetProgToolCompact(false);
+            ProgToolBar.Measure(new Size(double.PositiveInfinity, 48));
+            var need = ProgToolBar.DesiredSize.Width;
+            SetProgToolCompact(need > available + 0.5);
+        }
+        finally
+        {
+            _progToolModeUpdating = false;
+        }
+    }
+
+    private void SetProgToolCompact(bool compact)
+    {
+        if (_progToolsCompact == compact && ProgAddBtnText.IsVisible == !compact)
+            return;
+        _progToolsCompact = compact;
+        ProgAddBtnText.IsVisible = !compact;
+        ProgDeleteBtnText.IsVisible = !compact;
+        ProgStartBtnText.IsVisible = !compact;
+        ProgStopBtnText.IsVisible = !compact;
+        var pad = compact ? new Thickness(8, 0) : new Thickness(10, 0);
+        ProgAddBtn.Padding = pad;
+        ProgDeleteBtn.Padding = pad;
+        ProgStartBtn.Padding = pad;
+        ProgStopBtn.Padding = pad;
+    }
 
     private async void ProgAdd_Click(object? sender, RoutedEventArgs e)
     {
@@ -760,9 +838,54 @@ public partial class MainWindow : Window
         RefreshProgramsPage();
     }
 
+    private void ProgRowLog_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        _logProgramId = prog.Id;
+        _logProgramName = prog.Name;
+        _openProgramLog = true;
+        if (NavLog.IsChecked == true)
+            ShowPage(7);
+        else
+            NavLog.IsChecked = true;
+    }
+
+    private async void ProgRowShare_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        var share = ProgramShareService.Current;
+        if (share == null)
+        {
+            StatusText.Text = Loc.T("Prog.ShareNone");
+            return;
+        }
+
+        try
+        {
+            var result = await share.ShareAsync(prog);
+            StatusText.Text = result.Reachable == 0
+                ? Loc.T("Prog.ShareNone")
+                : string.Format(Loc.T("Prog.ShareSent"), result.Sent);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+    }
+
+    private void RefreshLogHint()
+    {
+        LogHintText.Text = string.IsNullOrEmpty(_logProgramName)
+            ? Loc.T("Log.Hint")
+            : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
+    }
+
     private void RefreshLogPage()
     {
-        var items = AppLog.Snapshot(LogErrorsOnlyCheck.IsChecked == true);
+        var items = AppLog.Snapshot(
+            LogErrorsOnlyCheck.IsChecked == true,
+            _logProgramId,
+            _logProgramName);
         LogList.ItemsSource = items;
         if (items.Count > 0)
             LogList.ScrollIntoView(items[^1]);

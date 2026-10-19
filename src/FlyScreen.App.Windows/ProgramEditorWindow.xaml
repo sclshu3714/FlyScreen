@@ -84,8 +84,8 @@
       </Setter>
     </Style>
     <Style x:Key="EditorToolIcon" TargetType="Viewbox">
-      <Setter Property="Width" Value="16"/>
-      <Setter Property="Height" Value="16"/>
+      <Setter Property="Width" Value="14"/>
+      <Setter Property="Height" Value="14"/>
       <Setter Property="Stretch" Value="Uniform"/>
       <Setter Property="HorizontalAlignment" Value="Center"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
@@ -99,6 +99,10 @@
     <Style x:Key="EditorToolLabel" TargetType="TextBlock">
       <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="LineHeight" Value="14"/>
+      <Setter Property="LineStackingStrategy" Value="BlockLineHeight"/>
+      <Setter Property="Padding" Value="0"/>
       <Style.Triggers>
         <DataTrigger Binding="{Binding ToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
           <Setter Property="Visibility" Value="Collapsed"/>
@@ -163,19 +167,68 @@
           </StackPanel>
         </Grid>
       </DockPanel>
+      <!-- 底部可折叠输出停靠窗 -->
+      <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
+              Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+              BorderThickness="1" CornerRadius="8">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                  BorderBrush="{DynamicResource ControlBorder}" BorderThickness="0,0,0,1"
+                  Cursor="Hand" MouseLeftButtonDown="OutputHeader_Click" Height="30">
+            <Grid Margin="10,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock x:Name="OutputToggleGlyph" Text="▲" FontSize="11"
+                         Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="OutputTitleText" Grid.Column="1" Text="输出" FontWeight="SemiBold"
+                         FontSize="12" VerticalAlignment="Center"/>
+              <Button x:Name="OutputClearBtn" Grid.Column="2" Content="清除" Padding="10,0" Height="24"
+                      MinWidth="52" FontSize="12" Click="OutputClear_Click"
+                      Background="Transparent" BorderThickness="0" Cursor="Hand"
+                      Foreground="{DynamicResource Blue}" VerticalAlignment="Center"/>
+            </Grid>
+          </Border>
+          <Border x:Name="OutputBody" Height="150" Visibility="Collapsed">
+            <Grid>
+              <ListBox x:Name="OutputList" BorderThickness="0" Background="{DynamicResource ListBg}"
+                       FontFamily="Consolas, Cascadia Mono" FontSize="12"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,1"
+                               Foreground="{DynamicResource Text}"/>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
+                         Foreground="{DynamicResource Muted}" FontSize="12"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         IsHitTestVisible="False"/>
+            </Grid>
+          </Border>
+        </DockPanel>
+      </Border>
+
       <Grid>
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="48"/>
+          <ColumnDefinition Width="52"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <TextBox x:Name="LineNumbers" Grid.Column="0" IsReadOnly="True" IsTabStop="False" Focusable="False"
-                 Cursor="Hand" ToolTip="点击行号添加断点，再点击取消"
-                 Background="{DynamicResource SubtleBg}" Foreground="{DynamicResource Placeholder}"
-                 BorderThickness="1,1,0,1" BorderBrush="{DynamicResource ControlBorder}"
-                 Padding="4,8" TextAlignment="Right"
-                 VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
-                 FontFamily="Consolas, Cascadia Mono"
-                 PreviewMouseLeftButtonDown="LineNumbers_PreviewMouseLeftButtonDown"/>
+        <Border Grid.Column="0" Background="{DynamicResource SubtleBg}"
+                BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1,1,0,1"
+                Cursor="Hand" ToolTip="点击行号添加断点，再点击取消"
+                PreviewMouseLeftButtonDown="LineNumbers_PreviewMouseLeftButtonDown">
+          <ScrollViewer x:Name="LineScroll" VerticalScrollBarVisibility="Hidden"
+                        HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <TextBlock x:Name="LineNumbers" Padding="4,8" TextAlignment="Right"
+                       FontFamily="Consolas, Cascadia Mono" FontSize="13"
+                       Foreground="{DynamicResource Placeholder}"/>
+          </ScrollViewer>
+        </Border>
         <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
                  TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
                  HorizontalScrollBarVisibility="Auto" BorderBrush="{DynamicResource ControlBorder}"

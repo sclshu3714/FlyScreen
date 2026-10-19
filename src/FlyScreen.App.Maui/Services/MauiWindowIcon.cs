@@ -61,7 +61,11 @@ public static class MauiWindowIcon
 
             EnsureExeIcon(appWindow);
 
-            var ico = ResolvePath("appicon.ico", Path.Combine("Assets", "appicon.ico"));
+            // 优先 Assets 透明 ico；勿先用根目录 MauiIcon 生成的实心黑底 appicon.ico
+            var ico = ResolvePath(
+                Path.Combine("Assets", "appicon.ico"),
+                Path.Combine("Resources", "AppIcon", "appicon.ico"),
+                "appicon.ico");
             if (ico != null)
             {
                 try { appWindow.SetIcon(ico); } catch { /* ignore */ }
