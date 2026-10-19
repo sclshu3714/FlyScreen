@@ -1,26 +1,91 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:diag="clr-namespace:FlyScreen.Services;assembly=FlyScreen.Core"
              x:Class="FlyScreen.AppMaui.ProgramEditorPage"
-             Title="编辑程序">
-  <Grid RowDefinitions="Auto,*,Auto" Padding="12">
-    <VerticalStackLayout Spacing="6">
-      <Label x:Name="TitleText" FontAttributes="Bold" FontSize="14" />
-      <Label x:Name="BpHintText" TextColor="{DynamicResource Muted}" FontSize="11" />
-      <ScrollView Orientation="Horizontal">
-        <HorizontalStackLayout Spacing="6">
-          <Button x:Name="BtnSave" Text="保存" Style="{StaticResource NormalBtn}" Clicked="Save_Clicked" />
-          <Button x:Name="BtnDebug" Text="调试" Style="{StaticResource NormalBtn}" Clicked="Debug_Clicked" />
-          <Button x:Name="BtnBreakpoint" Text="断点" Style="{StaticResource NormalBtn}" Clicked="Breakpoint_Clicked" />
-          <Button x:Name="BtnClearBp" Text="取消断点" Style="{StaticResource NormalBtn}" Clicked="ClearBp_Clicked" />
-          <Button x:Name="BtnClearAllBp" Text="清除断点" Style="{StaticResource NormalBtn}" Clicked="ClearAllBp_Clicked" />
-          <Button x:Name="BtnRun" Text="运行" Style="{StaticResource SoftBlueBtn}" Clicked="Run_Clicked" />
-          <Button x:Name="BtnStop" Text="停止" Style="{StaticResource NormalBtn}" Clicked="Stop_Clicked" />
-        </HorizontalStackLayout>
-      </ScrollView>
-    </VerticalStackLayout>
-    <Editor x:Name="CodeBox" Grid.Row="1" FontFamily="Consolas" FontSize="13" AutoSize="Disabled"
-            VerticalOptions="Fill" HorizontalOptions="Fill" />
-    <Button Grid.Row="2" Text="关闭" Margin="0,8,0,0" Style="{StaticResource NormalBtn}" Clicked="Close_Clicked" />
+             Title="编辑程序"
+             BackgroundColor="{DynamicResource WinBg}">
+  <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
+    <Grid ColumnDefinitions="*,Auto">
+      <HorizontalStackLayout x:Name="ToolBar" Spacing="6" HorizontalOptions="Start">
+        <Button x:Name="BtnClose" Style="{StaticResource NormalBtn}"
+                MinimumWidthRequest="36" Padding="10,0" HeightRequest="32"
+                Clicked="Close_Clicked" ToolTipProperties.Text="关闭并返回" />
+        <Button x:Name="BtnSave" Style="{StaticResource SoftBlueBtn}"
+                MinimumWidthRequest="36" Padding="10,0" HeightRequest="32"
+                Clicked="Save_Clicked" ToolTipProperties.Text="保存" />
+        <Button x:Name="BtnDebug" Style="{StaticResource SoftBlueBtn}"
+                MinimumWidthRequest="36" Padding="10,0" HeightRequest="32"
+                Clicked="Debug_Clicked" ToolTipProperties.Text="调试" />
+        <Button x:Name="BtnClearAllBp" Style="{StaticResource SoftBlueBtn}"
+                MinimumWidthRequest="36" Padding="10,0" HeightRequest="32"
+                Clicked="ClearAllBp_Clicked" ToolTipProperties.Text="清除断点" />
+        <Button x:Name="BtnRun" Style="{StaticResource PrimaryBtn}"
+                MinimumWidthRequest="36" Padding="10,0" HeightRequest="32"
+                Clicked="Run_Clicked" ToolTipProperties.Text="运行" />
+        <Button x:Name="BtnStop" Style="{StaticResource SoftBlueBtn}"
+                MinimumWidthRequest="36" Padding="10,0" HeightRequest="32"
+                Clicked="Stop_Clicked" ToolTipProperties.Text="停止" />
+      </HorizontalStackLayout>
+      <Label x:Name="BpHintText" Grid.Column="1"
+             TextColor="{DynamicResource Muted}" FontSize="11"
+             VerticalOptions="Center" Margin="8,0,0,0"
+             LineBreakMode="TailTruncation" />
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="52,*">
+      <Border Stroke="{DynamicResource Line}" StrokeThickness="1"
+              BackgroundColor="{DynamicResource SubtleBg}">
+        <ScrollView x:Name="LineScroll" Orientation="Vertical"
+                    VerticalScrollBarVisibility="Never">
+          <VerticalStackLayout x:Name="LineGutter" Spacing="0" Padding="0,6" />
+        </ScrollView>
+      </Border>
+      <Border Grid.Column="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
+              BackgroundColor="{DynamicResource CardBg}">
+        <Editor x:Name="CodeBox" FontFamily="Consolas" FontSize="13"
+                AutoSize="Disabled" VerticalOptions="Fill" HorizontalOptions="Fill"
+                BackgroundColor="Transparent" Margin="4" />
+      </Border>
+    </Grid>
+
+    <!-- 底部可折叠输出停靠窗 -->
+    <Border Grid.Row="2" Stroke="{DynamicResource Line}" StrokeThickness="1"
+            StrokeShape="RoundRectangle 8" BackgroundColor="{DynamicResource CardBg}">
+      <Grid RowDefinitions="Auto,Auto">
+        <Grid x:Name="OutputHeader" HeightRequest="30" Padding="10,0"
+              BackgroundColor="{DynamicResource SubtleBg}"
+              ColumnDefinitions="Auto,*,Auto">
+          <Grid.GestureRecognizers>
+            <TapGestureRecognizer Tapped="OutputHeader_Tapped" />
+          </Grid.GestureRecognizers>
+          <Label x:Name="OutputToggleGlyph" Text="▲" FontSize="11"
+                 TextColor="{DynamicResource Muted}" VerticalOptions="Center" Margin="0,0,8,0"
+                 InputTransparent="True" />
+          <Label x:Name="OutputTitleText" Grid.Column="1" Text="输出" FontAttributes="Bold"
+                 FontSize="12" VerticalOptions="Center" InputTransparent="True" />
+          <Button x:Name="OutputClearBtn" Grid.Column="2" Text="清除"
+                  Style="{StaticResource SoftBlueBtn}"
+                  HeightRequest="24" MinimumWidthRequest="52" Padding="10,0" FontSize="12"
+                  Clicked="OutputClear_Clicked" />
+        </Grid>
+        <Grid x:Name="OutputBody" Grid.Row="1" IsVisible="False" HeightRequest="150">
+          <CollectionView x:Name="OutputList" SelectionMode="None"
+                          BackgroundColor="{DynamicResource ListBg}">
+            <CollectionView.ItemTemplate>
+              <DataTemplate x:DataType="diag:AppLogEntry">
+                <Label Text="{Binding Display}" FontFamily="Consolas" FontSize="12"
+                       Margin="8,2" LineBreakMode="WordWrap" />
+              </DataTemplate>
+            </CollectionView.ItemTemplate>
+          </CollectionView>
+          <Label x:Name="OutputEmptyText"
+                 Text="运行或调试后，程序输出会显示在这里。"
+                 TextColor="{DynamicResource Muted}" FontSize="12"
+                 HorizontalOptions="Center" VerticalOptions="Center"
+                 InputTransparent="True" />
+        </Grid>
+      </Grid>
+    </Border>
   </Grid>
 </ContentPage>

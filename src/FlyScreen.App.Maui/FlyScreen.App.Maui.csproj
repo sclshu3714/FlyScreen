@@ -77,9 +77,10 @@
   </Target>
 
   <ItemGroup>
-    <!-- Color=自适应图标底板；与 png 黑底一致，避免启动器回退默认紫标 -->
-    <MauiIcon Include="Resources\AppIcon\appicon.png" Color="#000000" BaseSize="256,256" />
-    <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#000000" BaseSize="256,256" />
+    <!-- 勿设不透明 Color：会把透明区填实，Windows 任务栏/托盘出现黑底方块。
+         Android 自适应底板用极浅透明无关色即可；前景仍是带 Alpha 的 png鸟 png。 -->
+    <MauiIcon Include="Resources\AppIcon\appicon.png" BaseSize="256,256" />
+    <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#0F172A" BaseSize="256,256" />
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">

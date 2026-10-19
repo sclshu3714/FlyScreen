@@ -28,6 +28,7 @@ public partial class ProgramAddPage : ContentPage
         LblFile.Text = Loc.T("Prog.DlgFileName");
         SaveBtn.Text = Loc.T("Prog.DlgSave");
         CancelBtn.Text = Loc.T("Prog.DlgCancel");
+        DetectBtn.Text = Loc.T("Prog.DlgDetect");
 
         LangPicker.ItemsSource = ProgramLanguageInfo.All
             .Select(ProgramLanguageInfo.DisplayName)
@@ -75,6 +76,50 @@ public partial class ProgramAddPage : ContentPage
     {
         _tcs.TrySetResult(false);
         await Navigation.PopModalAsync();
+    }
+
+    private async void Detect_Clicked(object? sender, EventArgs e)
+    {
+        var lang = SelectedLanguage;
+        DetectBtn.IsEnabled = false;
+        DetectStatus.Text = Loc.T("Prog.DetectChecking");
+        DetectStatus.TextColor = Color.FromArgb("#6B7280");
+        try
+        {
+            var result = await Task.Run(() => ProgramEnvironmentChecker.Check(lang));
+            if (result.Ok)
+            {
+                DetectStatus.Text = Loc.T("Prog.DetectOk") + " — " + result.Detail;
+                DetectStatus.TextColor = Color.FromArgb("#059669");
+                await DisplayAlertAsync(Loc.T("Prog.DetectOk"), result.Detail, "OK");
+                return;
+            }
+
+            DetectStatus.Text = Loc.T("Prog.DetectFail");
+            DetectStatus.TextColor = Color.FromArgb("#D97706");
+            var action = await DisplayActionSheetAsync(
+                Loc.T("Prog.DetectFail") + "\n" + result.Detail,
+                Loc.T("Prog.DlgCancel"),
+                null,
+                Loc.T("Prog.DetectAuto"),
+                Loc.T("Prog.DetectOpen"));
+            if (action == Loc.T("Prog.DetectAuto"))
+            {
+                DetectStatus.Text = Loc.T("Prog.DetectAuto") + "…";
+                var (ok, msg) = await ProgramEnvironmentChecker.TryAutoInstallAsync(lang, result);
+                DetectStatus.Text = ok ? Loc.T("Prog.DetectOk") : Loc.T("Prog.DetectFail");
+                DetectStatus.TextColor = Color.FromArgb(ok ? "#059669" : "#D97706");
+                await DisplayAlertAsync(Title, msg, "OK");
+            }
+            else if (action == Loc.T("Prog.DetectOpen"))
+            {
+                ProgramEnvironmentChecker.OpenInstallPage(result);
+            }
+        }
+        finally
+        {
+            DetectBtn.IsEnabled = true;
+        }
     }
 
     protected override void OnDisappearing()

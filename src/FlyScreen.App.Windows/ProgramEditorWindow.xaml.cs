@@ -1,7 +1,11 @@
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
+using Media = System.Windows.Media;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
@@ -14,8 +18,12 @@ public partial class ProgramEditorWindow : Window
     private readonly UserProgram _program;
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
+    private readonly ObservableCollection<AppLogEntry> _outputItems = [];
     private int _caretLine = 1;
     private bool _toolModeUpdating;
+    private bool _outputExpanded;
+    private bool _outputRefreshPending;
+    private DateTime _outputSince = DateTime.MinValue;
 
     public static readonly DependencyProperty ToolsCompactProperty =
         DependencyProperty.Register(nameof(ToolsCompact), typeof(bool), typeof(ProgramEditorWindow), new PropertyMetadata(false));
@@ -44,13 +52,102 @@ public partial class ProgramEditorWindow : Window
         SetToolButton(BtnClearAllBp, BtnClearAllBpText, "Prog.ClearAllBp");
         SetToolButton(BtnRun, BtnRunText, "Prog.Run");
         SetToolButton(BtnStop, BtnStopText, "Prog.StopRun");
+        OutputTitleText.Text = Loc.T("Prog.Output");
+        OutputClearBtn.Content = Loc.T("Prog.OutputClear");
+        OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
+        OutputList.ItemsSource = _outputItems;
+        ApplyOutputExpanded(false);
 
         CodeBox.Text = _catalog.ReadSource(program);
         RefreshLineNumbers();
         RefreshBpHint();
+        RefreshOutput();
 
         CodeBox.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(CodeBox_ScrollChanged), true);
+        AppLog.Changed += OnAppLogChanged;
+        Closed += (_, _) => AppLog.Changed -= OnAppLogChanged;
     }
+
+    private void OnAppLogChanged()
+    {
+        if (_outputRefreshPending) return;
+        _outputRefreshPending = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _outputRefreshPending = false;
+            RefreshOutput();
+        });
+    }
+
+    private void OutputHeader_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject d && FindAncestorButton(d) != null)
+            return; // 点「清除」不切换折叠
+        ApplyOutputExpanded(!_outputExpanded);
+    }
+
+    private static System.Windows.Controls.Button? FindAncestorButton(DependencyObject? d)
+    {
+        while (d != null)
+        {
+            if (d is System.Windows.Controls.Button b) return b;
+            d = VisualTreeHelper.GetParent(d);
+        }
+        return null;
+    }
+
+    private void OutputClear_Click(object sender, RoutedEventArgs e)
+    {
+        _outputSince = DateTime.Now;
+        _outputItems.Clear();
+        OutputEmptyText.Visibility = Visibility.Visible;
+        e.Handled = true;
+    }
+
+    private void ApplyOutputExpanded(bool expanded)
+    {
+        _outputExpanded = expanded;
+        OutputBody.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        OutputToggleGlyph.Text = expanded ? "▼" : "▲";
+        OutputDock.ToolTip = expanded ? Loc.T("Prog.OutputHide") : Loc.T("Prog.OutputShow");
+    }
+
+    private void EnsureOutputVisible()
+    {
+        if (!_outputExpanded)
+            ApplyOutputExpanded(true);
+    }
+
+    /// <summary>增量同步输出列表，避免整表重绑导致闪烁。</summary>
+    private void RefreshOutput()
+    {
+        var items = AppLog.Snapshot(false, _program.Id, _program.Name)
+            .Where(e => e.Time >= _outputSince)
+            .ToList();
+
+        var common = 0;
+        var n = Math.Min(_outputItems.Count, items.Count);
+        while (common < n && SameOutputEntry(_outputItems[common], items[common]))
+            common++;
+
+        for (var i = _outputItems.Count - 1; i >= common; i--)
+            _outputItems.RemoveAt(i);
+
+        var added = false;
+        for (var i = common; i < items.Count; i++)
+        {
+            _outputItems.Add(items[i]);
+            added = true;
+        }
+
+        OutputEmptyText.Visibility = _outputItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (added && _outputExpanded && _outputItems.Count > 0)
+            OutputList.ScrollIntoView(_outputItems[^1]);
+    }
+
+    private static bool SameOutputEntry(AppLogEntry a, AppLogEntry b)
+        => ReferenceEquals(a, b)
+           || (a.Time == b.Time && a.Level == b.Level && a.Message == b.Message);
 
     private static void SetToolButton(System.Windows.Controls.Button button, TextBlock label, string key)
     {
@@ -80,7 +177,7 @@ public partial class ProgramEditorWindow : Window
     private void CodeBox_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
         if (e.VerticalChange == 0) return;
-        LineNumbers.ScrollToVerticalOffset(e.VerticalOffset);
+        LineScroll.ScrollToVerticalOffset(e.VerticalOffset);
     }
 
     private void CodeBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -96,17 +193,41 @@ public partial class ProgramEditorWindow : Window
         RefreshBpHint();
     }
 
+    private static readonly SolidColorBrush BpBrush = CreateBpBrush();
+
+    private static SolidColorBrush CreateBpBrush()
+    {
+        var b = new SolidColorBrush(Media.Color.FromRgb(0xEF, 0x44, 0x44));
+        b.Freeze();
+        return b;
+    }
+
     private void RefreshLineNumbers()
     {
         var text = CodeBox.Text ?? "";
-        var lines = Math.Max(1, text.Split('\n').Length);
-        var sb = new StringBuilder();
+        var lines = Math.Max(1, text.Replace("\r\n", "\n").Split('\n').Length);
+        LineNumbers.Inlines.Clear();
         for (var i = 1; i <= lines; i++)
         {
-            var mark = _program.Breakpoints.Contains(i) ? "●" : " ";
-            sb.Append(mark).Append(i.ToString().PadLeft(3)).Append('\n');
+            if (_program.Breakpoints.Contains(i))
+            {
+                // ⬤ 比 ● 大约一号，红色填充
+                LineNumbers.Inlines.Add(new Run("⬤")
+                {
+                    Foreground = BpBrush,
+                    FontSize = 12,
+                    BaselineAlignment = BaselineAlignment.Center
+                });
+            }
+            else
+            {
+                LineNumbers.Inlines.Add(new Run("  "));
+            }
+
+            LineNumbers.Inlines.Add(new Run(i.ToString().PadLeft(3)));
+            if (i < lines)
+                LineNumbers.Inlines.Add(new Run("\n"));
         }
-        LineNumbers.Text = sb.ToString().TrimEnd('\n');
     }
 
     private void RefreshBpHint()
@@ -127,6 +248,7 @@ public partial class ProgramEditorWindow : Window
 
     private async void Debug_Click(object sender, RoutedEventArgs e)
     {
+        EnsureOutputVisible();
         var original = CodeBox.Text ?? "";
         SaveSilent();
         if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
@@ -149,6 +271,7 @@ public partial class ProgramEditorWindow : Window
                 await Task.Delay(300);
                 _catalog.WriteSource(_program, original);
             }
+            RefreshOutput();
         }
     }
 
@@ -162,14 +285,13 @@ public partial class ProgramEditorWindow : Window
 
     private int? LineFromGutterClick(System.Windows.Point point)
     {
-        var index = LineNumbers.GetCharacterIndexFromPoint(point, snapToText: true);
-        var text = LineNumbers.Text ?? "";
-        if (index < 0 || text.Length == 0) return null;
-        if (index > text.Length) index = text.Length;
-        var line = 1;
-        for (var i = 0; i < index && i < text.Length; i++)
-            if (text[i] == '\n') line++;
         var total = Math.Max(1, (CodeBox.Text ?? "").Replace("\r\n", "\n").Split('\n').Length);
+        var h = LineNumbers.ActualHeight;
+        if (h <= 1 || total <= 0) return null;
+        var pad = LineNumbers.Padding.Top;
+        var y = Math.Max(0, point.Y - pad);
+        var contentH = Math.Max(1, h - pad - LineNumbers.Padding.Bottom);
+        var line = (int)Math.Floor(y / contentH * total) + 1;
         return line >= 1 && line <= total ? line : null;
     }
 
@@ -199,15 +321,18 @@ public partial class ProgramEditorWindow : Window
 
     private async void Run_Click(object sender, RoutedEventArgs e)
     {
+        EnsureOutputVisible();
         SaveSilent();
         try { await _runner.StartAsync(_program, debug: false); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
+        RefreshOutput();
     }
 
     private async void Stop_Click(object sender, RoutedEventArgs e)
     {
         try { await _runner.StopAsync(_program); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
+        RefreshOutput();
     }
 
     private void SaveSilent()

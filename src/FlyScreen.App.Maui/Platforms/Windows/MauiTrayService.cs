@@ -108,9 +108,10 @@ public sealed class MauiTrayService : IDisposable
     private static IEnumerable<string> CandidateIconPaths()
     {
         var baseDir = AppContext.BaseDirectory;
-        yield return Path.Combine(baseDir, "appicon.ico");
+        // 优先 Assets：带透明通道的手绘 ico；根目录 appicon.ico 可能是 MauiIcon 生成的实心底
         yield return Path.Combine(baseDir, "Assets", "appicon.ico");
         yield return Path.Combine(baseDir, "Resources", "AppIcon", "appicon.ico");
+        yield return Path.Combine(baseDir, "appicon.ico");
     }
 
     private NotifyIconData BuildData(string tip)

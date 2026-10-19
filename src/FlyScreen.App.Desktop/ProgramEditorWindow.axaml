@@ -1,35 +1,157 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:diag="using:FlyScreen.Services"
         x:Class="FlyScreen.DesktopUi.ProgramEditorWindow"
         Title="编辑程序"
         Width="780" Height="560"
         WindowStartupLocation="CenterOwner"
-        MinWidth="640" MinHeight="420">
-  <DockPanel Margin="12">
-    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0">
-        <TextBlock x:Name="BpHintText" Foreground="{DynamicResource Muted}" FontSize="11" VerticalAlignment="Center"/>
-      </StackPanel>
-      <StackPanel Orientation="Horizontal" Spacing="6">
-        <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-        <Button x:Name="BtnSave" Content="保存" Click="Save_Click"/>
-        <Button x:Name="BtnDebug" Content="调试" Click="Debug_Click"/>
-        <Button x:Name="BtnBreakpoint" Content="断点" Click="Breakpoint_Click"/>
-        <Button x:Name="BtnClearBp" Content="取消断点" Click="ClearBp_Click"/>
-        <Button x:Name="BtnClearAllBp" Content="清除断点" Click="ClearAllBp_Click"/>
-        <Button x:Name="BtnRun" Content="运行" Classes="accent" Click="Run_Click"/>
-        <Button x:Name="BtnStop" Content="停止" Click="Stop_Click"/>
-      </StackPanel>
+        MinWidth="640" MinHeight="420"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}">
+  <Window.Resources>
+    <StreamGeometry x:Key="GeoSave">M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoBug">M14,12H10V10H14M14,16H10V14H14M20,8H17.19C16.74,7.22 16.12,6.55 15.37,6.04L17,4.41L15.59,3L13.42,5.17C12.96,5.06 12.49,5 12,5C11.51,5 11.04,5.06 10.59,5.17L8.41,3L7,4.41L8.62,6.04C7.88,6.55 7.26,7.22 6.81,8H4V10H6.09C6.04,10.33 6,10.66 6,11V12H4V14H6V15C6,15.34 6.04,15.67 6.09,16H4V18H6.81C7.85,19.79 9.78,21 12,21C14.22,21 16.15,19.79 17.19,18H20V16H17.91C17.96,15.67 18,15.34 18,15V14H20V12H18V11C18,10.66 17.96,10.33 17.91,10H20V8Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoClear">M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoStop">M6,6H18V18H6V6Z</StreamGeometry>
+  </Window.Resources>
+  <Window.Styles>
+    <Style Selector="Button.editorTool">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinWidth" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.editorRun">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinWidth" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <Border Background="{DynamicResource WinBg}" Padding="12">
+    <DockPanel>
+      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+        <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
+                   Foreground="{DynamicResource Muted}" FontSize="11"
+                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <Border x:Name="ToolBarHost" HorizontalAlignment="Stretch"
+                SizeChanged="ToolBarHost_SizeChanged">
+          <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left"
+                      VerticalAlignment="Center">
+            <Button x:Name="BtnSave" Classes="editorTool" Click="Save_Click" ToolTip.Tip="保存">
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoSave}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnSaveText" Text="保存" VerticalAlignment="Center" FontSize="13"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnDebug" Classes="editorTool" Click="Debug_Click" ToolTip.Tip="调试">
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoBug}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnDebugText" Text="调试" VerticalAlignment="Center" FontSize="13"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnClearAllBp" Classes="editorTool" Click="ClearAllBp_Click" ToolTip.Tip="清除断点">
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoClear}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnClearAllBpText" Text="清除断点" VerticalAlignment="Center" FontSize="13"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnRun" Classes="editorRun" Click="Run_Click" ToolTip.Tip="运行">
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                  <Path Fill="White" Data="{StaticResource GeoPlay}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnRunText" Text="运行" VerticalAlignment="Center" FontSize="13" Foreground="White"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnStop" Classes="editorTool" Margin="0" Click="Stop_Click" ToolTip.Tip="停止">
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoStop}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnStopText" Text="停止" VerticalAlignment="Center" FontSize="13"/>
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </Border>
+      </DockPanel>
+      <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
+              Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+              BorderThickness="1" CornerRadius="8">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                  BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
+                  Height="30" Cursor="Hand" PointerPressed="OutputHeader_PointerPressed">
+            <Grid Margin="10,0" ColumnDefinitions="Auto,*,Auto">
+              <TextBlock x:Name="OutputToggleGlyph" Text="▲" FontSize="11"
+                         Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="OutputTitleText" Grid.Column="1" Text="输出" FontWeight="SemiBold"
+                         FontSize="12" VerticalAlignment="Center"/>
+              <Button x:Name="OutputClearBtn" Grid.Column="2" Content="清除" Padding="10,0" Height="24"
+                      MinWidth="52" FontSize="12" Click="OutputClear_Click"
+                      Background="Transparent" BorderThickness="0"
+                      Foreground="{DynamicResource Blue}" VerticalAlignment="Center"/>
+            </Grid>
+          </Border>
+          <Border x:Name="OutputBody" Height="150" IsVisible="False">
+            <Grid>
+              <ListBox x:Name="OutputList" Background="{DynamicResource ListBg}"
+                       FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="12"
+                       BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate DataType="diag:AppLogEntry">
+                    <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,1"/>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
+                         Foreground="{DynamicResource Muted}" FontSize="12"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         IsHitTestVisible="False"/>
+            </Grid>
+          </Border>
+        </DockPanel>
+      </Border>
+
+      <Grid ColumnDefinitions="52,*">
+        <Border Background="{DynamicResource SubtleBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="1,1,0,1"
+                ToolTip.Tip="点击行号添加断点，再点击取消"
+                PointerPressed="LineNumbers_PointerPressed">
+          <ScrollViewer x:Name="LineScroll" VerticalScrollBarVisibility="Hidden"
+                        HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <TextBlock x:Name="LineNumbers" Padding="4,8" TextAlignment="Right"
+                       FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="13"
+                       Foreground="{DynamicResource Placeholder}"/>
+          </ScrollViewer>
+        </Border>
+        <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
+                 TextWrapping="NoWrap" Padding="8"
+                 FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="13"
+                 BorderBrush="{DynamicResource Line}"
+                 TextChanged="CodeBox_TextChanged"/>
+      </Grid>
     </DockPanel>
-    <Grid ColumnDefinitions="52,*">
-      <TextBox x:Name="LineNumbers" IsReadOnly="True" IsTabStop="False"
-               Background="{DynamicResource SubtleBg}" Foreground="{DynamicResource Muted}"
-               TextAlignment="Right" Padding="4,8" AcceptsReturn="True"
-               FontFamily="Consolas, Cascadia Mono, Menlo"/>
-      <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
-               TextWrapping="NoWrap" Padding="8"
-               FontFamily="Consolas, Cascadia Mono, Menlo"
-               TextChanged="CodeBox_TextChanged"/>
-    </Grid>
-  </DockPanel>
+  </Border>
 </Window>
