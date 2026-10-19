@@ -89,7 +89,7 @@
       <Setter Property="Stretch" Value="Uniform"/>
       <Setter Property="HorizontalAlignment" Value="Center"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
-      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="Margin" Value="0,0,5,5"/>
       <Style.Triggers>
         <DataTrigger Binding="{Binding ToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
           <Setter Property="Margin" Value="0"/>
