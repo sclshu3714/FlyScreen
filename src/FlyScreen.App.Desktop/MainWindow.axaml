@@ -567,11 +567,12 @@
             </Border>
           </Grid>
 
-          <!-- 高级选项 -->
+          <!-- 高级选项：宽屏功能/行为/穿边三列，窄屏堆叠 -->
           <Grid x:Name="PageOptions" IsVisible="False" RowDefinitions="Auto,Auto" MinHeight="420">
             <Border Classes="card" Margin="0,0,0,12">
-              <Grid ColumnDefinitions="*,*" MinHeight="200">
-                <StackPanel Margin="0,0,8,0" Spacing="2">
+              <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*,*" MinHeight="200"
+                    SizeChanged="OptionsFeatGrid_SizeChanged">
+                <StackPanel x:Name="FeatColumn" Margin="0,0,8,0" Spacing="2">
                   <TextBlock x:Name="FeatTitleText" Text="功能" FontWeight="SemiBold" Margin="0,0,0,6"/>
                   <CheckBox x:Name="WrapMouseCheck" Content="环形鼠标（首尾相连）"/>
                   <CheckBox x:Name="ShareClipboardCheck" Content="共享剪贴板"/>
@@ -581,20 +582,19 @@
                   <CheckBox x:Name="SameSubnetCheck" Content="仅同网段连接"/>
                   <CheckBox x:Name="ShowStatusCheck" Content="显示状态消息"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="2">
+                <StackPanel x:Name="BehColumn" Grid.Column="1" Margin="4,0" Spacing="2">
                   <TextBlock x:Name="BehTitleText" Text="行为" FontWeight="SemiBold" Margin="0,0,0,6"/>
                   <CheckBox x:Name="AutoStartCheck" Content="开机自动启动并连接"/>
                   <CheckBox x:Name="BlockSaverCheck" Content="阻止其他机器屏保"/>
                   <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"/>
                   <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"/>
                   <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"/>
-                  <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" Margin="0,8,0,4"
-                             Foreground="{DynamicResource Muted}"/>
-                  <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,4">
-                    <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"/>
-                    <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"/>
-                    <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"/>
-                  </StackPanel>
+                </StackPanel>
+                <StackPanel x:Name="EdgeCrossColumn" Grid.Column="2" Margin="8,0,0,0" Spacing="2">
+                  <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"/>
+                  <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"/>
+                  <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross" Margin="0,0,0,6"/>
                   <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
                              Foreground="{DynamicResource Muted}" FontSize="12"/>
                 </StackPanel>

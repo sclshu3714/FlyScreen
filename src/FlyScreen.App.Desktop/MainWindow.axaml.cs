@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private bool _helpFixReady;
     private bool _progToolModeUpdating;
     private bool _progToolsCompact;
+    private bool _optionsFeatStacked;
     private string? _logProgramId;
     private string? _logProgramName;
     private bool _openProgramLog;
@@ -519,6 +520,55 @@ public partial class MainWindow : Window
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);
+    }
+
+    /// <summary>高级顶栏：宽屏功能/行为/穿边三列，窄屏纵向堆叠。</summary>
+    private void OptionsFeatGrid_SizeChanged(object? sender, SizeChangedEventArgs e)
+        => ApplyOptionsFeatPlacement(OptionsFeatGrid.Bounds.Width);
+
+    private void ApplyOptionsFeatPlacement(double width)
+    {
+        if (!IsLoaded || width <= 1 || FeatColumn == null || BehColumn == null || EdgeCrossColumn == null)
+            return;
+        var stacked = width < 640;
+        if (stacked == _optionsFeatStacked && OptionsFeatGrid.ColumnDefinitions.Count == (stacked ? 1 : 3))
+            return;
+        _optionsFeatStacked = stacked;
+
+        OptionsFeatGrid.ColumnDefinitions.Clear();
+        OptionsFeatGrid.RowDefinitions.Clear();
+        if (stacked)
+        {
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            Grid.SetRow(FeatColumn, 0);
+            Grid.SetColumn(FeatColumn, 0);
+            Grid.SetRow(BehColumn, 1);
+            Grid.SetColumn(BehColumn, 0);
+            Grid.SetRow(EdgeCrossColumn, 2);
+            Grid.SetColumn(EdgeCrossColumn, 0);
+            FeatColumn.Margin = new Thickness(0, 0, 0, 12);
+            BehColumn.Margin = new Thickness(0, 0, 0, 12);
+            EdgeCrossColumn.Margin = new Thickness(0);
+        }
+        else
+        {
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            Grid.SetRow(FeatColumn, 0);
+            Grid.SetColumn(FeatColumn, 0);
+            Grid.SetRow(BehColumn, 0);
+            Grid.SetColumn(BehColumn, 1);
+            Grid.SetRow(EdgeCrossColumn, 0);
+            Grid.SetColumn(EdgeCrossColumn, 2);
+            FeatColumn.Margin = new Thickness(0, 0, 8, 0);
+            BehColumn.Margin = new Thickness(4, 0);
+            EdgeCrossColumn.Margin = new Thickness(8, 0, 0, 0);
+        }
     }
 
     private void ApplySettingsFromUi()

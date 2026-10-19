@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -18,12 +17,12 @@ public partial class ProgramEditorWindow : Window
     private readonly UserProgram _program;
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
-    private readonly ObservableCollection<AppLogEntry> _outputItems = [];
     private int _caretLine = 1;
     private bool _toolModeUpdating;
     private bool _outputExpanded;
     private bool _outputRefreshPending;
     private DateTime _outputSince = DateTime.MinValue;
+    private AppLogEntry? _outputLastWritten;
 
     public static readonly DependencyProperty ToolsCompactProperty =
         DependencyProperty.Register(nameof(ToolsCompact), typeof(bool), typeof(ProgramEditorWindow), new PropertyMetadata(false));
@@ -55,7 +54,6 @@ public partial class ProgramEditorWindow : Window
         OutputTitleText.Text = Loc.T("Prog.Output");
         OutputClearBtn.Content = Loc.T("Prog.OutputClear");
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
-        OutputList.ItemsSource = _outputItems;
         ApplyOutputExpanded(false);
 
         CodeBox.Text = _catalog.ReadSource(program);
@@ -65,7 +63,29 @@ public partial class ProgramEditorWindow : Window
 
         CodeBox.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(CodeBox_ScrollChanged), true);
         AppLog.Changed += OnAppLogChanged;
-        Closed += (_, _) => AppLog.Changed -= OnAppLogChanged;
+        // 关闭立即返回；若仍在运行/调试则后台异步停止
+        Closed += (_, _) => StopOnCloseIfNeeded();
+    }
+
+    private int _closeStopArmed;
+
+    /// <summary>关闭编辑器：不阻塞 UI；运行中则 fire-and-forget 停止进程。</summary>
+    private void StopOnCloseIfNeeded()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _closeStopArmed, 1) != 0) return;
+        AppLog.Changed -= OnAppLogChanged;
+        if (!_runner.IsRunning(_program.Id)) return;
+
+        var prog = _program;
+        var runner = _runner;
+        _ = Task.Run(async () =>
+        {
+            try { await runner.StopAsync(prog).ConfigureAwait(false); }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex, $"关闭编辑器时停止「{prog.Name}」失败", prog.Id, prog.Name);
+            }
+        });
     }
 
     private void OnAppLogChanged()
@@ -99,7 +119,8 @@ public partial class ProgramEditorWindow : Window
     private void OutputClear_Click(object sender, RoutedEventArgs e)
     {
         _outputSince = DateTime.Now;
-        _outputItems.Clear();
+        _outputLastWritten = null;
+        OutputBox.Clear();
         OutputEmptyText.Visibility = Visibility.Visible;
         e.Handled = true;
     }
@@ -110,6 +131,8 @@ public partial class ProgramEditorWindow : Window
         OutputBody.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         OutputToggleGlyph.Text = expanded ? "▼" : "▲";
         OutputDock.ToolTip = expanded ? Loc.T("Prog.OutputHide") : Loc.T("Prog.OutputShow");
+        if (expanded)
+            ScrollOutputToEnd();
     }
 
     private void EnsureOutputVisible()
@@ -118,36 +141,33 @@ public partial class ProgramEditorWindow : Window
             ApplyOutputExpanded(true);
     }
 
-    /// <summary>增量同步输出列表，避免整表重绑导致闪烁。</summary>
+    /// <summary>AppendText 只追加，避免 List 绑定整表刷新。</summary>
     private void RefreshOutput()
     {
         var items = AppLog.Snapshot(false, _program.Id, _program.Name)
             .Where(e => e.Time >= _outputSince)
             .ToList();
-
-        var common = 0;
-        var n = Math.Min(_outputItems.Count, items.Count);
-        while (common < n && SameOutputEntry(_outputItems[common], items[common]))
-            common++;
-
-        for (var i = _outputItems.Count - 1; i >= common; i--)
-            _outputItems.RemoveAt(i);
-
-        var added = false;
-        for (var i = common; i < items.Count; i++)
-        {
-            _outputItems.Add(items[i]);
-            added = true;
-        }
-
-        OutputEmptyText.Visibility = _outputItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (added && _outputExpanded && _outputItems.Count > 0)
-            OutputList.ScrollIntoView(_outputItems[^1]);
+        var chunk = AppLog.FormatNewLines(items, ref _outputLastWritten);
+        if (chunk != null)
+            OutputBox.AppendText(chunk);
+        OutputEmptyText.Visibility = OutputBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (chunk != null && _outputExpanded)
+            ScrollOutputToEnd();
     }
 
-    private static bool SameOutputEntry(AppLogEntry a, AppLogEntry b)
-        => ReferenceEquals(a, b)
-           || (a.Time == b.Time && a.Level == b.Level && a.Message == b.Message);
+    private void ScrollOutputToEnd()
+    {
+        if (!_outputExpanded || OutputBox.Text.Length == 0) return;
+        OutputBox.CaretIndex = OutputBox.Text.Length;
+        OutputBox.ScrollToEnd();
+        // 布局完成后再滚一次，避免 Extent 未更新时停在中部
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!_outputExpanded) return;
+            OutputBox.CaretIndex = OutputBox.Text.Length;
+            OutputBox.ScrollToEnd();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
 
     private static void SetToolButton(System.Windows.Controls.Button button, TextBlock label, string key)
     {

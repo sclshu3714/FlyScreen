@@ -14,7 +14,6 @@ public partial class ProgramEditorPage : ContentPage
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
     private readonly TaskCompletionSource _closed = new();
-    private readonly ObservableCollection<AppLogEntry> _outputItems = [];
     private int _caretLine = 1;
     private bool _toolsCompact;
     private string _closeLabel = "关闭";
@@ -23,8 +22,10 @@ public partial class ProgramEditorPage : ContentPage
     private string _clearBpLabel = "清除断点";
     private string _runLabel = "运行";
     private string _stopLabel = "停止";
+    private readonly ObservableCollection<AppLogEntry> _outputItems = [];
     private bool _outputExpanded;
     private bool _outputRefreshPending;
+    private bool _outputScrollPending;
     private DateTime _outputSince = DateTime.MinValue;
 
     private const string IcClose = "←";
@@ -112,6 +113,8 @@ public partial class ProgramEditorPage : ContentPage
         OutputBody.IsVisible = expanded;
         OutputToggleGlyph.Text = expanded ? "▼" : "▲";
         ToolTipProperties.SetText(OutputHeader, expanded ? Loc.T("Prog.OutputHide") : Loc.T("Prog.OutputShow"));
+        if (expanded)
+            ScrollOutputToEnd();
     }
 
     private void EnsureOutputVisible()
@@ -120,36 +123,34 @@ public partial class ProgramEditorPage : ContentPage
             ApplyOutputExpanded(true);
     }
 
-    /// <summary>增量同步输出列表，避免整表重绑导致闪烁。</summary>
+    /// <summary>只 Add 不从头删；新日志始终滚到底部。</summary>
     private void RefreshOutput()
     {
         var items = AppLog.Snapshot(false, _program.Id, _program.Name)
             .Where(e => e.Time >= _outputSince)
             .ToList();
-
-        var common = 0;
-        var n = Math.Min(_outputItems.Count, items.Count);
-        while (common < n && SameOutputEntry(_outputItems[common], items[common]))
-            common++;
-
-        for (var i = _outputItems.Count - 1; i >= common; i--)
-            _outputItems.RemoveAt(i);
-
-        var added = false;
-        for (var i = common; i < items.Count; i++)
-        {
-            _outputItems.Add(items[i]);
-            added = true;
-        }
-
+        var added = AppLog.SyncTo(_outputItems, items);
         OutputEmptyText.IsVisible = _outputItems.Count == 0;
-        if (added && _outputExpanded && _outputItems.Count > 0)
-            OutputList.ScrollTo(_outputItems[^1], position: ScrollToPosition.End, animate: false);
+        if (added && _outputExpanded)
+            ScrollOutputToEnd();
     }
 
-    private static bool SameOutputEntry(AppLogEntry a, AppLogEntry b)
-        => ReferenceEquals(a, b)
-           || (a.Time == b.Time && a.Level == b.Level && a.Message == b.Message);
+    private void ScrollOutputToEnd()
+    {
+        if (!_outputExpanded || _outputItems.Count == 0) return;
+        if (_outputScrollPending) return;
+        _outputScrollPending = true;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
+        {
+            _outputScrollPending = false;
+            if (!_outputExpanded || _outputItems.Count == 0) return;
+            try
+            {
+                OutputList.ScrollTo(_outputItems[^1], position: ScrollToPosition.End, animate: false);
+            }
+            catch { /* ignore */ }
+        });
+    }
 
     private void ApplyToolLabels(bool compact)
     {
@@ -303,8 +304,30 @@ public partial class ProgramEditorPage : ContentPage
     private async void Close_Clicked(object? sender, EventArgs e)
         => await CloseAsync();
 
+    private int _closeStopArmed;
+
+    /// <summary>关闭编辑器：立即返回；运行中则后台异步停止。</summary>
+    private void StopOnCloseIfNeeded()
+    {
+        if (Interlocked.Exchange(ref _closeStopArmed, 1) != 0) return;
+        AppLog.Changed -= OnAppLogChanged;
+        if (!_runner.IsRunning(_program.Id)) return;
+
+        var prog = _program;
+        var runner = _runner;
+        _ = Task.Run(async () =>
+        {
+            try { await runner.StopAsync(prog).ConfigureAwait(false); }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex, $"关闭编辑器时停止「{prog.Name}」失败", prog.Id, prog.Name);
+            }
+        });
+    }
+
     private async Task CloseAsync()
     {
+        StopOnCloseIfNeeded();
         _closed.TrySetResult();
         try
         {
@@ -321,7 +344,7 @@ public partial class ProgramEditorPage : ContentPage
 
     protected override void OnDisappearing()
     {
-        AppLog.Changed -= OnAppLogChanged;
+        StopOnCloseIfNeeded();
         base.OnDisappearing();
         _closed.TrySetResult();
     }

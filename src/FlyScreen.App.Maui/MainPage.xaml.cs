@@ -192,22 +192,26 @@ public partial class MainPage : ContentPage
             Grid.SetRow(HotkeyLockEntry, 3);
             Grid.SetColumn(HotkeyLockEntry, 1);
 
-            if (OptionsFeatGrid != null && BehColumn != null)
+            if (OptionsFeatGrid != null && FeatColumn != null && BehColumn != null && EdgeCrossColumn != null)
             {
                 OptionsFeatGrid.ColumnDefinitions = new ColumnDefinitionCollection
                 {
                     new(GridLength.Star)
                 };
-                Grid.SetRow(FeatColumn, 0);
-                Grid.SetColumn(FeatColumn, 0);
-                Grid.SetRow(BehColumn, 1);
-                Grid.SetColumn(BehColumn, 0);
                 OptionsFeatGrid.RowDefinitions = new RowDefinitionCollection
                 {
+                    new(GridLength.Auto),
                     new(GridLength.Auto),
                     new(GridLength.Auto)
                 };
                 OptionsFeatGrid.RowSpacing = 12;
+                OptionsFeatGrid.ColumnSpacing = 0;
+                Grid.SetRow(FeatColumn, 0);
+                Grid.SetColumn(FeatColumn, 0);
+                Grid.SetRow(BehColumn, 1);
+                Grid.SetColumn(BehColumn, 0);
+                Grid.SetRow(EdgeCrossColumn, 2);
+                Grid.SetColumn(EdgeCrossColumn, 0);
             }
         }
         else
@@ -250,10 +254,11 @@ public partial class MainPage : ContentPage
             Grid.SetRow(HotkeyLockEntry, 1);
             Grid.SetColumn(HotkeyLockEntry, 4);
 
-            if (OptionsFeatGrid != null && BehColumn != null)
+            if (OptionsFeatGrid != null && FeatColumn != null && BehColumn != null && EdgeCrossColumn != null)
             {
                 OptionsFeatGrid.ColumnDefinitions = new ColumnDefinitionCollection
                 {
+                    new(GridLength.Star),
                     new(GridLength.Star),
                     new(GridLength.Star)
                 };
@@ -262,10 +267,13 @@ public partial class MainPage : ContentPage
                     new(GridLength.Auto)
                 };
                 OptionsFeatGrid.RowSpacing = 0;
+                OptionsFeatGrid.ColumnSpacing = 12;
                 Grid.SetRow(FeatColumn, 0);
                 Grid.SetColumn(FeatColumn, 0);
                 Grid.SetRow(BehColumn, 0);
                 Grid.SetColumn(BehColumn, 1);
+                Grid.SetRow(EdgeCrossColumn, 0);
+                Grid.SetColumn(EdgeCrossColumn, 2);
             }
         }
     }
