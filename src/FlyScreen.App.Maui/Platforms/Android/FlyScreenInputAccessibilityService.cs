@@ -53,6 +53,17 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     private int _screenW = 1080;
     private int _screenH = 1920;
 
+    // 左键按住拖拽：GestureDescription willContinue + continueStroke
+    private GestureDescription.StrokeDescription? _dragStroke;
+    private bool _fingerDown;
+    private bool _gestureBusy;
+    private bool _pendingUp;
+    private float _gx;
+    private float _gy;
+    private float _pendingX;
+    private float _pendingY;
+    private bool _hasPendingMove;
+
     /// <summary>全屏指针层已经加到 WindowManager。加不上时为 false，调用方可改走悬浮窗。</summary>
     public bool IsCursorVisible => _cursorVisible;
 
@@ -117,7 +128,11 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             _cursorWanted = false;
         }
         ScheduleCursor();
-        _ui.Post(ReleaseRemoteSession);
+        _ui.Post(() =>
+        {
+            CancelDrag();
+            ReleaseRemoteSession();
+        });
     }
 
     /// <summary>
@@ -143,6 +158,8 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         }
         if (_drawCursor)
             ScheduleCursor();
+        if (_fingerDown)
+            _ui.Post(QueueDragMove);
     }
 
     public void MoveRelative(int dx, int dy)
@@ -156,30 +173,43 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         }
         if (_drawCursor)
             ScheduleCursor();
+        if (_fingerDown)
+            _ui.Post(QueueDragMove);
     }
 
     public void Click(int button, bool down)
     {
-        // Android 无障碍手势多为完整 tap；在 Down 时派发一次点击（右键降级为长按）
-        if (!down) return;
-        var (x, y) = ToPixels();
+        // 右键：长按
         if (button == 1)
+        {
+            if (!down) return;
+            var (x, y) = ToPixels();
             DispatchLongPress(x, y);
+            _ui.PostDelayed(RememberExternalTarget, 320);
+            return;
+        }
+
+        // 左键：按下开始拖拽手势，抬起结束（支持按住拖动）
+        if (button != 0) return;
+        if (down)
+            _ui.Post(BeginDrag);
         else
-            DispatchTap(x, y);
-        _ui.PostDelayed(RememberExternalTarget, 320);
+            _ui.Post(EndDrag);
     }
 
     public void Wheel(int delta, bool horizontal)
     {
+        if (_fingerDown) return; // 拖拽中不打滚轮手势，避免打断
         var (x, y) = ToPixels();
-        var dist = Math.Clamp(Math.Abs(delta) / 3f, 40f, 280f);
+        // 桌面一格约 ±120；原先 /3 只有约 40px，文本几乎不动
+        var notches = Math.Max(1f, Math.Abs(delta) / 120f);
+        var dist = Math.Clamp(notches * 280f, 160f, 900f);
         float x2 = x, y2 = y;
         if (horizontal)
             x2 = delta > 0 ? x - dist : x + dist;
         else
             y2 = delta > 0 ? y - dist : y + dist;
-        DispatchSwipe(x, y, x2, y2, 120);
+        DispatchSwipe(x, y, x2, y2, 70);
     }
 
     public void Key(ushort vk, bool down)
@@ -713,6 +743,7 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     private (float x, float y) ToPixels()
     {
+        RefreshScreenSize();
         lock (_cursorGate)
             return (_nx * Math.Max(_screenW - 1, 1), _ny * Math.Max(_screenH - 1, 1));
     }
@@ -721,6 +752,17 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     {
         try
         {
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+            {
+                var max = _wm?.MaximumWindowMetrics?.Bounds;
+                if (max != null && max.Width() > 0 && max.Height() > 0)
+                {
+                    _screenW = max.Width();
+                    _screenH = max.Height();
+                    return;
+                }
+            }
+
             var size = new global::Android.Graphics.Point();
             _wm?.DefaultDisplay?.GetRealSize(size);
             if (size.X > 0 && size.Y > 0)
@@ -739,6 +781,205 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         if (dm == null) return;
         _screenW = dm.WidthPixels;
         _screenH = dm.HeightPixels;
+    }
+
+    private void BeginDrag()
+    {
+        if (_fingerDown) return;
+        var (x, y) = ToPixels();
+        _gx = x;
+        _gy = y;
+        _pendingX = x;
+        _pendingY = y;
+        _hasPendingMove = false;
+        _pendingUp = false;
+        _fingerDown = true;
+
+        if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+        {
+            DispatchTap(x, y);
+            _fingerDown = false;
+            _ui.PostDelayed(RememberExternalTarget, 320);
+            return;
+        }
+
+        var path = new Path();
+        path.MoveTo(x, y);
+        try
+        {
+            _dragStroke = new GestureDescription.StrokeDescription(path, 0, 40, willContinue: true);
+            DispatchOngoingStroke();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyScreen", "begin drag: " + ex.Message);
+            _dragStroke = null;
+            _fingerDown = false;
+            DispatchTap(x, y);
+        }
+    }
+
+    private void QueueDragMove()
+    {
+        if (!_fingerDown || _dragStroke == null) return;
+        var (x, y) = ToPixels();
+        _pendingX = x;
+        _pendingY = y;
+        _hasPendingMove = true;
+        if (!_gestureBusy)
+            FlushDragQueue();
+    }
+
+    private void EndDrag()
+    {
+        if (!_fingerDown)
+            return;
+        _pendingUp = true;
+        if (!_gestureBusy)
+            FlushDragQueue();
+    }
+
+    private void CancelDrag()
+    {
+        _fingerDown = false;
+        _dragStroke = null;
+        _gestureBusy = false;
+        _hasPendingMove = false;
+        _pendingUp = false;
+    }
+
+    private void FlushDragQueue()
+    {
+        if (_gestureBusy || _dragStroke == null) return;
+
+        if (_hasPendingMove)
+        {
+            _hasPendingMove = false;
+            var x = _pendingX;
+            var y = _pendingY;
+            var dx = x - _gx;
+            var dy = y - _gy;
+            if (Math.Abs(dx) < 0.5f && Math.Abs(dy) < 0.5f)
+            {
+                if (_pendingUp)
+                    FinishDragStroke();
+                return;
+            }
+
+            var path = new Path();
+            path.MoveTo(_gx, _gy);
+            path.LineTo(x, y);
+            var duration = (long)Math.Clamp(Math.Sqrt(dx * dx + dy * dy), 16, 80);
+            try
+            {
+                // 移动段保持 willContinue；抬起由 FinishDragStroke 收尾
+                _dragStroke = _dragStroke.ContinueStroke(path, 0, duration, willContinue: true);
+                _gx = x;
+                _gy = y;
+                DispatchOngoingStroke();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("FlyScreen", "drag move: " + ex.Message);
+                CancelDrag();
+            }
+            return;
+        }
+
+        if (_pendingUp)
+            FinishDragStroke();
+    }
+
+    private void FinishDragStroke()
+    {
+        if (_dragStroke == null)
+        {
+            CancelDrag();
+            return;
+        }
+
+        var path = new Path();
+        path.MoveTo(_gx, _gy);
+        try
+        {
+            _dragStroke = _dragStroke.ContinueStroke(path, 0, 20, willContinue: false);
+            _pendingUp = false;
+            _fingerDown = false;
+            DispatchOngoingStroke(ending: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyScreen", "drag end: " + ex.Message);
+            CancelDrag();
+            DispatchTap(_gx, _gy);
+        }
+    }
+
+    private void DispatchOngoingStroke(bool ending = false)
+    {
+        if (_dragStroke == null) return;
+        var builder = new GestureDescription.Builder();
+        builder.AddStroke(_dragStroke);
+        var gesture = builder.Build();
+        if (gesture == null)
+        {
+            CancelDrag();
+            return;
+        }
+
+        _gestureBusy = true;
+        var ok = DispatchGesture(gesture, new DragGestureCallback(this, ending), null);
+        if (!ok)
+        {
+            _gestureBusy = false;
+            if (ending)
+            {
+                CancelDrag();
+                _ui.PostDelayed(RememberExternalTarget, 320);
+            }
+            else
+            {
+                // 派发失败时降级为点击，避免卡死
+                var (x, y) = (_gx, _gy);
+                CancelDrag();
+                DispatchTap(x, y);
+            }
+        }
+    }
+
+    private void OnDragGestureDone(bool ending, bool completed)
+    {
+        _gestureBusy = false;
+        if (ending || !completed)
+        {
+            if (ending)
+                _ui.PostDelayed(RememberExternalTarget, 320);
+            _dragStroke = null;
+            _fingerDown = false;
+            _pendingUp = false;
+            _hasPendingMove = false;
+            return;
+        }
+
+        FlushDragQueue();
+    }
+
+    private sealed class DragGestureCallback : AccessibilityService.GestureResultCallback
+    {
+        private readonly FlyScreenInputAccessibilityService _owner;
+        private readonly bool _ending;
+
+        public DragGestureCallback(FlyScreenInputAccessibilityService owner, bool ending)
+        {
+            _owner = owner;
+            _ending = ending;
+        }
+
+        public override void OnCompleted(GestureDescription? gestureDescription)
+            => _owner.OnDragGestureDone(_ending, completed: true);
+
+        public override void OnCancelled(GestureDescription? gestureDescription)
+            => _owner.OnDragGestureDone(_ending, completed: false);
     }
 
     private void DispatchTap(float x, float y)
