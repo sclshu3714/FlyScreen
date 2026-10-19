@@ -11,6 +11,21 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder.UseMauiApp<App>();
 
+#if ANDROID
+        // RadioButton 首次可见时常吃到 Material 夜间深色底；强制透明背景
+        Microsoft.Maui.Handlers.RadioButtonHandler.Mapper.AppendToMapping("FlyScreenRadioChrome", (handler, view) =>
+        {
+            if (handler.PlatformView is Android.Views.View native)
+                native.SetBackgroundColor(Android.Graphics.Color.Transparent);
+            if (view is RadioButton rb)
+            {
+                rb.BackgroundColor = Color.FromArgb("#01000000");
+                if (Application.Current?.Resources.TryGetValue("Text", out var tv) == true && tv is Color text)
+                    rb.TextColor = text;
+            }
+        });
+#endif
+
 #if WINDOWS
         // 确保每个 Window 都套上图标（含后续再开的窗口）
         Microsoft.Maui.Handlers.WindowHandler.Mapper.AppendToMapping("FlyScreenIcon", (handler, _) =>

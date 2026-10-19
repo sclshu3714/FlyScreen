@@ -54,6 +54,8 @@ public partial class MainPage : ContentPage
         Loaded += OnLoaded;
         SizeChanged += OnPageSizeChanged;
         Unloaded += (_, _) => _statusTimer?.Stop();
+        if (ProgListHost != null)
+            ProgListHost.SizeChanged += (_, _) => SyncProgListTableHeight();
     }
 
     private async void OnLoaded(object? sender, EventArgs e)
@@ -145,6 +147,32 @@ public partial class MainPage : ContentPage
         ApplyLayoutActionsPlacement(compact);
         ApplyOptionsPlacement(compact);
         ApplyProgToolbarLabels(iconOnly: compact || width < 560);
+        ApplyProgListColumns(width);
+    }
+
+    private const double ProgTableMinWidth = 430;
+
+    /// <summary>窄屏整表可横滑（底栏滚动条）；宽屏拉满可用宽度并隐藏滚动条。</summary>
+    private void ApplyProgListColumns(double width)
+    {
+        if (ProgListHost == null || ProgListTable == null) return;
+        // 扣除主区内边距与卡片边距后的大致可用宽
+        var avail = Math.Max(280, width - (_compactLayout ? 48 : 72));
+        var tableW = Math.Max(ProgTableMinWidth, avail);
+        ProgListTable.WidthRequest = tableW;
+        ProgListTable.MinimumWidthRequest = ProgTableMinWidth;
+        ProgListHost.HorizontalScrollBarVisibility =
+            avail < ProgTableMinWidth - 1 ? ScrollBarVisibility.Always : ScrollBarVisibility.Never;
+        // Horizontal ScrollView 内的 * 行需显式高度，否则 CollectionView 可能为 0
+        SyncProgListTableHeight();
+    }
+
+    private void SyncProgListTableHeight()
+    {
+        if (ProgListHost == null || ProgListTable == null) return;
+        var h = ProgListHost.Height;
+        if (h > 1)
+            ProgListTable.HeightRequest = h;
     }
 
     private void ApplyOptionsPlacement(bool compact)
@@ -1092,6 +1120,10 @@ public partial class MainPage : ContentPage
         }
         catch { /* ignore */ }
 
+        // 首次显示高级页时 Android RadioButton 可能仍是 Material 深色底，显式刷一遍
+        if (index == 1)
+            RefreshOptionsRadioChrome();
+
         if (index == 5)
             RefreshAboutPage();
         else if (index == 6)
@@ -1240,9 +1272,38 @@ public partial class MainPage : ContentPage
         RefreshProgramsPage();
     }
 
+    private async void ProgRowMore_Clicked(object? sender, EventArgs e)
+    {
+        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        var edit = Loc.T("Prog.ActEdit");
+        var log = Loc.T("Prog.ActLog");
+        var share = Loc.T("Prog.ActShare");
+        var delete = Loc.T("Prog.ActDelete");
+        var choice = await DisplayActionSheetAsync(
+            prog.Name,
+            Loc.T("Prog.DlgCancel"),
+            null,
+            edit, log, share, delete);
+        if (string.IsNullOrEmpty(choice) || choice == Loc.T("Prog.DlgCancel"))
+            return;
+        if (choice == edit)
+            await ProgRowEditAsync(prog);
+        else if (choice == log)
+            ProgRowLog(prog);
+        else if (choice == share)
+            await ProgRowShareAsync(prog);
+        else if (choice == delete)
+            await ProgRowDeleteAsync(prog);
+    }
+
     private async void ProgRowEdit_Clicked(object? sender, EventArgs e)
     {
         if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        await ProgRowEditAsync(prog);
+    }
+
+    private async Task ProgRowEditAsync(UserProgram prog)
+    {
         var page = new ProgramEditorPage(prog);
         await PushModalAsync(page);
         await page.WhenClosed;
@@ -1253,6 +1314,11 @@ public partial class MainPage : ContentPage
     private async void ProgRowDelete_Clicked(object? sender, EventArgs e)
     {
         if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        await ProgRowDeleteAsync(prog);
+    }
+
+    private async Task ProgRowDeleteAsync(UserProgram prog)
+    {
         if (!await DisplayAlertAsync(Loc.T("Prog.ActDelete"), Loc.T("Prog.ConfirmDelete"), "OK", "Cancel"))
             return;
         try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
@@ -1263,6 +1329,11 @@ public partial class MainPage : ContentPage
     private void ProgRowLog_Clicked(object? sender, EventArgs e)
     {
         if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        ProgRowLog(prog);
+    }
+
+    private void ProgRowLog(UserProgram prog)
+    {
         _logProgramId = prog.Id;
         _logProgramName = prog.Name;
         _openProgramLog = true;
@@ -1272,6 +1343,11 @@ public partial class MainPage : ContentPage
     private async void ProgRowShare_Clicked(object? sender, EventArgs e)
     {
         if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
+        await ProgRowShareAsync(prog);
+    }
+
+    private async Task ProgRowShareAsync(UserProgram prog)
+    {
         var share = ProgramShareService.Current;
         if (share == null)
         {
@@ -1430,6 +1506,31 @@ public partial class MainPage : ContentPage
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);
+    }
+
+    /// <summary>
+    /// Android 上 RadioButton 若在父级首次可见前未落地主题色，会短暂/首屏显示 Material 深色底。
+    /// 进入高级页时强制写回背景与文字色，并轻触 Content 触发原生重绘。
+    /// </summary>
+    private void RefreshOptionsRadioChrome()
+    {
+        var text = Application.Current?.Resources.TryGetValue("Text", out var tv) == true && tv is Color c
+            ? c
+            : Color.FromArgb("#111827");
+        var bg = Color.FromArgb("#01000000");
+        foreach (var rb in new RadioButton?[]
+                 {
+                     EdgeCrossBarrierRadio, EdgeCrossDoubleRadio, EdgeCrossSpeedRadio,
+                     HotF, HotNum, HotOff, ThemeLight, ThemeDark
+                 })
+        {
+            if (rb == null) continue;
+            rb.BackgroundColor = bg;
+            rb.TextColor = text;
+            // 重新赋值 Content 可迫使 Android 重建标签层，去掉残留深色底
+            if (rb.Content is string s)
+                rb.Content = s;
+        }
     }
 
     private async void Reconnect_Clicked(object? sender, EventArgs e)
@@ -1845,10 +1946,11 @@ public partial class MainPage : ContentPage
         AddHelpNumbered(Loc.T("Help.Doc.Q1"), Loc.T("Help.Doc.Q2"), Loc.T("Help.Doc.Q3"),
             Loc.T("Help.Doc.Q4"), Loc.T("Help.Doc.Q5"));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Clip")));
-        AddHelpBullets(Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"), Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4"));
+        AddHelpBullets(Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"), Loc.T("Help.Doc.C3"),
+            Loc.T("Help.Doc.C4"), Loc.T("Help.Doc.C5"));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Opts")));
         AddHelpBullets(Loc.T("Help.Doc.O1"), Loc.T("Help.Doc.O2"), Loc.T("Help.Doc.O3"),
-            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"));
+            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"), Loc.T("Help.Doc.O6"), Loc.T("Help.Doc.O7"));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Hot")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.H1")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.H2")));

@@ -1,3 +1,6 @@
+using FlyScreen.AppMaui.Helpers;
+using FlyScreen.AppMaui.Services;
+
 namespace FlyScreen.AppMaui;
 
 public partial class App : Application
@@ -5,6 +8,17 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // 尽早落地主题，避免 Android RadioButton 首次绘制吃到系统夜间深色底
+        try
+        {
+            var theme = MauiAppHost.EnsureCreated().Settings.UiTheme;
+            UserAppTheme = MauiThemeService.IsDark(theme) ? AppTheme.Dark : AppTheme.Light;
+            MauiThemeService.Apply(theme);
+        }
+        catch
+        {
+            UserAppTheme = AppTheme.Light;
+        }
     }
 
     protected override Window CreateWindow(IActivationState? activationState)

@@ -1129,11 +1129,11 @@ public partial class MainWindow : Window
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Clip")));
         AddHelpBullets(
             Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"),
-            Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4"));
+            Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4"), Loc.T("Help.Doc.C5"));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Opts")));
         AddHelpBullets(
             Loc.T("Help.Doc.O1"), Loc.T("Help.Doc.O2"), Loc.T("Help.Doc.O3"),
-            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"));
+            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"), Loc.T("Help.Doc.O6"), Loc.T("Help.Doc.O7"));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Hot")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.H1")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.H2")));

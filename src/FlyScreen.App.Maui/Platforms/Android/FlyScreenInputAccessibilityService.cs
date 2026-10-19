@@ -743,6 +743,10 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     private (float x, float y) ToPixels()
     {
+        // 有系统悬浮指针时，以箭头尖真实屏幕坐标为准，消除「指针在 V、点到 G」类上下偏移
+        if (FlyScreenCursorOverlay.TryGetHotspotPixels(out var hx, out var hy))
+            return (hx, hy);
+
         RefreshScreenSize();
         lock (_cursorGate)
             return (_nx * Math.Max(_screenW - 1, 1), _ny * Math.Max(_screenH - 1, 1));

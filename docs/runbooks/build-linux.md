@@ -53,7 +53,7 @@ fc-cache -fv
 # 或: cp /mnt/c/Windows/Fonts/msyh*.ttc ~/.local/share/fonts/flyscreen/ && fc-cache -fv
 ```
 
-调试 GUI 建议 **不要 sudo**（`./FlyScreen --gui`），避免 X11/`$HOME`/DISPLAY 被清掉。
+调试 GUI 建议 **不要 sudo**（`./FlyScreen --gui`），避免 X11/`$HOME`/DISPLAY 被清掉，且数据目录会落到 `/root/.config/FlyScreen/`。
 
 WSL2 + WSLg（Windows 11）：
 
@@ -69,6 +69,29 @@ sudo -E DISPLAY=:0 ./FlyScreen --gui
 ```
 
 `Session=Headless; DISPLAY=(none)` 且 `XOpenDisplay failed` = 当前进程看不到 X 服务器，不是程序缺库。
+
+### 标题栏中文 / 子窗风格
+
+Linux/X11（含 WSL）系统标题栏常无法正确绘制 CJK，只显示「玄」或方框。主窗与「添加/编辑程序」等对话框在 Linux 上使用**自绘客户区标题栏**（`SystemDecorations=None`），与主界面主题一致。
+
+### 打开收件箱（共享页）
+
+「打开收件箱」在 Linux 上**不能**对目录路径 `UseShellExecute`（会失败）。实现顺序大致为：
+
+1. **WSL**：优先 `explorer.exe`（`wslpath -w` 或 `\\wsl$\发行版\…`）
+2. **sudo**：降权到 `SUDO_USER` 并带上 `DISPLAY` / `DBUS_SESSION_BUS_ADDRESS` 再 `xdg-open`
+3. 本机：`xdg-open` / nautilus / dolphin / thunar / `gio open`
+
+`sudo` 下若仍失败（如 `gio: No application is registered`），请改用普通用户启动；Inbox 路径为 `~/.config/FlyScreen/Inbox`（root 则为 `/root/.config/FlyScreen/Inbox`）。
+
+### UI 与 Win/MAUI 对齐要点（Desktop）
+
+| 区域 | 行为 |
+|------|------|
+| 高级 | 功能 / 行为 / 穿边模式三列；窄屏纵向堆叠；切换穿边时说明文案即时更新 |
+| 安全 | 「生成新密钥」在标题行工具栏；输入框 +「显示」单独一行，避免窄屏裁切 |
+| 共享 | 传输列表列：方向、文件名、对端、大小、进度、状态、删除 |
+| 程序 | 编辑器关闭时若仍在运行/调试，后台异步停止；行号断点按固定行高命中 |
 
 ## WSL 桥接与局域网发现
 
@@ -89,7 +112,7 @@ WSL 与 Windows 宿主机默认共用同一个 `Environment.MachineName`（如 `
 3. 三台布局中应同时出现宿主机名与带后缀的 WSL 名；单向时点「刷新连接」
 4. 若仍撞名，可在 settings.json 写 `"MachineNameOverride": "my-wsl"` 后重启
 
-标题栏只显示「玄」时：由 X11 窗口管理器字体绘制，需系统已有 CJK（上面 apt / 拷贝雅黑后再开一次窗口）。客户端内文字走 Avalonia 字体回退。
+主窗已自绘标题栏后，任务栏/Alt-Tab 可用 ASCII 名；客户区内标题显示完整「玄鸟」。若仍见系统装饰乱码，确认未强制恢复系统标题栏。客户端内文字走 Avalonia 字体回退（见上文 apt / 拷贝雅黑）。
 
 ## 编译
 
@@ -153,5 +176,6 @@ WantedBy=multi-user.target
 
 | 日期 | 说明 |
 |------|------|
+| 2026-10-19 | 自绘标题栏/子窗；打开收件箱 WSL explorer + sudo 降权；高级三列与安全/共享列表对齐说明 |
 | 2026-10-16 | AbsPointer 被控：EnsureAcceptsRemoteInput 对齐 Win/MAUI |
 

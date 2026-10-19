@@ -42,6 +42,9 @@ public sealed class FlyScreenCursorOverlayService : Service
     private static bool _scheduled;
     private static string? _lastError;
     private static int _failCount;
+    private static int _hotspotX;
+    private static int _hotspotY;
+    private static bool _hotspotValid;
 
     private Handler? _ui;
     private Context? _windowCtx;
@@ -53,6 +56,8 @@ public sealed class FlyScreenCursorOverlayService : Service
     private int _cursorPx = 80;
     private bool _added;
     private bool _foregrounded;
+    private int _intendedX;
+    private int _intendedY;
 
     public static bool IsShowing
     {
@@ -62,6 +67,16 @@ public sealed class FlyScreenCursorOverlayService : Service
     public static string? LastError
     {
         get { lock (Gate) return _lastError; }
+    }
+
+    public static bool TryGetHotspotPixels(out int x, out int y)
+    {
+        lock (Gate)
+        {
+            x = _hotspotX;
+            y = _hotspotY;
+            return _hotspotValid && _wantVisible;
+        }
     }
 
     public static void RequestShow(double nx, double ny)
@@ -280,6 +295,7 @@ public sealed class FlyScreenCursorOverlayService : Service
             }
 
             _cursor!.Invalidate();
+            CaptureHotspot();
         }
         catch (Exception ex)
         {
@@ -287,6 +303,7 @@ public sealed class FlyScreenCursorOverlayService : Service
             lock (Gate)
             {
                 _failCount++;
+                _hotspotValid = false;
                 _lastError = ex.Message;
                 if (_failCount <= 3 || _failCount % 30 == 0)
                     AppLog.Warn($"前台服务悬浮指针失败({_failCount}): {ex.Message}");
@@ -303,10 +320,56 @@ public sealed class FlyScreenCursorOverlayService : Service
         // 勿用 screen-size 钳位，否则底部会空出一块点不到的区域。
         var x = (int)Math.Round(nx * Math.Max(_screenW - 1, 1));
         var y = (int)Math.Round(ny * Math.Max(_screenH - 1, 1));
-        _lp!.X = Math.Clamp(x, 0, Math.Max(_screenW - 1, 0));
-        _lp.Y = Math.Clamp(y, 0, Math.Max(_screenH - 1, 0));
+        _intendedX = Math.Clamp(x, 0, Math.Max(_screenW - 1, 0));
+        _intendedY = Math.Clamp(y, 0, Math.Max(_screenH - 1, 0));
+        // 禁止用 GetLocationOnScreen 反推 bias 去改 lp：未布局完成时会得到巨大 biasX，指针卡死右缘
+        _lp!.X = _intendedX;
+        _lp.Y = _intendedY;
         _lp.Width = size;
         _lp.Height = size;
+    }
+
+    /// <summary>
+    /// 记录箭头尖屏幕坐标供点击使用。不可信时回退到 intended，避免卡边与错点。
+    /// </summary>
+    private void CaptureHotspot()
+    {
+        if (_cursor == null || !_added)
+        {
+            lock (Gate) _hotspotValid = false;
+            return;
+        }
+
+        var loc = new int[2];
+        _cursor.GetLocationOnScreen(loc);
+        var sx = loc[0];
+        var sy = loc[1];
+
+        // 视图尚未真正上屏时常见 (0,0)；或与 intended 偏离过大则不可信
+        var laidOut = _cursor.IsShown && _cursor.Width > 0 && _cursor.Height > 0;
+        var nearOriginWhileIntendedFar = sx == 0 && sy == 0 && (_intendedX > 48 || _intendedY > 48);
+        var driftX = Math.Abs(sx - _intendedX);
+        var driftY = Math.Abs(sy - _intendedY);
+        // 允许状态栏量级的 Y 漂移（点击对齐视觉）；X 几乎不应偏
+        var plausible = laidOut && !nearOriginWhileIntendedFar
+                        && driftX <= 48
+                        && driftY <= 240;
+
+        lock (Gate)
+        {
+            if (plausible)
+            {
+                _hotspotX = sx;
+                _hotspotY = sy;
+            }
+            else
+            {
+                // 回退：与悬浮窗 lp 一致，保证能自由移入屏幕内部
+                _hotspotX = _intendedX;
+                _hotspotY = _intendedY;
+            }
+            _hotspotValid = true;
+        }
     }
 
     private void Hide()
@@ -314,6 +377,8 @@ public sealed class FlyScreenCursorOverlayService : Service
         if (!_added || _wm == null || _cursor == null) return;
         try { _wm.RemoveView(_cursor); } catch { /* ignore */ }
         _added = false;
+        lock (Gate)
+            _hotspotValid = false;
     }
 
     private void ResetView()
