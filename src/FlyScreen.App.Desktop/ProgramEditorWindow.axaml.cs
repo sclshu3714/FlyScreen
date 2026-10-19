@@ -2,12 +2,14 @@ using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Programs;
@@ -16,9 +18,14 @@ namespace FlyScreen.DesktopUi;
 
 public partial class ProgramEditorWindow : Window
 {
+    private const double LineRowHeight = 18;
+    private static readonly IBrush BpBrush = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+    private static readonly IBrush LineFg = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
+
     private readonly UserProgram _program;
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
+    private LinuxClientChrome? _chrome;
     private int _caretLine = 1;
     private bool _toolModeUpdating;
     private bool _toolsCompact;
@@ -38,7 +45,15 @@ public partial class ProgramEditorWindow : Window
         _runner = ProgramService.Instance.Runner;
         InitializeComponent();
 
-        Title = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
+        var displayTitle = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
+        _chrome = LinuxClientChrome.Attach(
+            this, ClientTitleBar, ClientTitleText, displayTitle,
+            TitleMinBtn, TitleMaxBtn, TitleCloseBtn, allowMaximize: true);
+
+        if (Application.Current?.Resources.TryGetResource("UiFont", null, out var font) == true
+            && font is FontFamily ff)
+            FontFamily = ff;
+
         SetTool(BtnSave, BtnSaveText, "Prog.Save");
         SetTool(BtnDebug, BtnDebugText, "Prog.Debug");
         SetTool(BtnClearAllBp, BtnClearAllBpText, "Prog.ClearAllBp");
@@ -210,31 +225,46 @@ public partial class ProgramEditorWindow : Window
     private void CodeBox_TextChanged(object? sender, TextChangedEventArgs e)
         => RefreshLineNumbers();
 
-    private static readonly IBrush BpBrush = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
-
     private void RefreshLineNumbers()
     {
         var text = (CodeBox.Text ?? "").Replace("\r\n", "\n");
         var lines = Math.Max(1, text.Split('\n').Length);
-        LineNumbers.Inlines.Clear();
+        LineNumbers.Children.Clear();
         for (var i = 1; i <= lines; i++)
         {
-            if (_program.Breakpoints.Contains(i))
+            var line = i;
+            var hasBp = _program.Breakpoints.Contains(line);
+            var row = new Grid
             {
-                LineNumbers.Inlines.Add(new Run("⬤")
-                {
-                    Foreground = BpBrush,
-                    FontSize = 12
-                });
-            }
-            else
+                Height = LineRowHeight,
+                Margin = new Thickness(2, 0, 4, 0),
+                ColumnDefinitions = new ColumnDefinitions("16,*"),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = line
+            };
+            row.Children.Add(new Ellipse
             {
-                LineNumbers.Inlines.Add(new Run("  "));
-            }
-
-            LineNumbers.Inlines.Add(new Run(i.ToString().PadLeft(3)));
-            if (i < lines)
-                LineNumbers.Inlines.Add(new Run("\n"));
+                Width = 10,
+                Height = 10,
+                Fill = hasBp ? BpBrush : Brushes.Transparent,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            });
+            var num = new TextBlock
+            {
+                Text = line.ToString().PadLeft(3),
+                FontFamily = new FontFamily("Consolas, Cascadia Mono, Menlo"),
+                FontSize = 13,
+                Foreground = LineFg,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            Grid.SetColumn(num, 1);
+            row.Children.Add(num);
+            row.PointerPressed += LineRow_PointerPressed;
+            LineNumbers.Children.Add(row);
         }
     }
 
@@ -246,16 +276,9 @@ public partial class ProgramEditorWindow : Window
         BpHintText.Text = $"行 {_caretLine}  ·  {bps}";
     }
 
-    private void LineNumbers_PointerPressed(object? sender, PointerPressedEventArgs e)
+    private void LineRow_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        var text = (CodeBox.Text ?? "").Replace("\r\n", "\n");
-        var lineCount = Math.Max(1, text.Split('\n').Length);
-        var h = LineNumbers.Bounds.Height;
-        if (h <= 1) return;
-        var pad = LineNumbers.Padding.Top;
-        var y = Math.Max(0, e.GetPosition(LineNumbers).Y - pad);
-        var contentH = Math.Max(1, h - pad - LineNumbers.Padding.Bottom);
-        var line = (int)Math.Clamp(Math.Floor(y / contentH * lineCount) + 1, 1, lineCount);
+        if (sender is not Grid { Tag: int line }) return;
         if (_program.Breakpoints.Contains(line))
             _program.Breakpoints.Remove(line);
         else
@@ -267,6 +290,7 @@ public partial class ProgramEditorWindow : Window
         _caretLine = line;
         RefreshLineNumbers();
         RefreshBpHint();
+        e.Handled = true;
     }
 
     private void Save_Click(object? sender, RoutedEventArgs e)

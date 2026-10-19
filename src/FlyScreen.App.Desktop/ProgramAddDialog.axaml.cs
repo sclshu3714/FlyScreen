@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Programs;
 
@@ -13,6 +14,7 @@ public partial class ProgramAddDialog : Window
     private bool _nsManual;
     private bool _fileManual;
     private bool _updating;
+    private LinuxClientChrome? _chrome;
 
     public bool Confirmed { get; private set; }
     public string ProgramName => NameBox.Text?.Trim() ?? "";
@@ -23,7 +25,15 @@ public partial class ProgramAddDialog : Window
     public ProgramAddDialog()
     {
         InitializeComponent();
-        Title = Loc.T("Prog.DlgAddTitle");
+        var addTitle = Loc.T("Prog.DlgAddTitle");
+        _chrome = LinuxClientChrome.Attach(
+            this, ClientTitleBar, ClientTitleText, addTitle,
+            closeBtn: TitleCloseBtn, allowMaximize: false);
+
+        if (Application.Current?.Resources.TryGetResource("UiFont", null, out var font) == true
+            && font is FontFamily ff)
+            FontFamily = ff;
+
         LblName.Text = Loc.T("Prog.DlgName");
         LblLang.Text = Loc.T("Prog.DlgLang");
         LblNs.Text = Loc.T("Prog.DlgNamespace");
@@ -140,38 +150,30 @@ public partial class ProgramAddDialog : Window
 
     private async Task ShowInfoAsync(string title, string message)
     {
-        var win = new Window
-        {
-            Title = title,
-            Width = 420,
-            SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false
-        };
+        var win = CreateFramedDialog(title, 420);
         var ok = new Button { Content = "OK", Width = 88, Height = 32, HorizontalAlignment = HorizontalAlignment.Right };
         ok.Click += (_, _) => win.Close();
         var buttonRow = new StackPanel { Children = { ok } };
-        var body = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
+        var body = new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 16),
+            Foreground = TryBrush("Text")
+        };
         DockPanel.SetDock(buttonRow, Dock.Bottom);
-        win.Content = new DockPanel
+        AttachDialogBody(win, new DockPanel
         {
             Margin = new Thickness(16),
             Children = { buttonRow, body }
-        };
+        });
         await win.ShowDialog(this);
     }
 
     private async Task<string?> ShowDetectChoiceAsync(string title, string message)
     {
         string? choice = null;
-        var win = new Window
-        {
-            Title = title,
-            Width = 460,
-            SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false
-        };
+        var win = CreateFramedDialog(title, 460);
         var auto = new Button { Content = Loc.T("Prog.DetectAuto"), MinWidth = 96, Height = 32, Margin = new Thickness(0, 0, 8, 0) };
         var open = new Button { Content = Loc.T("Prog.DetectOpen"), MinWidth = 96, Height = 32, Margin = new Thickness(0, 0, 8, 0) };
         var cancel = new Button { Content = Loc.T("Prog.DlgCancel"), MinWidth = 88, Height = 32 };
@@ -184,23 +186,119 @@ public partial class ProgramAddDialog : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Children = { auto, open, cancel }
         };
-        win.Content = new DockPanel
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        AttachDialogBody(win, new DockPanel
         {
             Margin = new Thickness(16),
             Children =
             {
                 buttons,
-                new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) }
+                new TextBlock
+                {
+                    Text = message,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 16),
+                    Foreground = TryBrush("Text")
+                }
             }
-        };
-        DockPanel.SetDock(buttons, Dock.Bottom);
+        });
         await win.ShowDialog(this);
         return choice;
     }
 
+    private Window CreateFramedDialog(string title, double width)
+    {
+        var win = new Window
+        {
+            Width = width,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Background = TryBrush("WinBg"),
+            Foreground = TryBrush("Text"),
+            FontFamily = FontFamily
+        };
+
+        var titleText = new TextBlock
+        {
+            Name = "ClientTitleText",
+            Text = title,
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        var closeBtn = new Button
+        {
+            Content = "×",
+            Width = 40,
+            Height = 32,
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Foreground = TryBrush("Text")
+        };
+        var titleButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { closeBtn }
+        };
+        Grid.SetColumn(titleButtons, 1);
+        var titleBar = new Border
+        {
+            Name = "ClientTitleBar",
+            Height = 40,
+            IsVisible = false,
+            Background = TryBrush("PaneBg"),
+            BorderBrush = TryBrush("Line"),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll),
+            Child = new Grid
+            {
+                Margin = new Thickness(12, 0, 4, 0),
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                Children = { titleText, titleButtons }
+            }
+        };
+
+        var frame = new Border
+        {
+            Name = "WindowFrame",
+            Background = TryBrush("WinBg"),
+            BorderBrush = TryBrush("Line"),
+            Child = new DockPanel { Children = { titleBar } }
+        };
+        DockPanel.SetDock(titleBar, Dock.Top);
+        win.Content = frame;
+        LinuxClientChrome.Attach(win, titleBar, titleText, title, closeBtn: closeBtn, allowMaximize: false);
+        return win;
+    }
+
+    private static void AttachDialogBody(Window win, Control body)
+    {
+        if (win.Content is Border { Child: DockPanel dock })
+            dock.Children.Add(body);
+        else
+            win.Content = body;
+    }
+
+    private static IBrush? TryBrush(string key)
+    {
+        if (Application.Current?.TryGetResource(key, Application.Current.ActualThemeVariant, out var r) == true
+            && r is IBrush b)
+            return b;
+        return null;
+    }
+
     private void StatusTip()
     {
-        Title = Loc.T("Prog.DlgName") + " 不能为空";
+        var tip = Loc.T("Prog.DlgName") + " 不能为空";
+        _chrome?.SetTitle(tip);
+        if (_chrome == null)
+            Title = tip;
     }
 
     private sealed class LangItem

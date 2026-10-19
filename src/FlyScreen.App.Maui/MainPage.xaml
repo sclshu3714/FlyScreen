@@ -23,21 +23,27 @@
         <!-- 主内容：宽屏左侧留白给固定侧栏；窄屏全宽 -->
         <Grid x:Name="MainPane" Grid.Row="1" Padding="16" RowDefinitions="*,Auto">
             <Grid Grid.Row="0">
-                <!-- ===== 安全（独立页） ===== -->
+                <!-- ===== 安全（独立页）：生成密钥在标题工具栏，输入框窄屏不被挤裁 ===== -->
                 <Grid x:Name="PageSecurity" IsVisible="False">
                     <Border Style="{StaticResource Card}" VerticalOptions="Start">
                         <VerticalStackLayout Spacing="12">
-                            <Label x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontAttributes="Bold" />
-                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                                <Entry x:Name="KeyEntry" IsPassword="True" FontFamily="Consolas" FontSize="14" HeightRequest="40" />
-                                <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="4" Margin="14,0,0,0">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Label x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontAttributes="Bold"
+                                       VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                <Button x:Name="NewKeyBtn" Grid.Column="1" Text="生成新密钥"
+                                        Style="{StaticResource PrimaryBtn}" Clicked="NewKey_Clicked"
+                                        Margin="12,0,0,0" VerticalOptions="Center" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <Entry x:Name="KeyEntry" IsPassword="True" FontFamily="Consolas" FontSize="14"
+                                       HeightRequest="40" HorizontalOptions="Fill" />
+                                <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="4">
                                     <CheckBox x:Name="ShowKeyCheck" VerticalOptions="Center" CheckedChanged="ShowKey_Changed" />
                                     <Label x:Name="ShowKeyLabel" Text="显示" VerticalOptions="Center" />
                                 </HorizontalStackLayout>
-                                <Button x:Name="NewKeyBtn" Grid.Column="2" Text="生成新密钥" Style="{StaticResource PrimaryBtn}" Clicked="NewKey_Clicked" Margin="12,0,0,0" />
                             </Grid>
                             <Label x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
-                                   TextColor="{DynamicResource Muted}" FontSize="12" />
+                                   TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                         </VerticalStackLayout>
                     </Border>
                 </Grid>

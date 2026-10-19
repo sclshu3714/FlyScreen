@@ -1,6 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:diag="using:FlyScreen.Services"
         x:Class="FlyScreen.DesktopUi.ProgramEditorWindow"
         Title="编辑程序"
         Width="780" Height="560"
@@ -41,114 +40,140 @@
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
     </Style>
+    <Style Selector="Button.titleBtn">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Width" Value="40"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
   </Window.Styles>
 
-  <Border Background="{DynamicResource WinBg}" Padding="12">
+  <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
     <DockPanel>
-      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
-        <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
-                   Foreground="{DynamicResource Muted}" FontSize="11"
-                   VerticalAlignment="Center" Margin="8,0,0,0"/>
-        <Border x:Name="ToolBarHost" HorizontalAlignment="Stretch"
-                SizeChanged="ToolBarHost_SizeChanged">
-          <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left"
-                      VerticalAlignment="Center">
-            <Button x:Name="BtnSave" Classes="editorTool" Click="Save_Click" ToolTip.Tip="保存">
-              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
-                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoSave}"/>
-                </Viewbox>
-                <TextBlock x:Name="BtnSaveText" Text="保存" VerticalAlignment="Center" FontSize="13"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="BtnDebug" Classes="editorTool" Click="Debug_Click" ToolTip.Tip="调试">
-              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
-                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoBug}"/>
-                </Viewbox>
-                <TextBlock x:Name="BtnDebugText" Text="调试" VerticalAlignment="Center" FontSize="13"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="BtnClearAllBp" Classes="editorTool" Click="ClearAllBp_Click" ToolTip.Tip="清除断点">
-              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
-                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoClear}"/>
-                </Viewbox>
-                <TextBlock x:Name="BtnClearAllBpText" Text="清除断点" VerticalAlignment="Center" FontSize="13"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="BtnRun" Classes="editorRun" Click="Run_Click" ToolTip.Tip="运行">
-              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
-                  <Path Fill="White" Data="{StaticResource GeoPlay}"/>
-                </Viewbox>
-                <TextBlock x:Name="BtnRunText" Text="运行" VerticalAlignment="Center" FontSize="13" Foreground="White"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="BtnStop" Classes="editorTool" Margin="0" Click="Stop_Click" ToolTip.Tip="停止">
-              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Viewbox Width="14" Height="14" VerticalAlignment="Center">
-                  <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoStop}"/>
-                </Viewbox>
-                <TextBlock x:Name="BtnStopText" Text="停止" VerticalAlignment="Center" FontSize="13"/>
-              </StackPanel>
-            </Button>
+      <!-- Linux：自绘标题栏，避免 X11 系统栏中文乱码 -->
+      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
+              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
+              Cursor="SizeAll">
+        <Grid ColumnDefinitions="*,Auto" Margin="12,0,4,0">
+          <TextBlock x:Name="ClientTitleText" Text="编辑程序" FontSize="13" FontWeight="SemiBold"
+                     VerticalAlignment="Center" IsHitTestVisible="False"
+                     TextTrimming="CharacterEllipsis"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+            <Button x:Name="TitleMinBtn" Classes="titleBtn" Content="—"/>
+            <Button x:Name="TitleMaxBtn" Classes="titleBtn" Content="□"/>
+            <Button x:Name="TitleCloseBtn" Classes="titleBtn" Content="×"/>
           </StackPanel>
-        </Border>
-      </DockPanel>
-      <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
-              Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
-              BorderThickness="1" CornerRadius="8">
-        <DockPanel>
-          <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
-                  BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
-                  Height="30" Cursor="Hand" PointerPressed="OutputHeader_PointerPressed">
-            <Grid Margin="10,0" ColumnDefinitions="Auto,*,Auto">
-              <TextBlock x:Name="OutputToggleGlyph" Text="▲" FontSize="11"
-                         Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <TextBlock x:Name="OutputTitleText" Grid.Column="1" Text="输出" FontWeight="SemiBold"
-                         FontSize="12" VerticalAlignment="Center"/>
-              <Button x:Name="OutputClearBtn" Grid.Column="2" Content="清除" Padding="10,0" Height="24"
-                      MinWidth="52" FontSize="12" Click="OutputClear_Click"
-                      Background="Transparent" BorderThickness="0"
-                      Foreground="{DynamicResource Blue}" VerticalAlignment="Center"/>
-            </Grid>
-          </Border>
-          <Border x:Name="OutputBody" Height="150" IsVisible="False">
-            <Grid>
-              <ScrollViewer x:Name="OutputScroll" Background="{DynamicResource ListBg}"
-                            HorizontalScrollBarVisibility="Disabled"
-                            VerticalScrollBarVisibility="Auto">
-                <TextBlock x:Name="OutputText" TextWrapping="Wrap" Margin="8,4"
-                           FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="12"/>
-              </ScrollViewer>
-              <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
-                         Foreground="{DynamicResource Muted}" FontSize="12"
-                         HorizontalAlignment="Center" VerticalAlignment="Center"
-                         IsHitTestVisible="False"/>
-            </Grid>
-          </Border>
-        </DockPanel>
+        </Grid>
       </Border>
 
-      <Grid ColumnDefinitions="52,*">
-        <Border Background="{DynamicResource SubtleBg}"
-                BorderBrush="{DynamicResource Line}" BorderThickness="1,1,0,1"
-                ToolTip.Tip="点击行号添加断点，再点击取消"
-                PointerPressed="LineNumbers_PointerPressed">
-          <ScrollViewer x:Name="LineScroll" VerticalScrollBarVisibility="Hidden"
-                        HorizontalScrollBarVisibility="Disabled" Focusable="False">
-            <TextBlock x:Name="LineNumbers" Padding="4,8" TextAlignment="Right"
-                       FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="13"
-                       Foreground="{DynamicResource Placeholder}"/>
-          </ScrollViewer>
-        </Border>
-        <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
-                 TextWrapping="NoWrap" Padding="8"
-                 FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="13"
-                 BorderBrush="{DynamicResource Line}"
-                 TextChanged="CodeBox_TextChanged"/>
-      </Grid>
+      <Border Padding="12">
+        <DockPanel>
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+            <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
+                       Foreground="{DynamicResource Muted}" FontSize="11"
+                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+            <Border x:Name="ToolBarHost" HorizontalAlignment="Stretch"
+                    SizeChanged="ToolBarHost_SizeChanged">
+              <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left"
+                          VerticalAlignment="Center">
+                <Button x:Name="BtnSave" Classes="editorTool" Click="Save_Click" ToolTip.Tip="保存">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoSave}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnSaveText" Text="保存" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnDebug" Classes="editorTool" Click="Debug_Click" ToolTip.Tip="调试">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoBug}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnDebugText" Text="调试" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnClearAllBp" Classes="editorTool" Click="ClearAllBp_Click" ToolTip.Tip="清除断点">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoClear}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnClearAllBpText" Text="清除断点" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnRun" Classes="editorRun" Click="Run_Click" ToolTip.Tip="运行">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                      <Path Fill="White" Data="{StaticResource GeoPlay}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnRunText" Text="运行" VerticalAlignment="Center" FontSize="13" Foreground="White"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnStop" Classes="editorTool" Margin="0" Click="Stop_Click" ToolTip.Tip="停止">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoStop}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnStopText" Text="停止" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+            </Border>
+          </DockPanel>
+          <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
+                  Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                  BorderThickness="1" CornerRadius="8">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                      BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
+                      Height="30" Cursor="Hand" PointerPressed="OutputHeader_PointerPressed">
+                <Grid Margin="10,0" ColumnDefinitions="Auto,*,Auto">
+                  <TextBlock x:Name="OutputToggleGlyph" Text="▲" FontSize="11"
+                             Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                  <TextBlock x:Name="OutputTitleText" Grid.Column="1" Text="输出" FontWeight="SemiBold"
+                             FontSize="12" VerticalAlignment="Center"/>
+                  <Button x:Name="OutputClearBtn" Grid.Column="2" Content="清除" Padding="10,0" Height="24"
+                          MinWidth="52" FontSize="12" Click="OutputClear_Click"
+                          Background="Transparent" BorderThickness="0"
+                          Foreground="{DynamicResource Blue}" VerticalAlignment="Center"/>
+                </Grid>
+              </Border>
+              <Border x:Name="OutputBody" Height="150" IsVisible="False">
+                <Grid>
+                  <ScrollViewer x:Name="OutputScroll" Background="{DynamicResource ListBg}"
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="OutputText" TextWrapping="Wrap" Margin="8,4"
+                               FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="12"/>
+                  </ScrollViewer>
+                  <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
+                             Foreground="{DynamicResource Muted}" FontSize="12"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             IsHitTestVisible="False"/>
+                </Grid>
+              </Border>
+            </DockPanel>
+          </Border>
+
+          <Grid ColumnDefinitions="52,*">
+            <Border Background="{DynamicResource SubtleBg}"
+                    BorderBrush="{DynamicResource Line}" BorderThickness="1,1,0,1"
+                    ToolTip.Tip="点击行号添加断点，再点击取消">
+              <ScrollViewer x:Name="LineScroll" VerticalScrollBarVisibility="Hidden"
+                            HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <!-- 固定行高 StackPanel：点击行号与标记一一对应 -->
+                <StackPanel x:Name="LineNumbers" Margin="0,8,0,8"/>
+              </ScrollViewer>
+            </Border>
+            <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
+                     TextWrapping="NoWrap" Padding="8"
+                     FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="13"
+                     BorderBrush="{DynamicResource Line}"
+                     TextChanged="CodeBox_TextChanged"/>
+          </Grid>
+        </DockPanel>
+      </Border>
     </DockPanel>
   </Border>
 </Window>

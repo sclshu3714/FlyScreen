@@ -441,6 +441,18 @@ public partial class MainWindow : Window
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
+        if (XferTitleText != null) XferTitleText.Text = Loc.T("Xfer.Title");
+        if (XferHintText != null) XferHintText.Text = Loc.T("Xfer.Hint");
+        if (DirectTransferBtn != null) DirectTransferBtn.Content = Loc.T("Xfer.Direct");
+        if (OpenInboxBtn != null) OpenInboxBtn.Content = Loc.T("Xfer.OpenInbox");
+        if (ClearTransfersBtn != null) ClearTransfersBtn.Content = Loc.T("Xfer.ClearDone");
+        if (XferColDir != null) XferColDir.Text = Loc.T("Xfer.Col.Dir");
+        if (XferColName != null) XferColName.Text = Loc.T("Xfer.Col.Name");
+        if (XferColPeer != null) XferColPeer.Text = Loc.T("Xfer.Col.Peer");
+        if (XferColSize != null) XferColSize.Text = Loc.T("Xfer.Col.Size");
+        if (XferColProgress != null) XferColProgress.Text = Loc.T("Xfer.Col.Progress");
+        if (XferColStatus != null) XferColStatus.Text = Loc.T("Xfer.Col.Status");
+        if (TransferPlaceholder != null) TransferPlaceholder.Text = Loc.T("Xfer.Empty");
         Title = Loc.T("App.Name");
         if (SecurityTitleText != null) SecurityTitleText.Text = Loc.T("Sec.Title");
         if (SecurityHintText != null) SecurityHintText.Text = Loc.T("Sec.Hint");
@@ -466,7 +478,6 @@ public partial class MainWindow : Window
         EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
         EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
         EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
-        WireEdgeCrossRadios();
         RefreshEdgeCrossTip();
     }
 
@@ -476,25 +487,11 @@ public partial class MainWindow : Window
         ToolTip.SetTip(box, Loc.T(tipKey));
     }
 
-    private void WireEdgeCrossRadios()
-    {
-        EdgeCrossBarrierRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
-        EdgeCrossDoubleRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
-        EdgeCrossSpeedRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
-        EdgeCrossBarrierRadio.IsCheckedChanged += EdgeCrossMode_Changed;
-        EdgeCrossDoubleRadio.IsCheckedChanged += EdgeCrossMode_Changed;
-        EdgeCrossSpeedRadio.IsCheckedChanged += EdgeCrossMode_Changed;
-    }
-
     private void LoadEdgeCrossModeUi(int mode)
     {
-        EdgeCrossBarrierRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
-        EdgeCrossDoubleRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
-        EdgeCrossSpeedRadio.IsCheckedChanged -= EdgeCrossMode_Changed;
         EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
         EdgeCrossDoubleRadio.IsChecked = mode == 1;
         EdgeCrossSpeedRadio.IsChecked = mode == 2;
-        WireEdgeCrossRadios();
         RefreshEdgeCrossTip();
     }
 
@@ -506,13 +503,11 @@ public partial class MainWindow : Window
     }
 
     private void EdgeCrossMode_Changed(object? sender, RoutedEventArgs e)
-    {
-        if (sender is RadioButton { IsChecked: not true }) return;
-        RefreshEdgeCrossTip();
-    }
+        => RefreshEdgeCrossTip();
 
     private void RefreshEdgeCrossTip()
     {
+        if (EdgeCrossTipText == null) return;
         var key = ReadEdgeCrossModeUi() switch
         {
             1 => "Tip.EdgeCross.DoubleTap",
@@ -1897,18 +1892,14 @@ public partial class MainWindow : Window
     private void OpenInbox_Click(object? sender, RoutedEventArgs e)
     {
         var inbox = _host.Transfers.InboxDirectory;
-        Directory.CreateDirectory(inbox);
-        try
+        if (DesktopFolderOpen.TryOpen(inbox, out var error))
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = inbox,
-                UseShellExecute = true
-            });
+            StatusText.Text = Loc.T("Xfer.OpenInbox") + ": " + inbox;
+            return;
         }
-        catch (Exception ex)
-        {
-            StatusText.Text = $"无法打开收件箱: {ex.Message}";
-        }
+
+        StatusText.Text = string.IsNullOrWhiteSpace(error)
+            ? $"无法打开收件箱: {inbox}"
+            : $"无法打开收件箱: {error}（{inbox}）";
     }
 }
