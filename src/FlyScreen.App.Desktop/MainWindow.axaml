@@ -120,6 +120,10 @@
     <Style Selector="ListBox.progList">
       <Setter Property="Padding" Value="0"/>
     </Style>
+    <Style Selector="ListBox.xferList ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
     <Style Selector="ListBox.progList ListBoxItem">
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
@@ -479,23 +483,29 @@
       <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                     BringIntoViewOnFocusChange="False">
         <Panel MinHeight="420">
-          <!-- 安全（独立页） -->
+          <!-- 安全（独立页）：生成密钥在标题工具栏，输入框窄屏不被挤裁 -->
           <Grid x:Name="PageSecurity" IsVisible="False" MinHeight="420">
             <Border Classes="card" VerticalAlignment="Top">
               <StackPanel>
-                <TextBlock x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                <Grid ColumnDefinitions="*,Auto,Auto" MinHeight="36">
-                  <Panel VerticalAlignment="Center">
-                    <TextBox x:Name="SecurityKeyBox" FontFamily="Consolas, monospace" FontSize="14" IsVisible="False"/>
-                    <TextBox x:Name="SecurityKeyPassword" FontFamily="Consolas, monospace" FontSize="14" PasswordChar="•"/>
-                  </Panel>
-                  <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" Content="显示" Margin="14,0,0,0"
-                            VerticalAlignment="Center" IsCheckedChanged="ShowKey_Changed"/>
-                  <Button x:Name="NewKeyBtn" Grid.Column="2" Classes="primary" Content="生成新密钥"
+                <DockPanel Margin="0,0,0,12" LastChildFill="True">
+                  <Button x:Name="NewKeyBtn" DockPanel.Dock="Right" Classes="primary" Content="生成新密钥"
                           Click="NewKey_Click" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontWeight="SemiBold"
+                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <Grid ColumnDefinitions="*,Auto" MinHeight="36">
+                  <Panel VerticalAlignment="Center" MinWidth="120">
+                    <TextBox x:Name="SecurityKeyBox" FontFamily="Consolas, monospace" FontSize="14"
+                             TextWrapping="NoWrap" IsVisible="False"/>
+                    <TextBox x:Name="SecurityKeyPassword" FontFamily="Consolas, monospace" FontSize="14"
+                             PasswordChar="•" TextWrapping="NoWrap"/>
+                  </Panel>
+                  <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" Content="显示" Margin="12,0,0,0"
+                            VerticalAlignment="Center" IsCheckedChanged="ShowKey_Changed"/>
                 </Grid>
                 <TextBlock x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
-                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"/>
+                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"
+                           TextWrapping="Wrap"/>
               </StackPanel>
             </Border>
           </Grid>
@@ -592,9 +602,12 @@
                 </StackPanel>
                 <StackPanel x:Name="EdgeCrossColumn" Grid.Column="2" Margin="8,0,0,0" Spacing="2">
                   <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                  <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"/>
-                  <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"/>
-                  <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross" Margin="0,0,0,6"/>
+                  <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
+                               IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
+                  <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
+                               IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
+                  <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross" Margin="0,0,0,6"
+                               IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
                   <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
                              Foreground="{DynamicResource Muted}" FontSize="12"/>
                 </StackPanel>
@@ -692,44 +705,64 @@
           <!-- 文件传输 -->
           <Grid x:Name="PageTransfer" IsVisible="False" RowDefinitions="Auto,Auto,*" MinHeight="420">
             <StackPanel Margin="0,0,0,10">
-              <TextBlock Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
-              <TextBlock Text="单击选中；共享剪贴板与直接传输与 Windows 端协议一致。文件也可推送到收件箱。"
+              <TextBlock x:Name="XferTitleText" Text="传输列表" FontWeight="SemiBold" FontSize="15"/>
+              <TextBlock x:Name="XferHintText"
+                         Text="剪贴板粘贴：仅传到粘贴机。直接传输：推送到指定电脑的指定目录。清除只删接收缓存。"
                          Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
             </StackPanel>
             <Border Grid.Row="1" Classes="card" Padding="8,6" Margin="0,0,0,8">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button x:Name="DirectTransferBtn" Classes="primary" Content="直接传输…" Margin="0" Click="DirectTransfer_Click"/>
-                <Button Classes="normal" Content="打开收件箱" Margin="0" Click="OpenInbox_Click"/>
-                <Button Classes="normal" Content="清除已完成" Margin="0" Click="ClearTransfers_Click"/>
+                <Border Width="1" Height="22" Background="{DynamicResource Line}" Margin="4,0" VerticalAlignment="Center"/>
+                <Button x:Name="OpenInboxBtn" Classes="normal" Content="打开收件箱" Margin="0" Click="OpenInbox_Click"/>
+                <Button x:Name="ClearTransfersBtn" Classes="normal" Content="清除已完成" Margin="0" Click="ClearTransfers_Click"/>
               </StackPanel>
             </Border>
-            <Border Grid.Row="2" Classes="card" Padding="8" MinHeight="200">
-              <Panel>
-                <TextBlock x:Name="TransferPlaceholder"
-                           Text="暂无传输任务"
-                           Foreground="{DynamicResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                <ListBox x:Name="TransferList" BorderThickness="0" Background="Transparent">
-                  <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:TransferItem">
-                      <Grid ColumnDefinitions="*,Auto,Auto" Margin="4,6">
-                        <StackPanel>
-                          <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
-                          <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{DynamicResource Muted}"/>
-                        </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{Binding SizeText}" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource Muted}" Margin="12,0,8,0"/>
-                        <Button Grid.Column="2" Classes="icon-action" Tag="{Binding}"
-                                Click="DeleteTransfer_Click" ToolTip.Tip="删除此记录"
-                                VerticalAlignment="Center">
-                          <Viewbox Width="14" Height="14">
-                            <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
-                          </Viewbox>
-                        </Button>
-                      </Grid>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
-              </Panel>
+            <Border Grid.Row="2" Classes="card" Padding="0" MinHeight="200">
+              <Grid RowDefinitions="Auto,*">
+                <!-- 表头与 Win/MAUI 对齐：方向/文件名/对端/大小/进度/状态/操作 -->
+                <Grid Margin="10,8" ColumnDefinitions="56,*,100,90,100,72,40"
+                      Background="{DynamicResource SubtleBg}">
+                  <TextBlock x:Name="XferColDir" Text="方向" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColName" Grid.Column="1" Text="文件名" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColPeer" Grid.Column="2" Text="对端" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColSize" Grid.Column="3" Text="大小" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColProgress" Grid.Column="4" Text="进度" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColStatus" Grid.Column="5" Text="状态" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColAction" Grid.Column="6" Text="" FontWeight="SemiBold" FontSize="12"/>
+                </Grid>
+                <Panel Grid.Row="1">
+                  <TextBlock x:Name="TransferPlaceholder"
+                             Text="暂无传输任务"
+                             Foreground="{DynamicResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                  <ListBox x:Name="TransferList" Classes="xferList" BorderThickness="0"
+                           Background="{DynamicResource ListBg}">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:TransferItem">
+                        <Grid Margin="10,6" ColumnDefinitions="56,*,100,90,100,72,40">
+                          <TextBlock Text="{Binding DirectionText}" FontSize="12" VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                          <TextBlock Grid.Column="2" Text="{Binding PeerName}" FontSize="12"
+                                     TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalAlignment="Center"/>
+                          <ProgressBar Grid.Column="4" Minimum="0" Maximum="100"
+                                       Value="{Binding Progress}" Height="10" Margin="0,0,8,0"
+                                       VerticalAlignment="Center" MinWidth="70"/>
+                          <TextBlock Grid.Column="5" Text="{Binding Status}" FontSize="12" VerticalAlignment="Center"/>
+                          <Button Grid.Column="6" Classes="icon-action" Tag="{Binding}"
+                                  Click="DeleteTransfer_Click" ToolTip.Tip="删除此记录"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Viewbox Width="14" Height="14">
+                              <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
+                            </Viewbox>
+                          </Button>
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </Panel>
+              </Grid>
             </Border>
           </Grid>
 
@@ -747,7 +780,7 @@
                       <Button x:Name="ProgAddBtn" Classes="progTool" Click="ProgAdd_Click"
                               ToolTip.Tip="添加程序">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                          <Viewbox Width="14" Height="14" VerticalAlignment="Center" Margin="0,0,0,2">
                             <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoAdd}"/>
                           </Viewbox>
                           <TextBlock x:Name="ProgAddBtnText" Text="添加程序" VerticalAlignment="Center" FontSize="13"/>
@@ -774,7 +807,7 @@
                       <Button x:Name="ProgStopBtn" Classes="progTool" Click="ProgStop_Click"
                               ToolTip.Tip="停止程序">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                          <Viewbox Width="14" Height="14" VerticalAlignment="Center"  Margin="0,0,0,2">
                             <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoStop}"/>
                           </Viewbox>
                           <TextBlock x:Name="ProgStopBtnText" Text="停止程序" VerticalAlignment="Center" FontSize="13"/>
