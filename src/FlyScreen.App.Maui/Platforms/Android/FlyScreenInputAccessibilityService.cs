@@ -291,10 +291,8 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             if (_ctrl)
                 return false;
 
-            var upper = vk is >= 0x41 and <= 0x5A ? (_shift ^ _caps) : _shift;
-            var text = VkToChar(vk, upper);
-            if (string.IsNullOrEmpty(text)) return false;
-            return InsertText(node, text);
+            // 可打印字符禁止 ACTION_SET_TEXT 直写：会绕过手机中文输入法，变成纯英文
+            return false;
         }
         catch
         {
@@ -477,10 +475,12 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     private bool TryThroughPhoneIme(ushort vk, int keyCode)
     {
         if (keyCode <= 0 || _ctrl) return false;
+        // 退格/方向等：仅在代理框已有组字内容时交给 IME；否则走目标框编辑
         if (_ime?.HasContent != true && vk is 0x08 or 0x2E or 0x0D or 0x25 or 0x26 or 0x27 or 0x28)
             return false;
         if (!EnsureIme()) return false;
         var shift = vk is >= 0x41 and <= 0x5A ? (_shift ^ _caps) : _shift;
+        // Down 已在此处理；Up 在 ApplyKey(!down) 分支派发
         return _ime!.Dispatch(keyCode, true, shift);
     }
 
