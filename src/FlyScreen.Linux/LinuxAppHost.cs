@@ -4,6 +4,7 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 
 namespace FlyScreen.Linux;
 
@@ -57,6 +58,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         Settings = AppSettings.Load();
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
+        ProgramShareService.Attach(Connections);
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;

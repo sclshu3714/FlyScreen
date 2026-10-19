@@ -2,6 +2,7 @@ using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 
 namespace FlyScreen.Services;
 
@@ -29,6 +30,7 @@ public sealed class AppHost : IAsyncDisposable
         Settings = AppSettings.Load();
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
+        ProgramShareService.Attach(Connections);
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         Clipboard = new ClipboardMonitor(Settings, Transfers);

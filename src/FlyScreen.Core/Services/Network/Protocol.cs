@@ -51,7 +51,9 @@ public enum MessageType : byte
     /// <summary>当前应显示光标的电脑（其它机器隐藏光标）。</summary>
     CursorOwner = 62,
     /// <summary>高级「功能 / 行为」选项同步。</summary>
-    BehaviorSync = 63
+    BehaviorSync = 63,
+    /// <summary>把本机程序发给已连接电脑；对端已有同名或相同 Id 则跳过。</summary>
+    ProgramShare = 64
 }
 
 public readonly struct NetMessage

@@ -143,6 +143,10 @@
         <Geometry x:Key="GeoAbout">M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z</Geometry>
         <Geometry x:Key="GeoHelp">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,19H11V17H13M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7C10.9,7 10,7.89 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,10.1 15.55,11.05 14.07,12.25L15.07,11.25Z</Geometry>
         <Geometry x:Key="GeoDelete">M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z</Geometry>
+        <Geometry x:Key="GeoAdd">M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z</Geometry>
+        <Geometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</Geometry>
+        <Geometry x:Key="GeoStop">M6,6H18V18H6V6Z</Geometry>
+        <Geometry x:Key="GeoEdit">M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z</Geometry>
         <Style x:Key="IconActionBtn" TargetType="Button">
             <Setter Property="Width" Value="28"/>
             <Setter Property="Height" Value="28"/>
@@ -240,8 +244,12 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                     BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                    TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -268,8 +276,12 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd" Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
                     BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                    TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -365,6 +377,45 @@
         </Style>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+        </Style>
+        <Style x:Key="ProgIconBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinWidth" Value="30"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="ProgToolIcon" TargetType="Viewbox">
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Height" Value="16"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ProgToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Margin" Value="0"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ProgRowIcon" TargetType="Viewbox">
+            <Setter Property="Width" Value="14"/>
+            <Setter Property="Height" Value="14"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="ProgToolLabel" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ProgToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
         <Style TargetType="ComboBox">
             <Setter Property="Height" Value="36"/>
@@ -487,6 +538,11 @@
         </Style>
         <local:StringBox x:Key="Str.DeleteTip" Value="删除"/>
         <local:StringBox x:Key="Str.Add" Value="添加"/>
+        <local:StringBox x:Key="Str.ProgActStart" Value="启动"/>
+        <local:StringBox x:Key="Str.ProgActEdit" Value="编辑"/>
+        <local:StringBox x:Key="Str.ProgActDelete" Value="删除"/>
+        <local:StringBox x:Key="Str.ProgActLog" Value="日志"/>
+        <local:StringBox x:Key="Str.ProgActShare" Value="共享"/>
 
         <Style TargetType="ListView">
             <Setter Property="Background" Value="{DynamicResource ListBg}"/>
@@ -1136,16 +1192,55 @@
                             <TextBlock x:Name="ProgTitleText" Text="程序" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,4"/>
                             <TextBlock x:Name="ProgHintText" Grid.Row="1" Text="管理可单文件运行的脚本与程序。"
                                        Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
-                                <Button x:Name="ProgAddBtn" Content="添加程序" Style="{StaticResource SoftBlueBtn}"
-                                        Padding="12,4" Margin="0,0,8,0" Click="ProgAdd_Click"/>
-                                <Button x:Name="ProgDeleteBtn" Content="删除程序" Style="{StaticResource SoftBlueBtn}"
-                                        Padding="12,4" Margin="0,0,8,0" Click="ProgDelete_Click"/>
-                                <Button x:Name="ProgStartBtn" Content="启动程序" Style="{StaticResource SoftBlueBtn}"
-                                        Padding="12,4" Margin="0,0,8,0" Click="ProgStart_Click"/>
-                                <Button x:Name="ProgStopBtn" Content="停止程序" Style="{StaticResource SoftBlueBtn}"
-                                        Padding="12,4" Click="ProgStop_Click"/>
-                            </StackPanel>
+                            <Grid x:Name="ProgToolBarHost" Grid.Row="2" Margin="0,0,0,10"
+                                  SizeChanged="ProgToolBarHost_SizeChanged">
+                                <StackPanel x:Name="ProgToolBar" Orientation="Horizontal" HorizontalAlignment="Left">
+                                    <Button x:Name="ProgAddBtn" Style="{StaticResource SoftBlueBtn}"
+                                            MinWidth="36" Padding="10,0" Margin="0,0,8,0"
+                                            Click="ProgAdd_Click" ToolTip="添加程序">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Style="{StaticResource ProgToolIcon}">
+                                                <Path Data="{StaticResource GeoAdd}"
+                                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                            </Viewbox>
+                                            <TextBlock x:Name="ProgAddBtnText" Text="添加程序" Style="{StaticResource ProgToolLabel}"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="ProgDeleteBtn" Style="{StaticResource SoftBlueBtn}"
+                                            MinWidth="36" Padding="10,0" Margin="0,0,8,0"
+                                            Click="ProgDelete_Click" ToolTip="删除程序">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Style="{StaticResource ProgToolIcon}">
+                                                <Path Data="{StaticResource GeoDelete}"
+                                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                            </Viewbox>
+                                            <TextBlock x:Name="ProgDeleteBtnText" Text="删除程序" Style="{StaticResource ProgToolLabel}"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="ProgStartBtn" Style="{StaticResource SoftBlueBtn}"
+                                            MinWidth="36" Padding="10,0" Margin="0,0,8,0"
+                                            Click="ProgStart_Click" ToolTip="启动程序">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Style="{StaticResource ProgToolIcon}">
+                                                <Path Data="{StaticResource GeoPlay}"
+                                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                            </Viewbox>
+                                            <TextBlock x:Name="ProgStartBtnText" Text="启动程序" Style="{StaticResource ProgToolLabel}"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="ProgStopBtn" Style="{StaticResource SoftBlueBtn}"
+                                            MinWidth="36" Padding="10,0" Margin="0"
+                                            Click="ProgStop_Click" ToolTip="停止程序">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Viewbox Style="{StaticResource ProgToolIcon}">
+                                                <Path Data="{StaticResource GeoStop}"
+                                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                            </Viewbox>
+                                            <TextBlock x:Name="ProgStopBtnText" Text="停止程序" Style="{StaticResource ProgToolLabel}"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
                             <ListView x:Name="ProgList" Grid.Row="3" BorderThickness="0"
                                       Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}">
                                 <ListView.View>
@@ -1164,13 +1259,45 @@
                                         <GridViewColumn x:Name="ProgColLang" Header="语言" Width="90" DisplayMemberBinding="{Binding LanguageText}"/>
                                         <GridViewColumn x:Name="ProgColSize" Header="大小" Width="70" DisplayMemberBinding="{Binding SizeText}"/>
                                         <GridViewColumn x:Name="ProgColStatus" Header="状态" Width="70" DisplayMemberBinding="{Binding StatusText}"/>
-                                        <GridViewColumn x:Name="ProgColActions" Header="操作" Width="180">
+                                        <GridViewColumn x:Name="ProgColActions" Header="操作" Width="176">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <Button Content="启动" Padding="8,2" Margin="0,0,4,0" Tag="{Binding}" Click="ProgRowStart_Click"/>
-                                                        <Button Content="编辑" Padding="8,2" Margin="0,0,4,0" Tag="{Binding}" Click="ProgRowEdit_Click"/>
-                                                        <Button Content="删除" Padding="8,2" Tag="{Binding}" Click="ProgRowDelete_Click"/>
+                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <Button Style="{StaticResource ProgIconBtn}"
+                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActStart}}"
+                                                                Tag="{Binding}" Click="ProgRowStart_Click">
+                                                            <Viewbox Style="{StaticResource ProgRowIcon}">
+                                                                <Path Data="{StaticResource GeoPlay}" Fill="#059669"/>
+                                                            </Viewbox>
+                                                        </Button>
+                                                        <Button Style="{StaticResource ProgIconBtn}"
+                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActEdit}}"
+                                                                Tag="{Binding}" Click="ProgRowEdit_Click">
+                                                            <Viewbox Style="{StaticResource ProgRowIcon}">
+                                                                <Path Data="{StaticResource GeoEdit}" Fill="#2563EB"/>
+                                                            </Viewbox>
+                                                        </Button>
+                                                        <Button Style="{StaticResource ProgIconBtn}"
+                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActLog}}"
+                                                                Tag="{Binding}" Click="ProgRowLog_Click">
+                                                            <Viewbox Style="{StaticResource ProgRowIcon}">
+                                                                <Path Data="{StaticResource GeoLog}" Fill="#F97316"/>
+                                                            </Viewbox>
+                                                        </Button>
+                                                        <Button Style="{StaticResource ProgIconBtn}"
+                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActShare}}"
+                                                                Tag="{Binding}" Click="ProgRowShare_Click">
+                                                            <Viewbox Style="{StaticResource ProgRowIcon}">
+                                                                <Path Data="{StaticResource GeoShare}" Fill="#10B981"/>
+                                                            </Viewbox>
+                                                        </Button>
+                                                        <Button Style="{StaticResource ProgIconBtn}" Margin="0"
+                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActDelete}}"
+                                                                Tag="{Binding}" Click="ProgRowDelete_Click">
+                                                            <Viewbox Style="{StaticResource ProgRowIcon}">
+                                                                <Path Data="{StaticResource GeoDelete}" Fill="#EF4444"/>
+                                                            </Viewbox>
+                                                        </Button>
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </GridViewColumn.CellTemplate>

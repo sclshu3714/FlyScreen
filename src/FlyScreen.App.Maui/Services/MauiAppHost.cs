@@ -2,6 +2,7 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 
 namespace FlyScreen.AppMaui.Services;
 
@@ -54,6 +55,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
+        ProgramShareService.Attach(Connections);
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
         LayoutSync = new LayoutSyncHelper(Settings, Connections);

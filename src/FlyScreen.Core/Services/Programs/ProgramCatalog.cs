@@ -109,7 +109,7 @@ public sealed class ProgramCatalog
 
         lock (_gate)
             _items.Add(prog);
-        AppLog.Info($"已添加程序「{prog.Name}」({prog.LanguageText}) → {folder}");
+        AppLog.Info($"已添加程序「{prog.Name}」({prog.LanguageText}) → {folder}", prog.Id, prog.Name);
         RaiseChanged();
         return prog;
     }
@@ -175,13 +175,13 @@ public sealed class ProgramCatalog
         }
         catch (Exception ex)
         {
-            AppLog.Error(ex, $"删除程序目录失败「{prog.Name}」");
+            AppLog.Error(ex, $"删除程序目录失败「{prog.Name}」", prog.Id, prog.Name);
             throw;
         }
 
         lock (_gate)
             _items.Remove(prog);
-        AppLog.Info($"已删除程序「{prog.Name}」");
+        AppLog.Info($"已删除程序「{prog.Name}」", prog.Id, prog.Name);
         RaiseChanged();
     }
 
@@ -189,6 +189,73 @@ public sealed class ProgramCatalog
     {
         lock (_gate)
             return _items.FirstOrDefault(p => p.Id == id);
+    }
+
+    public UserProgram? FindDuplicate(string? id, string? name)
+    {
+        var trimmed = (name ?? "").Trim();
+        lock (_gate)
+        {
+            return _items.FirstOrDefault(p =>
+                (!string.IsNullOrEmpty(id) && string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrEmpty(trimmed) && string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase)));
+        }
+    }
+
+    /// <summary>写入对端共享来的程序。同 Id 或同名已存在时不覆盖。</summary>
+    public bool TryImportShared(UserProgram incoming, string? source, string? projectFile)
+    {
+        incoming.Name = (incoming.Name ?? "").Trim();
+        if (string.IsNullOrEmpty(incoming.Name)) return false;
+        if (!IsSafeId(incoming.Id)) return false;
+        if (FindDuplicate(incoming.Id, incoming.Name) != null) return false;
+
+        var folder = GetFolder(incoming);
+        if (Directory.Exists(folder)) return false;
+
+        incoming.FileName = SanitizeSharedFileName(incoming);
+        if (string.IsNullOrWhiteSpace(incoming.Namespace))
+            incoming.Namespace = "com.xuanniao.app";
+        incoming.Breakpoints ??= [];
+        incoming.CreatedUtc = DateTime.UtcNow;
+        incoming.UpdatedUtc = DateTime.UtcNow;
+
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(
+            Path.Combine(folder, incoming.FileName),
+            source ?? "",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        if (incoming.Language == ProgramLanguage.CSharp && !string.IsNullOrWhiteSpace(projectFile))
+        {
+            File.WriteAllText(
+                Path.Combine(folder, "program.csproj"),
+                projectFile,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+
+        SaveMeta(incoming);
+        RefreshSize(incoming);
+        lock (_gate)
+            _items.Add(incoming);
+        AppLog.Info($"已接收共享程序「{incoming.Name}」", incoming.Id, incoming.Name);
+        RaiseChanged();
+        return true;
+    }
+
+    private static bool IsSafeId(string? id)
+        => !string.IsNullOrEmpty(id)
+           && id.Length is >= 8 and <= 32
+           && id.All(c => char.IsAsciiHexDigit(c));
+
+    private static string SanitizeSharedFileName(UserProgram prog)
+    {
+        var file = Path.GetFileName((prog.FileName ?? "").Trim());
+        var ext = ProgramLanguageInfo.Extension(prog.Language);
+        if (string.IsNullOrEmpty(file) || file is "." or "..")
+            return ProgramLanguageInfo.DefaultFileName(prog.Language);
+        if (!file.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+            file = Path.GetFileNameWithoutExtension(file) + ext;
+        return file;
     }
 
     private void WriteScaffold(string folder, UserProgram prog)

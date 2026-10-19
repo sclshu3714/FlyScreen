@@ -12,6 +12,9 @@ public sealed class AppLogEntry
     public DateTime Time { get; init; }
     public AppLogLevel Level { get; init; }
     public string Message { get; init; } = "";
+    /// <summary>产生这条日志的用户程序。空表示与具体程序无关。</summary>
+    public string? ProgramId { get; init; }
+    public string? ProgramName { get; init; }
 
     public string Display
     {
@@ -38,15 +41,18 @@ public static class AppLog
 
     public static event Action? Changed;
 
-    public static void Info(string message) => Add(AppLogLevel.Info, message);
-    public static void Warn(string message) => Add(AppLogLevel.Warn, message);
-    public static void Error(string message) => Add(AppLogLevel.Error, message);
-    public static void Error(Exception ex, string? context = null)
+    public static void Info(string message, string? programId = null, string? programName = null)
+        => Add(AppLogLevel.Info, message, programId, programName);
+    public static void Warn(string message, string? programId = null, string? programName = null)
+        => Add(AppLogLevel.Warn, message, programId, programName);
+    public static void Error(string message, string? programId = null, string? programName = null)
+        => Add(AppLogLevel.Error, message, programId, programName);
+    public static void Error(Exception ex, string? context = null, string? programId = null, string? programName = null)
     {
         var msg = string.IsNullOrWhiteSpace(context)
             ? ex.Message
             : $"{context}: {ex.Message}";
-        Add(AppLogLevel.Error, msg);
+        Add(AppLogLevel.Error, msg, programId, programName);
     }
 
     /// <summary>把状态栏文案按关键词归成信息 / 警告 / 错误。</summary>
@@ -103,14 +109,33 @@ public static class AppLog
            || tail.Contains("Desktop", StringComparison.OrdinalIgnoreCase)
              && (tail.Contains('/') || tail.Contains('['));
 
-    public static IReadOnlyList<AppLogEntry> Snapshot(bool errorsOnly = false)
+    public static IReadOnlyList<AppLogEntry> Snapshot(
+        bool errorsOnly = false,
+        string? programId = null,
+        string? programName = null)
     {
         lock (Gate)
         {
-            if (!errorsOnly)
-                return Items.ToArray();
-            return Items.Where(e => e.Level == AppLogLevel.Error).ToArray();
+            IEnumerable<AppLogEntry> query = Items;
+            if (errorsOnly)
+                query = query.Where(e => e.Level == AppLogLevel.Error);
+            if (!string.IsNullOrEmpty(programId) || !string.IsNullOrEmpty(programName))
+                query = query.Where(e => BelongsToProgram(e, programId, programName));
+            return query.ToArray();
         }
+    }
+
+    private static bool BelongsToProgram(AppLogEntry entry, string? programId, string? programName)
+    {
+        if (!string.IsNullOrEmpty(entry.ProgramId))
+            return !string.IsNullOrEmpty(programId)
+                   && string.Equals(entry.ProgramId, programId, StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(programName)) return false;
+        if (!string.IsNullOrEmpty(entry.ProgramName)
+            && string.Equals(entry.ProgramName, programName, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return entry.Message.Contains($"「{programName}」", StringComparison.Ordinal)
+               || entry.Message.Contains($"[{programName}]", StringComparison.Ordinal);
     }
 
     public static void Clear()
@@ -120,7 +145,7 @@ public static class AppLog
         try { Changed?.Invoke(); } catch { /* ignore */ }
     }
 
-    private static void Add(AppLogLevel level, string message)
+    private static void Add(AppLogLevel level, string message, string? programId = null, string? programName = null)
     {
         if (string.IsNullOrWhiteSpace(message)) return;
         lock (Gate)
@@ -129,7 +154,9 @@ public static class AppLog
             {
                 Time = DateTime.Now,
                 Level = level,
-                Message = message.Trim()
+                Message = message.Trim(),
+                ProgramId = string.IsNullOrWhiteSpace(programId) ? null : programId,
+                ProgramName = string.IsNullOrWhiteSpace(programName) ? null : programName
             });
             if (Items.Count > MaxEntries)
                 Items.RemoveRange(0, Items.Count - MaxEntries);
