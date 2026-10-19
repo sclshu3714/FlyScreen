@@ -1749,11 +1749,11 @@ public partial class MainWindow : Window
         doc.Blocks.Add(Heading(Loc.T("Help.Doc.Clip")));
         doc.Blocks.Add(Bullets(
             Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"),
-            Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4")));
+            Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4"), Loc.T("Help.Doc.C5")));
         doc.Blocks.Add(Heading(Loc.T("Help.Doc.Opts")));
         doc.Blocks.Add(Bullets(
             Loc.T("Help.Doc.O1"), Loc.T("Help.Doc.O2"), Loc.T("Help.Doc.O3"),
-            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5")));
+            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"), Loc.T("Help.Doc.O6"), Loc.T("Help.Doc.O7")));
         doc.Blocks.Add(Heading(Loc.T("Help.Doc.Hot")));
         doc.Blocks.Add(Para(Loc.T("Help.Doc.H1")));
         doc.Blocks.Add(Para(Loc.T("Help.Doc.H2")));

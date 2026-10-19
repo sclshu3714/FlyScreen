@@ -29,6 +29,13 @@
     <Setter Property="VerticalOptions" Value="Center" />
     <Setter Property="HorizontalOptions" Value="Start" />
   </Style>
+  <!-- Android：未显式设色时首次可见会吃到 Material 深色底；#01000000 避免 Transparent 被原生忽略 -->
+  <Style TargetType="RadioButton">
+    <Setter Property="BackgroundColor" Value="#01000000" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="VerticalOptions" Value="Center" />
+  </Style>
   <Style TargetType="Button">
     <Setter Property="HeightRequest" Value="34" />
     <Setter Property="CornerRadius" Value="8" />

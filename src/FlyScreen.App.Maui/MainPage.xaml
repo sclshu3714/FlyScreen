@@ -364,93 +364,77 @@
                                         Clicked="ProgStop_Clicked" ToolTipProperties.Text="停止程序" />
                               </HorizontalStackLayout>
                             </Grid>
-                            <Grid Grid.Row="3" RowDefinitions="Auto,*">
-                              <Grid Padding="0,8" ColumnDefinitions="40,*,90,70,70,176" ColumnSpacing="4"
-                                    BackgroundColor="{DynamicResource SubtleBg}">
-                                <CheckBox x:Name="ProgSelectAll" VerticalOptions="Center"
-                                          HorizontalOptions="Center"
-                                          CheckedChanged="ProgSelectAll_Changed" />
-                                <Label x:Name="ProgColName" Grid.Column="1" Text="程序名称"
-                                       FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
-                                <Label x:Name="ProgColLang" Grid.Column="2" Text="语言"
-                                       FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
-                                <Label x:Name="ProgColSize" Grid.Column="3" Text="大小"
-                                       FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
-                                <Label x:Name="ProgColStatus" Grid.Column="4" Text="状态"
-                                       FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
-                                <Label x:Name="ProgColActions" Grid.Column="5" Text="操作"
-                                       FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
-                              </Grid>
-                              <CollectionView x:Name="ProgList" Grid.Row="1" SelectionMode="None"
-                                              BackgroundColor="{DynamicResource ListBg}">
-                                <CollectionView.ItemTemplate>
+                            <!-- 整表横向滚动：滚动条在列表底部，不在列内 -->
+                            <ScrollView x:Name="ProgListHost" Grid.Row="3"
+                                        Orientation="Horizontal"
+                                        HorizontalScrollBarVisibility="Always"
+                                        VerticalScrollBarVisibility="Never"
+                                        VerticalOptions="Fill">
+                              <Grid x:Name="ProgListTable" WidthRequest="430" MinimumWidthRequest="430"
+                                    RowDefinitions="Auto,*"
+                                    VerticalOptions="Fill">
+                                <Grid x:Name="ProgListHeader" Padding="4,8" ColumnSpacing="4"
+                                      ColumnDefinitions="36,88,80,64,64,64"
+                                      BackgroundColor="{DynamicResource SubtleBg}">
+                                  <CheckBox x:Name="ProgSelectAll" VerticalOptions="Center"
+                                            HorizontalOptions="Center"
+                                            CheckedChanged="ProgSelectAll_Changed" />
+                                  <Label x:Name="ProgColName" Grid.Column="1" Text="程序名称"
+                                         FontAttributes="Bold" FontSize="12" VerticalOptions="Center"
+                                         LineBreakMode="TailTruncation" />
+                                  <Label x:Name="ProgColLang" Grid.Column="2" Text="语言"
+                                         FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
+                                  <Label x:Name="ProgColSize" Grid.Column="3" Text="大小"
+                                         FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
+                                  <Label x:Name="ProgColStatus" Grid.Column="4" Text="状态"
+                                         FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
+                                  <Label x:Name="ProgColActions" Grid.Column="5" Text="操作"
+                                         FontAttributes="Bold" FontSize="12" VerticalOptions="Center" />
+                                </Grid>
+                                <CollectionView x:Name="ProgList" Grid.Row="1" SelectionMode="None"
+                                                BackgroundColor="{DynamicResource ListBg}">
+                                  <CollectionView.ItemTemplate>
                                     <DataTemplate>
-                                      <!-- 对齐 Win：勾选 / 名称 / 语言 / 大小 / 状态 / 五行图标操作 -->
-                                      <Grid ColumnDefinitions="40,*,90,70,70,176"
-                                            Padding="0,6" ColumnSpacing="4"
+                                      <Grid ColumnDefinitions="36,88,80,64,64,64"
+                                            Padding="4,6" ColumnSpacing="4"
                                             MinimumHeightRequest="36">
                                         <CheckBox IsChecked="{Binding IsSelected}"
                                                   VerticalOptions="Center" HorizontalOptions="Center" />
                                         <Label Grid.Column="1" Text="{Binding Name}"
                                                VerticalOptions="Center" LineBreakMode="TailTruncation" />
                                         <Label Grid.Column="2" Text="{Binding LanguageText}" FontSize="12"
-                                               VerticalOptions="Center" />
+                                               VerticalOptions="Center" LineBreakMode="TailTruncation" />
                                         <Label Grid.Column="3" Text="{Binding SizeText}" FontSize="12"
                                                VerticalOptions="Center" />
                                         <Label Grid.Column="4" Text="{Binding StatusText}" FontSize="12"
-                                               VerticalOptions="Center" />
+                                               VerticalOptions="Center" LineBreakMode="TailTruncation" />
                                         <HorizontalStackLayout Grid.Column="5" Spacing="0" VerticalOptions="Center">
-                                          <Grid WidthRequest="30" HeightRequest="30" Margin="0,0,4,0">
+                                          <Grid WidthRequest="28" HeightRequest="28">
                                             <Button Style="{StaticResource IconActionBtn}"
                                                     CommandParameter="{Binding}" Clicked="ProgRowStart_Clicked"
                                                     ToolTipProperties.Text="启动" />
                                             <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z"
-                                                  Fill="#059669" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
+                                                  Fill="#059669" Aspect="Uniform" WidthRequest="13" HeightRequest="13"
                                                   HorizontalOptions="Center" VerticalOptions="Center"
                                                   InputTransparent="True" />
                                           </Grid>
-                                          <Grid WidthRequest="30" HeightRequest="30" Margin="0,0,4,0">
-                                            <Button Style="{StaticResource IconActionBtn}"
-                                                    CommandParameter="{Binding}" Clicked="ProgRowEdit_Clicked"
-                                                    ToolTipProperties.Text="编辑" />
-                                            <Path Data="M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z"
-                                                  Fill="#2563EB" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
-                                                  HorizontalOptions="Center" VerticalOptions="Center"
-                                                  InputTransparent="True" />
-                                          </Grid>
-                                          <Grid WidthRequest="30" HeightRequest="30" Margin="0,0,4,0">
-                                            <Button Style="{StaticResource IconActionBtn}"
-                                                    CommandParameter="{Binding}" Clicked="ProgRowLog_Clicked"
-                                                    ToolTipProperties.Text="日志" />
-                                            <Path Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13M8,13H16V15H8V13M8,17H13V19H8V17Z"
-                                                  Fill="#F97316" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
-                                                  HorizontalOptions="Center" VerticalOptions="Center"
-                                                  InputTransparent="True" />
-                                          </Grid>
-                                          <Grid WidthRequest="30" HeightRequest="30" Margin="0,0,4,0">
-                                            <Button Style="{StaticResource IconActionBtn}"
-                                                    CommandParameter="{Binding}" Clicked="ProgRowShare_Clicked"
-                                                    ToolTipProperties.Text="共享" />
-                                            <Path Data="M18,16.08C17.24,16.08 16.56,16.38 16.04,16.85L8.91,12.7C8.96,12.47 9,12.24 9,12C9,11.76 8.96,11.53 8.91,11.3L15.96,7.19C16.5,7.69 17.21,8 18,8A3,3 0 0,0 21,5A3,3 0 0,0 18,2A3,3 0 0,0 15,5C15,5.24 15.04,5.47 15.09,5.7L8.04,9.81C7.5,9.31 6.79,9 6,9A3,3 0 0,0 3,12A3,3 0 0,0 6,15C6.79,15 7.5,14.69 8.04,14.19L15.16,18.34C15.11,18.55 15.08,18.77 15.08,19C15.08,20.61 16.39,21.91 18,21.91C19.61,21.91 20.92,20.61 20.92,19A2.92,2.92 0 0,0 18,16.08Z"
-                                                  Fill="#10B981" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
-                                                  HorizontalOptions="Center" VerticalOptions="Center"
-                                                  InputTransparent="True" />
-                                          </Grid>
-                                          <Grid WidthRequest="30" HeightRequest="30">
-                                            <Button Style="{StaticResource IconActionBtn}"
-                                                    CommandParameter="{Binding}" Clicked="ProgRowDelete_Clicked"
-                                                    ToolTipProperties.Text="删除" />
-                                            <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
-                                                  Fill="#EF4444" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
-                                                  HorizontalOptions="Center" VerticalOptions="Center"
-                                                  InputTransparent="True" />
-                                          </Grid>
+                                          <Button Text="⋮"
+                                                  FontSize="18"
+                                                  TextColor="{DynamicResource Muted}"
+                                                  BackgroundColor="Transparent"
+                                                  BorderWidth="0"
+                                                  WidthRequest="28" HeightRequest="28"
+                                                  MinimumWidthRequest="28" MinimumHeightRequest="28"
+                                                  Padding="0" CornerRadius="0"
+                                                  CommandParameter="{Binding}" Clicked="ProgRowMore_Clicked"
+                                                  ToolTipProperties.Text="更多" />
                                         </HorizontalStackLayout>
                                       </Grid>
                                     </DataTemplate>
-                                </CollectionView.ItemTemplate>
-                              </CollectionView>
-                            </Grid>
+                                  </CollectionView.ItemTemplate>
+                                </CollectionView>
+                              </Grid>
+                            </ScrollView>
                         </Grid>
                     </Border>
                 </Grid>
