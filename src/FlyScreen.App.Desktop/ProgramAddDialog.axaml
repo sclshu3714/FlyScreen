@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ProgramAddDialog"
+        Title="添加程序"
+        Width="440" Height="360"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+  <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="100,*">
+    <TextBlock x:Name="LblName" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+    <TextBox x:Name="NameBox" Grid.Column="1" Margin="0,0,0,10" Height="28" TextChanged="NameBox_TextChanged"/>
+
+    <TextBlock x:Name="LblLang" Grid.Row="1" Text="开发语言" VerticalAlignment="Center" Margin="0,0,0,10"/>
+    <ComboBox x:Name="LangCombo" Grid.Row="1" Grid.Column="1" Margin="0,0,0,10" Height="28"
+              SelectionChanged="LangCombo_SelectionChanged"/>
+
+    <TextBlock x:Name="LblNs" Grid.Row="2" Text="命名空间" VerticalAlignment="Center" Margin="0,0,0,10"/>
+    <TextBox x:Name="NamespaceBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
+
+    <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+    <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
+
+    <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button x:Name="CancelBtn" Content="取消" Width="88" Height="32" Click="Cancel_Click"/>
+      <Button x:Name="SaveBtn" Content="保存" Width="88" Height="32" Classes="accent" Click="Save_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>

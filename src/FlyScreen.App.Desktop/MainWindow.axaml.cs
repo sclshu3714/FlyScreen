@@ -18,7 +18,9 @@ using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi;
@@ -258,6 +260,11 @@ public partial class MainWindow : Window
         ApplyLayoutGrid();
 
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
+        AppLog.Changed += () => Dispatcher.UIThread.Post(() =>
+        {
+            if (PageLog.IsVisible)
+                RefreshLogPage();
+        });
         _host.LayoutSyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
         {
             ApplyLayoutFromSettings();
@@ -392,7 +399,19 @@ public partial class MainWindow : Window
         NavShareText.Text = Loc.T("Nav.Share");
         NavSecurityText.Text = Loc.T("Nav.Security");
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
+        NavProgramsText.Text = Loc.T("Nav.Programs");
+        NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
+        LogTitleText.Text = Loc.T("Log.Title");
+        LogHintText.Text = Loc.T("Log.Hint");
+        LogErrorsOnlyCheck.Content = Loc.T("Log.ErrorsOnly");
+        LogClearBtn.Content = Loc.T("Log.Clear");
+        ProgTitleText.Text = Loc.T("Prog.Title");
+        ProgHintText.Text = Loc.T("Prog.Hint");
+        ProgAddBtn.Content = Loc.T("Prog.Add");
+        ProgDeleteBtn.Content = Loc.T("Prog.Delete");
+        ProgStartBtn.Content = Loc.T("Prog.Start");
+        ProgStopBtn.Content = Loc.T("Prog.Stop");
         HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
         HelpDocBtn.Content = Loc.T("Help.ShowDoc");
         RefreshHelpToolbarLabels();
@@ -601,6 +620,8 @@ public partial class MainWindow : Window
         else if (NavShare.IsChecked == true) ShowPage(3);
         else if (NavSecurity.IsChecked == true) ShowPage(4);
         else if (NavAdvanced.IsChecked == true) ShowPage(1);
+        else if (NavPrograms.IsChecked == true) ShowPage(8);
+        else if (NavLog.IsChecked == true) ShowPage(7);
         else if (NavAbout.IsChecked == true) ShowPage(5);
         else if (NavHelp.IsChecked == true) ShowPage(6);
     }
@@ -617,6 +638,8 @@ public partial class MainWindow : Window
             PageSecurity.IsVisible = index == 4;
             PageAbout.IsVisible = index == 5;
             PageHelp.IsVisible = index == 6;
+            PageLog.IsVisible = index == 7;
+            PagePrograms.IsVisible = index == 8;
 
             NavBasic.IsChecked = index == 0;
             NavAdvanced.IsChecked = index == 1;
@@ -625,6 +648,8 @@ public partial class MainWindow : Window
             NavSecurity.IsChecked = index == 4;
             NavAbout.IsChecked = index == 5;
             NavHelp.IsChecked = index == 6;
+            NavLog.IsChecked = index == 7;
+            NavPrograms.IsChecked = index == 8;
         }
         finally
         {
@@ -635,7 +660,121 @@ public partial class MainWindow : Window
             RefreshAboutPage();
         else if (index == 6)
             ShowHelpDocument();
+        else if (index == 7)
+            RefreshLogPage();
+        else if (index == 8)
+            RefreshProgramsPage();
     }
+
+    private void RefreshProgramsPage()
+    {
+        var svc = ProgramService.Instance;
+        foreach (var p in svc.Catalog.Items)
+        {
+            svc.Catalog.RefreshSize(p);
+            svc.Runner.SyncStatus(p);
+        }
+        ProgList.ItemsSource = null;
+        ProgList.ItemsSource = svc.Catalog.Items;
+    }
+
+    private IEnumerable<UserProgram> SelectedPrograms()
+        => ProgramService.Instance.Catalog.Items.Where(p => p.IsSelected);
+
+    private async void ProgAdd_Click(object? sender, RoutedEventArgs e)
+    {
+        var dlg = new ProgramAddDialog();
+        await dlg.ShowDialog(this);
+        if (!dlg.Confirmed) return;
+        try
+        {
+            ProgramService.Instance.Catalog.Create(
+                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
+            RefreshProgramsPage();
+            StatusText.Text = Loc.T("Prog.Add") + " OK";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+            AppLog.Error(ex, "添加程序失败");
+        }
+    }
+
+    private async void ProgDelete_Click(object? sender, RoutedEventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            StatusText.Text = Loc.T("Prog.SelectFirst");
+            return;
+        }
+        await ProgramService.Instance.Runner.DeleteManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgStart_Click(object? sender, RoutedEventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            StatusText.Text = Loc.T("Prog.SelectFirst");
+            return;
+        }
+        await ProgramService.Instance.Runner.StartManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgStop_Click(object? sender, RoutedEventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            StatusText.Text = Loc.T("Prog.SelectFirst");
+            return;
+        }
+        await ProgramService.Instance.Runner.StopManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowStart_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        try { await ProgramService.Instance.Runner.StartAsync(prog); }
+        catch (Exception ex) { StatusText.Text = ex.Message; }
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowEdit_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        var win = new ProgramEditorWindow(prog);
+        await win.ShowDialog(this);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowDelete_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
+        catch (Exception ex) { StatusText.Text = ex.Message; }
+        RefreshProgramsPage();
+    }
+
+    private void RefreshLogPage()
+    {
+        var items = AppLog.Snapshot(LogErrorsOnlyCheck.IsChecked == true);
+        LogList.ItemsSource = items;
+        if (items.Count > 0)
+            LogList.ScrollIntoView(items[^1]);
+    }
+
+    private void LogFilter_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (PageLog.IsVisible)
+            RefreshLogPage();
+    }
+
+    private void LogClear_Click(object? sender, RoutedEventArgs e) => AppLog.Clear();
 
     private void RefreshAboutPage()
     {

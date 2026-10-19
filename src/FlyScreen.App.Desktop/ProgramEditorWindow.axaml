@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ProgramEditorWindow"
+        Title="编辑程序"
+        Width="780" Height="560"
+        WindowStartupLocation="CenterOwner"
+        MinWidth="640" MinHeight="420">
+  <DockPanel Margin="12">
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0">
+        <TextBlock x:Name="BpHintText" Foreground="{DynamicResource Muted}" FontSize="11" VerticalAlignment="Center"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <Button x:Name="BtnSave" Content="保存" Click="Save_Click"/>
+        <Button x:Name="BtnDebug" Content="调试" Click="Debug_Click"/>
+        <Button x:Name="BtnBreakpoint" Content="断点" Click="Breakpoint_Click"/>
+        <Button x:Name="BtnClearBp" Content="取消断点" Click="ClearBp_Click"/>
+        <Button x:Name="BtnClearAllBp" Content="清除断点" Click="ClearAllBp_Click"/>
+        <Button x:Name="BtnRun" Content="运行" Classes="accent" Click="Run_Click"/>
+        <Button x:Name="BtnStop" Content="停止" Click="Stop_Click"/>
+      </StackPanel>
+    </DockPanel>
+    <Grid ColumnDefinitions="52,*">
+      <TextBox x:Name="LineNumbers" IsReadOnly="True" IsTabStop="False"
+               Background="{DynamicResource SubtleBg}" Foreground="{DynamicResource Muted}"
+               TextAlignment="Right" Padding="4,8" AcceptsReturn="True"
+               FontFamily="Consolas, Cascadia Mono, Menlo"/>
+      <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
+               TextWrapping="NoWrap" Padding="8"
+               FontFamily="Consolas, Cascadia Mono, Menlo"
+               TextChanged="CodeBox_TextChanged"/>
+    </Grid>
+  </DockPanel>
+</Window>

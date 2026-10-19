@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FlyScreen.AppMaui.ProgramAddPage"
+             Title="添加程序"
+             BackgroundColor="{DynamicResource WinBg}">
+  <Grid Padding="24">
+    <Border Style="{StaticResource Card}"
+            MaximumWidthRequest="440"
+            MinimumWidthRequest="280"
+            VerticalOptions="Center"
+            HorizontalOptions="Center"
+            Padding="24">
+      <ScrollView>
+        <VerticalStackLayout Spacing="10">
+          <Label x:Name="LblName" Text="程序名称" FontAttributes="Bold" />
+          <Entry x:Name="NameBox" Placeholder="例如：测试脚本" HeightRequest="44"
+                 TextChanged="NameBox_TextChanged" />
+
+          <Label x:Name="LblLang" Text="开发语言" FontAttributes="Bold" Margin="0,6,0,0" />
+          <Border Stroke="{DynamicResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 6"
+                  BackgroundColor="{DynamicResource CardBg}" HeightRequest="48" Padding="8,0">
+            <Picker x:Name="LangPicker" Title="语言" VerticalOptions="Center"
+                    MinimumHeightRequest="40" SelectedIndexChanged="LangPicker_Changed" />
+          </Border>
+
+          <Label x:Name="LblNs" Text="命名空间" FontAttributes="Bold" Margin="0,6,0,0" />
+          <Entry x:Name="NamespaceBox" HeightRequest="44" />
+
+          <Label x:Name="LblFile" Text="文件名称" FontAttributes="Bold" Margin="0,6,0,0" />
+          <Entry x:Name="FileNameBox" HeightRequest="44" />
+
+          <HorizontalStackLayout Spacing="12" Margin="0,20,0,0" HorizontalOptions="End">
+            <Button x:Name="CancelBtn" Text="取消" Style="{StaticResource NormalBtn}"
+                    WidthRequest="96" Clicked="Cancel_Clicked" />
+            <Button x:Name="SaveBtn" Text="保存" Style="{StaticResource SoftBlueBtn}"
+                    WidthRequest="96" Clicked="Save_Clicked" />
+          </HorizontalStackLayout>
+        </VerticalStackLayout>
+      </ScrollView>
+    </Border>
+  </Grid>
+</ContentPage>

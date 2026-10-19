@@ -43,6 +43,9 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     private bool _cursorWanted;
     private bool _cursorScheduled;
     private bool _cursorVisible;
+    private bool _sessionActive;
+    /// <summary>false 时只保留手势注入坐标，不画无障碍指针（改由系统悬浮窗画，后台也能看见）。</summary>
+    private bool _drawCursor = true;
     private bool _reportedAddFailure;
     private bool _shift;
     private bool _ctrl;
@@ -100,7 +103,8 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         {
             _nx = (float)Math.Clamp(entryX, 0, 1);
             _ny = (float)Math.Clamp(entryY, 0, 1);
-            _cursorWanted = true;
+            _sessionActive = true;
+            _cursorWanted = _drawCursor;
         }
         ScheduleCursor();
     }
@@ -108,9 +112,25 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     public void EndSession()
     {
         lock (_cursorGate)
+        {
+            _sessionActive = false;
             _cursorWanted = false;
+        }
         ScheduleCursor();
         _ui.Post(ReleaseRemoteSession);
+    }
+
+    /// <summary>
+    /// 有「显示在其他应用上层」时关掉无障碍箭头，改用系统悬浮窗，避免切到其他应用后看不见指针。
+    /// </summary>
+    public void SetDrawCursor(bool enabled)
+    {
+        lock (_cursorGate)
+        {
+            _drawCursor = enabled;
+            _cursorWanted = _sessionActive && _drawCursor;
+        }
+        ScheduleCursor();
     }
 
     public void MoveAbsolute(double nx, double ny)
@@ -119,9 +139,10 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         {
             _nx = (float)Math.Clamp(nx, 0, 1);
             _ny = (float)Math.Clamp(ny, 0, 1);
-            _cursorWanted = true;
+            _cursorWanted = _sessionActive && _drawCursor;
         }
-        ScheduleCursor();
+        if (_drawCursor)
+            ScheduleCursor();
     }
 
     public void MoveRelative(int dx, int dy)
@@ -132,9 +153,10 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             var h = Math.Max(_screenH, 1);
             _nx = Math.Clamp(_nx + dx / (float)w, 0f, 1f);
             _ny = Math.Clamp(_ny + dy / (float)h, 0f, 1f);
-            _cursorWanted = true;
+            _cursorWanted = _sessionActive && _drawCursor;
         }
-        ScheduleCursor();
+        if (_drawCursor)
+            ScheduleCursor();
     }
 
     public void Click(int button, bool down)

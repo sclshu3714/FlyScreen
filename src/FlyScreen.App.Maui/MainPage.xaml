@@ -331,6 +331,76 @@
                     </Border>
                 </Grid>
 
+                <!-- ===== 程序 ===== -->
+                <Grid x:Name="PagePrograms" IsVisible="False">
+                    <Border Style="{StaticResource Card}" Padding="16">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <Label x:Name="ProgTitleText" Text="程序" FontSize="15" FontAttributes="Bold" />
+                            <Label x:Name="ProgHintText" Grid.Row="1" Text="管理可单文件运行的脚本与程序。"
+                                   TextColor="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,8" />
+                            <ScrollView Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                                <HorizontalStackLayout Spacing="8">
+                                    <Button x:Name="ProgAddBtn" Text="添加程序" Style="{StaticResource SoftBlueBtn}" Clicked="ProgAdd_Clicked" />
+                                    <Button x:Name="ProgDeleteBtn" Text="删除程序" Style="{StaticResource SoftBlueBtn}" Clicked="ProgDelete_Clicked" />
+                                    <Button x:Name="ProgStartBtn" Text="启动程序" Style="{StaticResource SoftBlueBtn}" Clicked="ProgStart_Clicked" />
+                                    <Button x:Name="ProgStopBtn" Text="停止程序" Style="{StaticResource SoftBlueBtn}" Clicked="ProgStop_Clicked" />
+                                </HorizontalStackLayout>
+                            </ScrollView>
+                            <CollectionView x:Name="ProgList" Grid.Row="3" SelectionMode="None">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="32,*,Auto" Padding="0,6" ColumnSpacing="6">
+                                            <CheckBox IsChecked="{Binding IsSelected}" VerticalOptions="Center" />
+                                            <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                                <Label Text="{Binding Name}" FontAttributes="Bold" />
+                                                <Label Text="{Binding LanguageText}" FontSize="11" TextColor="{DynamicResource Muted}" />
+                                                <HorizontalStackLayout Spacing="8">
+                                                    <Label Text="{Binding SizeText}" FontSize="11" TextColor="{DynamicResource Muted}" />
+                                                    <Label Text="{Binding StatusText}" FontSize="11" TextColor="{DynamicResource Muted}" />
+                                                </HorizontalStackLayout>
+                                            </VerticalStackLayout>
+                                            <HorizontalStackLayout Grid.Column="2" Spacing="4">
+                                                <Button Text="启动" Style="{StaticResource NormalBtn}" Padding="8,2"
+                                                        CommandParameter="{Binding}" Clicked="ProgRowStart_Clicked" />
+                                                <Button Text="编辑" Style="{StaticResource NormalBtn}" Padding="8,2"
+                                                        CommandParameter="{Binding}" Clicked="ProgRowEdit_Clicked" />
+                                                <Button Text="删除" Style="{StaticResource NormalBtn}" Padding="8,2"
+                                                        CommandParameter="{Binding}" Clicked="ProgRowDelete_Clicked" />
+                                            </HorizontalStackLayout>
+                                        </Grid>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- ===== 日志 ===== -->
+                <Grid x:Name="PageLog" IsVisible="False">
+                    <Border Style="{StaticResource Card}" Padding="16">
+                        <Grid RowDefinitions="Auto,Auto,*">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                <Label x:Name="LogTitleText" Text="日志" FontSize="15" FontAttributes="Bold" VerticalOptions="Center" />
+                                <HorizontalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center" Margin="12,0,0,0">
+                                    <CheckBox x:Name="LogErrorsOnlyCheck" VerticalOptions="Center" CheckedChanged="LogFilter_Changed" />
+                                    <Label x:Name="LogErrorsOnlyLabel" Text="仅错误" VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+                                <Button x:Name="LogClearBtn" Grid.Column="2" Text="清除" Margin="12,0,0,0"
+                                        Style="{StaticResource NormalBtn}" Clicked="LogClear_Clicked" />
+                            </Grid>
+                            <Label x:Name="LogHintText" Grid.Row="1" Text="收录运行中的状态与错误。新记录在底部。"
+                                   TextColor="{DynamicResource Muted}" FontSize="12" Margin="0,8,0,8" />
+                            <CollectionView x:Name="LogList" Grid.Row="2" SelectionMode="None">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Label Text="{Binding Display}" FontSize="12" Margin="0,3" LineBreakMode="WordWrap" />
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </Grid>
+                    </Border>
+                </Grid>
+
                 <!-- ===== 关于 ===== -->
                 <Grid x:Name="PageAbout" IsVisible="False">
                     <Border Style="{StaticResource Card}" Padding="16">
@@ -454,7 +524,29 @@
                                        Margin="10,0,0,0" />
                             </HorizontalStackLayout>
                         </Grid>
+                        <Grid HeightRequest="40" Margin="8,2">
+                            <Button x:Name="NavPrograms" Style="{StaticResource SideNavBtn}" Text=" "
+                                    Margin="0" Clicked="Nav_Clicked" CommandParameter="programs" />
+                            <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
+                                <Path Data="M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.83L22.17,12L16,18.17V15.59L19.59,12M1.83,12L8,5.83V8.41L4.41,12L8,15.59V18.17L1.83,12Z"
+                                      Fill="#14B8A6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
+                                      VerticalOptions="Center" />
+                                <Label x:Name="NavProgramsText" Text="程序" Style="{StaticResource SideNavLabel}"
+                                       Margin="10,0,0,0" />
+                            </HorizontalStackLayout>
+                        </Grid>
                         <BoxView HeightRequest="1" Color="{DynamicResource Line}" Margin="16,10,16,6" />
+                        <Grid HeightRequest="40" Margin="8,2">
+                            <Button x:Name="NavLog" Style="{StaticResource SideNavBtn}" Text=" "
+                                    Margin="0" Clicked="Nav_Clicked" CommandParameter="log" />
+                            <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
+                                <Path Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13M8,13H16V15H8V13M8,17H13V19H8V17Z"
+                                      Fill="#F97316" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
+                                      VerticalOptions="Center" />
+                                <Label x:Name="NavLogText" Text="日志" Style="{StaticResource SideNavLabel}"
+                                       Margin="10,0,0,0" />
+                            </HorizontalStackLayout>
+                        </Grid>
                         <Grid HeightRequest="40" Margin="8,2">
                             <Button x:Name="NavAbout" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="about" />
@@ -482,7 +574,8 @@
 
                 <VerticalStackLayout Grid.Row="2" Margin="12,8,12,0" Spacing="4">
                     <Label x:Name="PlatformLabel" TextColor="{DynamicResource Muted}" FontSize="11" LineBreakMode="WordWrap" />
-                    <Label x:Name="StatusLabel" Text="就绪" TextColor="{DynamicResource Muted}" FontSize="11" LineBreakMode="WordWrap" />
+                    <Label x:Name="StatusLabel" Text="就绪" TextColor="{DynamicResource Muted}" FontSize="11"
+                           LineBreakMode="TailTruncation" MaxLines="2" />
                 </VerticalStackLayout>
             </Grid>
         </Grid>

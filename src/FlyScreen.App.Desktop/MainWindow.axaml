@@ -2,6 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:models="using:FlyScreen.Models"
         xmlns:net="using:FlyScreen.Services.Network"
+        xmlns:diag="using:FlyScreen.Services"
+        xmlns:prog="using:FlyScreen.Services.Programs"
         x:Class="FlyScreen.DesktopUi.MainWindow"
         Title="玄鸟"
         Icon="/Assets/app_icon.png"
@@ -21,6 +23,8 @@
     <StreamGeometry x:Key="GeoShare">M18,16.08C17.24,16.08 16.56,16.38 16.04,16.85L8.91,12.7C8.96,12.47 9,12.24 9,12C9,11.76 8.96,11.53 8.91,11.3L15.96,7.19C16.5,7.69 17.21,8 18,8A3,3 0 0,0 21,5A3,3 0 0,0 18,2A3,3 0 0,0 15,5C15,5.24 15.04,5.47 15.09,5.7L8.04,9.81C7.5,9.31 6.79,9 6,9A3,3 0 0,0 3,12A3,3 0 0,0 6,15C6.79,15 7.5,14.69 8.04,14.19L15.16,18.34C15.11,18.55 15.08,18.77 15.08,19C15.08,20.61 16.39,21.91 18,21.91C19.61,21.91 20.92,20.61 20.92,19A2.92,2.92 0 0,0 18,16.08Z</StreamGeometry>
     <StreamGeometry x:Key="GeoSecurity">M12,1 L3,5 V11 C3,16.55 6.84,21.74 12,23 C17.16,21.74 21,16.55 21,11 V5 Z</StreamGeometry>
     <StreamGeometry x:Key="GeoAdvanced">M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoPrograms">M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.83L22.17,12L16,18.17V15.59L19.59,12M1.83,12L8,5.83V8.41L4.41,12L8,15.59V18.17L1.83,12Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoLog">M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13M8,13H16V15H8V13M8,17H13V19H8V17Z</StreamGeometry>
     <StreamGeometry x:Key="GeoAbout">M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z</StreamGeometry>
     <StreamGeometry x:Key="GeoHelp">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,19H11V17H13M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7C10.9,7 10,7.89 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,10.1 15.55,11.05 14.07,12.25L15.07,11.25Z</StreamGeometry>
     <StreamGeometry x:Key="GeoDelete">M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z</StreamGeometry>
@@ -371,7 +375,23 @@
               <TextBlock x:Name="NavAdvancedText" Classes="nav-label" Text="高级"/>
             </StackPanel>
           </RadioButton>
+          <RadioButton x:Name="NavPrograms" Classes="nav" GroupName="SideNav" IsCheckedChanged="Nav_Changed">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Viewbox Classes="nav-icon">
+                <Path Fill="#14B8A6" Data="{StaticResource GeoPrograms}"/>
+              </Viewbox>
+              <TextBlock x:Name="NavProgramsText" Classes="nav-label" Text="程序"/>
+            </StackPanel>
+          </RadioButton>
           <Border Height="1" Background="{DynamicResource Line}" Margin="16,10,16,6"/>
+          <RadioButton x:Name="NavLog" Classes="nav" GroupName="SideNav" IsCheckedChanged="Nav_Changed">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Viewbox Classes="nav-icon">
+                <Path Fill="#F97316" Data="{StaticResource GeoLog}"/>
+              </Viewbox>
+              <TextBlock x:Name="NavLogText" Classes="nav-label" Text="日志"/>
+            </StackPanel>
+          </RadioButton>
           <RadioButton x:Name="NavAbout" Classes="nav" GroupName="SideNav" IsCheckedChanged="Nav_Changed">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
               <Viewbox Classes="nav-icon">
@@ -394,7 +414,9 @@
           <TextBlock x:Name="PlatformStatusText" Foreground="{DynamicResource Muted}" FontSize="11"
                      TextWrapping="Wrap" MaxHeight="48" TextTrimming="CharacterEllipsis"/>
           <TextBlock x:Name="StatusText" Foreground="{DynamicResource Muted}" FontSize="11"
-                     TextWrapping="Wrap" MaxHeight="40" Text="就绪"/>
+                     TextWrapping="Wrap" MaxHeight="36" TextTrimming="CharacterEllipsis"
+                     ToolTip.Tip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                     Text="就绪"/>
           <StackPanel x:Name="PlatformActionsPanel" Spacing="4"/>
         </StackPanel>
       </Grid>
@@ -656,6 +678,66 @@
                   </ListBox.ItemTemplate>
                 </ListBox>
               </Panel>
+            </Border>
+          </Grid>
+
+          <!-- 程序 -->
+          <Grid x:Name="PagePrograms" IsVisible="False" MinHeight="420">
+            <Border Classes="card" Padding="16">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,10">
+                  <TextBlock x:Name="ProgTitleText" Text="程序" FontSize="15" FontWeight="SemiBold"/>
+                  <TextBlock x:Name="ProgHintText" Text="管理可单文件运行的脚本与程序。"
+                             Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap"/>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="ProgAddBtn" Content="添加程序" Click="ProgAdd_Click"/>
+                    <Button x:Name="ProgDeleteBtn" Content="删除程序" Click="ProgDelete_Click"/>
+                    <Button x:Name="ProgStartBtn" Content="启动程序" Click="ProgStart_Click"/>
+                    <Button x:Name="ProgStopBtn" Content="停止程序" Click="ProgStop_Click"/>
+                  </StackPanel>
+                </StackPanel>
+                <ListBox x:Name="ProgList" Background="{DynamicResource ListBg}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate DataType="prog:UserProgram">
+                      <Grid ColumnDefinitions="28,*,90,70,70,Auto" Margin="0,4">
+                        <CheckBox IsChecked="{Binding IsSelected}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding LanguageText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding SizeText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="4" Text="{Binding StatusText}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
+                          <Button Content="启动" Tag="{Binding}" Click="ProgRowStart_Click" Padding="8,2"/>
+                          <Button Content="编辑" Tag="{Binding}" Click="ProgRowEdit_Click" Padding="8,2"/>
+                          <Button Content="删除" Tag="{Binding}" Click="ProgRowDelete_Click" Padding="8,2"/>
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
+            </Border>
+          </Grid>
+
+          <!-- 日志 -->
+          <Grid x:Name="PageLog" IsVisible="False" MinHeight="420">
+            <Border Classes="card" Padding="16">
+              <DockPanel>
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+                  <TextBlock x:Name="LogTitleText" Text="日志" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  <CheckBox x:Name="LogErrorsOnlyCheck" Grid.Column="1" Content="仅错误" VerticalAlignment="Center"
+                            Margin="12,0,0,0" IsCheckedChanged="LogFilter_Changed"/>
+                  <Button x:Name="LogClearBtn" Grid.Column="2" Content="清除" Margin="12,0,0,0" Click="LogClear_Click"/>
+                </Grid>
+                <TextBlock x:Name="LogHintText" DockPanel.Dock="Top" Text="收录运行中的状态与错误。新记录在底部。"
+                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                <ListBox x:Name="LogList" Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate DataType="diag:AppLogEntry">
+                      <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,2"/>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
             </Border>
           </Grid>
 

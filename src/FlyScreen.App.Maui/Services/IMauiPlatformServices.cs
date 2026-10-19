@@ -13,6 +13,12 @@ public interface IMauiPlatformServices
     /// <summary>是否接受对端键鼠注入（桌面：须先 SwitchFocus 进入被控）。</summary>
     bool AcceptsRemoteInput { get; }
 
+    /// <summary>
+    /// 手机触控板页前台：屏蔽对端「穿透」键鼠（避免与触控板抢控制）。
+    /// 电脑主动穿入或 App 退后台时会自动解除。不影响本机外接物理鼠标。
+    /// </summary>
+    void SetRemotePointerSuppressed(bool suppressed);
+
     void StartDesktopInput();
     void StopDesktopInput();
     void SetEasyMouse(bool enabled);
@@ -53,6 +59,7 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public bool IsFocusOnLocalMachine => true;
     public bool AcceptsRemoteInput => false;
 
+    public void SetRemotePointerSuppressed(bool suppressed) { }
     public void StartDesktopInput() { }
     public void StopDesktopInput() { }
     public void SetEasyMouse(bool enabled) { }
