@@ -149,10 +149,9 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     {
         lock (_cursorGate)
         {
-            var w = Math.Max(_screenW, 1);
-            var h = Math.Max(_screenH, 1);
-            _nx = Math.Clamp(_nx + dx / (float)w, 0f, 1f);
-            _ny = Math.Clamp(_ny + dy / (float)h, 0f, 1f);
+            // 与悬浮窗一致：按 1920×1080 参考桌面换算，避免电脑像素在手机上乱跳
+            _nx = Math.Clamp(_nx + dx / 1920f, 0f, 1f);
+            _ny = Math.Clamp(_ny + dy / 1080f, 0f, 1f);
             _cursorWanted = _sessionActive && _drawCursor;
         }
         if (_drawCursor)

@@ -34,7 +34,7 @@ public sealed class ProgramRunner
     {
         if (IsRunning(prog.Id))
         {
-            AppLog.Info($"程序「{prog.Name}」已在运行");
+            AppLog.Info($"程序「{prog.Name}」已在运行", prog.Id, prog.Name);
             return;
         }
 
@@ -64,14 +64,14 @@ public sealed class ProgramRunner
         catch (Exception ex)
         {
             prog.RuntimeStatus = ProgramStatus.Error;
-            AppLog.Error(ex, $"启动「{prog.Name}」失败（请确认已安装 {prog.LanguageText} 运行时）");
+            AppLog.Error(ex, $"启动「{prog.Name}」失败（请确认已安装 {prog.LanguageText} 运行时）", prog.Id, prog.Name);
             throw;
         }
 
         if (process == null)
         {
             prog.RuntimeStatus = ProgramStatus.Error;
-            AppLog.Error($"启动「{prog.Name}」失败：无法创建进程");
+            AppLog.Error($"启动「{prog.Name}」失败：无法创建进程", prog.Id, prog.Name);
             return;
         }
 
@@ -80,7 +80,7 @@ public sealed class ProgramRunner
         prog.RuntimeStatus = ProgramStatus.Running;
         AppLog.Info(debug
             ? $"调试启动「{prog.Name}」({prog.LanguageText})"
-            : $"已启动「{prog.Name}」({prog.LanguageText})");
+            : $"已启动「{prog.Name}」({prog.LanguageText})", prog.Id, prog.Name);
 
         _ = Task.Run(() => PumpOutputAsync(prog, entry), CancellationToken.None);
         await Task.CompletedTask.ConfigureAwait(false);
@@ -98,7 +98,7 @@ public sealed class ProgramRunner
 
         entry.Stopping = true;
         prog.RuntimeStatus = ProgramStatus.Stopping;
-        AppLog.Info($"正在停止「{prog.Name}」…");
+        AppLog.Info($"正在停止「{prog.Name}」…", prog.Id, prog.Name);
 
         try
         {
@@ -107,13 +107,13 @@ public sealed class ProgramRunner
         }
         catch (Exception ex)
         {
-            AppLog.Warn($"停止「{prog.Name}」: {ex.Message}");
+            AppLog.Warn($"停止「{prog.Name}」: {ex.Message}", prog.Id, prog.Name);
         }
         finally
         {
             _running.TryRemove(prog.Id, out _);
             prog.RuntimeStatus = ProgramStatus.Idle;
-            AppLog.Info($"已停止「{prog.Name}」");
+            AppLog.Info($"已停止「{prog.Name}」", prog.Id, prog.Name);
             try { entry.Process.Dispose(); } catch { /* ignore */ }
         }
     }
@@ -123,7 +123,7 @@ public sealed class ProgramRunner
         foreach (var p in programs)
         {
             try { await StartAsync(p, debug).ConfigureAwait(false); }
-            catch (Exception ex) { AppLog.Error(ex, $"启动「{p.Name}」失败"); }
+            catch (Exception ex) { AppLog.Error(ex, $"启动「{p.Name}」失败", p.Id, p.Name); }
         }
     }
 
@@ -132,7 +132,7 @@ public sealed class ProgramRunner
         foreach (var p in programs)
         {
             try { await StopAsync(p).ConfigureAwait(false); }
-            catch (Exception ex) { AppLog.Error(ex, $"停止「{p.Name}」失败"); }
+            catch (Exception ex) { AppLog.Error(ex, $"停止「{p.Name}」失败", p.Id, p.Name); }
         }
     }
 
@@ -148,7 +148,7 @@ public sealed class ProgramRunner
         foreach (var p in programs.ToList())
         {
             try { await DeleteAsync(p).ConfigureAwait(false); }
-            catch (Exception ex) { AppLog.Error(ex, $"删除「{p.Name}」失败"); }
+            catch (Exception ex) { AppLog.Error(ex, $"删除「{p.Name}」失败", p.Id, p.Name); }
         }
     }
 
@@ -158,23 +158,23 @@ public sealed class ProgramRunner
         try
         {
             var outTask = ReadLinesAsync(p.StandardOutput, line =>
-                AppLog.Info($"[{prog.Name}] {line}"));
+                AppLog.Info($"[{prog.Name}] {line}", prog.Id, prog.Name));
             var errTask = ReadLinesAsync(p.StandardError, line =>
-                AppLog.Warn($"[{prog.Name}] {line}"));
+                AppLog.Warn($"[{prog.Name}] {line}", prog.Id, prog.Name));
             await Task.WhenAll(outTask, errTask).ConfigureAwait(false);
             await p.WaitForExitAsync().ConfigureAwait(false);
             entry.ExitCode = p.ExitCode;
             if (!entry.Stopping)
             {
                 if (p.ExitCode == 0)
-                    AppLog.Info($"「{prog.Name}」已结束 (exit={p.ExitCode})");
+                    AppLog.Info($"「{prog.Name}」已结束 (exit={p.ExitCode})", prog.Id, prog.Name);
                 else
-                    AppLog.Error($"「{prog.Name}」异常结束 (exit={p.ExitCode})");
+                    AppLog.Error($"「{prog.Name}」异常结束 (exit={p.ExitCode})", prog.Id, prog.Name);
             }
         }
         catch (Exception ex)
         {
-            AppLog.Warn($"「{prog.Name}」输出读取: {ex.Message}");
+            AppLog.Warn($"「{prog.Name}」输出读取: {ex.Message}", prog.Id, prog.Name);
         }
         finally
         {

@@ -4,6 +4,7 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 
 namespace FlyScreen.Mac;
 
@@ -48,6 +49,7 @@ public sealed class MacAppHost : IAsyncDisposable
         Settings = AppSettings.Load();
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
+        ProgramShareService.Attach(Connections);
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);

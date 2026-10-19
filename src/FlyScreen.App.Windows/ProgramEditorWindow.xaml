@@ -6,41 +6,183 @@
         MinHeight="420" MinWidth="640"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WinBg}"
-        FontFamily="Consolas, Microsoft YaHei UI, Cascadia Mono"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13">
-  <DockPanel Margin="12">
-    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="False">
-      <TextBlock x:Name="TitleText" DockPanel.Dock="Left" FontSize="14" FontWeight="SemiBold"
-                 FontFamily="Microsoft YaHei UI" VerticalAlignment="Center" Margin="0,0,12,0"/>
-      <TextBlock x:Name="BpHintText" DockPanel.Dock="Right" FontFamily="Microsoft YaHei UI"
-                 Foreground="#6B7280" FontSize="11" VerticalAlignment="Center"/>
-      <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-        <Button x:Name="BtnSave" Content="保存" Margin="0,0,6,0" Padding="10,4" Click="Save_Click"/>
-        <Button x:Name="BtnDebug" Content="调试" Margin="0,0,6,0" Padding="10,4" Click="Debug_Click"/>
-        <Button x:Name="BtnBreakpoint" Content="断点" Margin="0,0,6,0" Padding="10,4" Click="Breakpoint_Click"/>
-        <Button x:Name="BtnClearBp" Content="取消断点" Margin="0,0,6,0" Padding="10,4" Click="ClearBp_Click"/>
-        <Button x:Name="BtnClearAllBp" Content="清除断点" Margin="0,0,6,0" Padding="10,4" Click="ClearAllBp_Click"/>
-        <Button x:Name="BtnRun" Content="运行" Margin="0,0,6,0" Padding="10,4" Click="Run_Click"
-                Background="#2563EB" Foreground="White" BorderThickness="0"/>
-        <Button x:Name="BtnStop" Content="停止" Padding="10,4" Click="Stop_Click"/>
-      </StackPanel>
+  <Window.Resources>
+    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
+    <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
+    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+    <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
+    <SolidColorBrush x:Key="Placeholder" Color="#9CA3AF"/>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <Geometry x:Key="GeoSave">M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z</Geometry>
+    <Geometry x:Key="GeoBug">M14,12H10V10H14M14,16H10V14H14M20,8H17.19C16.74,7.22 16.12,6.55 15.37,6.04L17,4.41L15.59,3L13.42,5.17C12.96,5.06 12.49,5 12,5C11.51,5 11.04,5.06 10.59,5.17L8.41,3L7,4.41L8.62,6.04C7.88,6.55 7.26,7.22 6.81,8H4V10H6.09C6.04,10.33 6,10.66 6,11V12H4V14H6V15C6,15.34 6.04,15.67 6.09,16H4V18H6.81C7.85,19.79 9.78,21 12,21C14.22,21 16.15,19.79 17.19,18H20V16H17.91C17.96,15.67 18,15.34 18,15V14H20V12H18V11C18,10.66 17.96,10.33 17.91,10H20V8Z</Geometry>
+    <Geometry x:Key="GeoClear">M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z</Geometry>
+    <Geometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</Geometry>
+    <Geometry x:Key="GeoStop">M6,6H18V18H6V6Z</Geometry>
+    <Style x:Key="EditorToolBtn" TargetType="Button">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinWidth" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
+                    BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
+              <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}"
+                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                  TextBlock.Foreground="{TemplateBinding Foreground}"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="EditorRunBtn" TargetType="Button" BasedOn="{StaticResource EditorToolBtn}">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource Blue}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+              <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Content="{TemplateBinding Content}"
+                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                  TextBlock.Foreground="White"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BluePress}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="EditorToolIcon" TargetType="Viewbox">
+      <Setter Property="Width" Value="16"/>
+      <Setter Property="Height" Value="16"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding ToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+          <Setter Property="Margin" Value="0"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="EditorToolLabel" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding ToolsCompact, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+          <Setter Property="Visibility" Value="Collapsed"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
+    </Style>
+  </Window.Resources>
+
+  <Border Background="{DynamicResource WinBg}" Padding="12">
+    <DockPanel>
+      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+        <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
+                   Foreground="{DynamicResource Muted}" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <Grid x:Name="ToolBarHost" SizeChanged="ToolBarHost_SizeChanged">
+          <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left">
+            <Button x:Name="BtnSave" Style="{StaticResource EditorToolBtn}" Click="Save_Click" ToolTip="保存">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoSave}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnSaveText" Text="保存" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnDebug" Style="{StaticResource EditorToolBtn}" Click="Debug_Click" ToolTip="调试">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoBug}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnDebugText" Text="调试" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnClearAllBp" Style="{StaticResource EditorToolBtn}" Click="ClearAllBp_Click" ToolTip="清除断点">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoClear}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnClearAllBpText" Text="清除断点" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnRun" Style="{StaticResource EditorRunBtn}" Click="Run_Click" ToolTip="运行">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoPlay}" Fill="White"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnRunText" Text="运行" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnStop" Style="{StaticResource EditorToolBtn}" Margin="0" Click="Stop_Click" ToolTip="停止">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoStop}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnStopText" Text="停止" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </Grid>
+      </DockPanel>
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="48"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <TextBox x:Name="LineNumbers" Grid.Column="0" IsReadOnly="True" IsTabStop="False" Focusable="False"
+                 Cursor="Hand" ToolTip="点击行号添加断点，再点击取消"
+                 Background="{DynamicResource SubtleBg}" Foreground="{DynamicResource Placeholder}"
+                 BorderThickness="1,1,0,1" BorderBrush="{DynamicResource ControlBorder}"
+                 Padding="4,8" TextAlignment="Right"
+                 VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                 FontFamily="Consolas, Cascadia Mono"
+                 PreviewMouseLeftButtonDown="LineNumbers_PreviewMouseLeftButtonDown"/>
+        <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
+                 TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Auto" BorderBrush="{DynamicResource ControlBorder}"
+                 Padding="8" FontFamily="Consolas, Cascadia Mono"
+                 SelectionChanged="CodeBox_SelectionChanged"
+                 TextChanged="CodeBox_TextChanged"/>
+      </Grid>
     </DockPanel>
-    <Grid>
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="48"/>
-        <ColumnDefinition Width="*"/>
-      </Grid.ColumnDefinitions>
-      <TextBox x:Name="LineNumbers" Grid.Column="0" IsReadOnly="True" IsTabStop="False"
-               Background="#F3F4F6" Foreground="#9CA3AF" BorderThickness="1,1,0,1"
-               BorderBrush="#D1D5DB" Padding="4,8" TextAlignment="Right"
-               VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
-               FontFamily="Consolas, Cascadia Mono"/>
-      <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
-               TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
-               HorizontalScrollBarVisibility="Auto" BorderBrush="#D1D5DB"
-               Padding="8" FontFamily="Consolas, Cascadia Mono"
-               SelectionChanged="CodeBox_SelectionChanged"
-               TextChanged="CodeBox_TextChanged"/>
-    </Grid>
-  </DockPanel>
+  </Border>
 </Window>

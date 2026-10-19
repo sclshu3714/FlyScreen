@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Programs;
 
@@ -19,6 +20,8 @@ public partial class ProgramAddDialog : Window
     public ProgramAddDialog()
     {
         InitializeComponent();
+        ThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => ThemeService.ApplyToChildWindow(this);
         Title = Loc.T("Prog.DlgAddTitle");
         LblName.Text = Loc.T("Prog.DlgName");
         LblLang.Text = Loc.T("Prog.DlgLang");
@@ -29,7 +32,6 @@ public partial class ProgramAddDialog : Window
 
         foreach (var lang in ProgramLanguageInfo.All)
             LangCombo.Items.Add(new LangItem(lang));
-        LangCombo.DisplayMemberPath = nameof(LangItem.Display);
         LangCombo.SelectedIndex = 0;
 
         NamespaceBox.GotFocus += (_, _) => _nsManual = true;
@@ -101,10 +103,11 @@ public partial class ProgramAddDialog : Window
         Close();
     }
 
-    private sealed class LangItem
+    internal sealed class LangItem
     {
         public LangItem(ProgramLanguage language) => Language = language;
         public ProgramLanguage Language { get; }
         public string Display => ProgramLanguageInfo.DisplayName(Language);
+        public override string ToString() => Display;
     }
 }

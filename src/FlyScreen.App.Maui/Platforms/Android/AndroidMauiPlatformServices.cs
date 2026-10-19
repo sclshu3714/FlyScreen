@@ -25,6 +25,8 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private bool _promptedTouchInjection;
     private bool _remotePointerSuppressed;
     private bool _touchpadWantsSuppress;
+    private string? _lastOverlayWarn;
+    private long _lastOverlayWarnTicks;
 
     public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
     {
@@ -82,6 +84,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         if (_remotePointerSuppressed || !_receiving) return;
 
+        // 无障碍只更新点击坐标，不画（画交给系统悬浮窗）
         if (FlyScreenInputAccessibilityService.IsEnabled)
             FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
 
@@ -122,16 +125,24 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         _remotePointerSuppressed = false;
         _receiving = true;
 
+        // 禁止应用内 DecorView 箭头——它只活在玄鸟窗口里，退后台必消失
+        VirtualCursorOverlay.Hide();
+
         if (FlyScreenInputAccessibilityService.IsEnabled)
         {
-            // 先开无障碍会话；悬浮窗未确认前保持画箭头
-            FlyScreenInputAccessibilityService.Instance!.SetDrawCursor(true);
+            // 有悬浮窗权限时不画无障碍箭头，避免双指针乱跳
+            FlyScreenInputAccessibilityService.Instance!.SetDrawCursor(!FlyScreenCursorOverlay.CanDraw());
             FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
         }
 
+        if (FlyScreenCursorOverlay.CanDraw())
+            FlyScreenCursorOverlay.ShowAt(entryX, entryY);
+        else
+            PromptOverlayOnce();
+
         UpdateCursorVisual(entryX, entryY, relative: false, 0, 0);
         ControlTargetChanged?.Invoke(null);
-        AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} a11y={FlyScreenInputAccessibilityService.IsEnabled}");
+        AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} showing={FlyScreenCursorOverlay.IsShowing} a11y={FlyScreenInputAccessibilityService.IsEnabled}");
     }
 
     public void OnCursorOwnerChanged(string ownerMachine)
@@ -183,33 +194,41 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void DisposeTray() { }
 
     /// <summary>
-    /// 指针显示策略（关键）：
-    /// - 有权限就尝试悬浮小窗；成功后才关掉备用箭头
-    /// - 失败则继续用无障碍箭头 + 应用内箭头，绝不能三路全关
+    /// 指针只走系统层：悬浮窗 或 无障碍 Overlay。
+    /// 绝不走 VirtualCursorOverlay（DecorView），否则退后台/多任务预览里像「画在玄鸟里面」。
     /// </summary>
     private void UpdateCursorVisual(double nx, double ny, bool relative, int dx, int dy)
     {
+        // 始终隐藏应用内箭头
+        VirtualCursorOverlay.Hide();
+
         if (FlyScreenCursorOverlay.CanDraw())
         {
             if (!FlyScreenCursorOverlay.IsShowing)
-            {
-                if (relative)
-                    FlyScreenCursorOverlay.TryBegin(0.5, 0.5);
-                else
-                    FlyScreenCursorOverlay.TryBegin(nx, ny);
-            }
+                FlyScreenCursorOverlay.ShowAt(relative ? 0.5 : nx, relative ? 0.5 : ny);
+
+            if (relative)
+                FlyScreenCursorOverlay.MoveRelative(dx, dy);
+            else
+                FlyScreenCursorOverlay.MoveAbsolute(nx, ny);
 
             if (FlyScreenCursorOverlay.IsShowing)
             {
-                if (relative)
-                    FlyScreenCursorOverlay.MoveRelative(dx, dy);
-                else
-                    FlyScreenCursorOverlay.MoveAbsolute(nx, ny);
-
-                // 仅在悬浮窗真正加成功后关掉备用箭头
                 FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(false);
-                VirtualCursorOverlay.Hide();
                 return;
+            }
+
+            // 悬浮窗尚未加上：短暂用无障碍层顶上（仍可盖其他应用）
+            var err = FlyScreenCursorOverlay.LastError;
+            if (!string.IsNullOrEmpty(err))
+            {
+                var now = Environment.TickCount64;
+                if (!string.Equals(err, _lastOverlayWarn, StringComparison.Ordinal) || now - _lastOverlayWarnTicks > 5000)
+                {
+                    _lastOverlayWarn = err;
+                    _lastOverlayWarnTicks = now;
+                    AppLog.Warn($"系统悬浮指针未就绪: {err}");
+                }
             }
         }
         else
@@ -217,15 +236,8 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             PromptOverlayOnce();
         }
 
-        // 备用：无障碍箭头（可盖其他应用）+ 应用内箭头（前台兜底）——绝不能全关
+        // 唯一备用：无障碍系统 Overlay（不要 VirtualCursorOverlay）
         FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(true);
-        if (relative)
-            VirtualCursorOverlay.MoveByPixels(dx, dy);
-        else
-            VirtualCursorOverlay.ShowNormalized(nx, ny);
-
-        if (FlyScreenCursorOverlay.CanDraw() && !string.IsNullOrEmpty(FlyScreenCursorOverlay.LastError))
-            AppLog.Warn($"悬浮指针未显示，已用备用箭头。原因: {FlyScreenCursorOverlay.LastError}");
     }
 
     private void EndRemoteCursor()

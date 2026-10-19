@@ -1,6 +1,8 @@
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Programs;
@@ -13,29 +15,66 @@ public partial class ProgramEditorWindow : Window
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
     private int _caretLine = 1;
+    private bool _toolModeUpdating;
+
+    public static readonly DependencyProperty ToolsCompactProperty =
+        DependencyProperty.Register(nameof(ToolsCompact), typeof(bool), typeof(ProgramEditorWindow), new PropertyMetadata(false));
+
+    public bool ToolsCompact
+    {
+        get => (bool)GetValue(ToolsCompactProperty);
+        set => SetValue(ToolsCompactProperty, value);
+    }
+
+    private string BaseTitle =>
+        $"{Loc.T("Prog.EditorTitle")} — {_program.Name} · {_program.LanguageText} · {_program.FileName}";
 
     public ProgramEditorWindow(UserProgram program)
     {
         InitializeComponent();
+        ThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => ThemeService.ApplyToChildWindow(this);
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
         _runner = ProgramService.Instance.Runner;
 
-        Title = Loc.T("Prog.EditorTitle") + " — " + program.Name;
-        TitleText.Text = $"{program.Name}  ·  {program.LanguageText}  ·  {program.FileName}";
-        BtnSave.Content = Loc.T("Prog.Save");
-        BtnDebug.Content = Loc.T("Prog.Debug");
-        BtnBreakpoint.Content = Loc.T("Prog.Breakpoint");
-        BtnClearBp.Content = Loc.T("Prog.ClearBp");
-        BtnClearAllBp.Content = Loc.T("Prog.ClearAllBp");
-        BtnRun.Content = Loc.T("Prog.Run");
-        BtnStop.Content = Loc.T("Prog.StopRun");
+        Title = BaseTitle;
+        SetToolButton(BtnSave, BtnSaveText, "Prog.Save");
+        SetToolButton(BtnDebug, BtnDebugText, "Prog.Debug");
+        SetToolButton(BtnClearAllBp, BtnClearAllBpText, "Prog.ClearAllBp");
+        SetToolButton(BtnRun, BtnRunText, "Prog.Run");
+        SetToolButton(BtnStop, BtnStopText, "Prog.StopRun");
 
         CodeBox.Text = _catalog.ReadSource(program);
         RefreshLineNumbers();
         RefreshBpHint();
 
         CodeBox.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(CodeBox_ScrollChanged), true);
+    }
+
+    private static void SetToolButton(System.Windows.Controls.Button button, TextBlock label, string key)
+    {
+        label.Text = Loc.T(key);
+        button.ToolTip = label.Text;
+    }
+
+    private void ToolBarHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateToolMode();
+
+    private void UpdateToolMode()
+    {
+        if (!IsLoaded || _toolModeUpdating || ToolBarHost.ActualWidth <= 1) return;
+        _toolModeUpdating = true;
+        try
+        {
+            ToolsCompact = false;
+            ToolBar.Measure(new System.Windows.Size(double.PositiveInfinity, 48));
+            ToolsCompact = ToolBar.DesiredSize.Width > ToolBarHost.ActualWidth + 0.5;
+        }
+        finally
+        {
+            _toolModeUpdating = false;
+        }
     }
 
     private void CodeBox_ScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -82,7 +121,7 @@ public partial class ProgramEditorWindow : Window
     {
         _catalog.WriteSource(_program, CodeBox.Text ?? "");
         _catalog.SaveMeta(_program);
-        AppLog.Info($"已保存程序「{_program.Name}」");
+        AppLog.Info($"已保存程序「{_program.Name}」", _program.Id, _program.Name);
         StatusTextToast("已保存");
     }
 
@@ -93,7 +132,7 @@ public partial class ProgramEditorWindow : Window
         if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
             InjectPythonBreakpointsBeforeRun();
         else
-            AppLog.Info($"调试「{_program.Name}」：断点已记录（完整调试器后续扩展）");
+            AppLog.Info($"调试「{_program.Name}」：断点已记录（完整调试器后续扩展）", _program.Id, _program.Name);
         try
         {
             await _runner.StartAsync(_program, debug: true);
@@ -113,24 +152,38 @@ public partial class ProgramEditorWindow : Window
         }
     }
 
-    private void Breakpoint_Click(object sender, RoutedEventArgs e)
+    private void LineNumbers_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_program.Breakpoints.Contains(_caretLine))
-            _program.Breakpoints.Add(_caretLine);
-        _program.Breakpoints.Sort();
-        _catalog.SaveMeta(_program);
-        RefreshLineNumbers();
-        RefreshBpHint();
-        AppLog.Info($"「{_program.Name}」断点 @ 行 {_caretLine}");
+        var line = LineFromGutterClick(e.GetPosition(LineNumbers));
+        if (line == null) return;
+        ToggleBreakpoint(line.Value);
+        e.Handled = true;
     }
 
-    private void ClearBp_Click(object sender, RoutedEventArgs e)
+    private int? LineFromGutterClick(System.Windows.Point point)
     {
-        if (_program.Breakpoints.Remove(_caretLine))
+        var index = LineNumbers.GetCharacterIndexFromPoint(point, snapToText: true);
+        var text = LineNumbers.Text ?? "";
+        if (index < 0 || text.Length == 0) return null;
+        if (index > text.Length) index = text.Length;
+        var line = 1;
+        for (var i = 0; i < index && i < text.Length; i++)
+            if (text[i] == '\n') line++;
+        var total = Math.Max(1, (CodeBox.Text ?? "").Replace("\r\n", "\n").Split('\n').Length);
+        return line >= 1 && line <= total ? line : null;
+    }
+
+    private void ToggleBreakpoint(int line)
+    {
+        if (_program.Breakpoints.Remove(line))
+            AppLog.Info($"「{_program.Name}」取消断点 @ 行 {line}", _program.Id, _program.Name);
+        else
         {
-            _catalog.SaveMeta(_program);
-            AppLog.Info($"「{_program.Name}」取消断点 @ 行 {_caretLine}");
+            _program.Breakpoints.Add(line);
+            _program.Breakpoints.Sort();
+            AppLog.Info($"「{_program.Name}」断点 @ 行 {line}", _program.Id, _program.Name);
         }
+        _catalog.SaveMeta(_program);
         RefreshLineNumbers();
         RefreshBpHint();
     }
@@ -141,7 +194,7 @@ public partial class ProgramEditorWindow : Window
         _catalog.SaveMeta(_program);
         RefreshLineNumbers();
         RefreshBpHint();
-        AppLog.Info($"「{_program.Name}」已清除全部断点");
+        AppLog.Info($"「{_program.Name}」已清除全部断点", _program.Id, _program.Name);
     }
 
     private async void Run_Click(object sender, RoutedEventArgs e)
@@ -176,15 +229,14 @@ public partial class ProgramEditorWindow : Window
         }
         _catalog.WriteSource(_program, string.Join("\n", lines));
         // 还原编辑器展示为未注入版本（磁盘为调试副本）— 用户下次保存会覆盖
-        AppLog.Info($"已为「{_program.Name}」注入 { _program.Breakpoints.Count } 处 Python breakpoint()");
+        AppLog.Info($"已为「{_program.Name}」注入 {_program.Breakpoints.Count} 处 Python breakpoint()", _program.Id, _program.Name);
     }
 
     private void StatusTextToast(string msg)
     {
-        var old = TitleText.Text;
-        TitleText.Text = old + "  ·  " + msg;
+        Title = BaseTitle + "  ·  " + msg;
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-        timer.Tick += (_, _) => { TitleText.Text = $"{_program.Name}  ·  {_program.LanguageText}  ·  {_program.FileName}"; timer.Stop(); };
+        timer.Tick += (_, _) => { Title = BaseTitle; timer.Stop(); };
         timer.Start();
     }
 }

@@ -8,42 +8,164 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13">
-  <Grid Margin="20">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-    <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="100"/>
-      <ColumnDefinition Width="*"/>
-    </Grid.ColumnDefinitions>
+  <Window.Resources>
+    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+    <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
+    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
+    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="12,6"/>
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
+      <Setter Property="Padding" Value="8,4"/>
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="10,0,32,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="4"/>
+              <ToggleButton Focusable="False" ClickMode="Press"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="32"/>
+                      </Grid.ColumnDefinitions>
+                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{DynamicResource Muted}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter x:Name="ContentSite"
+                                Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                IsHitTestVisible="False"/>
+              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+                        BorderThickness="1"
+                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+                  <ScrollViewer>
+                    <ItemsPresenter/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
+              <ContentPresenter VerticalAlignment="Center" TextBlock.Foreground="{DynamicResource Text}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
 
-    <TextBlock x:Name="LblName" Grid.Row="0" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
-    <TextBox x:Name="NameBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,10" Height="28"
-             VerticalContentAlignment="Center" TextChanged="NameBox_TextChanged"/>
+  <Border Background="{DynamicResource WinBg}" Padding="20">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="100"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
 
-    <TextBlock x:Name="LblLang" Grid.Row="1" Text="开发语言" VerticalAlignment="Center" Margin="0,0,0,10"/>
-    <ComboBox x:Name="LangCombo" Grid.Row="1" Grid.Column="1" Margin="0,0,0,10" Height="28"
-              SelectionChanged="LangCombo_SelectionChanged"/>
+      <TextBlock x:Name="LblName" Grid.Row="0" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+      <TextBox x:Name="NameBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,10" Height="32"
+               VerticalContentAlignment="Center" TextChanged="NameBox_TextChanged"/>
 
-    <TextBlock x:Name="LblNs" Grid.Row="2" Text="命名空间" VerticalAlignment="Center" Margin="0,0,0,10"/>
-    <TextBox x:Name="NamespaceBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,10" Height="28"
-             VerticalContentAlignment="Center"/>
+      <TextBlock x:Name="LblLang" Grid.Row="1" Text="开发语言" VerticalAlignment="Center" Margin="0,0,0,10"/>
+      <ComboBox x:Name="LangCombo" Grid.Row="1" Grid.Column="1" Margin="0,0,0,10"
+                SelectionChanged="LangCombo_SelectionChanged">
+        <ComboBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
 
-    <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
-    <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="28"
-             VerticalContentAlignment="Center"/>
+      <TextBlock x:Name="LblNs" Grid.Row="2" Text="命名空间" VerticalAlignment="Center" Margin="0,0,0,10"/>
+      <TextBox x:Name="NamespaceBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,10" Height="32"
+               VerticalContentAlignment="Center"/>
 
-    <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="CancelBtn" Content="取消" Width="88" Height="32" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click"/>
-      <Button x:Name="SaveBtn" Content="保存" Width="88" Height="32" IsDefault="True" Click="Save_Click"
-              Background="#2563EB" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
-    </StackPanel>
-  </Grid>
+      <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+      <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="32"
+               VerticalContentAlignment="Center"/>
+
+      <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button x:Name="CancelBtn" Content="取消" Width="88" Height="32" Margin="0,0,8,0"
+                IsCancel="True" Click="Cancel_Click"/>
+        <Button x:Name="SaveBtn" Content="保存" Width="88" Height="32" IsDefault="True" Click="Save_Click"
+                Background="{DynamicResource Blue}" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
+      </StackPanel>
+    </Grid>
+  </Border>
 </Window>
