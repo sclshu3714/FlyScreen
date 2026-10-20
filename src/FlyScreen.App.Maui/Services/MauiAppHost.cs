@@ -273,7 +273,8 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.CompositionUpdate:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
+                // 组字浮层：尽量进入被控，但不因门闩丢掉拼音/候选（编辑器页尤甚）
+                _ = EnsureAcceptsRemoteInput(peer);
                 var p = MessageCodec.DecodeJson<CompositionUpdatePayload>(msg.Payload);
                 if (p == null) return;
                 RemoteCompositionOverlay.Show(peer, p);
@@ -286,10 +287,11 @@ public sealed class MauiAppHost : IAsyncDisposable
             }
             case MessageType.TextInput:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<TextInputPayload>(msg.Payload);
                 if (p == null || string.IsNullOrEmpty(p.Text)) return;
                 RemoteCompositionOverlay.Hide();
+                // InjectText 内部优先写入程序编辑器 sink，不依赖 AcceptsRemoteInput
+                _ = EnsureAcceptsRemoteInput(peer);
                 _platform.InjectText(p.Text);
                 break;
             }
@@ -319,10 +321,19 @@ public sealed class MauiAppHost : IAsyncDisposable
     private bool EnsureAcceptsRemoteInput(string peer)
     {
         if (_platform.AcceptsRemoteInput) return true;
-        if (!_platform.SupportsDesktopInput) return false;
+        // 手机无桌面钩子，但仍可自动进入被控以收组字/TextInput（旧逻辑直接 return false 会丢候选）
         if (!_platform.IsFocusOnLocalMachine) return false;
-        if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
-        _platform.BeginReceivingRemoteControl(0.5, 0.5);
+        if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)
+            && _platform.SupportsDesktopInput)
+            return false;
+        try
+        {
+            _platform.BeginReceivingRemoteControl(0.5, 0.5);
+        }
+        catch
+        {
+            return false;
+        }
         return _platform.AcceptsRemoteInput;
     }
 
