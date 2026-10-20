@@ -114,10 +114,47 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Wheel(delta, horizontal));
     }
 
+    private bool _shiftKey;
+    private bool _capsKey;
+
     public void InjectKey(ushort vk, bool down, bool extended)
     {
         if (_remotePointerSuppressed || !_receiving) return;
-        InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Key(vk, down));
+
+        // 无障碍已开：完整 IME + 手势路径
+        if (FlyScreenInputAccessibilityService.IsEnabled)
+        {
+            FlyScreenInputAccessibilityService.Instance?.Key(vk, down);
+            return;
+        }
+
+        // 无障碍未开：程序编辑器仍可通过 JS 桥收键（无中文组字，仅键位映射）
+        TrackModifierKeys(vk, down);
+        if (down && RemoteTextInputHub.HasSink)
+        {
+            if (RemoteTextInputHub.TrySpecialKey(vk))
+                return;
+            var upper = vk is >= 0x41 and <= 0x5A ? (_shiftKey ^ _capsKey) : _shiftKey;
+            var mapped = RemoteVkMap.ToChar(vk, upper);
+            if (!string.IsNullOrEmpty(mapped))
+                RemoteTextInputHub.TryCommit(mapped);
+            return;
+        }
+
+        PromptTouchInjectionOnce();
+    }
+
+    private void TrackModifierKeys(ushort vk, bool down)
+    {
+        switch (vk)
+        {
+            case 0x10 or 0xA0 or 0xA1:
+                _shiftKey = down;
+                break;
+            case 0x14:
+                if (down) _capsKey = !_capsKey;
+                break;
+        }
     }
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
