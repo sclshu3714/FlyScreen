@@ -516,9 +516,12 @@ public sealed class InputRouter : IDisposable
             return false;
         }
 
-        // 字母数字符号、空格、退格、OEM —— 进宿主组字/英文直出
+        // 字母数字符号、空格、OEM —— 进宿主组字/英文直出
+        // 未组字时的退格/Delete 发给手机（Monaco），避免被空宿主吞掉
         if (IsCompositionFeedKey(vk))
         {
+            if (!composing && vk is 0x08 or 0x2E)
+                return false;
             _composition.FeedKey(vk, down, extended);
             return true;
         }

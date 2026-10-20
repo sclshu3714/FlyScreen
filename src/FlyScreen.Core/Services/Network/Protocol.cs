@@ -274,8 +274,20 @@ public static class PeerComposition
         if (string.Equals(info.Platform, PeerPlatform.Android, StringComparison.OrdinalIgnoreCase)
             || string.Equals(info.Platform, PeerPlatform.HarmonyOS, StringComparison.OrdinalIgnoreCase))
             return true;
-        return string.Equals(info.DeviceClass, PeerDeviceClass.Phone, StringComparison.OrdinalIgnoreCase)
-               || string.Equals(info.DeviceClass, PeerDeviceClass.Tablet, StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(info.DeviceClass, PeerDeviceClass.Phone, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(info.DeviceClass, PeerDeviceClass.Tablet, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // Caps 兜底：有绝对指针、无桌面捕获 ≈ 手机/平板（防握手漏 Platform）
+        var caps = info.Caps;
+        if (caps.Length == 0) return false;
+        var abs = false;
+        var capture = false;
+        foreach (var c in caps)
+        {
+            if (string.Equals(c, PeerCaps.AbsPointer, StringComparison.OrdinalIgnoreCase)) abs = true;
+            if (string.Equals(c, PeerCaps.CaptureInput, StringComparison.OrdinalIgnoreCase)) capture = true;
+        }
+        return abs && !capture;
     }
 }
 

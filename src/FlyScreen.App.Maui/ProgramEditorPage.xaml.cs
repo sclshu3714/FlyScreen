@@ -603,7 +603,7 @@ public partial class ProgramEditorPage : ContentPage
     }
 
 #if ANDROID
-    // —— 跨屏键盘直写 Monaco（不再经本地组字条）——
+    // —— 跨屏：可打印字符由电脑组字后经 TextInput 写入；此处只处理导航/编辑键 ——
 
     public bool TryAcceptRemoteText(string text)
     {
@@ -632,7 +632,10 @@ public partial class ProgramEditorPage : ContentPage
 
     private bool HandleRemoteKeyCore(ushort vk, bool down, bool shift, bool caps, bool ctrl)
     {
-        // 修饰键：仅跟踪，不写编辑器
+        _ = shift;
+        _ = caps;
+
+        // 修饰键：吞掉，避免再走本机 IME 代理
         if (vk is 0x10 or 0xA0 or 0xA1 or 0x14)
             return true;
 
@@ -642,19 +645,25 @@ public partial class ProgramEditorPage : ContentPage
         if (ctrl)
             return false;
 
+        // 导航 / 退格 / 回车等
         if (TryMonacoSpecial(vk))
             return true;
 
-        var upper = vk is >= 0x41 and <= 0x5A ? (shift ^ caps) : shift;
-        var mapped = RemoteVkMap.ToChar(vk, upper);
-        if (!string.IsNullOrEmpty(mapped))
-        {
-            MonacoType(mapped);
+        // A-Z、数字、符号：绝不直灌字母。中文由电脑 CompositionUpdate 浮层选词，
+        // 英文/确认文本走 TextInput → TryAcceptRemoteText。
+        if (IsPrintableCompositionKey(vk))
             return true;
-        }
 
         return false;
     }
+
+    private static bool IsPrintableCompositionKey(ushort vk)
+        => vk is (>= 0x30 and <= 0x39)
+            or (>= 0x41 and <= 0x5A)
+            or (>= 0x60 and <= 0x69)
+            or 0x20
+            or 0xBA or 0xBB or 0xBC or 0xBD or 0xBE or 0xBF or 0xC0
+            or 0xDB or 0xDC or 0xDD or 0xDE;
 
     private bool TryMonacoSpecial(ushort vk)
     {
