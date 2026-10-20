@@ -48,6 +48,16 @@ public static class ProgramLanguageInfo
         ProgramLanguage.Batch
     ];
 
+    /// <summary>手机端可本机运行的语言（嵌入引擎）。</summary>
+    public static IReadOnlyList<ProgramLanguage> MobileRunnable { get; } =
+    [
+        ProgramLanguage.JavaScript,
+        ProgramLanguage.CSharp
+    ];
+
+    public static IReadOnlyList<ProgramLanguage> ForCurrentPlatform
+        => InProcessProgramExecutor.IsMobileHost ? MobileRunnable : All;
+
     public static bool TryParse(string? text, out ProgramLanguage lang)
     {
         if (Enum.TryParse(text, ignoreCase: true, out lang))

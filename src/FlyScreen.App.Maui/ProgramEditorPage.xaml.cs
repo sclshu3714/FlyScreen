@@ -164,18 +164,23 @@ public partial class ProgramEditorPage : ContentPage
     private void OnHybridMessage(object? sender, HybridWebViewRawMessageReceivedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(e.Message)) return;
-        try
+        // 必须在主线程解析并处理：JsonElement 依赖 JsonDocument，
+        // 若在 BeginInvoke 前 using 释放，会 ObjectDisposedException(JsonDocument)。
+        var json = e.Message;
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            using var doc = JsonDocument.Parse(e.Message);
-            var root = doc.RootElement;
-            if (!root.TryGetProperty("type", out var typeEl)) return;
-            var type = typeEl.GetString();
-            MainThread.BeginInvokeOnMainThread(() => HandleEditorMessage(type, root));
-        }
-        catch
-        {
-            /* ignore malformed */
-        }
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("type", out var typeEl)) return;
+                HandleEditorMessage(typeEl.GetString(), root);
+            }
+            catch
+            {
+                /* ignore malformed / disposed races */
+            }
+        });
     }
 
     private void HandleEditorMessage(string? type, JsonElement root)

@@ -11,10 +11,12 @@ public partial class ProgramAddPage : ContentPage
     private ProgramEnvCheckResult? _lastFail;
 
     public string ProgramName => NameBox.Text?.Trim() ?? "";
+    private readonly IReadOnlyList<ProgramLanguage> _languages = ProgramLanguageInfo.ForCurrentPlatform;
+
     public ProgramLanguage SelectedLanguage =>
-        LangPicker.SelectedIndex >= 0 && LangPicker.SelectedIndex < ProgramLanguageInfo.All.Count
-            ? ProgramLanguageInfo.All[LangPicker.SelectedIndex]
-            : ProgramLanguage.Python;
+        LangPicker.SelectedIndex >= 0 && LangPicker.SelectedIndex < _languages.Count
+            ? _languages[LangPicker.SelectedIndex]
+            : _languages[0];
     public string NamespaceValue => NamespaceBox.Text?.Trim() ?? "";
     public string FileNameValue => FileNameBox.Text?.Trim() ?? "";
     public Task<bool> Result => _tcs.Task;
@@ -33,14 +35,14 @@ public partial class ProgramAddPage : ContentPage
         DetectAutoBtn.Text = Loc.T("Prog.DetectAuto");
         DetectOpenBtn.Text = Loc.T("Prog.DetectOpen");
 
-        LangPicker.ItemsSource = ProgramLanguageInfo.All
+        LangPicker.ItemsSource = _languages
             .Select(ProgramLanguageInfo.DisplayName)
             .ToList();
         LangPicker.SelectedIndex = 0;
         NamespaceBox.Focused += (_, _) => _nsManual = true;
         FileNameBox.Focused += (_, _) => _fileManual = true;
         NamespaceBox.Text = ChinesePinyin.ToNamespace("");
-        FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(ProgramLanguage.Python);
+        FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(_languages[0]);
     }
 
     private void NameBox_TextChanged(object? sender, TextChangedEventArgs e)

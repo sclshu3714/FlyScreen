@@ -289,6 +289,9 @@ public static class Loc
 
         ["Prog.Title"] = "程序",
         ["Prog.Hint"] = "管理可单文件运行的脚本与程序（Python / C# / JS 等）。日志输出到「日志」页。",
+        ["Prog.HintMobile"] = "手机端可本机运行 JavaScript 与 C#（内置引擎）。日志输出到「日志」页。",
+        ["Prog.DetectInProcessOk"] = "本机嵌入引擎可用（{0}），可直接运行与调试",
+        ["Prog.Manual.MobileHint"] = "当前为手机端。本机可运行 JavaScript / C#；「{0}」请在电脑版玄鸟上运行，或改用 JS / C#。",
         ["Prog.Add"] = "添加程序",
         ["Prog.Delete"] = "删除程序",
         ["Prog.Start"] = "启动程序",
@@ -614,6 +617,9 @@ public static class Loc
 
         ["Prog.Title"] = "Programs",
         ["Prog.Hint"] = "Manage single-file scripts (Python / C# / JS…). Output goes to the Log page.",
+        ["Prog.HintMobile"] = "On mobile, JavaScript and C# run with built-in engines. Output goes to the Log page.",
+        ["Prog.DetectInProcessOk"] = "In-process engine ready ({0}); run/debug works on device",
+        ["Prog.Manual.MobileHint"] = "On mobile, JavaScript / C# run locally. “{0}” needs FlyScreen on a PC, or switch to JS / C#.",
         ["Prog.Add"] = "Add",
         ["Prog.Delete"] = "Delete",
         ["Prog.Start"] = "Start",

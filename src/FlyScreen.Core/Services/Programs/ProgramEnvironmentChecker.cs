@@ -27,8 +27,20 @@ public static class ProgramEnvironmentChecker
 {
     public static ProgramEnvCheckResult Check(ProgramLanguage lang)
     {
-        // Android 无桌面运行时 PATH；先给出平台结论，再尽量探测（如 Termux 注入 PATH 的场景）
-        if (OperatingSystem.IsAndroid() && lang is not ProgramLanguage.Batch)
+        // 手机端 JS / C#：使用嵌入引擎，无需系统 node / dotnet
+        if (InProcessProgramExecutor.PreferInProcess(lang))
+        {
+            var engine = lang == ProgramLanguage.JavaScript ? "Jint" : "Roslyn";
+            return new ProgramEnvCheckResult
+            {
+                Ok = true,
+                ToolName = lang == ProgramLanguage.JavaScript ? "JavaScript" : ".NET C#",
+                Detail = Loc.T("Prog.DetectInProcessOk", engine)
+            };
+        }
+
+        // Android / iOS 其它语言：无桌面 CLI
+        if (InProcessProgramExecutor.IsMobileHost)
         {
             var probe = CheckCore(lang);
             if (probe.Ok) return probe;
@@ -36,7 +48,7 @@ public static class ProgramEnvironmentChecker
             {
                 Ok = false,
                 ToolName = probe.ToolName,
-                Detail = Loc.T("Prog.Manual.AndroidHint", probe.ToolName),
+                Detail = Loc.T("Prog.Manual.MobileHint", probe.ToolName),
                 InstallUrl = probe.InstallUrl,
                 WingetId = probe.WingetId,
                 BrewFormula = probe.BrewFormula,
@@ -115,7 +127,7 @@ public static class ProgramEnvironmentChecker
         if (result.Ok)
             return (true, Loc.T("Prog.DetectAlreadyOk"));
 
-        if (OperatingSystem.IsAndroid())
+        if (InProcessProgramExecutor.IsMobileHost)
             return FailWithGuide(lang, result, Loc.T("Prog.Auto.AndroidNo"));
 
         if (OperatingSystem.IsWindows())
@@ -151,7 +163,7 @@ public static class ProgramEnvironmentChecker
         sb.AppendLine(Loc.T("Prog.Manual.Title", tool));
         sb.AppendLine();
 
-        if (OperatingSystem.IsAndroid())
+        if (InProcessProgramExecutor.IsMobileHost)
         {
             sb.AppendLine(Loc.T("Prog.Manual.AndroidBody", tool, url));
             return sb.ToString().TrimEnd();
