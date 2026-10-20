@@ -97,6 +97,12 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     public void InjectKey(ushort vk, bool down, bool extended)
         => MauiInputInjector.Key(new KeyEventPayload { VirtualKey = vk, Down = down, Extended = extended });
 
+    public void InjectText(string text)
+    {
+        // Windows MAUI 被控时仍走键鼠注入；成段文本暂以逐字符不可靠，忽略
+        _ = text;
+    }
+
     public void BeginReceivingRemoteControl(double entryX, double entryY)
         => _router?.BeginReceivingRemoteControl(entryX, entryY);
 

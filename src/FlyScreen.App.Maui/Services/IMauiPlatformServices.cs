@@ -28,6 +28,8 @@ public interface IMauiPlatformServices
     void InjectMouseButton(int button, bool down);
     void InjectMouseWheel(int delta, bool horizontal);
     void InjectKey(ushort vk, bool down, bool extended);
+    /// <summary>电脑侧组字确认后的文本插入（中文词组等）。</summary>
+    void InjectText(string text);
     void BeginReceivingRemoteControl(double entryX, double entryY);
     void OnCursorOwnerChanged(string ownerMachine);
     /// <summary>布局仅剩本机或被踢出集群时恢复本机光标。</summary>
@@ -68,6 +70,7 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void InjectMouseButton(int button, bool down) { }
     public void InjectMouseWheel(int delta, bool horizontal) { }
     public void InjectKey(ushort vk, bool down, bool extended) { }
+    public void InjectText(string text) { }
     public void BeginReceivingRemoteControl(double entryX, double entryY) { }
     public void OnCursorOwnerChanged(string ownerMachine) { }
     public void RestoreCursorWhenLeavingCluster() { }

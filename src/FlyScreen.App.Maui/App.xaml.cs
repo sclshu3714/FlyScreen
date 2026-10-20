@@ -44,6 +44,7 @@ public partial class App : Application
 #endif
 #if ANDROID
         Services.VirtualCursorOverlay.Attach(window);
+        Services.RemoteCompositionOverlay.Attach(window);
 #endif
         return window;
     }

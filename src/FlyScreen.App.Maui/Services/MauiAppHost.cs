@@ -271,6 +271,28 @@ public sealed class MauiAppHost : IAsyncDisposable
                 _platform.InjectKey(p.VirtualKey, p.Down, p.Extended);
                 break;
             }
+            case MessageType.CompositionUpdate:
+            {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
+                var p = MessageCodec.DecodeJson<CompositionUpdatePayload>(msg.Payload);
+                if (p == null) return;
+                RemoteCompositionOverlay.Show(peer, p);
+                break;
+            }
+            case MessageType.CompositionCancel:
+            {
+                RemoteCompositionOverlay.Hide();
+                break;
+            }
+            case MessageType.TextInput:
+            {
+                if (!EnsureAcceptsRemoteInput(peer)) return;
+                var p = MessageCodec.DecodeJson<TextInputPayload>(msg.Payload);
+                if (p == null || string.IsNullOrEmpty(p.Text)) return;
+                RemoteCompositionOverlay.Hide();
+                _platform.InjectText(p.Text);
+                break;
+            }
             case MessageType.SwitchFocus:
             {
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);

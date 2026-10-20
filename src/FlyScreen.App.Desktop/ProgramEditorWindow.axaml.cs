@@ -54,7 +54,6 @@ public partial class ProgramEditorWindow : Window
 
         SetTool(BtnSave, BtnSaveText, "Prog.Save");
         SetTool(BtnDebug, BtnDebugText, "Prog.Debug");
-        SetTool(BtnClearAllBp, BtnClearAllBpText, "Prog.ClearAllBp");
         SetTool(BtnRun, BtnRunText, "Prog.Run");
         SetTool(BtnStop, BtnStopText, "Prog.StopRun");
         OutputTitleText.Text = Loc.T("Prog.Output");
@@ -219,13 +218,11 @@ public partial class ProgramEditorWindow : Window
         _toolsCompact = compact;
         BtnSaveText.IsVisible = !compact;
         BtnDebugText.IsVisible = !compact;
-        BtnClearAllBpText.IsVisible = !compact;
         BtnRunText.IsVisible = !compact;
         BtnStopText.IsVisible = !compact;
         var pad = compact ? new Thickness(8, 0) : new Thickness(10, 0);
         BtnSave.Padding = pad;
         BtnDebug.Padding = pad;
-        BtnClearAllBp.Padding = pad;
         BtnRun.Padding = pad;
         BtnStop.Padding = pad;
     }
@@ -363,14 +360,6 @@ public partial class ProgramEditorWindow : Window
             }
             RefreshOutput();
         }
-    }
-
-    private void ClearAllBp_Click(object? sender, RoutedEventArgs e)
-    {
-        _program.Breakpoints.Clear();
-        _catalog.SaveMeta(_program);
-        _bpMargin.InvalidateVisual();
-        RefreshBpHint();
     }
 
     private async void Run_Click(object? sender, RoutedEventArgs e)

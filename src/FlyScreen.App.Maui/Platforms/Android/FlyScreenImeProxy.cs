@@ -175,9 +175,8 @@ internal sealed class FlyScreenImeProxy
         var imm = _context.GetSystemService(global::Android.Content.Context.InputMethodService) as InputMethodManager;
         if (imm == null) return;
         imm.RestartInput(_edit);
-        // 编辑器等场景强制拉起当前系统输入法（中/英由用户手机设置决定）
-        var flags = RemoteTextInputHub.HasSink ? ShowFlags.Forced : ShowFlags.Implicit;
-        imm.ShowSoftInput(_edit, flags);
+        // 编辑器已改走可见组字条；代理仅服务其它输入框
+        imm.ShowSoftInput(_edit, ShowFlags.Implicit);
     }
 
     private void OnText(IEditable? editable)
