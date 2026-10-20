@@ -8,8 +8,9 @@ using Android.Widget;
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 把电脑按键交给手机当前输入法。拼音还在组字时不写入目标；输入法确认后的汉字再送进原来的输入框。
-/// 窗口不接收触摸，手指操作不受影响。
+/// 电脑按键 → 手机系统输入法（可中文拼音组字）。
+/// 组字中不写入目标；确认后的文本再送进原先记住的输入框。
+/// 英文直出时同样经本代理提交，调用方在「无组字且无文本变化」时可回退 ACTION_SET_TEXT。
 /// </summary>
 internal sealed class FlyScreenImeProxy
 {
@@ -35,6 +36,17 @@ internal sealed class FlyScreenImeProxy
 
     public bool HasContent => !string.IsNullOrEmpty(_edit?.Text);
 
+    public bool IsComposing
+    {
+        get
+        {
+            if (_edit?.EditableText is not ISpannable span) return false;
+            return BaseInputConnection.GetComposingSpanStart(span) >= 0;
+        }
+    }
+
+    public string TextSnapshot => _edit?.Text ?? "";
+
     public bool Ensure(IWindowManager wm, WindowManagerTypes type)
     {
         _wm = wm;
@@ -59,7 +71,8 @@ internal sealed class FlyScreenImeProxy
                 global::Android.Graphics.Format.Translucent)
             {
                 Gravity = GravityFlags.Bottom | GravityFlags.Left,
-                SoftInputMode = SoftInput.StateAlwaysHidden,
+                // 允许系统 IME（含中文）；不用 AlwaysHidden，否则拼音引擎挂不上
+                SoftInputMode = SoftInput.StateVisible | SoftInput.AdjustNothing,
                 Alpha = 1f
             };
             try
@@ -82,15 +95,31 @@ internal sealed class FlyScreenImeProxy
         if (_edit == null || keyCode <= 0) return false;
         if (!_edit.IsFocused)
             FocusEditor();
+
         var now = SystemClock.UptimeMillis();
         var meta = shift ? MetaKeyStates.ShiftOn : 0;
         var action = down ? KeyEventActions.Down : KeyEventActions.Up;
-        var ev = new KeyEvent(now, now, action, (Keycode)keyCode, 0, meta);
+        // 虚拟软键盘设备：部分中文 IME 只认这类 KeyEvent 做拼音
+        var ev = new KeyEvent(
+            now, now, action, (Keycode)keyCode, 0, meta,
+            deviceId: -1,
+            scancode: 0,
+            flags: KeyEventFlags.SoftKeyboard | KeyEventFlags.KeepTouchMode);
         return _edit.DispatchKeyEvent(ev);
     }
 
     public void Detach()
     {
+        if (_edit != null)
+        {
+            try
+            {
+                var imm = _context.GetSystemService(global::Android.Content.Context.InputMethodService) as InputMethodManager;
+                imm?.HideSoftInputFromWindow(_edit.WindowToken, HideSoftInputFlags.None);
+            }
+            catch { /* ignore */ }
+        }
+
         if (_added && _wm != null && _edit != null)
         {
             try { _wm.RemoveView(_edit); } catch { /* ignore */ }
@@ -103,7 +132,7 @@ internal sealed class FlyScreenImeProxy
     {
         var edit = new EditText(_context)
         {
-            ShowSoftInputOnFocus = false,
+            ShowSoftInputOnFocus = true,
             InputType = InputTypes.ClassText,
             Alpha = 0f
         };
@@ -120,7 +149,10 @@ internal sealed class FlyScreenImeProxy
         if (_edit == null) return;
         _edit.RequestFocus();
         var imm = _context.GetSystemService(global::Android.Content.Context.InputMethodService) as InputMethodManager;
-        imm?.RestartInput(_edit);
+        if (imm == null) return;
+        imm.RestartInput(_edit);
+        // Implicit：拉起当前系统输入法；避免 Forced 把焦点/会话搞乱导致完全无输入
+        imm.ShowSoftInput(_edit, ShowFlags.Implicit);
     }
 
     private void OnText(IEditable? editable)
@@ -130,7 +162,15 @@ internal sealed class FlyScreenImeProxy
         var composing = editable is ISpannable span
             ? BaseInputConnection.GetComposingSpanStart(span)
             : -1;
-        var stableEnd = composing >= 0 ? Math.Clamp(composing, 0, text.Length) : text.Length;
+
+        // 拼音组字中：只本地预览，不写入目标
+        if (composing >= 0)
+        {
+            _edit.Alpha = 1f;
+            return;
+        }
+
+        var stableEnd = text.Length;
         var stable = text[..stableEnd];
         if (stable.StartsWith(_sent, StringComparison.Ordinal))
         {
@@ -149,6 +189,15 @@ internal sealed class FlyScreenImeProxy
             if (removed > 0)
                 _ui.Post(() => _delete(removed));
         }
+        else if (!string.IsNullOrEmpty(stable) && stable != _sent)
+        {
+            // 选词后整段替换
+            var prev = _sent;
+            _sent = stable;
+            if (!string.IsNullOrEmpty(prev))
+                _ui.Post(() => _delete(prev.Length));
+            _ui.Post(() => _commit(stable));
+        }
         else
         {
             _sent = stable;
@@ -156,17 +205,21 @@ internal sealed class FlyScreenImeProxy
 
         _edit.Alpha = text.Length > 0 ? 1f : 0f;
         if (composing < 0 && text.Length > 0)
-            _ui.Post(ClearEditor);
+            _ui.PostDelayed(ClearEditor, 60);
     }
 
     private void ClearEditor()
     {
         if (_edit == null) return;
+        if (_edit.EditableText is ISpannable span
+            && BaseInputConnection.GetComposingSpanStart(span) >= 0)
+            return;
         _updating = true;
         _sent = "";
         _edit.Text = "";
         _edit.Alpha = 0f;
         _updating = false;
+        _edit.Post(FocusEditor);
     }
 
     private sealed class Watcher : Java.Lang.Object, ITextWatcher
