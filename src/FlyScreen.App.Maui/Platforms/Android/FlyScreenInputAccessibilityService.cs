@@ -479,9 +479,25 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         if (keyCode <= 0 || _ctrl) return false;
         if (_ime?.HasContent != true && vk is 0x08 or 0x2E or 0x0D or 0x25 or 0x26 or 0x27 or 0x28)
             return false;
+
+        // 先钉住外部输入框，再给 IME 代理焦点，避免提交时目标节点丢失
+        RememberExternalTarget();
         if (!EnsureIme()) return false;
+
+        var before = _ime!.TextSnapshot;
         var shift = vk is >= 0x41 and <= 0x5A ? (_shift ^ _caps) : _shift;
-        return _ime!.Dispatch(keyCode, true, shift);
+        var dispatched = _ime.Dispatch(keyCode, true, shift);
+        if (!dispatched)
+            return false;
+
+        // 已组字或代理框已出字：由 OnImeCommitted 写入目标
+        if (_ime.IsComposing)
+            return true;
+        if (!string.Equals(_ime.TextSnapshot, before, StringComparison.Ordinal))
+            return true;
+
+        // 中文 IME 有时吞掉 KeyEvent 却不组字：放行给 ACTION_SET_TEXT，保证至少能输入
+        return false;
     }
 
     private bool EnsureIme()
@@ -492,12 +508,14 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         if (_wm == null) return false;
         if (!_cursorVisible && TryAddCursor())
             _cursorVisible = true;
+        RememberExternalTarget();
         _ime ??= new FlyScreenImeProxy(this, OnImeCommitted, OnImeDeleted);
         return _ime.Ensure(_wm, _overlayType);
     }
 
     private void OnImeCommitted(string text)
     {
+        // 优先用已钉住的外部目标；代理获焦后 FindEditable 可能找不到原 App 输入框
         var node = CurrentTarget();
         if (node == null || text.Length == 0) return;
         if (text == "\n")
