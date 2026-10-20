@@ -260,8 +260,8 @@ public static class RemoteCompositionOverlay
         var localY = ay - decorLoc[1] + (int)(22 * density); // 光标下方
 
         _panel.Measure(
-            View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified),
-            View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified));
+            Android.Views.View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified),
+            Android.Views.View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified));
         var pw = Math.Max(_panel.MeasuredWidth, (int)(160 * density));
         var ph = Math.Max(_panel.MeasuredHeight, (int)(56 * density));
 
