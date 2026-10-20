@@ -254,10 +254,19 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             return;
         }
 
+        // 先钉住指针处/焦点输入框，避免 IME 代理抢焦后找不到目标
+        RememberExternalTarget();
+
+        // 已有外部输入框：可打印字符优先直接写入（不经 IME），英文输入更稳
+        var node = CurrentTarget();
+        if (node != null && !_ctrl && EditText(node, vk))
+            return;
+
+        // 无目标或需中文组字：走系统 IME 代理
         if (TryThroughPhoneIme(vk, keyCode))
             return;
 
-        var node = CurrentTarget();
+        node = CurrentTarget();
         if (node != null && EditText(node, vk))
             return;
 
@@ -515,9 +524,16 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     private void OnImeCommitted(string text)
     {
-        // 优先用已钉住的外部目标；代理获焦后 FindEditable 可能找不到原 App 输入框
-        var node = CurrentTarget();
-        if (node == null || text.Length == 0) return;
+        if (text.Length == 0) return;
+        // 优先已钉目标；否则再按焦点/指针位置找一次（IME 抢焦后常见）
+        var node = CurrentTarget() ?? FindEditable() ?? FindEditableAtCursor();
+        if (node == null) return;
+        if (!ReferenceEquals(node, _imeTarget)
+            && !string.Equals(node.PackageName?.ToString(), PackageName, StringComparison.Ordinal))
+        {
+            _imeTarget?.Dispose();
+            _imeTarget = node;
+        }
         if (text == "\n")
             SubmitOrNewline(node);
         else
@@ -548,7 +564,8 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     private void RememberExternalTarget()
     {
-        var found = FindEditable();
+        // 优先：输入焦点；其次：指针坐标下的可编辑控件（点击后焦点可能尚未就绪）
+        var found = FindEditable() ?? FindEditableAtCursor();
         if (found == null) return;
         if (!ReferenceEquals(found, _imeTarget))
         {
@@ -563,15 +580,17 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         {
             try
             {
+                // 即使焦点被 IME 代理抢走，节点引用仍可用于 ACTION_SET_TEXT
                 if (_imeTarget.Refresh()
-                    && !string.Equals(_imeTarget.PackageName?.ToString(), PackageName, StringComparison.Ordinal))
+                    && !string.Equals(_imeTarget.PackageName?.ToString(), PackageName, StringComparison.Ordinal)
+                    && IsEditable(_imeTarget))
                     return _imeTarget;
             }
             catch
             {
                 /* 节点已失效 */
             }
-            _imeTarget.Dispose();
+            try { _imeTarget.Dispose(); } catch { /* ignore */ }
             _imeTarget = null;
         }
         RememberExternalTarget();
@@ -676,6 +695,29 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         return TakeEditable(RootInActiveWindow);
     }
 
+    /// <summary>指针坐标下的可编辑节点（点击后焦点尚未到齐时用）。</summary>
+    private global::Android.Views.Accessibility.AccessibilityNodeInfo? FindEditableAtCursor()
+    {
+        var (px, py) = ToPixels();
+        try
+        {
+            var windows = Windows;
+            if (windows != null)
+            {
+                foreach (var window in windows)
+                {
+                    var found = TakeEditableAt(window?.Root, px, py);
+                    if (found != null) return found;
+                }
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
+        return TakeEditableAt(RootInActiveWindow, px, py);
+    }
+
     private global::Android.Views.Accessibility.AccessibilityNodeInfo? TakeEditable(global::Android.Views.Accessibility.AccessibilityNodeInfo? root)
     {
         if (root == null) return null;
@@ -700,6 +742,69 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
         focus?.Dispose();
         root.Dispose();
+        return null;
+    }
+
+    private global::Android.Views.Accessibility.AccessibilityNodeInfo? TakeEditableAt(
+        global::Android.Views.Accessibility.AccessibilityNodeInfo? root, float x, float y)
+    {
+        if (root == null) return null;
+        try
+        {
+            var hit = FindEditableHit(root, x, y);
+            if (hit != null
+                && !string.Equals(hit.PackageName?.ToString(), PackageName, StringComparison.Ordinal))
+            {
+                if (!ReferenceEquals(hit, root))
+                    root.Dispose();
+                return hit;
+            }
+            hit?.Dispose();
+        }
+        catch
+        {
+            /* ignore */
+        }
+        root.Dispose();
+        return null;
+    }
+
+    private static global::Android.Views.Accessibility.AccessibilityNodeInfo? FindEditableHit(
+        global::Android.Views.Accessibility.AccessibilityNodeInfo node, float x, float y)
+    {
+        var bounds = new global::Android.Graphics.Rect();
+        node.GetBoundsInScreen(bounds);
+        if (!bounds.Contains((int)x, (int)y))
+            return null;
+
+        global::Android.Views.Accessibility.AccessibilityNodeInfo? best = null;
+        var count = node.ChildCount;
+        for (var i = 0; i < count; i++)
+        {
+            global::Android.Views.Accessibility.AccessibilityNodeInfo? child = null;
+            try
+            {
+                child = node.GetChild(i);
+                if (child == null) continue;
+                var deeper = FindEditableHit(child, x, y);
+                if (deeper != null)
+                {
+                    if (!ReferenceEquals(deeper, child))
+                        child.Dispose();
+                    best?.Dispose();
+                    best = deeper;
+                }
+            }
+            catch
+            {
+                try { child?.Dispose(); } catch { /* ignore */ }
+            }
+        }
+
+        if (best != null)
+            return best;
+        if (IsEditable(node))
+            return global::Android.Views.Accessibility.AccessibilityNodeInfo.Obtain(node);
         return null;
     }
 
