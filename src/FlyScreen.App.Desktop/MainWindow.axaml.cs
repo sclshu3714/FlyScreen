@@ -862,7 +862,14 @@ public partial class MainWindow : Window
     private async void ProgRowStart_Click(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.Tag is not UserProgram prog) return;
-        try { await ProgramService.Instance.Runner.StartAsync(prog); }
+        var runner = ProgramService.Instance.Runner;
+        var stop = runner.IsRunning(prog.Id)
+                   || prog.RuntimeStatus is ProgramStatus.Running or ProgramStatus.Stopping;
+        try
+        {
+            if (stop) await runner.StopAsync(prog);
+            else await runner.StartAsync(prog);
+        }
         catch (Exception ex) { StatusText.Text = ex.Message; }
         RefreshProgramsPage();
     }

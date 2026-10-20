@@ -33,6 +33,7 @@ public partial class MainPage : ContentPage
     private string? _logProgramName;
     private bool _openProgramLog;
     private bool _progSelectAllUpdating;
+    private UserProgram? _progMoreTarget;
 
     // 矩阵级拖拽：手势挂在 MachineMatrix 上，避免手指移出卡片后 Pan 被 Android 取消
     private bool _matrixInputWired;
@@ -54,8 +55,6 @@ public partial class MainPage : ContentPage
         Loaded += OnLoaded;
         SizeChanged += OnPageSizeChanged;
         Unloaded += (_, _) => _statusTimer?.Stop();
-        if (ProgListHost != null)
-            ProgListHost.SizeChanged += (_, _) => SyncProgListTableHeight();
     }
 
     private async void OnLoaded(object? sender, EventArgs e)
@@ -147,32 +146,211 @@ public partial class MainPage : ContentPage
         ApplyLayoutActionsPlacement(compact);
         ApplyOptionsPlacement(compact);
         ApplyProgToolbarLabels(iconOnly: compact || width < 560);
-        ApplyProgListColumns(width);
+        ApplyProgListColumns();
     }
 
-    private const double ProgTableMinWidth = 430;
+    // 勾选 / 语言 / 大小 / 状态 / 操作 + 间距；名称列吃剩余（按列表容器实际宽度）
+    private const double ProgWCheck = 36;
+    private const double ProgWLang = 100;
+    private const double ProgWSize = 70;
+    private const double ProgWStatus = 72;
+    private const double ProgWActions = 72;
+    private const double ProgWSpacing = 20;
+    private const double ProgWNameMin = 80;
 
-    /// <summary>窄屏整表可横滑（底栏滚动条）；宽屏拉满可用宽度并隐藏滚动条。</summary>
-    private void ApplyProgListColumns(double width)
+    private void ProgListHost_SizeChanged(object? sender, EventArgs e)
+        => ApplyProgListColumns();
+
+    /// <summary>严格按 ProgListHost.Width 分配 6 列绝对宽度，状态/操作始终可见。</summary>
+    private void ApplyProgListColumns()
     {
-        if (ProgListHost == null || ProgListTable == null) return;
-        // 扣除主区内边距与卡片边距后的大致可用宽
-        var avail = Math.Max(280, width - (_compactLayout ? 48 : 72));
-        var tableW = Math.Max(ProgTableMinWidth, avail);
-        ProgListTable.WidthRequest = tableW;
-        ProgListTable.MinimumWidthRequest = ProgTableMinWidth;
-        ProgListHost.HorizontalScrollBarVisibility =
-            avail < ProgTableMinWidth - 1 ? ScrollBarVisibility.Always : ScrollBarVisibility.Never;
-        // Horizontal ScrollView 内的 * 行需显式高度，否则 CollectionView 可能为 0
-        SyncProgListTableHeight();
+        if (ProgListHost == null || ProgListHeader == null) return;
+        var hostW = ProgListHost.Width;
+        if (hostW < 40)
+        {
+            // 首次布局尚未就绪时用主区估算，仍扣除侧栏
+            var pageW = Width > 0 ? Width : 800;
+            hostW = Math.Max(280, pageW - (_compactLayout ? 48 : 168 + 48));
+        }
+
+        var fixedOther = ProgWCheck + ProgWLang + ProgWSize + ProgWStatus + ProgWActions + ProgWSpacing;
+        var nameW = Math.Max(ProgWNameMin, hostW - fixedOther);
+        // 极窄时压缩语言列，优先保住操作列
+        var langW = ProgWLang;
+        if (nameW + fixedOther > hostW + 0.5)
+        {
+            langW = 72;
+            fixedOther = ProgWCheck + langW + ProgWSize + ProgWStatus + ProgWActions + ProgWSpacing;
+            nameW = Math.Max(64, hostW - fixedOther);
+        }
+
+        var widths = new[] { ProgWCheck, nameW, langW, ProgWSize, ProgWStatus, ProgWActions };
+        ProgListRowView.SharedColWidths = widths;
+        ProgListHeader.ColumnDefinitions = new ColumnDefinitionCollection
+        {
+            new(new GridLength(widths[0])),
+            new(new GridLength(widths[1])),
+            new(new GridLength(widths[2])),
+            new(new GridLength(widths[3])),
+            new(new GridLength(widths[4])),
+            new(new GridLength(widths[5])),
+        };
+
+        // 已生成的行同步列宽
+        foreach (var row in FindProgRows(ProgList))
+            row.ApplySharedWidths();
     }
 
-    private void SyncProgListTableHeight()
+    private static IEnumerable<ProgListRowView> FindProgRows(IView? root)
     {
-        if (ProgListHost == null || ProgListTable == null) return;
-        var h = ProgListHost.Height;
-        if (h > 1)
-            ProgListTable.HeightRequest = h;
+        if (root is ProgListRowView row)
+        {
+            yield return row;
+            yield break;
+        }
+        if (root is not IVisualTreeElement vte) yield break;
+        foreach (var child in vte.GetVisualChildren())
+        {
+            if (child is not IView childView) continue;
+            foreach (var r in FindProgRows(childView))
+                yield return r;
+        }
+    }
+
+    internal async Task ProgRowStartAsync(UserProgram prog)
+        => await ProgRowToggleAsync(prog);
+
+    /// <summary>行内启停切换：未运行→启动，运行中→停止；图标随状态更新。</summary>
+    internal async Task ProgRowToggleAsync(UserProgram prog)
+    {
+        var runner = ProgramService.Instance.Runner;
+        var stop = runner.IsRunning(prog.Id)
+                   || prog.RuntimeStatus is ProgramStatus.Running or ProgramStatus.Stopping;
+        try
+        {
+            if (stop) await runner.StopAsync(prog);
+            else await runner.StartAsync(prog);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(stop ? Loc.T("Prog.ActStop") : Loc.T("Prog.ActStart"), ex.Message, "OK");
+        }
+        RefreshProgramsPage();
+    }
+
+    /// <summary>在 ⋮ 按钮旁弹出锚定菜单（非全屏 Modal）。</summary>
+    internal void ProgRowMoreAsync(UserProgram prog, View anchor)
+    {
+        _progMoreTarget = prog;
+        ProgMoreEditBtn.Text = $"✎  {Loc.T("Prog.ActEdit")}";
+        ProgMoreLogBtn.Text = $"☰  {Loc.T("Prog.ActLog")}";
+        ProgMoreShareBtn.Text = $"⇪  {Loc.T("Prog.ActShare")}";
+        ProgMoreDeleteBtn.Text = $"✕  {Loc.T("Prog.ActDelete")}";
+
+        // 先显示以便测量，再按锚点定位
+        ProgMoreOverlay.IsVisible = true;
+        ProgMoreFlyout.TranslationX = 0;
+        ProgMoreFlyout.TranslationY = 0;
+        Dispatcher.Dispatch(() => PositionProgMoreFlyout(anchor));
+    }
+
+    private void PositionProgMoreFlyout(View anchor)
+    {
+        try
+        {
+            var pagePos = GetOffsetToPage(anchor);
+            var menuW = ProgMoreFlyout.Width > 1 ? ProgMoreFlyout.Width : 168;
+            var menuH = ProgMoreFlyout.Height > 1 ? ProgMoreFlyout.Height : 168;
+            var pageW = Width > 1 ? Width : 800;
+            var pageH = Height > 1 ? Height : 600;
+
+            // 默认：菜单右对齐锚点右缘，出现在按钮下方
+            var x = pagePos.X + anchor.Width - menuW;
+            var y = pagePos.Y + anchor.Height + 4;
+            if (x < 8) x = 8;
+            if (x + menuW > pageW - 8) x = Math.Max(8, pageW - menuW - 8);
+            if (y + menuH > pageH - 8)
+                y = Math.Max(8, pagePos.Y - menuH - 4); // 下方空间不够则翻到上方
+
+            ProgMoreFlyout.TranslationX = x;
+            ProgMoreFlyout.TranslationY = y;
+        }
+        catch
+        {
+            ProgMoreFlyout.TranslationX = 24;
+            ProgMoreFlyout.TranslationY = 120;
+        }
+    }
+
+    private Point GetOffsetToPage(VisualElement element)
+    {
+#if WINDOWS
+        try
+        {
+            // 相对 ProgMoreOverlay 定位，Translation 才与菜单父容器对齐
+            if (element.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe
+                && ProgMoreOverlay.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement overlay)
+            {
+                var t = fe.TransformToVisual(overlay);
+                var p = t.TransformPoint(new Windows.Foundation.Point(0, 0));
+                return new Point(p.X, p.Y);
+            }
+        }
+        catch { /* fall through */ }
+#endif
+        double x = 0, y = 0;
+        VisualElement? cur = element;
+        while (cur != null && !ReferenceEquals(cur, ProgMoreOverlay) && cur is not Page)
+        {
+            x += cur.X;
+            y += cur.Y;
+            if (cur.Parent is ScrollView sv)
+            {
+                x -= sv.ScrollX;
+                y -= sv.ScrollY;
+            }
+            cur = cur.Parent as VisualElement;
+        }
+        return new Point(x, y);
+    }
+
+    private void HideProgMoreFlyout()
+    {
+        ProgMoreOverlay.IsVisible = false;
+        _progMoreTarget = null;
+        ProgMoreFlyout.TranslationX = 0;
+        ProgMoreFlyout.TranslationY = 0;
+    }
+
+    private void ProgMoreOverlay_Tapped(object? sender, TappedEventArgs e)
+        => HideProgMoreFlyout();
+
+    private async void ProgMoreEdit_Clicked(object? sender, EventArgs e)
+    {
+        var prog = _progMoreTarget;
+        HideProgMoreFlyout();
+        if (prog != null) await ProgRowEditAsync(prog);
+    }
+
+    private void ProgMoreLog_Clicked(object? sender, EventArgs e)
+    {
+        var prog = _progMoreTarget;
+        HideProgMoreFlyout();
+        if (prog != null) ProgRowLog(prog);
+    }
+
+    private async void ProgMoreShare_Clicked(object? sender, EventArgs e)
+    {
+        var prog = _progMoreTarget;
+        HideProgMoreFlyout();
+        if (prog != null) await ProgRowShareAsync(prog);
+    }
+
+    private async void ProgMoreDelete_Clicked(object? sender, EventArgs e)
+    {
+        var prog = _progMoreTarget;
+        HideProgMoreFlyout();
+        if (prog != null) await ProgRowDeleteAsync(prog);
     }
 
     private void ApplyOptionsPlacement(bool compact)
@@ -1192,6 +1370,7 @@ public partial class MainPage : ContentPage
         }
         ProgList.ItemsSource = null;
         ProgList.ItemsSource = svc.Catalog.Items;
+        Dispatcher.Dispatch(() => ApplyProgListColumns());
     }
 
     private IEnumerable<UserProgram> SelectedPrograms()
@@ -1267,33 +1446,13 @@ public partial class MainPage : ContentPage
     private async void ProgRowStart_Clicked(object? sender, EventArgs e)
     {
         if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
-        try { await ProgramService.Instance.Runner.StartAsync(prog); }
-        catch (Exception ex) { await DisplayAlertAsync(Loc.T("Prog.ActStart"), ex.Message, "OK"); }
-        RefreshProgramsPage();
+        await ProgRowToggleAsync(prog);
     }
 
-    private async void ProgRowMore_Clicked(object? sender, EventArgs e)
+    private void ProgRowMore_Clicked(object? sender, EventArgs e)
     {
-        if ((sender as Button)?.CommandParameter is not UserProgram prog) return;
-        var edit = Loc.T("Prog.ActEdit");
-        var log = Loc.T("Prog.ActLog");
-        var share = Loc.T("Prog.ActShare");
-        var delete = Loc.T("Prog.ActDelete");
-        var choice = await DisplayActionSheetAsync(
-            prog.Name,
-            Loc.T("Prog.DlgCancel"),
-            null,
-            edit, log, share, delete);
-        if (string.IsNullOrEmpty(choice) || choice == Loc.T("Prog.DlgCancel"))
-            return;
-        if (choice == edit)
-            await ProgRowEditAsync(prog);
-        else if (choice == log)
-            ProgRowLog(prog);
-        else if (choice == share)
-            await ProgRowShareAsync(prog);
-        else if (choice == delete)
-            await ProgRowDeleteAsync(prog);
+        if (sender is not Button btn || btn.CommandParameter is not UserProgram prog) return;
+        ProgRowMoreAsync(prog, btn);
     }
 
     private async void ProgRowEdit_Clicked(object? sender, EventArgs e)

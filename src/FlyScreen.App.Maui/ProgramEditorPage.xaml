@@ -33,21 +33,14 @@
              LineBreakMode="TailTruncation" />
     </Grid>
 
-    <Grid Grid.Row="1" ColumnDefinitions="52,*">
-      <Border Stroke="{DynamicResource Line}" StrokeThickness="1"
-              BackgroundColor="{DynamicResource SubtleBg}">
-        <ScrollView x:Name="LineScroll" Orientation="Vertical"
-                    VerticalScrollBarVisibility="Never">
-          <VerticalStackLayout x:Name="LineGutter" Spacing="0" Padding="0,6" />
-        </ScrollView>
-      </Border>
-      <Border Grid.Column="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
-              BackgroundColor="{DynamicResource CardBg}">
-        <Editor x:Name="CodeBox" FontFamily="Consolas" FontSize="13"
-                AutoSize="Disabled" VerticalOptions="Fill" HorizontalOptions="Fill"
-                BackgroundColor="Transparent" Margin="4" />
-      </Border>
-    </Grid>
+    <Border Grid.Row="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
+            BackgroundColor="{DynamicResource CardBg}">
+      <!-- 默认 HybridRoot=wwwroot → Resources/Raw/wwwroot（已打包为 MauiAsset） -->
+      <HybridWebView x:Name="CodeWeb"
+                     HybridRoot="wwwroot"
+                     DefaultFile="index.html"
+                     RawMessageReceived="OnHybridMessage" />
+    </Border>
 
     <!-- 底部可折叠输出停靠窗 -->
     <Border Grid.Row="2" Stroke="{DynamicResource Line}" StrokeThickness="1"

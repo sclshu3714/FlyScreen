@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Services.Programs;
 
@@ -43,8 +44,30 @@ public sealed class UserProgram : INotifyPropertyChanged
             _runtimeStatus = value;
             StatusText = ProgramStatusInfo.Display(value);
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsActivelyRunning));
+            OnPropertyChanged(nameof(IsIdleForAction));
+            OnPropertyChanged(nameof(ActionToggleGlyph));
+            OnPropertyChanged(nameof(ActionToggleTip));
         }
     }
+
+    /// <summary>列表行启停按钮：运行中/停止中视为可点「停止」。</summary>
+    [JsonIgnore]
+    public bool IsActivelyRunning
+        => _runtimeStatus is ProgramStatus.Running or ProgramStatus.Stopping;
+
+    /// <summary>与 <see cref="IsActivelyRunning"/> 相反，便于 XAML 绑定可见性。</summary>
+    [JsonIgnore]
+    public bool IsIdleForAction => !IsActivelyRunning;
+
+    /// <summary>列表行启停按钮字形：▶ 启动 / ■ 停止。</summary>
+    [JsonIgnore]
+    public string ActionToggleGlyph => IsActivelyRunning ? "■" : "▶";
+
+    /// <summary>列表行启停按钮提示。</summary>
+    [JsonIgnore]
+    public string ActionToggleTip
+        => IsActivelyRunning ? Loc.T("Prog.ActStop") : Loc.T("Prog.ActStart");
 
     [JsonIgnore]
     public string SizeText

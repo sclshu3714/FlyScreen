@@ -8,6 +8,7 @@ public partial class ProgramAddPage : ContentPage
     private bool _nsManual;
     private bool _fileManual;
     private readonly TaskCompletionSource<bool> _tcs = new();
+    private ProgramEnvCheckResult? _lastFail;
 
     public string ProgramName => NameBox.Text?.Trim() ?? "";
     public ProgramLanguage SelectedLanguage =>
@@ -29,6 +30,8 @@ public partial class ProgramAddPage : ContentPage
         SaveBtn.Text = Loc.T("Prog.DlgSave");
         CancelBtn.Text = Loc.T("Prog.DlgCancel");
         DetectBtn.Text = Loc.T("Prog.DlgDetect");
+        DetectAutoBtn.Text = Loc.T("Prog.DetectAuto");
+        DetectOpenBtn.Text = Loc.T("Prog.DetectOpen");
 
         LangPicker.ItemsSource = ProgramLanguageInfo.All
             .Select(ProgramLanguageInfo.DisplayName)
@@ -59,6 +62,7 @@ public partial class ProgramAddPage : ContentPage
         {
             FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(lang);
         }
+        ClearDetectUi();
     }
 
     private async void Save_Clicked(object? sender, EventArgs e)
@@ -82,44 +86,70 @@ public partial class ProgramAddPage : ContentPage
     {
         var lang = SelectedLanguage;
         DetectBtn.IsEnabled = false;
-        DetectStatus.Text = Loc.T("Prog.DetectChecking");
-        DetectStatus.TextColor = Color.FromArgb("#6B7280");
+        DetectActions.IsVisible = false;
+        _lastFail = null;
+        SetDetectStatus(Loc.T("Prog.DetectChecking"), "#6B7280");
         try
         {
             var result = await Task.Run(() => ProgramEnvironmentChecker.Check(lang));
             if (result.Ok)
             {
-                DetectStatus.Text = Loc.T("Prog.DetectOk") + " — " + result.Detail;
-                DetectStatus.TextColor = Color.FromArgb("#059669");
-                await DisplayAlertAsync(Loc.T("Prog.DetectOk"), result.Detail, "OK");
+                SetDetectStatus($"{Loc.T("Prog.DetectOk")} — {result.Detail}", "#059669");
                 return;
             }
 
-            DetectStatus.Text = Loc.T("Prog.DetectFail");
-            DetectStatus.TextColor = Color.FromArgb("#D97706");
-            var action = await DisplayActionSheetAsync(
-                Loc.T("Prog.DetectFail") + "\n" + result.Detail,
-                Loc.T("Prog.DlgCancel"),
-                null,
-                Loc.T("Prog.DetectAuto"),
-                Loc.T("Prog.DetectOpen"));
-            if (action == Loc.T("Prog.DetectAuto"))
-            {
-                DetectStatus.Text = Loc.T("Prog.DetectAuto") + "…";
-                var (ok, msg) = await ProgramEnvironmentChecker.TryAutoInstallAsync(lang, result);
-                DetectStatus.Text = ok ? Loc.T("Prog.DetectOk") : Loc.T("Prog.DetectFail");
-                DetectStatus.TextColor = Color.FromArgb(ok ? "#059669" : "#D97706");
-                await DisplayAlertAsync(Title, msg, "OK");
-            }
-            else if (action == Loc.T("Prog.DetectOpen"))
-            {
-                ProgramEnvironmentChecker.OpenInstallPage(result);
-            }
+            _lastFail = result;
+            SetDetectStatus($"{Loc.T("Prog.DetectFail")} — {result.Detail}", "#D97706");
+            DetectActions.IsVisible = true;
         }
         finally
         {
             DetectBtn.IsEnabled = true;
         }
+    }
+
+    private async void DetectAuto_Clicked(object? sender, EventArgs e)
+    {
+        if (_lastFail is null) return;
+        var lang = SelectedLanguage;
+        DetectAutoBtn.IsEnabled = DetectOpenBtn.IsEnabled = false;
+        SetDetectStatus(Loc.T("Prog.DetectAuto") + "…", "#6B7280");
+        try
+        {
+            var (ok, msg) = await ProgramEnvironmentChecker.TryAutoInstallAsync(lang, _lastFail);
+            SetDetectStatus(ok ? $"{Loc.T("Prog.DetectOk")} — {msg}" : $"{Loc.T("Prog.DetectFail")} — {msg}",
+                ok ? "#059669" : "#D97706");
+            DetectActions.IsVisible = !ok;
+            if (!ok && !string.IsNullOrWhiteSpace(_lastFail.InstallUrl))
+                ProgramEnvironmentChecker.OpenInstallPage(_lastFail);
+            if (ok) _lastFail = null;
+        }
+        finally
+        {
+            DetectAutoBtn.IsEnabled = DetectOpenBtn.IsEnabled = true;
+        }
+    }
+
+    private void DetectOpen_Clicked(object? sender, EventArgs e)
+    {
+        if (_lastFail is null) return;
+        var guide = ProgramEnvironmentChecker.BuildManualRepairGuide(SelectedLanguage, _lastFail);
+        SetDetectStatus($"{Loc.T("Prog.DetectManualTitle")}\n{guide}", "#D97706");
+        if (!string.IsNullOrWhiteSpace(_lastFail.InstallUrl))
+            ProgramEnvironmentChecker.OpenInstallPage(_lastFail);
+    }
+
+    private void SetDetectStatus(string text, string colorHex)
+    {
+        DetectStatus.Text = text;
+        DetectStatus.TextColor = Color.FromArgb(colorHex);
+    }
+
+    private void ClearDetectUi()
+    {
+        DetectStatus.Text = "";
+        DetectActions.IsVisible = false;
+        _lastFail = null;
     }
 
     protected override void OnDisappearing()

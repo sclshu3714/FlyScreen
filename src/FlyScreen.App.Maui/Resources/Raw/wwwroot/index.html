@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>FlyScreen Editor</title>
+  <style>
+    html, body, #container { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #fff; }
+  </style>
+  <!-- 官方桥：无此脚本则 SendRawMessage / InvokeDotNet / 宿主→JS 消息全部失效 -->
+  <script src="scripts/HybridWebView.js"></script>
+</head>
+<body>
+  <div id="container"></div>
+  <script src="vs/loader.js"></script>
+  <script src="bridge.js"></script>
+</body>
+</html>

@@ -30,6 +30,10 @@
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
+  </ItemGroup>
+
   <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>

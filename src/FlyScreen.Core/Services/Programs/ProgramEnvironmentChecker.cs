@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Services.Programs;
 
@@ -10,14 +12,44 @@ public sealed class ProgramEnvCheckResult
     public string? InstallUrl { get; init; }
     public string? WingetId { get; init; }
     public string? BrewFormula { get; init; }
+    /// <summary>Debian/Ubuntu apt 包名（可能需额外源）。</summary>
+    public string? AptPackage { get; init; }
+    /// <summary>Fedora/RHEL dnf 包名。</summary>
+    public string? DnfPackage { get; init; }
+    /// <summary>Arch pacman 包名。</summary>
+    public string? PacmanPackage { get; init; }
 }
 
 /// <summary>
-/// 检测各语言运行/调试环境；缺失时可打开安装页或尝试 winget/brew 自动安装。
+/// 各端检测运行/调试环境；按平台尝试自动修复；失败时提供完整手动修复步骤。
 /// </summary>
 public static class ProgramEnvironmentChecker
 {
-    public static ProgramEnvCheckResult Check(ProgramLanguage lang) => lang switch
+    public static ProgramEnvCheckResult Check(ProgramLanguage lang)
+    {
+        // Android 无桌面运行时 PATH；先给出平台结论，再尽量探测（如 Termux 注入 PATH 的场景）
+        if (OperatingSystem.IsAndroid() && lang is not ProgramLanguage.Batch)
+        {
+            var probe = CheckCore(lang);
+            if (probe.Ok) return probe;
+            return new ProgramEnvCheckResult
+            {
+                Ok = false,
+                ToolName = probe.ToolName,
+                Detail = Loc.T("Prog.Manual.AndroidHint", probe.ToolName),
+                InstallUrl = probe.InstallUrl,
+                WingetId = probe.WingetId,
+                BrewFormula = probe.BrewFormula,
+                AptPackage = probe.AptPackage,
+                DnfPackage = probe.DnfPackage,
+                PacmanPackage = probe.PacmanPackage
+            };
+        }
+
+        return CheckCore(lang);
+    }
+
+    private static ProgramEnvCheckResult CheckCore(ProgramLanguage lang) => lang switch
     {
         ProgramLanguage.Python => CheckTool(
             display: "Python",
@@ -25,21 +57,30 @@ public static class ProgramEnvironmentChecker
             versionArgs: "--version",
             installUrl: "https://www.python.org/downloads/",
             wingetId: "Python.Python.3.12",
-            brew: "python"),
+            brew: "python",
+            apt: "python3",
+            dnf: "python3",
+            pacman: "python"),
         ProgramLanguage.CSharp => CheckTool(
             display: ".NET SDK",
             commands: ["dotnet"],
             versionArgs: "--list-sdks",
             installUrl: "https://dotnet.microsoft.com/download",
             wingetId: "Microsoft.DotNet.SDK.8",
-            brew: "dotnet"),
+            brew: "dotnet",
+            apt: "dotnet-sdk-8.0",
+            dnf: "dotnet-sdk-8.0",
+            pacman: "dotnet-sdk"),
         ProgramLanguage.JavaScript => CheckTool(
             display: "Node.js",
             commands: ["node", "nodejs"],
             versionArgs: "--version",
             installUrl: "https://nodejs.org/",
             wingetId: "OpenJS.NodeJS.LTS",
-            brew: "node"),
+            brew: "node",
+            apt: "nodejs",
+            dnf: "nodejs",
+            pacman: "nodejs"),
         ProgramLanguage.PowerShell => CheckPowerShell(),
         ProgramLanguage.Bash => CheckBash(),
         ProgramLanguage.Batch => CheckBatch(),
@@ -47,7 +88,7 @@ public static class ProgramEnvironmentChecker
         {
             Ok = false,
             ToolName = lang.ToString(),
-            Detail = "暂不支持该语言的环境检测"
+            Detail = Loc.T("Prog.DetectUnsupported")
         }
     };
 
@@ -65,18 +106,116 @@ public static class ProgramEnvironmentChecker
         }
     }
 
-    /// <summary>Windows 用 winget，macOS 用 brew；其它平台返回失败并建议打开安装页。</summary>
+    /// <summary>
+    /// 按当前 OS 尝试自动安装；失败时 Message 末尾附带完整手动修复方案。
+    /// </summary>
     public static async Task<(bool Ok, string Message)> TryAutoInstallAsync(
         ProgramLanguage lang, ProgramEnvCheckResult result, CancellationToken ct = default)
     {
         if (result.Ok)
-            return (true, "环境已就绪，无需安装");
+            return (true, Loc.T("Prog.DetectAlreadyOk"));
 
-        if (OperatingSystem.IsWindows() && !string.IsNullOrWhiteSpace(result.WingetId))
+        if (OperatingSystem.IsAndroid())
+            return FailWithGuide(lang, result, Loc.T("Prog.Auto.AndroidNo"));
+
+        if (OperatingSystem.IsWindows())
         {
-            if (!ExistsOnPath("winget"))
-                return (false, "未找到 winget，请打开安装页手动安装，或先安装「应用安装程序」。");
+            var win = await TryWindowsAutoInstallAsync(lang, result, ct).ConfigureAwait(false);
+            if (win.Ok) return win;
+            return FailWithGuide(lang, result, win.Message);
+        }
 
+        if (OperatingSystem.IsMacOS())
+        {
+            var mac = await TryMacAutoInstallAsync(lang, result, ct).ConfigureAwait(false);
+            if (mac.Ok) return mac;
+            return FailWithGuide(lang, result, mac.Message);
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            var linux = await TryLinuxAutoInstallAsync(lang, result, ct).ConfigureAwait(false);
+            if (linux.Ok) return linux;
+            return FailWithGuide(lang, result, linux.Message);
+        }
+
+        return FailWithGuide(lang, result, Loc.T("Prog.Auto.UnsupportedOs"));
+    }
+
+    /// <summary>完整手动修复方案（各端步骤 + 下载地址）。</summary>
+    public static string BuildManualRepairGuide(ProgramLanguage lang, ProgramEnvCheckResult result)
+    {
+        var tool = string.IsNullOrWhiteSpace(result.ToolName) ? lang.ToString() : result.ToolName;
+        var url = result.InstallUrl ?? "";
+        var sb = new StringBuilder();
+        sb.AppendLine(Loc.T("Prog.Manual.Title", tool));
+        sb.AppendLine();
+
+        if (OperatingSystem.IsAndroid())
+        {
+            sb.AppendLine(Loc.T("Prog.Manual.AndroidBody", tool, url));
+            return sb.ToString().TrimEnd();
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            sb.AppendLine(Loc.T("Prog.Manual.WindowsBody",
+                tool,
+                result.WingetId ?? "(无)",
+                url));
+            AppendCommonVerify(sb, tool);
+            return sb.ToString().TrimEnd();
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            sb.AppendLine(Loc.T("Prog.Manual.MacBody",
+                tool,
+                result.BrewFormula ?? "(无)",
+                url));
+            AppendCommonVerify(sb, tool);
+            return sb.ToString().TrimEnd();
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            sb.AppendLine(Loc.T("Prog.Manual.LinuxBody",
+                tool,
+                result.AptPackage ?? "(无)",
+                result.DnfPackage ?? "(无)",
+                result.PacmanPackage ?? "(无)",
+                url));
+            if (lang == ProgramLanguage.CSharp)
+                sb.AppendLine().AppendLine(Loc.T("Prog.Manual.LinuxDotnetExtra"));
+            AppendCommonVerify(sb, tool);
+            return sb.ToString().TrimEnd();
+        }
+
+        sb.AppendLine(Loc.T("Prog.Manual.GenericBody", tool, url));
+        AppendCommonVerify(sb, tool);
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendCommonVerify(StringBuilder sb, string tool)
+    {
+        sb.AppendLine();
+        sb.AppendLine(Loc.T("Prog.Manual.Verify", tool));
+    }
+
+    private static (bool Ok, string Message) FailWithGuide(
+        ProgramLanguage lang, ProgramEnvCheckResult result, string reason)
+    {
+        var msg = reason.TrimEnd()
+                  + "\n\n────────────────\n\n"
+                  + BuildManualRepairGuide(lang, result);
+        return (false, msg);
+    }
+
+    private static async Task<(bool Ok, string Message)> TryWindowsAutoInstallAsync(
+        ProgramLanguage lang, ProgramEnvCheckResult result, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(result.WingetId) && ExistsOnPath("winget"))
+        {
             var (ok, output) = await RunProcessAsync(
                 "winget",
                 $"install -e --id {result.WingetId} --accept-package-agreements --accept-source-agreements",
@@ -85,27 +224,147 @@ public static class ProgramEnvironmentChecker
             {
                 var again = Check(lang);
                 if (again.Ok)
-                    return (true, $"{result.ToolName} 已安装并通过检测。");
-                return (true, $"{result.ToolName} 安装命令已执行。请关闭并重新打开玄鸟后再点检测。\n{Trim(output, 400)}");
+                    return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+                return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(output, 400)));
             }
-            return (false, $"自动安装失败：\n{Trim(output, 500)}");
+
+            // winget 失败时尝试 chocolatey
+            if (ExistsOnPath("choco") && !string.IsNullOrWhiteSpace(WindowsChocoPackage(lang)))
+            {
+                var pkg = WindowsChocoPackage(lang)!;
+                var (cok, cout) = await RunProcessAsync(
+                    "choco", $"install {pkg} -y", 180_000, ct).ConfigureAwait(false);
+                if (cok)
+                {
+                    var again = Check(lang);
+                    if (again.Ok)
+                        return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+                    return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(cout, 400)));
+                }
+                return (false, Loc.T("Prog.Auto.WingetChocoFail", Trim(output, 300), Trim(cout, 300)));
+            }
+
+            return (false, Loc.T("Prog.Auto.WingetFail", Trim(output, 500)));
         }
 
-        if (OperatingSystem.IsMacOS() && !string.IsNullOrWhiteSpace(result.BrewFormula) && ExistsOnPath("brew"))
+        if (ExistsOnPath("choco") && !string.IsNullOrWhiteSpace(WindowsChocoPackage(lang)))
         {
+            var pkg = WindowsChocoPackage(lang)!;
             var (ok, output) = await RunProcessAsync(
-                "brew", $"install {result.BrewFormula}", 300_000, ct).ConfigureAwait(false);
-            return ok
-                ? (true, $"{result.ToolName} 已通过 Homebrew 安装。请重新检测。")
-                : (false, $"brew 安装失败：\n{Trim(output, 500)}");
+                "choco", $"install {pkg} -y", 180_000, ct).ConfigureAwait(false);
+            if (ok)
+            {
+                var again = Check(lang);
+                if (again.Ok)
+                    return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+                return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(output, 400)));
+            }
+            return (false, Loc.T("Prog.Auto.ChocoFail", Trim(output, 500)));
         }
 
-        return (false, "当前系统不支持自动安装，请打开安装页手动安装。");
+        return (false, Loc.T("Prog.Auto.WindowsNoPkgMgr"));
+    }
+
+    private static string? WindowsChocoPackage(ProgramLanguage lang) => lang switch
+    {
+        ProgramLanguage.Python => "python",
+        ProgramLanguage.CSharp => "dotnet-8.0-sdk",
+        ProgramLanguage.JavaScript => "nodejs-lts",
+        ProgramLanguage.PowerShell => "powershell-core",
+        ProgramLanguage.Bash => "git",
+        _ => null
+    };
+
+    private static async Task<(bool Ok, string Message)> TryMacAutoInstallAsync(
+        ProgramLanguage lang, ProgramEnvCheckResult result, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(result.BrewFormula))
+            return (false, Loc.T("Prog.Auto.MacNoFormula"));
+
+        if (!ExistsOnPath("brew"))
+            return (false, Loc.T("Prog.Auto.MacNoBrew"));
+
+        var (ok, output) = await RunProcessAsync(
+            "brew", $"install {result.BrewFormula}", 300_000, ct).ConfigureAwait(false);
+        if (ok)
+        {
+            var again = Check(lang);
+            if (again.Ok)
+                return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+            return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(output, 400)));
+        }
+        return (false, Loc.T("Prog.Auto.BrewFail", Trim(output, 500)));
+    }
+
+    private static async Task<(bool Ok, string Message)> TryLinuxAutoInstallAsync(
+        ProgramLanguage lang, ProgramEnvCheckResult result, CancellationToken ct)
+    {
+        // 优先非交互安装；无 root 时会失败并落到手动方案
+        if (ExistsOnPath("apt-get") && !string.IsNullOrWhiteSpace(result.AptPackage))
+        {
+            var (ok, output) = await RunShellAsync(
+                $"sudo -n apt-get update -qq && sudo -n apt-get install -y {result.AptPackage}",
+                300_000, ct).ConfigureAwait(false);
+            if (!ok)
+            {
+                // 无密码免密时再试无 sudo（用户已是 root）
+                (ok, output) = await RunShellAsync(
+                    $"apt-get update -qq && apt-get install -y {result.AptPackage}",
+                    300_000, ct).ConfigureAwait(false);
+            }
+            if (ok)
+            {
+                var again = Check(lang);
+                if (again.Ok)
+                    return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+                return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(output, 400)));
+            }
+            return (false, Loc.T("Prog.Auto.AptFail", Trim(output, 500)));
+        }
+
+        if (ExistsOnPath("dnf") && !string.IsNullOrWhiteSpace(result.DnfPackage))
+        {
+            var (ok, output) = await RunShellAsync(
+                $"sudo -n dnf install -y {result.DnfPackage}",
+                300_000, ct).ConfigureAwait(false);
+            if (!ok)
+                (ok, output) = await RunShellAsync(
+                    $"dnf install -y {result.DnfPackage}", 300_000, ct).ConfigureAwait(false);
+            if (ok)
+            {
+                var again = Check(lang);
+                if (again.Ok)
+                    return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+                return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(output, 400)));
+            }
+            return (false, Loc.T("Prog.Auto.DnfFail", Trim(output, 500)));
+        }
+
+        if (ExistsOnPath("pacman") && !string.IsNullOrWhiteSpace(result.PacmanPackage))
+        {
+            var (ok, output) = await RunShellAsync(
+                $"sudo -n pacman -Sy --noconfirm {result.PacmanPackage}",
+                300_000, ct).ConfigureAwait(false);
+            if (!ok)
+                (ok, output) = await RunShellAsync(
+                    $"pacman -Sy --noconfirm {result.PacmanPackage}", 300_000, ct).ConfigureAwait(false);
+            if (ok)
+            {
+                var again = Check(lang);
+                if (again.Ok)
+                    return (true, Loc.T("Prog.Auto.InstalledOk", result.ToolName));
+                return (true, Loc.T("Prog.Auto.InstalledRestart", result.ToolName, Trim(output, 400)));
+            }
+            return (false, Loc.T("Prog.Auto.PacmanFail", Trim(output, 500)));
+        }
+
+        return (false, Loc.T("Prog.Auto.LinuxNoPkgMgr"));
     }
 
     private static ProgramEnvCheckResult CheckTool(
         string display, string[] commands, string versionArgs,
-        string installUrl, string? wingetId, string? brew)
+        string installUrl, string? wingetId, string? brew,
+        string? apt, string? dnf, string? pacman)
     {
         foreach (var cmd in commands)
         {
@@ -124,11 +383,14 @@ public static class ProgramEnvironmentChecker
                     Ok = true,
                     ToolName = display,
                     Detail = string.IsNullOrWhiteSpace(ver)
-                        ? $"已找到 {cmd}，可用于运行与调试"
-                        : $"已找到 {cmd}：{ver}",
+                        ? Loc.T("Prog.DetectFoundCmd", cmd)
+                        : Loc.T("Prog.DetectFoundVer", cmd, ver),
                     InstallUrl = installUrl,
                     WingetId = wingetId,
-                    BrewFormula = brew
+                    BrewFormula = brew,
+                    AptPackage = apt,
+                    DnfPackage = dnf,
+                    PacmanPackage = pacman
                 };
             }
         }
@@ -137,10 +399,13 @@ public static class ProgramEnvironmentChecker
         {
             Ok = false,
             ToolName = display,
-            Detail = $"未找到 {display}（尝试：{string.Join(", ", commands)}）。运行与调试需要安装该环境。",
+            Detail = Loc.T("Prog.DetectMissing", display, string.Join(", ", commands)),
             InstallUrl = installUrl,
             WingetId = wingetId,
-            BrewFormula = brew
+            BrewFormula = brew,
+            AptPackage = apt,
+            DnfPackage = dnf,
+            PacmanPackage = pacman
         };
     }
 
@@ -154,11 +419,14 @@ public static class ProgramEnvironmentChecker
                 Ok = true,
                 ToolName = "PowerShell",
                 Detail = string.IsNullOrWhiteSpace(output)
-                    ? "已找到 pwsh（PowerShell 7+）"
-                    : $"已找到 pwsh：{Trim(output, 80)}",
+                    ? Loc.T("Prog.DetectFoundPwsh")
+                    : Loc.T("Prog.DetectFoundVer", "pwsh", Trim(output, 80)),
                 InstallUrl = "https://aka.ms/powershell",
                 WingetId = "Microsoft.PowerShell",
-                BrewFormula = "powershell"
+                BrewFormula = "powershell",
+                AptPackage = "powershell",
+                DnfPackage = "powershell",
+                PacmanPackage = "powershell"
             };
         }
 
@@ -168,7 +436,7 @@ public static class ProgramEnvironmentChecker
             {
                 Ok = true,
                 ToolName = "PowerShell",
-                Detail = "已找到 Windows PowerShell，可用于运行脚本",
+                Detail = Loc.T("Prog.DetectFoundWinPs"),
                 InstallUrl = "https://aka.ms/powershell",
                 WingetId = "Microsoft.PowerShell"
             };
@@ -178,10 +446,13 @@ public static class ProgramEnvironmentChecker
         {
             Ok = false,
             ToolName = "PowerShell",
-            Detail = "未找到 pwsh / powershell",
+            Detail = Loc.T("Prog.DetectMissingPs"),
             InstallUrl = "https://aka.ms/powershell",
             WingetId = "Microsoft.PowerShell",
-            BrewFormula = "powershell"
+            BrewFormula = "powershell",
+            AptPackage = "powershell",
+            DnfPackage = "powershell",
+            PacmanPackage = "powershell"
         };
     }
 
@@ -198,7 +469,7 @@ public static class ProgramEnvironmentChecker
                 {
                     Ok = true,
                     ToolName = "Bash",
-                    Detail = $"已找到 Git Bash：{gitBash}",
+                    Detail = Loc.T("Prog.DetectFoundGitBash", gitBash),
                     InstallUrl = "https://git-scm.com/downloads",
                     WingetId = "Git.Git"
                 };
@@ -212,10 +483,15 @@ public static class ProgramEnvironmentChecker
             {
                 Ok = true,
                 ToolName = "Bash",
-                Detail = string.IsNullOrWhiteSpace(output) ? "已找到 bash" : Trim(output, 100),
+                Detail = string.IsNullOrWhiteSpace(output)
+                    ? Loc.T("Prog.DetectFoundCmd", "bash")
+                    : Trim(output, 100),
                 InstallUrl = "https://git-scm.com/downloads",
                 WingetId = "Git.Git",
-                BrewFormula = "bash"
+                BrewFormula = "bash",
+                AptPackage = "bash",
+                DnfPackage = "bash",
+                PacmanPackage = "bash"
             };
         }
 
@@ -224,11 +500,14 @@ public static class ProgramEnvironmentChecker
             Ok = false,
             ToolName = "Bash",
             Detail = OperatingSystem.IsWindows()
-                ? "未找到 bash。可安装 Git for Windows（含 Git Bash）。"
-                : "未找到 bash",
+                ? Loc.T("Prog.DetectMissingBashWin")
+                : Loc.T("Prog.DetectMissingBash"),
             InstallUrl = "https://git-scm.com/downloads",
             WingetId = "Git.Git",
-            BrewFormula = "bash"
+            BrewFormula = "bash",
+            AptPackage = "bash",
+            DnfPackage = "bash",
+            PacmanPackage = "bash"
         };
     }
 
@@ -240,7 +519,7 @@ public static class ProgramEnvironmentChecker
             {
                 Ok = true,
                 ToolName = "cmd",
-                Detail = "Windows 自带 cmd.exe，Batch 脚本可直接运行",
+                Detail = Loc.T("Prog.DetectBatchOk"),
                 InstallUrl = null
             };
         }
@@ -249,7 +528,7 @@ public static class ProgramEnvironmentChecker
         {
             Ok = false,
             ToolName = "cmd",
-            Detail = "Batch（.bat）仅适用于 Windows。当前系统请改用 Bash / Python 等。",
+            Detail = Loc.T("Prog.DetectBatchOnlyWin"),
             InstallUrl = null
         };
     }
@@ -356,6 +635,14 @@ public static class ProgramEnvironmentChecker
         {
             return (false, ex.Message);
         }
+    }
+
+    private static async Task<(bool Ok, string Output)> RunShellAsync(
+        string command, int timeoutMs, CancellationToken ct)
+    {
+        var shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh";
+        var args = OperatingSystem.IsWindows() ? $"/c {command}" : $"-c \"{command.Replace("\"", "\\\"")}\"";
+        return await RunProcessAsync(shell, args, timeoutMs, ct).ConfigureAwait(false);
     }
 
     private static string Trim(string? s, int max)

@@ -1,7 +1,9 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:AvalonEdit="https://github.com/avaloniaui/avaloniaedit"
         x:Class="FlyScreen.DesktopUi.ProgramEditorWindow"
         Title="编辑程序"
+        KeyDown="Window_KeyDown"
         Width="780" Height="560"
         WindowStartupLocation="CenterOwner"
         MinWidth="640" MinHeight="420"
@@ -156,22 +158,18 @@
             </DockPanel>
           </Border>
 
-          <Grid ColumnDefinitions="52,*">
-            <Border Background="{DynamicResource SubtleBg}"
-                    BorderBrush="{DynamicResource Line}" BorderThickness="1,1,0,1"
-                    ToolTip.Tip="点击行号添加断点，再点击取消">
-              <ScrollViewer x:Name="LineScroll" VerticalScrollBarVisibility="Hidden"
-                            HorizontalScrollBarVisibility="Disabled" Focusable="False">
-                <!-- 固定行高 StackPanel：点击行号与标记一一对应 -->
-                <StackPanel x:Name="LineNumbers" Margin="0,8,0,8"/>
-              </ScrollViewer>
-            </Border>
-            <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
-                     TextWrapping="NoWrap" Padding="8"
-                     FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="13"
-                     BorderBrush="{DynamicResource Line}"
-                     TextChanged="CodeBox_TextChanged"/>
-          </Grid>
+          <Border BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                  Background="{DynamicResource ControlBg}">
+            <AvalonEdit:TextEditor x:Name="CodeEditor"
+                                   FontFamily="Consolas, Cascadia Mono, Menlo"
+                                   FontSize="13"
+                                   ShowLineNumbers="True"
+                                   WordWrap="False"
+                                   Background="{DynamicResource ControlBg}"
+                                   Foreground="{DynamicResource Text}"
+                                   HorizontalScrollBarVisibility="Auto"
+                                   VerticalScrollBarVisibility="Auto"/>
+          </Border>
         </DockPanel>
       </Border>
     </DockPanel>

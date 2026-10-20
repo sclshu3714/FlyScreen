@@ -1,6 +1,8 @@
 <Window x:Class="FlyScreen.ProgramEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FlyScreen"
+        xmlns:avalonEdit="http://icsharpcode.net/sharpdevelop/avalonedit"
         Title="编辑程序"
         Height="560" Width="780"
         MinHeight="420" MinWidth="640"
@@ -116,6 +118,14 @@
       <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
     </Style>
   </Window.Resources>
+  <Window.InputBindings>
+    <KeyBinding Key="S" Modifiers="Control" Command="{x:Static ApplicationCommands.Save}"/>
+    <KeyBinding Key="F" Modifiers="Shift+Alt" Command="{x:Static local:ProgramEditorWindow.FormatCommand}"/>
+  </Window.InputBindings>
+  <Window.CommandBindings>
+    <CommandBinding Command="{x:Static ApplicationCommands.Save}" Executed="Save_Executed"/>
+    <CommandBinding Command="{x:Static local:ProgramEditorWindow.FormatCommand}" Executed="Format_Executed"/>
+  </Window.CommandBindings>
 
   <Border Background="{DynamicResource WinBg}" Padding="12">
     <DockPanel>
@@ -208,29 +218,18 @@
         </DockPanel>
       </Border>
 
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="52"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <Border Grid.Column="0" Background="{DynamicResource SubtleBg}"
-                BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1,1,0,1"
-                Cursor="Hand" ToolTip="点击行号添加断点，再点击取消"
-                PreviewMouseLeftButtonDown="LineNumbers_PreviewMouseLeftButtonDown">
-          <ScrollViewer x:Name="LineScroll" VerticalScrollBarVisibility="Hidden"
-                        HorizontalScrollBarVisibility="Disabled" Focusable="False">
-            <TextBlock x:Name="LineNumbers" Padding="4,8" TextAlignment="Right"
-                       FontFamily="Consolas, Cascadia Mono" FontSize="13"
-                       Foreground="{DynamicResource Placeholder}"/>
-          </ScrollViewer>
-        </Border>
-        <TextBox x:Name="CodeBox" Grid.Column="1" AcceptsReturn="True" AcceptsTab="True"
-                 TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
-                 HorizontalScrollBarVisibility="Auto" BorderBrush="{DynamicResource ControlBorder}"
-                 Padding="8" FontFamily="Consolas, Cascadia Mono"
-                 SelectionChanged="CodeBox_SelectionChanged"
-                 TextChanged="CodeBox_TextChanged"/>
-      </Grid>
+      <Border BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1"
+              Background="{DynamicResource ControlBg}">
+        <avalonEdit:TextEditor x:Name="CodeEditor"
+                               FontFamily="Consolas, Cascadia Mono" FontSize="13"
+                               ShowLineNumbers="True"
+                               WordWrap="False"
+                               HorizontalScrollBarVisibility="Auto"
+                               VerticalScrollBarVisibility="Auto"
+                               Background="{DynamicResource ControlBg}"
+                               Foreground="{DynamicResource Text}"
+                               LineNumbersForeground="{DynamicResource Placeholder}"/>
+      </Border>
     </DockPanel>
   </Border>
 </Window>

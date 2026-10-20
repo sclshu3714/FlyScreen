@@ -1,14 +1,13 @@
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using Media = System.Windows.Media;
+using FlyScreen.Editor;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Programs;
+using ICSharpCode.AvalonEdit.Highlighting;
 
 namespace FlyScreen;
 
@@ -17,6 +16,7 @@ public partial class ProgramEditorWindow : Window
     private readonly UserProgram _program;
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
+    private readonly BreakpointMargin _bpMargin;
     private int _caretLine = 1;
     private bool _toolModeUpdating;
     private bool _outputExpanded;
@@ -26,6 +26,9 @@ public partial class ProgramEditorWindow : Window
 
     public static readonly DependencyProperty ToolsCompactProperty =
         DependencyProperty.Register(nameof(ToolsCompact), typeof(bool), typeof(ProgramEditorWindow), new PropertyMetadata(false));
+
+    public static readonly RoutedUICommand FormatCommand =
+        new("Format", nameof(FormatCommand), typeof(ProgramEditorWindow));
 
     public bool ToolsCompact
     {
@@ -56,20 +59,37 @@ public partial class ProgramEditorWindow : Window
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
         ApplyOutputExpanded(false);
 
-        CodeBox.Text = _catalog.ReadSource(program);
-        RefreshLineNumbers();
+        CodeEditor.Options.EnableHyperlinks = false;
+        CodeEditor.Options.ConvertTabsToSpaces = true;
+        CodeEditor.Text = _catalog.ReadSource(program);
+        ApplyHighlighting();
+        _ = new EditorCompletion(CodeEditor, () => _program.Language);
+        _bpMargin = new BreakpointMargin(() => _program.Breakpoints, ToggleBreakpoint);
+        CodeEditor.TextArea.LeftMargins.Insert(0, _bpMargin);
+        CodeEditor.TextArea.Caret.PositionChanged += (_, _) =>
+        {
+            _caretLine = CodeEditor.TextArea.Caret.Line;
+            RefreshBpHint();
+        };
+        CodeEditor.TextChanged += (_, _) => RefreshBpHint();
         RefreshBpHint();
         RefreshOutput();
 
-        CodeBox.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(CodeBox_ScrollChanged), true);
         AppLog.Changed += OnAppLogChanged;
-        // 关闭立即返回；若仍在运行/调试则后台异步停止
         Closed += (_, _) => StopOnCloseIfNeeded();
+    }
+
+    private void ApplyHighlighting()
+    {
+        var name = ProgramEditorLanguageMap.AvalonHighlightingName(_program.Language);
+        var def = HighlightingManager.Instance.GetDefinition(name);
+        if (def == null && name is "PowerShell" or "Bash" or "Batch")
+            def = HighlightingManager.Instance.GetDefinition("JavaScript");
+        CodeEditor.SyntaxHighlighting = def;
     }
 
     private int _closeStopArmed;
 
-    /// <summary>关闭编辑器：不阻塞 UI；运行中则 fire-and-forget 停止进程。</summary>
     private void StopOnCloseIfNeeded()
     {
         if (System.Threading.Interlocked.Exchange(ref _closeStopArmed, 1) != 0) return;
@@ -102,7 +122,7 @@ public partial class ProgramEditorWindow : Window
     private void OutputHeader_Click(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is DependencyObject d && FindAncestorButton(d) != null)
-            return; // 点「清除」不切换折叠
+            return;
         ApplyOutputExpanded(!_outputExpanded);
     }
 
@@ -141,7 +161,6 @@ public partial class ProgramEditorWindow : Window
             ApplyOutputExpanded(true);
     }
 
-    /// <summary>AppendText 只追加，避免 List 绑定整表刷新。</summary>
     private void RefreshOutput()
     {
         var items = AppLog.Snapshot(false, _program.Id, _program.Name)
@@ -160,7 +179,6 @@ public partial class ProgramEditorWindow : Window
         if (!_outputExpanded || OutputBox.Text.Length == 0) return;
         OutputBox.CaretIndex = OutputBox.Text.Length;
         OutputBox.ScrollToEnd();
-        // 布局完成后再滚一次，避免 Extent 未更新时停在中部
         Dispatcher.BeginInvoke(() =>
         {
             if (!_outputExpanded) return;
@@ -194,73 +212,53 @@ public partial class ProgramEditorWindow : Window
         }
     }
 
-    private void CodeBox_ScrollChanged(object sender, ScrollChangedEventArgs e)
-    {
-        if (e.VerticalChange == 0) return;
-        LineScroll.ScrollToVerticalOffset(e.VerticalOffset);
-    }
-
-    private void CodeBox_TextChanged(object sender, TextChangedEventArgs e)
-        => RefreshLineNumbers();
-
-    private void CodeBox_SelectionChanged(object sender, RoutedEventArgs e)
-    {
-        var idx = CodeBox.CaretIndex;
-        var text = CodeBox.Text ?? "";
-        _caretLine = 1;
-        for (var i = 0; i < idx && i < text.Length; i++)
-            if (text[i] == '\n') _caretLine++;
-        RefreshBpHint();
-    }
-
-    private static readonly SolidColorBrush BpBrush = CreateBpBrush();
-
-    private static SolidColorBrush CreateBpBrush()
-    {
-        var b = new SolidColorBrush(Media.Color.FromRgb(0xEF, 0x44, 0x44));
-        b.Freeze();
-        return b;
-    }
-
-    private void RefreshLineNumbers()
-    {
-        var text = CodeBox.Text ?? "";
-        var lines = Math.Max(1, text.Replace("\r\n", "\n").Split('\n').Length);
-        LineNumbers.Inlines.Clear();
-        for (var i = 1; i <= lines; i++)
-        {
-            if (_program.Breakpoints.Contains(i))
-            {
-                // ⬤ 比 ● 大约一号，红色填充
-                LineNumbers.Inlines.Add(new Run("⬤")
-                {
-                    Foreground = BpBrush,
-                    FontSize = 12,
-                    BaselineAlignment = BaselineAlignment.Center
-                });
-            }
-            else
-            {
-                LineNumbers.Inlines.Add(new Run("  "));
-            }
-
-            LineNumbers.Inlines.Add(new Run(i.ToString().PadLeft(3)));
-            if (i < lines)
-                LineNumbers.Inlines.Add(new Run("\n"));
-        }
-    }
-
     private void RefreshBpHint()
     {
         var bps = _program.Breakpoints.Count == 0
             ? "无断点"
             : "断点: " + string.Join(",", _program.Breakpoints.OrderBy(x => x));
-        BpHintText.Text = $"行 {_caretLine}  ·  {bps}";
+        var lines = ProgramEditorLimits.StatusFragment(_caretLine, CodeEditor.Text);
+        BpHintText.Text = $"{lines}  ·  {bps}";
+        BpHintText.Foreground = ProgramEditorLimits.ExceedsLimit(CodeEditor.Text, out _)
+            ? System.Windows.Media.Brushes.DarkOrange
+            : (System.Windows.Media.Brush)FindResource("Muted");
     }
+
+    private bool EnsureWithinLineLimit()
+    {
+        var text = CodeEditor.Text ?? "";
+        if (!ProgramEditorLimits.ExceedsLimit(text, out var n)) return true;
+        MessageBox.Show(this, ProgramEditorLimits.ExceedMessage(n), Title,
+            MessageBoxButton.OK, MessageBoxImage.Warning);
+        RefreshBpHint();
+        return false;
+    }
+
+    /// <summary>按语言自动格式化；返回是否改动了文本。</summary>
+    private bool ApplyAutoFormat(bool toast = false)
+    {
+        var current = CodeEditor.Text ?? "";
+        var formatted = ProgramEditorFormatter.Format(current, _program.Language);
+        if (string.Equals(current, formatted, StringComparison.Ordinal)) return false;
+        var caret = CodeEditor.CaretOffset;
+        CodeEditor.Document.Text = formatted;
+        CodeEditor.CaretOffset = Math.Clamp(caret, 0, formatted.Length);
+        RefreshBpHint();
+        if (toast) StatusTextToast(Loc.T("Prog.Formatted"));
+        return true;
+    }
+
+    private void Format_Executed(object sender, ExecutedRoutedEventArgs e)
+        => ApplyAutoFormat(toast: true);
+
+    private void Save_Executed(object sender, ExecutedRoutedEventArgs e)
+        => Save_Click(sender, e);
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        _catalog.WriteSource(_program, CodeBox.Text ?? "");
+        ApplyAutoFormat();
+        if (!EnsureWithinLineLimit()) return;
+        _catalog.WriteSource(_program, CodeEditor.Text ?? "");
         _catalog.SaveMeta(_program);
         AppLog.Info($"已保存程序「{_program.Name}」", _program.Id, _program.Name);
         StatusTextToast("已保存");
@@ -268,11 +266,17 @@ public partial class ProgramEditorWindow : Window
 
     private async void Debug_Click(object sender, RoutedEventArgs e)
     {
+        ApplyAutoFormat();
+        if (!EnsureWithinLineLimit()) return;
         EnsureOutputVisible();
-        var original = CodeBox.Text ?? "";
+        var original = CodeEditor.Text ?? "";
         SaveSilent();
         if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
-            InjectPythonBreakpointsBeforeRun();
+        {
+            var injected = PythonBreakpointInjector.Inject(original, _program.Breakpoints);
+            _catalog.WriteSource(_program, injected);
+            AppLog.Info($"已为「{_program.Name}」注入 {PythonBreakpointInjector.CountInjected(_program.Breakpoints, original)} 处 Python breakpoint()", _program.Id, _program.Name);
+        }
         else
             AppLog.Info($"调试「{_program.Name}」：断点已记录（完整调试器后续扩展）", _program.Id, _program.Name);
         try
@@ -285,7 +289,6 @@ public partial class ProgramEditorWindow : Window
         }
         finally
         {
-            // 磁盘恢复为编辑器原文，避免把 breakpoint() 写回工程
             if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
             {
                 await Task.Delay(300);
@@ -293,26 +296,6 @@ public partial class ProgramEditorWindow : Window
             }
             RefreshOutput();
         }
-    }
-
-    private void LineNumbers_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        var line = LineFromGutterClick(e.GetPosition(LineNumbers));
-        if (line == null) return;
-        ToggleBreakpoint(line.Value);
-        e.Handled = true;
-    }
-
-    private int? LineFromGutterClick(System.Windows.Point point)
-    {
-        var total = Math.Max(1, (CodeBox.Text ?? "").Replace("\r\n", "\n").Split('\n').Length);
-        var h = LineNumbers.ActualHeight;
-        if (h <= 1 || total <= 0) return null;
-        var pad = LineNumbers.Padding.Top;
-        var y = Math.Max(0, point.Y - pad);
-        var contentH = Math.Max(1, h - pad - LineNumbers.Padding.Bottom);
-        var line = (int)Math.Floor(y / contentH * total) + 1;
-        return line >= 1 && line <= total ? line : null;
     }
 
     private void ToggleBreakpoint(int line)
@@ -326,7 +309,7 @@ public partial class ProgramEditorWindow : Window
             AppLog.Info($"「{_program.Name}」断点 @ 行 {line}", _program.Id, _program.Name);
         }
         _catalog.SaveMeta(_program);
-        RefreshLineNumbers();
+        _bpMargin.InvalidateVisual();
         RefreshBpHint();
     }
 
@@ -334,13 +317,15 @@ public partial class ProgramEditorWindow : Window
     {
         _program.Breakpoints.Clear();
         _catalog.SaveMeta(_program);
-        RefreshLineNumbers();
+        _bpMargin.InvalidateVisual();
         RefreshBpHint();
         AppLog.Info($"「{_program.Name}」已清除全部断点", _program.Id, _program.Name);
     }
 
     private async void Run_Click(object sender, RoutedEventArgs e)
     {
+        ApplyAutoFormat();
+        if (!EnsureWithinLineLimit()) return;
         EnsureOutputVisible();
         SaveSilent();
         try { await _runner.StartAsync(_program, debug: false); }
@@ -357,24 +342,10 @@ public partial class ProgramEditorWindow : Window
 
     private void SaveSilent()
     {
-        _catalog.WriteSource(_program, CodeBox.Text ?? "");
+        ApplyAutoFormat();
+        if (!ProgramEditorLimits.IsWithinLimit(CodeEditor.Text)) return;
+        _catalog.WriteSource(_program, CodeEditor.Text ?? "");
         _catalog.SaveMeta(_program);
-    }
-
-    /// <summary>Python 基础调试：在断点行前插入 breakpoint()（保存临时覆盖，运行后由用户源文件仍为编辑器内容）。</summary>
-    private void InjectPythonBreakpointsBeforeRun()
-    {
-        var lines = (CodeBox.Text ?? "").Replace("\r\n", "\n").Split('\n').ToList();
-        var inject = _program.Breakpoints.Where(l => l >= 1 && l <= lines.Count).Distinct().OrderByDescending(l => l);
-        foreach (var line in inject)
-        {
-            var idx = line - 1;
-            if (!lines[idx].Contains("breakpoint()", StringComparison.Ordinal))
-                lines.Insert(idx, "breakpoint()  # flyscreen-bp");
-        }
-        _catalog.WriteSource(_program, string.Join("\n", lines));
-        // 还原编辑器展示为未注入版本（磁盘为调试副本）— 用户下次保存会覆盖
-        AppLog.Info($"已为「{_program.Name}」注入 {_program.Breakpoints.Count} 处 Python breakpoint()", _program.Id, _program.Name);
     }
 
     private void StatusTextToast(string msg)

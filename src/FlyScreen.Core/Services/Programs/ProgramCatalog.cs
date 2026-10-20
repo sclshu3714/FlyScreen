@@ -132,18 +132,47 @@ public sealed class ProgramCatalog
     public string ReadSource(UserProgram prog)
     {
         var path = GetSourcePath(prog);
-        return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : "";
+        if (!File.Exists(path)) return "";
+        return NormalizeSourceText(File.ReadAllText(path, Encoding.UTF8));
     }
 
     public void WriteSource(UserProgram prog, string content)
     {
         var path = GetSourcePath(prog);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, content ?? "", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        var text = NormalizeSourceText(content);
+        File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         prog.UpdatedUtc = DateTime.UtcNow;
         SaveMeta(prog);
         RefreshSize(prog);
         RaiseChanged();
+    }
+
+    /// <summary>
+    /// 修复因 WebView EvaluateJavaScript 往返把换行编成字面量 "\r\n" 的源码。
+    /// </summary>
+    public static string NormalizeSourceText(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        var s = content;
+        // 无真实换行、却含字面量 \r\n / \n → 整段按 JSON 转义还原
+        if (!s.Contains('\n') && !s.Contains('\r')
+            && (s.Contains("\\r\\n", StringComparison.Ordinal) || s.Contains("\\n", StringComparison.Ordinal)))
+        {
+            s = s
+                .Replace("\\r\\n", "\n", StringComparison.Ordinal)
+                .Replace("\\n", "\n", StringComparison.Ordinal)
+                .Replace("\\r", "\n", StringComparison.Ordinal)
+                .Replace("\\t", "\t", StringComparison.Ordinal)
+                .Replace("\\\"", "\"", StringComparison.Ordinal)
+                .Replace("\\\\", "\\", StringComparison.Ordinal);
+        }
+        else if (s.Contains("\\\"", StringComparison.Ordinal) && s.Contains('$'))
+        {
+            // 换行已修好但仍残留 JSON 引号转义（如 $" → $\"）
+            s = s.Replace("\\\"", "\"", StringComparison.Ordinal);
+        }
+        return s.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
     }
 
     public void RefreshSize(UserProgram prog)

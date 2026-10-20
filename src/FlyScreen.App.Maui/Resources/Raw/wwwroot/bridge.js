@@ -1,0 +1,259 @@
+/* FlyScreen ↔ Monaco：源码拉取、行数上限、智能提示 */
+(function () {
+  let editor = null;
+  let bpDecorations = [];
+  let breakpoints = [];
+  let bootstrapped = false;
+  let maxLines = 1000;
+  let keywordMap = {};
+  let completionDisposable = null;
+
+  window.flyEditorReady = false;
+
+  function post(obj) {
+    try {
+      if (window.HybridWebView && typeof HybridWebView.SendRawMessage === 'function')
+        HybridWebView.SendRawMessage(JSON.stringify(obj));
+    } catch (e) { /* ignore */ }
+  }
+
+  function lineCountOf(text) {
+    if (!text) return 1;
+    var n = 1;
+    for (var i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) n++;
+    return n;
+  }
+
+  function setBreakpoints(lines) {
+    breakpoints = (lines || []).map(Number).filter(n => n >= 1);
+    if (!editor) return;
+    const decs = breakpoints.map(line => ({
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        glyphMarginClassName: 'fly-bp-glyph',
+        linesDecorationsClassName: 'fly-bp-line'
+      }
+    }));
+    bpDecorations = editor.deltaDecorations(bpDecorations, decs);
+  }
+
+  function toggleBreakpoint(line) {
+    const i = breakpoints.indexOf(line);
+    if (i >= 0) breakpoints.splice(i, 1);
+    else breakpoints.push(line);
+    breakpoints.sort((a, b) => a - b);
+    setBreakpoints(breakpoints);
+    post({ type: 'breakpointToggled', line: line, breakpoints: breakpoints.slice() });
+  }
+
+  function registerCompletion(language) {
+    if (completionDisposable) {
+      try { completionDisposable.dispose(); } catch (e) { /* ignore */ }
+      completionDisposable = null;
+    }
+    var words = keywordMap[language] || keywordMap[language && language.toLowerCase()] || [];
+    if (!words.length || !language || language === 'plaintext') return;
+
+    completionDisposable = monaco.languages.registerCompletionItemProvider(language, {
+      triggerCharacters: ['.', '_'],
+      provideCompletionItems: function (model, position) {
+        var word = model.getWordUntilPosition(position);
+        var range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn
+        };
+        var prefix = (word.word || '').toLowerCase();
+        var doc = model.getValue();
+        var fromDoc = {};
+        var re = /[A-Za-z_][A-Za-z0-9_]{1,}/g;
+        var m;
+        while ((m = re.exec(doc))) {
+          if (!prefix || m[0].toLowerCase().indexOf(prefix) === 0)
+            fromDoc[m[0]] = true;
+        }
+        words.forEach(function (w) {
+          if (!prefix || w.toLowerCase().indexOf(prefix) === 0)
+            fromDoc[w] = true;
+        });
+        var suggestions = Object.keys(fromDoc).slice(0, 80).map(function (label) {
+          return {
+            label: label,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: label,
+            range: range
+          };
+        });
+        return { suggestions: suggestions };
+      }
+    });
+  }
+
+  function applyBootstrap(data) {
+    if (!editor || !data) return;
+    const value = data.value != null ? String(data.value)
+      : (data.Value != null ? String(data.Value) : '');
+    const language = data.language || data.Language || 'plaintext';
+    const bps = data.breakpoints || data.Breakpoints || [];
+    if (data.maxLines || data.MaxLines)
+      maxLines = Number(data.maxLines || data.MaxLines) || 1000;
+    var kw = data.keywords || data.Keywords;
+    if (kw && kw.length) {
+      keywordMap[language] = kw;
+      keywordMap[language.toLowerCase()] = kw;
+    }
+    editor.setValue(value);
+    try { monaco.editor.setModelLanguage(editor.getModel(), language); } catch (e) { /* ignore */ }
+    registerCompletion(language);
+    setBreakpoints(bps);
+    bootstrapped = true;
+    reportCaret();
+  }
+
+  function reportCaret() {
+    if (!editor) return;
+    var pos = editor.getPosition() || { lineNumber: 1, column: 1 };
+    post({
+      type: 'caret',
+      line: pos.lineNumber,
+      column: pos.column,
+      lineCount: editor.getModel() ? editor.getModel().getLineCount() : 1
+    });
+  }
+
+  function handleHostMessage(raw) {
+    let msg;
+    if (typeof raw === 'object' && raw !== null) msg = raw;
+    else {
+      try { msg = JSON.parse(raw); } catch { return; }
+    }
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+      case 'setValue':
+      case 'init':
+        applyBootstrap(msg);
+        break;
+      case 'getValue':
+        post({ type: 'value', requestId: msg.requestId, value: editor ? editor.getValue() : '' });
+        break;
+      case 'setLanguage':
+        if (editor && msg.language) {
+          monaco.editor.setModelLanguage(editor.getModel(), msg.language);
+          if (msg.keywords) {
+            keywordMap[msg.language] = msg.keywords;
+            registerCompletion(msg.language);
+          }
+        }
+        break;
+      case 'setBreakpoints':
+        setBreakpoints(msg.breakpoints || []);
+        break;
+      case 'clearBreakpoints':
+        setBreakpoints([]);
+        break;
+    }
+  }
+
+  window.flyHandleHostMessage = handleHostMessage;
+  window.flyGetValue = function () { return editor ? editor.getValue() : ''; };
+  window.flySetValue = function (v) {
+    if (editor) editor.setValue(v == null ? '' : String(v));
+  };
+  window.flyLineCount = function () {
+    return editor && editor.getModel() ? editor.getModel().getLineCount() : 1;
+  };
+
+  window.addEventListener('HybridWebViewMessageReceived', function (e) {
+    let raw = null;
+    if (e && e.detail != null) {
+      if (typeof e.detail === 'string') raw = e.detail;
+      else if (e.detail.message != null) raw = e.detail.message;
+    }
+    if (raw) handleHostMessage(raw);
+  });
+
+  async function pullBootstrapFromDotNet() {
+    if (bootstrapped || !editor) return;
+    for (let i = 0; i < 30; i++) {
+      try {
+        if (window.HybridWebView && typeof HybridWebView.InvokeDotNet === 'function') {
+          const data = await HybridWebView.InvokeDotNet('GetBootstrap');
+          if (data) {
+            applyBootstrap(typeof data === 'string' ? JSON.parse(data) : data);
+            if (bootstrapped) {
+              post({ type: 'ready' });
+              return;
+            }
+          }
+        }
+      } catch (e) { /* 目标尚未 SetInvokeJavaScriptTarget */ }
+      await new Promise(r => setTimeout(r, 200));
+    }
+    post({ type: 'ready' });
+  }
+
+  require.config({ paths: { vs: 'vs' } });
+  require(['vs/editor/editor.main'], function () {
+    const style = document.createElement('style');
+    style.textContent =
+      '.fly-bp-glyph { background: #ef4444; border-radius: 50%; width: 10px !important; height: 10px !important; margin-left: 4px; margin-top: 4px; }' +
+      '.fly-bp-line { background: rgba(239,68,68,0.08); }';
+    document.head.appendChild(style);
+
+    editor = monaco.editor.create(document.getElementById('container'), {
+      value: '',
+      language: 'plaintext',
+      theme: 'vs',
+      automaticLayout: true,
+      minimap: { enabled: false },
+      fontSize: 13,
+      fontFamily: 'Consolas, Cascadia Mono, Menlo, monospace',
+      glyphMargin: true,
+      lineNumbers: 'on',
+      scrollBeyondLastLine: false,
+      wordWrap: 'off',
+      tabSize: 4,
+      insertSpaces: true,
+      quickSuggestions: { other: true, comments: false, strings: true },
+      suggestOnTriggerCharacters: true,
+      wordBasedSuggestions: 'currentDocument',
+      snippetSuggestions: 'inline',
+      suggest: { showKeywords: true, showSnippets: true, preview: true }
+    });
+
+    editor.onMouseDown(function (e) {
+      if (!e.target) return;
+      var t = e.target.type;
+      if (t === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
+          || t === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+          || t === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) {
+        var line = e.target.position && e.target.position.lineNumber;
+        if (line) toggleBreakpoint(line);
+      }
+    });
+
+    editor.onDidChangeCursorPosition(function () { reportCaret(); });
+    editor.onDidChangeModelContent(function () { reportCaret(); });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+      var text = editor.getValue();
+      var n = lineCountOf(text);
+      if (n > maxLines) {
+        post({ type: 'lineLimitExceeded', lineCount: n, maxLines: maxLines, value: text });
+        return;
+      }
+      post({ type: 'saveRequested', value: text });
+    });
+
+    // Shift+Alt+F：请求宿主按语言格式化
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, function () {
+      post({ type: 'formatRequested', value: editor.getValue() });
+    });
+
+    window.flyEditorReady = true;
+    pullBootstrapFromDotNet();
+  });
+})();
