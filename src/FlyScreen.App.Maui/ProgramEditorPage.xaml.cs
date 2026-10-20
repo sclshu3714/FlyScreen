@@ -88,11 +88,6 @@ public partial class ProgramEditorPage : ContentPage
         RefreshOutput();
         SizeChanged += (_, _) => UpdateToolMode();
         AppLog.Changed += OnAppLogChanged;
-#if !ANDROID
-        ComposeBar.IsVisible = false;
-#else
-        ComposeHintLabel.Text = Loc.T("Prog.DlgCancel") == "取消" ? "组字" : "IME";
-#endif
     }
 
     /// <summary>供 Monaco bridge.js 的 HybridWebView.InvokeDotNet 调用。</summary>
@@ -140,7 +135,6 @@ public partial class ProgramEditorPage : ContentPage
 #if ANDROID
         // 每次出现都重新挂上：软键盘曾误触发 OnDisappearing 时可能被卸掉
         RemoteTextInputHub.Register(this);
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(200), FocusComposeEntry);
 #endif
         StartReadyPoll();
     }
@@ -586,7 +580,6 @@ public partial class ProgramEditorPage : ContentPage
     {
         if (Interlocked.Exchange(ref _teardownArmed, 1) != 0) return;
 #if ANDROID
-        ClearComposition();
         RemoteTextInputHub.Unregister(this);
 #endif
         StopOnCloseIfNeeded();
@@ -609,154 +602,13 @@ public partial class ProgramEditorPage : ContentPage
         }
     }
 
-    private void ComposeEntry_HandlerChanged(object? sender, EventArgs e)
-    {
 #if ANDROID
-        ConfigureComposeEditForIme();
-#endif
-    }
-
-    private void ComposeEntry_Focused(object? sender, FocusEventArgs e)
-    {
-#if ANDROID
-        ConfigureComposeEditForIme();
-        EnsureComposeImeVisible();
-#endif
-    }
-
-    private void ComposeEntry_Completed(object? sender, EventArgs e)
-    {
-#if ANDROID
-        CommitComposeOrMonacoEnter();
-#endif
-    }
-
-    private void ComposeCommit_Clicked(object? sender, EventArgs e)
-    {
-#if ANDROID
-        FlushComposeToMonaco();
-        FocusComposeEntry();
-#endif
-    }
-
-    private void ComposeEntry_TextChanged(object? sender, TextChangedEventArgs e)
-    {
-#if ANDROID
-        OnComposeTextChanged();
-#endif
-    }
-
-#if ANDROID
-    // —— 原生组字条：内容先留在条内；仅 IME 选词结束 / 回车 /「写入」才进 Monaco ——
-
-    private bool _composeUpdating;
-    private bool _wasComposing;
-
-    private void FocusComposeEntry()
-    {
-        try
-        {
-            if (!ComposeEntry.IsFocused)
-                ComposeEntry.Focus();
-            EnsureComposeImeVisible();
-        }
-        catch { /* ignore */ }
-    }
-
-    private void ConfigureComposeEditForIme()
-    {
-        try
-        {
-            if (ComposeEdit() is not { } edit) return;
-            edit.ShowSoftInputOnFocus = true;
-            edit.InputType = global::Android.Text.InputTypes.ClassText;
-            edit.ImeOptions = global::Android.Views.InputMethods.ImeAction.Done;
-            try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
-        }
-        catch { /* ignore */ }
-    }
-
-    private void EnsureComposeImeVisible()
-    {
-        try
-        {
-            if (ComposeEdit() is not { } edit) return;
-            ConfigureComposeEditForIme();
-            var imm = global::Android.App.Application.Context
-                .GetSystemService(global::Android.Content.Context.InputMethodService)
-                as global::Android.Views.InputMethods.InputMethodManager;
-            // 勿 RestartInput：会清掉正在进行的拼音组字
-            imm?.ShowSoftInput(edit, global::Android.Views.InputMethods.ShowFlags.Implicit);
-        }
-        catch { /* ignore */ }
-    }
-
-    private global::Android.Widget.EditText? ComposeEdit()
-        => ComposeEntry.Handler?.PlatformView as global::Android.Widget.EditText;
-
-    private bool IsComposeComposing()
-        => Platforms.Android.ComposeImeViewHandler.IsComposing(ComposeEdit());
-
-    private void OnComposeTextChanged()
-    {
-        if (_composeUpdating) return;
-
-        if (IsComposeComposing())
-        {
-            _wasComposing = true;
-            return; // 拼音过程只留在组字条
-        }
-
-        // 刚从组字状态确认（选词）→ 写入 Monaco
-        if (_wasComposing)
-        {
-            _wasComposing = false;
-            FlushComposeToMonaco();
-        }
-        // 英文/直接字母：留在组字条，等回车或「写入」
-    }
-
-    private void FlushComposeToMonaco()
-    {
-        var text = ComposeEntry.Text ?? "";
-        if (string.IsNullOrEmpty(text)) return;
-        MonacoType(text);
-        _composeUpdating = true;
-        _wasComposing = false;
-        ComposeEntry.Text = "";
-        _composeUpdating = false;
-    }
-
-    private void CommitComposeOrMonacoEnter()
-    {
-        if (!string.IsNullOrEmpty(ComposeEntry.Text) || _wasComposing || IsComposeComposing())
-            FlushComposeToMonaco();
-        else
-            MonacoAction("enter");
-        FocusComposeEntry();
-    }
-
-    public void ClearComposition()
-    {
-        void Run()
-        {
-            _composeUpdating = true;
-            _wasComposing = false;
-            ComposeEntry.Text = "";
-            _composeUpdating = false;
-        }
-        if (MainThread.IsMainThread) Run();
-        else MainThread.BeginInvokeOnMainThread(Run);
-    }
+    // —— 跨屏键盘直写 Monaco（不再经本地组字条）——
 
     public bool TryAcceptRemoteText(string text)
     {
         if (string.IsNullOrEmpty(text)) return false;
-        void Run()
-        {
-            ClearComposition();
-            MonacoType(text);
-        }
+        void Run() => MonacoType(text);
         if (MainThread.IsMainThread) Run();
         else MainThread.BeginInvokeOnMainThread(Run);
         return true;
@@ -780,125 +632,28 @@ public partial class ProgramEditorPage : ContentPage
 
     private bool HandleRemoteKeyCore(ushort vk, bool down, bool shift, bool caps, bool ctrl)
     {
-        FocusComposeEntry();
-
+        // 修饰键：仅跟踪，不写编辑器
         if (vk is 0x10 or 0xA0 or 0xA1 or 0x14)
-        {
-            DispatchToCompose(vk, down, shift);
             return true;
-        }
 
         if (!down)
-        {
-            DispatchToCompose(vk, false, shift);
             return true;
-        }
 
         if (ctrl)
             return false;
 
-        var composing = IsComposeComposing();
-        var barHasText = !string.IsNullOrEmpty(ComposeEntry.Text);
+        if (TryMonacoSpecial(vk))
+            return true;
 
-        // 回车：条内有字则写入 Monaco；否则编辑器换行
-        if (vk == 0x0D)
+        var upper = vk is >= 0x41 and <= 0x5A ? (shift ^ caps) : shift;
+        var mapped = RemoteVkMap.ToChar(vk, upper);
+        if (!string.IsNullOrEmpty(mapped))
         {
-            if (composing)
-            {
-                DispatchToCompose(vk, true, shift);
-                return true;
-            }
-            CommitComposeOrMonacoEnter();
+            MonacoType(mapped);
             return true;
         }
 
-        // 组字中或条内已有内容：退格/空格/数字选词进组字条
-        if (composing || barHasText)
-        {
-            if (vk is 0x08 or 0x2E or (>= 0x30 and <= 0x39) or 0x20)
-            {
-                DispatchToCompose(vk, true, shift);
-                // Dispatch 未改文本时（常见），退格手动改 Entry
-                if (vk == 0x08 && !IsComposeComposing())
-                    ComposeBackspaceFallback();
-                return true;
-            }
-        }
-
-        // 导航：仅条空且未组字时进 Monaco
-        if (!composing && !barHasText && TryMonacoSpecial(vk))
-            return true;
-
-        if (DispatchToCompose(vk, true, shift))
-            return true;
-
-        // IME 未写入时：ASCII 留在组字条（不再直灌 Monaco）
-        if (!composing)
-        {
-            var upper = vk is >= 0x41 and <= 0x5A ? (shift ^ caps) : shift;
-            var mapped = RemoteVkMap.ToChar(vk, upper);
-            if (!string.IsNullOrEmpty(mapped))
-            {
-                AppendToComposeBar(mapped);
-                return true;
-            }
-            if (vk == 0x08)
-            {
-                ComposeBackspaceFallback();
-                return true;
-            }
-        }
-
-        return TryMonacoSpecial(vk);
-    }
-
-    private void AppendToComposeBar(string mapped)
-    {
-        _composeUpdating = true;
-        ComposeEntry.Text = (ComposeEntry.Text ?? "") + mapped;
-        _composeUpdating = false;
-        // 光标移到末尾
-        try { ComposeEntry.CursorPosition = ComposeEntry.Text?.Length ?? 0; } catch { /* ignore */ }
-    }
-
-    private void ComposeBackspaceFallback()
-    {
-        var t = ComposeEntry.Text ?? "";
-        if (t.Length == 0) return;
-        _composeUpdating = true;
-        ComposeEntry.Text = t[..^1];
-        _composeUpdating = false;
-    }
-
-    private bool DispatchToCompose(ushort vk, bool down, bool shift)
-    {
-        var edit = ComposeEdit();
-        if (edit == null) return false;
-        var keyCode = RemoteVkMap.ToAndroidKeyCode(vk);
-        if (keyCode <= 0) return false;
-
-        if (!edit.IsFocused)
-            edit.RequestFocus();
-
-        var before = edit.Text ?? "";
-        var now = global::Android.OS.SystemClock.UptimeMillis();
-        var meta = shift ? global::Android.Views.MetaKeyStates.ShiftOn : 0;
-        var action = down
-            ? global::Android.Views.KeyEventActions.Down
-            : global::Android.Views.KeyEventActions.Up;
-        var ev = new global::Android.Views.KeyEvent(
-            now, now, action, (global::Android.Views.Keycode)keyCode, 0, meta,
-            deviceId: -1, scancode: 0,
-            flags: global::Android.Views.KeyEventFlags.SoftKeyboard
-                   | global::Android.Views.KeyEventFlags.KeepTouchMode);
-        edit.DispatchKeyEvent(ev);
-
-        if (!down) return true;
-
-        // 只有真正开始组字或文本变化才算成功；否则交给 ASCII 回退写入组字条
-        var after = edit.Text ?? "";
-        return IsComposeComposing()
-               || !string.Equals(after, before, StringComparison.Ordinal);
+        return false;
     }
 
     private bool TryMonacoSpecial(ushort vk)

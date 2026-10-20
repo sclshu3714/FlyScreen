@@ -1,5 +1,6 @@
 #if ANDROID
 using Android.Graphics;
+using Android.Graphics.Drawables;
 using Android.Views;
 using Android.Widget;
 using AColor = global::Android.Graphics.Color;
@@ -13,14 +14,16 @@ using FlyScreen.Services.Network;
 namespace FlyScreen.AppMaui.Services;
 
 /// <summary>
-/// 电脑侧组字 → 手机在远程光标旁浮动显示：拼音行 + 编号候选（仿系统 IME，不挡其它触控）。
+/// 电脑后台组字 → 手机光标旁浮动候选条（拼音虚线 + 编号词组，样式对齐桌面 IME）。
+/// 全屏容器透传触摸，仅候选条本体可点；跨屏输入时收起本机软键盘。
 /// </summary>
 public static class RemoteCompositionOverlay
 {
 #if ANDROID
-    private static FrameLayout? _root;
+    private static PassThroughFrameLayout? _root;
     private static LinearLayout? _panel;
     private static TextView? _reading;
+    private static Android.Views.View? _readingUnderline;
     private static LinearLayout? _candidatesRow;
     private static AButton? _prev;
     private static AButton? _next;
@@ -50,15 +53,19 @@ public static class RemoteCompositionOverlay
             _sourcePeer = peer;
             _numberBase = payload.NumberBase <= 0 ? 1 : payload.NumberBase;
             _candidates = payload.Candidates?.ToList() ?? [];
-            _reading.Text = string.IsNullOrEmpty(payload.Reading) ? "" : payload.Reading;
-            _reading.Visibility = string.IsNullOrEmpty(_reading.Text) ? ViewStates.Gone : ViewStates.Visible;
+            var reading = payload.Reading ?? "";
+            _reading.Text = reading;
+            var readingVisible = !string.IsNullOrEmpty(reading);
+            _reading.Visibility = readingVisible ? ViewStates.Visible : ViewStates.Gone;
+            if (_readingUnderline != null)
+                _readingUnderline.Visibility = readingVisible ? ViewStates.Visible : ViewStates.Gone;
             RebuildCandidates(payload.Highlight);
             if (_prev != null) _prev.Enabled = payload.CanPagePrev;
             if (_next != null) _next.Enabled = payload.CanPageNext;
             PlaceNearCursor();
             _root.Visibility = ViewStates.Visible;
             _root.BringToFront();
-            HideSoftKeyboard();
+            SoftKeyboardGuard.Hide();
         });
 #else
         _ = peer;
@@ -77,6 +84,7 @@ public static class RemoteCompositionOverlay
             _candidates = [];
             _candidatesRow?.RemoveAllViews();
             if (_reading != null) _reading.Text = "";
+            if (_readingUnderline != null) _readingUnderline.Visibility = ViewStates.Gone;
         });
 #endif
     }
@@ -89,59 +97,74 @@ public static class RemoteCompositionOverlay
         if (activity?.Window?.DecorView is not ViewGroup decor) return;
 
         var density = activity.Resources?.DisplayMetrics?.Density ?? 2f;
-        var pad = (int)(8 * density);
+        var padH = (int)(10 * density);
+        var padV = (int)(8 * density);
 
-        // 全屏透明容器：不拦截触摸；仅内部 panel 可点
-        _root = new FrameLayout(activity)
+        _root = new PassThroughFrameLayout(activity)
         {
             Clickable = false,
             Focusable = false,
-            Elevation = 48f * density
+            Elevation = 56f * density
         };
         _root.SetBackgroundColor(AColor.Transparent);
         _root.Visibility = ViewStates.Gone;
+        _root.ShouldHandleTouch = IsInsidePanel;
 
+        // 白底圆角浮层（对齐桌面候选窗）
         _panel = new LinearLayout(activity)
         {
             Orientation = Orientation.Vertical,
             Clickable = true,
-            Focusable = false
+            Focusable = false,
+            Elevation = 10f * density
         };
-        _panel.SetBackgroundColor(AColor.White);
-        _panel.SetPadding(pad, pad / 2, pad, pad / 2);
-        // 蓝边框（仿系统候选窗）
-        var border = new Android.Graphics.Drawables.GradientDrawable();
+        var border = new GradientDrawable();
         border.SetColor(AColor.White);
-        border.SetStroke(Math.Max(1, (int)(1.5f * density)), AColor.Rgb(0, 120, 215));
-        border.SetCornerRadius(4f * density);
+        border.SetCornerRadius(10f * density);
+        border.SetStroke(Math.Max(1, (int)(0.5f * density)), AColor.Argb(40, 0, 0, 0));
         _panel.Background = border;
-        _panel.Elevation = 8f * density;
+        _panel.SetPadding(padH, padV, padH / 2, padV);
 
+        // 拼音行 + 虚线下划线
+        var readingBlock = new LinearLayout(activity)
+        {
+            Orientation = Orientation.Vertical,
+            Clickable = false
+        };
         _reading = new TextView(activity)
         {
             TextSize = 15f,
-            Ellipsize = Android.Text.TextUtils.TruncateAt.End
+            Ellipsize = Android.Text.TextUtils.TruncateAt.End,
+            Typeface = Typeface.Monospace
         };
         _reading.SetMaxLines(1);
-        _reading.SetTextColor(AColor.Rgb(32, 32, 32));
-        // 虚线式组字提示：下划线
-        _reading.PaintFlags |= PaintFlags.UnderlineText;
-        _panel.AddView(_reading, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent)
-        {
-            BottomMargin = (int)(4 * density)
-        });
+        _reading.SetTextColor(AColor.Rgb(40, 40, 40));
+        readingBlock.AddView(_reading, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent));
 
+        _readingUnderline = new Android.Views.View(activity);
+        var dash = new GradientDrawable();
+        dash.SetShape(ShapeType.Rectangle);
+        dash.SetColor(AColor.Transparent);
+        dash.SetStroke(Math.Max(1, (int)(1.2f * density)), AColor.Rgb(120, 120, 128), 3f * density, 3f * density);
+        _readingUnderline.Background = dash;
+        _readingUnderline.Visibility = ViewStates.Gone;
+        readingBlock.AddView(_readingUnderline, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent, Math.Max(2, (int)(1.5f * density)))
+        {
+            TopMargin = (int)(2 * density),
+            BottomMargin = (int)(6 * density)
+        });
+        _panel.AddView(readingBlock, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent));
+
+        // 候选行：词组… | 分隔 | ◀ ▶
         var candLine = new LinearLayout(activity)
         {
             Orientation = Orientation.Horizontal,
             Clickable = true
         };
         candLine.SetGravity(GravityFlags.CenterVertical);
-
-        _prev = MakePageButton(activity, "◂", -10);
-        candLine.AddView(_prev, new LinearLayout.LayoutParams(
-            (int)(28 * density), (int)(32 * density)));
 
         _candidatesRow = new LinearLayout(activity)
         {
@@ -150,15 +173,24 @@ public static class RemoteCompositionOverlay
         };
         _candidatesRow.SetGravity(GravityFlags.CenterVertical);
         candLine.AddView(_candidatesRow, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent)
+            0, ViewGroup.LayoutParams.WrapContent, 1f));
+
+        var divider = new Android.Views.View(activity);
+        divider.SetBackgroundColor(AColor.Rgb(220, 220, 224));
+        candLine.AddView(divider, new LinearLayout.LayoutParams(
+            Math.Max(1, (int)(1 * density)), (int)(22 * density))
         {
-            LeftMargin = (int)(2 * density),
+            LeftMargin = (int)(4 * density),
             RightMargin = (int)(2 * density)
         });
 
-        _next = MakePageButton(activity, "▸", -11);
+        _prev = MakePageButton(activity, "◂", -10, density);
+        candLine.AddView(_prev, new LinearLayout.LayoutParams(
+            (int)(30 * density), (int)(30 * density)));
+
+        _next = MakePageButton(activity, "▸", -11, density);
         candLine.AddView(_next, new LinearLayout.LayoutParams(
-            (int)(28 * density), (int)(32 * density)));
+            (int)(30 * density), (int)(30 * density)));
 
         _panel.AddView(candLine, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent));
@@ -168,36 +200,34 @@ public static class RemoteCompositionOverlay
 
         decor.AddView(_root, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.MatchParent));
-
-        // 容器不吃触摸：子 panel 自己处理
-        _root.Touch += (_, e) =>
-        {
-            // 点在 panel 外：不消费，让下层收到
-            if (e.Event?.Action == MotionEventActions.Down && _panel != null)
-            {
-                var x = e.Event.GetX();
-                var y = e.Event.GetY();
-                if (x < _panel.Left || x > _panel.Right || y < _panel.Top || y > _panel.Bottom)
-                    e.Handled = false;
-            }
-        };
     }
 
-    private static AButton MakePageButton(global::Android.Content.Context ctx, string label, int selectIndex)
+    private static bool IsInsidePanel(MotionEvent e)
+    {
+        if (_panel == null || _root == null) return false;
+        var x = e.GetX();
+        var y = e.GetY();
+        return x >= _panel.Left && x <= _panel.Right && y >= _panel.Top && y <= _panel.Bottom;
+    }
+
+    private static AButton MakePageButton(global::Android.Content.Context ctx, string label, int selectIndex, float density)
     {
         var b = new AButton(ctx)
         {
             Text = label,
-            TextSize = 14f
+            TextSize = 13f
         };
         b.SetBackgroundColor(AColor.Transparent);
-        b.SetTextColor(AColor.Rgb(80, 80, 90));
+        b.SetTextColor(AColor.Rgb(90, 90, 98));
         b.SetPadding(0, 0, 0, 0);
         b.SetMinWidth(0);
         b.SetMinimumWidth(0);
+        b.SetMinHeight(0);
+        b.SetMinimumHeight(0);
         b.Click += (_, _) =>
         {
             if (string.IsNullOrEmpty(_sourcePeer)) return;
+            SoftKeyboardGuard.Hide();
             _ = SendSelectAsync(_sourcePeer, selectIndex, null);
         };
         return b;
@@ -210,33 +240,66 @@ public static class RemoteCompositionOverlay
         var activity = Platform.CurrentActivity;
         if (activity == null) return;
         var density = activity.Resources?.DisplayMetrics?.Density ?? 2f;
+        if (highlight < 0 && _candidates.Count > 0) highlight = 0;
 
         for (var i = 0; i < _candidates.Count; i++)
         {
             var idx = i;
             var text = _candidates[i];
             var num = _numberBase + i;
-            var btn = new AButton(activity)
+            var selected = idx == highlight;
+
+            var cell = new LinearLayout(activity)
             {
-                Text = $"{num}.{text}",
-                TextSize = 14f,
-                Tag = idx
+                Orientation = Orientation.Horizontal,
+                Clickable = true,
+                Focusable = true
             };
-            btn.SetAllCaps(false);
-            btn.SetMinWidth(0);
-            btn.SetMinimumWidth(0);
-            btn.SetBackgroundColor(idx == highlight
-                ? AColor.Rgb(0, 120, 215)
-                : AColor.Transparent);
-            btn.SetTextColor(idx == highlight ? AColor.White : AColor.Rgb(20, 20, 20));
-            btn.SetPadding((int)(6 * density), (int)(2 * density), (int)(6 * density), (int)(2 * density));
-            btn.Click += (_, _) =>
+            cell.SetGravity(GravityFlags.CenterVertical);
+
+            var cellBg = new GradientDrawable();
+            cellBg.SetCornerRadius(4f * density);
+            cellBg.SetColor(selected ? AColor.Rgb(236, 236, 240) : AColor.Transparent);
+            cell.Background = cellBg;
+            cell.SetPadding(0, (int)(2 * density), (int)(8 * density), (int)(2 * density));
+
+            if (selected)
+            {
+                var accent = new Android.Views.View(activity);
+                accent.SetBackgroundColor(AColor.Rgb(0, 120, 215));
+                cell.AddView(accent, new LinearLayout.LayoutParams(
+                    Math.Max(2, (int)(3 * density)), ViewGroup.LayoutParams.MatchParent)
+                {
+                    RightMargin = (int)(6 * density)
+                });
+            }
+            else
+            {
+                cell.SetPadding((int)(8 * density), (int)(2 * density), (int)(8 * density), (int)(2 * density));
+            }
+
+            var label = new TextView(activity)
+            {
+                Text = $"{num} {text}",
+                TextSize = 14f
+            };
+            label.SetTextColor(AColor.Rgb(28, 28, 30));
+            label.SetMaxLines(1);
+            cell.AddView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent));
+
+            cell.Click += (_, _) =>
             {
                 if (string.IsNullOrEmpty(_sourcePeer)) return;
+                SoftKeyboardGuard.Hide();
                 _ = SendSelectAsync(_sourcePeer, idx, text);
             };
-            _candidatesRow.AddView(btn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent));
+
+            _candidatesRow.AddView(cell, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent)
+            {
+                RightMargin = (int)(2 * density)
+            });
         }
     }
 
@@ -249,7 +312,6 @@ public static class RemoteCompositionOverlay
         var density = activity.Resources?.DisplayMetrics?.Density ?? 2f;
         TryGetAnchorPixels(out var ax, out var ay);
 
-        // Decor 坐标：减去状态栏等，用 GetLocationOnScreen 对齐
         var decorLoc = new int[2];
         if (_root.Parent is ViewGroup parent)
             parent.GetLocationOnScreen(decorLoc);
@@ -257,13 +319,13 @@ public static class RemoteCompositionOverlay
             _root.GetLocationOnScreen(decorLoc);
 
         var localX = ax - decorLoc[0];
-        var localY = ay - decorLoc[1] + (int)(22 * density); // 光标下方
+        var localY = ay - decorLoc[1] + (int)(24 * density);
 
         _panel.Measure(
             Android.Views.View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified),
             Android.Views.View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified));
-        var pw = Math.Max(_panel.MeasuredWidth, (int)(160 * density));
-        var ph = Math.Max(_panel.MeasuredHeight, (int)(56 * density));
+        var pw = Math.Max(_panel.MeasuredWidth, (int)(200 * density));
+        var ph = Math.Max(_panel.MeasuredHeight, (int)(64 * density));
 
         var maxX = Math.Max(0, _root.Width - pw - 8);
         var maxY = Math.Max(0, _root.Height - ph - 8);
@@ -322,20 +384,19 @@ public static class RemoteCompositionOverlay
         }
     }
 
-    private static void HideSoftKeyboard()
+    /// <summary>全屏层：点在候选条外则不消费事件，触屏仍落到下层 UI。</summary>
+    private sealed class PassThroughFrameLayout : FrameLayout
     {
-        try
+        public Func<MotionEvent, bool>? ShouldHandleTouch { get; set; }
+
+        public PassThroughFrameLayout(global::Android.Content.Context context) : base(context) { }
+
+        public override bool DispatchTouchEvent(MotionEvent? e)
         {
-            var activity = Platform.CurrentActivity;
-            var token = activity?.CurrentFocus?.WindowToken ?? activity?.Window?.DecorView?.WindowToken;
-            if (activity == null || token == null) return;
-            var imm = activity.GetSystemService(global::Android.Content.Context.InputMethodService)
-                as global::Android.Views.InputMethods.InputMethodManager;
-            imm?.HideSoftInputFromWindow(token, global::Android.Views.InputMethods.HideSoftInputFlags.None);
-        }
-        catch
-        {
-            /* ignore */
+            if (e == null) return false;
+            if (ShouldHandleTouch != null && !ShouldHandleTouch(e))
+                return false;
+            return base.DispatchTouchEvent(e);
         }
     }
 #endif

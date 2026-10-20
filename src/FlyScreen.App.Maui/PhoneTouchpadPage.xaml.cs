@@ -9,8 +9,8 @@ public partial class PhoneTouchpadPage : ContentPage
     private const int WheelNotch = 120;
     private const int TapSlopPx = 12;
     private const double CursorSensitivity = 0.0022;
-    /// <summary>IME 组字结束后再发送，避免拼音过程中打断。</summary>
-    private static readonly TimeSpan KeyboardCommitDelay = TimeSpan.FromMilliseconds(420);
+    /// <summary>非组字态下短暂空闲再发送；组字中绝不提交，等选词结束。</summary>
+    private static readonly TimeSpan KeyboardCommitDelay = TimeSpan.FromMilliseconds(520);
 
     private readonly MauiAppHost _host;
     private MainPage? _settingsPage;
@@ -29,6 +29,7 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private long _clipboardSeq;
     private bool _suppressKeyboardSync;
+    private bool _keyboardWasComposing;
     private CancellationTokenSource? _keyboardCommitCts;
     private long _lastClickTick;
 
@@ -41,6 +42,8 @@ public partial class PhoneTouchpadPage : ContentPage
         AttachButtonZone(RightZone, button: 1);
         AttachWheelZone();
         KeyboardEntry.TextChanged += OnKeyboardTextChanged;
+        KeyboardEntry.HandlerChanged += (_, _) => ApplyPhoneImeInputType();
+        KeyboardEntry.Focused += (_, _) => ApplyPhoneImeInputType();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -140,7 +143,12 @@ public partial class PhoneTouchpadPage : ContentPage
             _suppressKeyboardSync = true;
             KeyboardEntry.Text = "";
             _suppressKeyboardSync = false;
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), () => KeyboardEntry.Focus());
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), () =>
+            {
+                ApplyPhoneImeInputType();
+                KeyboardEntry.Focus();
+                ShowSoftKeyboard();
+            });
             StatusLabel.Text = _activePeer == null
                 ? "键盘已开：请先连接电脑"
                 : $"键盘直发 → {_activePeer}（本地不保留）";
@@ -301,11 +309,32 @@ public partial class PhoneTouchpadPage : ContentPage
     private void OnKeyboardTextChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppressKeyboardSync || !_keyboardOpen) return;
+
+        // 拼音组字中：绝不提交/清空，否则系统候选栏会被掐掉
+        if (IsPhoneImeComposing())
+        {
+            _keyboardWasComposing = true;
+            _keyboardCommitCts?.Cancel();
+            return;
+        }
+
+        // 刚选完词：立刻发出，不必再等空闲
+        if (_keyboardWasComposing)
+        {
+            _keyboardWasComposing = false;
+            _keyboardCommitCts?.Cancel();
+            _ = FlushKeyboardNowAsync();
+            return;
+        }
+
         _keyboardCommitCts?.Cancel();
         _keyboardCommitCts = new CancellationTokenSource();
         var ct = _keyboardCommitCts.Token;
         _ = CommitKeyboardAfterIdleAsync(ct);
     }
+
+    private void KeyboardEntry_Completed(object? sender, EventArgs e)
+        => _ = FlushKeyboardNowAsync();
 
     private async Task CommitKeyboardAfterIdleAsync(CancellationToken ct)
     {
@@ -318,7 +347,20 @@ public partial class PhoneTouchpadPage : ContentPage
             return;
         }
 
-        var text = KeyboardEntry.Text ?? "";
+        // 空闲结束时若仍在组字，继续等 TextChanged / Completed
+        if (IsPhoneImeComposing())
+            return;
+
+        await FlushKeyboardNowAsync();
+    }
+
+    private async Task FlushKeyboardNowAsync()
+    {
+        if (!_keyboardOpen) return;
+        if (IsPhoneImeComposing()) return;
+
+        string text = "";
+        await MainThread.InvokeOnMainThreadAsync(() => { text = KeyboardEntry.Text ?? ""; });
         if (string.IsNullOrEmpty(text)) return;
 
         await EnsureControlSessionAsync();
@@ -331,8 +373,59 @@ public partial class PhoneTouchpadPage : ContentPage
             _suppressKeyboardSync = true;
             KeyboardEntry.Text = "";
             _suppressKeyboardSync = false;
+            ApplyPhoneImeInputType();
             KeyboardEntry.Focus();
+            ShowSoftKeyboard();
         });
+    }
+
+    private void ApplyPhoneImeInputType()
+    {
+#if ANDROID
+        try
+        {
+            if (KeyboardEntry.Handler?.PlatformView is not Android.Widget.EditText edit) return;
+            edit.ShowSoftInputOnFocus = true;
+            edit.InputType = Android.Text.InputTypes.ClassText;
+            edit.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
+            edit.SetSingleLine(true);
+            try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
+        }
+        catch { /* ignore */ }
+#endif
+    }
+
+    private bool IsPhoneImeComposing()
+    {
+#if ANDROID
+        try
+        {
+            if (KeyboardEntry.Handler?.PlatformView is not Android.Widget.EditText edit) return false;
+            if (edit.EditableText is not Android.Text.ISpannable span) return false;
+            return Android.Views.InputMethods.BaseInputConnection.GetComposingSpanStart(span) >= 0;
+        }
+        catch
+        {
+            return false;
+        }
+#else
+        return false;
+#endif
+    }
+
+    private void ShowSoftKeyboard()
+    {
+#if ANDROID
+        try
+        {
+            if (KeyboardEntry.Handler?.PlatformView is not Android.Widget.EditText edit) return;
+            var imm = Android.App.Application.Context
+                .GetSystemService(Android.Content.Context.InputMethodService)
+                as Android.Views.InputMethods.InputMethodManager;
+            imm?.ShowSoftInput(edit, Android.Views.InputMethods.ShowFlags.Implicit);
+        }
+        catch { /* ignore */ }
+#endif
     }
 
     private async Task SendTextAsync(string text)

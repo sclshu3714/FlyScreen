@@ -156,7 +156,7 @@ internal sealed class FlyScreenImeProxy
     {
         var edit = new EditText(_context)
         {
-            ShowSoftInputOnFocus = true,
+            ShowSoftInputOnFocus = !SoftKeyboardGuard.SuppressWhileReceiving,
             InputType = InputTypes.ClassText,
             Alpha = 0f
         };
@@ -171,11 +171,21 @@ internal sealed class FlyScreenImeProxy
     private void FocusEditor()
     {
         if (_edit == null) return;
+        // 被电脑跨屏控制时：电脑后台组字，禁止弹出本机软键盘
+        if (SoftKeyboardGuard.SuppressWhileReceiving)
+        {
+            _edit.ShowSoftInputOnFocus = false;
+            SoftKeyboardGuard.Hide();
+            _edit.RequestFocus();
+            return;
+        }
+
+        _edit.ShowSoftInputOnFocus = true;
         _edit.RequestFocus();
         var imm = _context.GetSystemService(global::Android.Content.Context.InputMethodService) as InputMethodManager;
         if (imm == null) return;
         imm.RestartInput(_edit);
-        // 编辑器已改走可见组字条；代理仅服务其它输入框
+        // 程序编辑器由 RemoteTextInputHub 接管；代理仅服务其它输入框
         imm.ShowSoftInput(_edit, ShowFlags.Implicit);
     }
 
