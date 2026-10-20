@@ -591,7 +591,8 @@ public partial class MainPage : ContentPage
         LogErrorsOnlyLabel.Text = Loc.T("Log.ErrorsOnly");
         LogClearBtn.Text = Loc.T("Log.Clear");
         ProgTitleText.Text = Loc.T("Prog.Title");
-        ProgHintText.Text = Loc.T("Prog.Hint");
+        ProgHintText.Text = Loc.T(
+            InProcessProgramExecutor.IsMobileHost ? "Prog.HintMobile" : "Prog.Hint");
         ToolTipProperties.SetText(ProgAddBtn, Loc.T("Prog.Add"));
         ToolTipProperties.SetText(ProgDeleteBtn, Loc.T("Prog.Delete"));
         ToolTipProperties.SetText(ProgStartBtn, Loc.T("Prog.Start"));

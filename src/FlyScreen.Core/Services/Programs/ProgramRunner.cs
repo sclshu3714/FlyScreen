@@ -8,7 +8,7 @@ namespace FlyScreen.Services.Programs;
 public sealed class ProgramRunner
 {
     private readonly ProgramCatalog _catalog;
-    private readonly ConcurrentDictionary<string, RunningProcess> _running = new();
+    private readonly ConcurrentDictionary<string, RunningJob> _running = new();
 
     public ProgramRunner(ProgramCatalog catalog)
     {
@@ -16,13 +16,13 @@ public sealed class ProgramRunner
     }
 
     public bool IsRunning(string programId)
-        => _running.TryGetValue(programId, out var r) && r.Process is { HasExited: false };
+        => _running.TryGetValue(programId, out var r) && r.IsAlive;
 
     public ProgramStatus GetStatus(string programId)
     {
         if (!_running.TryGetValue(programId, out var r))
             return ProgramStatus.Idle;
-        if (r.Process is { HasExited: false })
+        if (r.IsAlive)
             return r.Stopping ? ProgramStatus.Stopping : ProgramStatus.Running;
         return r.ExitCode is null or 0 ? ProgramStatus.Idle : ProgramStatus.Error;
     }
@@ -38,10 +38,89 @@ public sealed class ProgramRunner
             return;
         }
 
-        var source = _catalog.GetSourcePath(prog);
-        if (!File.Exists(source))
-            throw new FileNotFoundException("程序文件不存在", source);
+        var sourcePath = _catalog.GetSourcePath(prog);
+        if (!File.Exists(sourcePath))
+            throw new FileNotFoundException("程序文件不存在", sourcePath);
 
+        // 手机端 JS / C#：进程内引擎（不依赖系统 node / dotnet）
+        if (InProcessProgramExecutor.PreferInProcess(prog.Language))
+        {
+            await StartInProcessAsync(prog, debug, ct).ConfigureAwait(false);
+            return;
+        }
+
+        // 手机上其余语言无法用桌面 CLI
+        if (InProcessProgramExecutor.IsMobileHost)
+        {
+            prog.RuntimeStatus = ProgramStatus.Error;
+            var msg = $"手机端暂不支持运行「{prog.LanguageText}」。请改用 JavaScript 或 C#，或在电脑版玄鸟上运行。";
+            AppLog.Error(msg, prog.Id, prog.Name);
+            throw new NotSupportedException(msg);
+        }
+
+        await StartProcessAsync(prog, sourcePath, debug, ct).ConfigureAwait(false);
+    }
+
+    private Task StartInProcessAsync(UserProgram prog, bool debug, CancellationToken ct)
+    {
+        var source = _catalog.ReadSource(prog);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var job = RunningJob.InProcess(cts, debug);
+        if (!_running.TryAdd(prog.Id, job))
+        {
+            cts.Dispose();
+            AppLog.Info($"程序「{prog.Name}」已在运行", prog.Id, prog.Name);
+            return Task.CompletedTask;
+        }
+
+        prog.RuntimeStatus = ProgramStatus.Running;
+        AppLog.Info(debug
+            ? $"调试启动「{prog.Name}」({prog.LanguageText} · 本机引擎)"
+            : $"已启动「{prog.Name}」({prog.LanguageText} · 本机引擎)", prog.Id, prog.Name);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await InProcessProgramExecutor.RunAsync(prog, source, cts.Token).ConfigureAwait(false);
+                job.ExitCode = 0;
+                if (!job.Stopping)
+                    AppLog.Info($"「{prog.Name}」已结束 (exit=0)", prog.Id, prog.Name);
+            }
+            catch (OperationCanceledException) when (job.Stopping || cts.IsCancellationRequested)
+            {
+                job.ExitCode = 0; // 用户停止视为正常结束
+            }
+            catch (Exception ex)
+            {
+                if (job.Stopping || cts.IsCancellationRequested)
+                    job.ExitCode = 0;
+                else
+                {
+                    job.ExitCode = 1;
+                    AppLog.Error(ex, $"「{prog.Name}」运行失败", prog.Id, prog.Name);
+                }
+            }
+            finally
+            {
+                job.Completed = true;
+                _running.TryRemove(prog.Id, out _);
+                // 强制停止时 StopAsync 已把状态置 Idle，避免再写成「错误」
+                if (!job.ForceStopped)
+                {
+                    prog.RuntimeStatus = job.ExitCode is null or 0
+                        ? ProgramStatus.Idle
+                        : ProgramStatus.Error;
+                }
+                try { cts.Dispose(); } catch { /* ignore */ }
+            }
+        }, CancellationToken.None);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task StartProcessAsync(UserProgram prog, string source, bool debug, CancellationToken ct)
+    {
         var (fileName, args, workDir) = BuildLaunch(prog, source, debug);
         var psi = new ProcessStartInfo
         {
@@ -75,35 +154,56 @@ public sealed class ProgramRunner
             return;
         }
 
-        var entry = new RunningProcess(process, debug);
-        _running[prog.Id] = entry;
+        var job = RunningJob.FromProcess(process, debug);
+        _running[prog.Id] = job;
         prog.RuntimeStatus = ProgramStatus.Running;
         AppLog.Info(debug
             ? $"调试启动「{prog.Name}」({prog.LanguageText})"
             : $"已启动「{prog.Name}」({prog.LanguageText})", prog.Id, prog.Name);
 
-        _ = Task.Run(() => PumpOutputAsync(prog, entry), CancellationToken.None);
+        _ = Task.Run(() => PumpOutputAsync(prog, job), CancellationToken.None);
         await Task.CompletedTask.ConfigureAwait(false);
         _ = ct;
     }
 
     public async Task StopAsync(UserProgram prog)
     {
-        if (!_running.TryGetValue(prog.Id, out var entry) || entry.Process.HasExited)
+        if (!_running.TryGetValue(prog.Id, out var job) || !job.IsAlive)
         {
             prog.RuntimeStatus = ProgramStatus.Idle;
             _running.TryRemove(prog.Id, out _);
             return;
         }
 
-        entry.Stopping = true;
+        job.Stopping = true;
         prog.RuntimeStatus = ProgramStatus.Stopping;
         AppLog.Info($"正在停止「{prog.Name}」…", prog.Id, prog.Name);
 
         try
         {
-            entry.Process.Kill(entireProcessTree: true);
-            await entry.Process.WaitForExitAsync().ConfigureAwait(false);
+            if (job.Process != null)
+            {
+                job.Process.Kill(entireProcessTree: true);
+                await job.Process.WaitForExitAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                try { job.Cancel?.Cancel(); } catch { /* ignore */ }
+                // 等待脚本响应取消（含 Task.Delay(..., ct)）
+                var sw = Stopwatch.StartNew();
+                while (IsRunning(prog.Id) && sw.Elapsed < TimeSpan.FromSeconds(2))
+                    await Task.Delay(40).ConfigureAwait(false);
+
+                // 仍未退出（如未使用 ct 的 Delay / 死循环）：强制结束「停止中」
+                if (IsRunning(prog.Id))
+                {
+                    job.ForceStopped = true;
+                    job.Completed = true;
+                    job.ExitCode = 0;
+                    _running.TryRemove(prog.Id, out _);
+                    AppLog.Warn($"「{prog.Name}」未及时响应取消，已强制结束状态", prog.Id, prog.Name);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -111,10 +211,14 @@ public sealed class ProgramRunner
         }
         finally
         {
-            _running.TryRemove(prog.Id, out _);
+            // 无论进程还是本机引擎，停止调用返回后状态必须离开「停止中」
             prog.RuntimeStatus = ProgramStatus.Idle;
+            if (job.Process != null)
+            {
+                _running.TryRemove(prog.Id, out _);
+                try { job.Process.Dispose(); } catch { /* ignore */ }
+            }
             AppLog.Info($"已停止「{prog.Name}」", prog.Id, prog.Name);
-            try { entry.Process.Dispose(); } catch { /* ignore */ }
         }
     }
 
@@ -152,9 +256,9 @@ public sealed class ProgramRunner
         }
     }
 
-    private async Task PumpOutputAsync(UserProgram prog, RunningProcess entry)
+    private async Task PumpOutputAsync(UserProgram prog, RunningJob job)
     {
-        var p = entry.Process;
+        var p = job.Process!;
         try
         {
             var outTask = ReadLinesAsync(p.StandardOutput, line =>
@@ -163,8 +267,8 @@ public sealed class ProgramRunner
                 AppLog.Warn($"[{prog.Name}] {line}", prog.Id, prog.Name));
             await Task.WhenAll(outTask, errTask).ConfigureAwait(false);
             await p.WaitForExitAsync().ConfigureAwait(false);
-            entry.ExitCode = p.ExitCode;
-            if (!entry.Stopping)
+            job.ExitCode = p.ExitCode;
+            if (!job.Stopping)
             {
                 if (p.ExitCode == 0)
                     AppLog.Info($"「{prog.Name}」已结束 (exit={p.ExitCode})", prog.Id, prog.Name);
@@ -179,7 +283,7 @@ public sealed class ProgramRunner
         finally
         {
             _running.TryRemove(prog.Id, out _);
-            prog.RuntimeStatus = entry.ExitCode is null or 0
+            prog.RuntimeStatus = job.ExitCode is null or 0
                 ? ProgramStatus.Idle
                 : ProgramStatus.Error;
             try { p.Dispose(); } catch { /* ignore */ }
@@ -208,7 +312,7 @@ public sealed class ProgramRunner
             ProgramLanguage.Python => (
                 ResolvePython(),
                 debug && prog.Breakpoints.Count > 0
-                    ? $"-u {quoted}" // 断点调试预留：当前仍直接运行；编辑器可写 pdb
+                    ? $"-u {quoted}"
                     : $"-u {quoted}",
                 folder),
             ProgramLanguage.CSharp => (
@@ -294,11 +398,29 @@ public sealed class ProgramRunner
     private static string Quote(string path)
         => path.Contains(' ') ? $"\"{path}\"" : path;
 
-    private sealed class RunningProcess(Process process, bool debug)
+    private sealed class RunningJob
     {
-        public Process Process { get; } = process;
-        public bool Debug { get; } = debug;
+        public Process? Process { get; private init; }
+        public CancellationTokenSource? Cancel { get; private init; }
+        public bool Debug { get; private init; }
         public bool Stopping { get; set; }
+        public bool ForceStopped { get; set; }
         public int? ExitCode { get; set; }
+        public bool Completed { get; set; }
+
+        public bool IsAlive
+            => Process != null ? !Process.HasExited : !Completed;
+
+        public static RunningJob FromProcess(Process process, bool debug) => new()
+        {
+            Process = process,
+            Debug = debug
+        };
+
+        public static RunningJob InProcess(CancellationTokenSource cts, bool debug) => new()
+        {
+            Cancel = cts,
+            Debug = debug
+        };
     }
 }
