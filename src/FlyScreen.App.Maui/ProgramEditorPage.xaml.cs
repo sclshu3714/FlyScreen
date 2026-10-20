@@ -418,13 +418,11 @@ public partial class ProgramEditorPage : ContentPage
 
     private void RefreshBpHint()
     {
-        var bps = _program.Breakpoints.Count == 0
-            ? "无断点"
-            : "断点: " + string.Join(",", _program.Breakpoints.OrderBy(x => x));
+        // 断点已在左侧 gutter 可见，工具条只显示行数状态，避免挤占按钮
         var lines = Loc.T("Prog.LineLimitStatus", _caretLine, _lineCount, ProgramEditorLimits.MaxLines);
         if (_lineCount > ProgramEditorLimits.MaxLines)
             lines += "  ·  " + Loc.T("Prog.LineLimitBlocked");
-        BpHintText.Text = $"{lines}  ·  {bps}";
+        BpHintText.Text = lines;
         BpHintText.TextColor = _lineCount > ProgramEditorLimits.MaxLines
             ? Color.FromArgb("#D97706")
             : Color.FromArgb("#6B7280");

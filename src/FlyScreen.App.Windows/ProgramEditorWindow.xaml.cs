@@ -214,11 +214,8 @@ public partial class ProgramEditorWindow : Window
 
     private void RefreshBpHint()
     {
-        var bps = _program.Breakpoints.Count == 0
-            ? "无断点"
-            : "断点: " + string.Join(",", _program.Breakpoints.OrderBy(x => x));
-        var lines = ProgramEditorLimits.StatusFragment(_caretLine, CodeEditor.Text);
-        BpHintText.Text = $"{lines}  ·  {bps}";
+        // 断点已在左侧 gutter 可见，工具条只显示行数状态，避免挤占按钮
+        BpHintText.Text = ProgramEditorLimits.StatusFragment(_caretLine, CodeEditor.Text);
         BpHintText.Foreground = ProgramEditorLimits.ExceedsLimit(CodeEditor.Text, out _)
             ? System.Windows.Media.Brushes.DarkOrange
             : (System.Windows.Media.Brush)FindResource("Muted");
