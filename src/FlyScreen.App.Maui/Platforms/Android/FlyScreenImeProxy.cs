@@ -96,6 +96,7 @@ internal sealed class FlyScreenImeProxy
         if (!_edit.IsFocused)
             FocusEditor();
 
+        var before = _edit.Text ?? "";
         var now = SystemClock.UptimeMillis();
         var meta = shift ? MetaKeyStates.ShiftOn : 0;
         var action = down ? KeyEventActions.Down : KeyEventActions.Up;
@@ -105,7 +106,30 @@ internal sealed class FlyScreenImeProxy
             deviceId: -1,
             scancode: 0,
             flags: KeyEventFlags.SoftKeyboard | KeyEventFlags.KeepTouchMode);
-        return _edit.DispatchKeyEvent(ev);
+        var handled = _edit.DispatchKeyEvent(ev);
+
+        // 按下后既未组字也无文本变化：用当前按键字符图补入代理框，
+        // 仍走 TextWatcher→Commit（由手机 IME 状态决定；组字中不会进此分支）
+        if (down && !IsComposing && string.Equals(_edit.Text ?? "", before, StringComparison.Ordinal))
+        {
+            try
+            {
+                // -1 = VIRTUAL_KEYBOARD（绑定层无同名常量）
+                var map = KeyCharacterMap.Load(-1);
+                var code = map.Get((Keycode)keyCode, (int)meta);
+                if (code != 0 && !char.IsControl((char)code))
+                {
+                    _edit.EditableText?.Append(((char)code).ToString());
+                    handled = true;
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
+        return handled;
     }
 
     public void Detach()
@@ -151,8 +175,9 @@ internal sealed class FlyScreenImeProxy
         var imm = _context.GetSystemService(global::Android.Content.Context.InputMethodService) as InputMethodManager;
         if (imm == null) return;
         imm.RestartInput(_edit);
-        // Implicit：拉起当前系统输入法；避免 Forced 把焦点/会话搞乱导致完全无输入
-        imm.ShowSoftInput(_edit, ShowFlags.Implicit);
+        // 编辑器等场景强制拉起当前系统输入法（中/英由用户手机设置决定）
+        var flags = RemoteTextInputHub.HasSink ? ShowFlags.Forced : ShowFlags.Implicit;
+        imm.ShowSoftInput(_edit, flags);
     }
 
     private void OnText(IEditable? editable)

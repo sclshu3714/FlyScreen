@@ -5,10 +5,17 @@ using FlyScreen.AppMaui.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Programs;
+#if ANDROID
+using FlyScreen.AppMaui.Platforms.Android;
+#endif
 
 namespace FlyScreen.AppMaui;
 
+#if ANDROID
+public partial class ProgramEditorPage : ContentPage, IRemoteTextInputSink
+#else
 public partial class ProgramEditorPage : ContentPage
+#endif
 {
     private readonly UserProgram _program;
     private readonly ProgramCatalog _catalog;
@@ -129,7 +136,29 @@ public partial class ProgramEditorPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+#if ANDROID
+        // 每次出现都重新挂上：软键盘曾误触发 OnDisappearing 时可能被卸掉
+        RemoteTextInputHub.Register(this);
+#endif
         StartReadyPoll();
+    }
+
+    protected override void OnDisappearing()
+    {
+        // 注意：Android 弹出系统输入法也会走 OnDisappearing，此处绝不能 Unregister / 关页
+        base.OnDisappearing();
+    }
+
+    protected override void OnNavigatedFrom(NavigatedFromEventArgs args)
+    {
+        base.OnNavigatedFrom(args);
+        TeardownEditorSession();
+    }
+
+    protected override bool OnBackButtonPressed()
+    {
+        _ = CloseAsync();
+        return true;
     }
 
     private void StartReadyPoll()
@@ -549,10 +578,21 @@ public partial class ProgramEditorPage : ContentPage
         });
     }
 
-    private async Task CloseAsync()
+    private int _teardownArmed;
+
+    private void TeardownEditorSession()
     {
+        if (Interlocked.Exchange(ref _teardownArmed, 1) != 0) return;
+#if ANDROID
+        RemoteTextInputHub.Unregister(this);
+#endif
         StopOnCloseIfNeeded();
         _closed.TrySetResult();
+    }
+
+    private async Task CloseAsync()
+    {
+        TeardownEditorSession();
         try
         {
             if (Navigation.ModalStack.Count > 0)
@@ -566,10 +606,72 @@ public partial class ProgramEditorPage : ContentPage
         }
     }
 
-    protected override void OnDisappearing()
+#if ANDROID
+    // —— 跨屏键盘 → Monaco（WebView 不能靠无障碍 SET_TEXT）——
+
+    private void EvalEditorJs(string script)
     {
-        StopOnCloseIfNeeded();
-        base.OnDisappearing();
-        _closed.TrySetResult();
+        try
+        {
+            // 直接走平台 WebView，避免 MAUI EvaluateJavaScriptAsync 二次转义/排队丢键
+            if (CodeWeb.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+            {
+                awv.EvaluateJavascript(script, null);
+                return;
+            }
+        }
+        catch { /* fall through */ }
+
+        try { _ = CodeWeb.EvaluateJavaScriptAsync(script); }
+        catch { /* WebView 未就绪 */ }
     }
+
+    public bool TryCommitText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        var escaped = JsonSerializer.Serialize(text);
+        var script = $"window.flyType && window.flyType({escaped})";
+        if (MainThread.IsMainThread) EvalEditorJs(script);
+        else MainThread.BeginInvokeOnMainThread(() => EvalEditorJs(script));
+        return true;
+    }
+
+    public bool TryDelete(int utf16Count)
+    {
+        if (utf16Count <= 0) return false;
+        var n = Math.Min(utf16Count, 64);
+        void Run()
+        {
+            for (var i = 0; i < n; i++)
+                EvalEditorJs("window.flyEditorAction && window.flyEditorAction('backspace')");
+        }
+        if (MainThread.IsMainThread) Run();
+        else MainThread.BeginInvokeOnMainThread(Run);
+        return true;
+    }
+
+    public bool TrySpecialKey(ushort virtualKey)
+    {
+        var action = virtualKey switch
+        {
+            0x08 => "backspace",
+            0x2E => "delete",
+            0x0D => "enter",
+            0x09 => "tab",
+            0x25 => "left",
+            0x26 => "up",
+            0x27 => "right",
+            0x28 => "down",
+            0x24 => "home",
+            0x23 => "end",
+            _ => null
+        };
+        if (action == null) return false;
+        var name = JsonSerializer.Serialize(action);
+        var script = $"window.flyEditorAction && window.flyEditorAction({name})";
+        if (MainThread.IsMainThread) EvalEditorJs(script);
+        else MainThread.BeginInvokeOnMainThread(() => EvalEditorJs(script));
+        return true;
+    }
+#endif
 }

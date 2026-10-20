@@ -1494,7 +1494,8 @@ public partial class MainPage : ContentPage
     private async Task ProgRowEditAsync(UserProgram prog)
     {
         var page = new ProgramEditorPage(prog);
-        await PushModalAsync(page);
+        // 用导航栈而非 Modal，便于 XAML 实时预览跟随到编辑页
+        await Navigation.PushAsync(page);
         await page.WhenClosed;
         ShowPage(8);
         RefreshProgramsPage();

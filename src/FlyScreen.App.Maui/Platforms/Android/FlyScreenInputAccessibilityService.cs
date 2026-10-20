@@ -254,19 +254,26 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             return;
         }
 
-        // 先钉住指针处/焦点输入框，避免 IME 代理抢焦后找不到目标
-        RememberExternalTarget();
-
-        // 已有外部输入框：可打印字符优先直接写入（不经 IME），英文输入更稳
-        var node = CurrentTarget();
-        if (node != null && !_ctrl && EditText(node, vk))
+        // 程序编辑器：特殊键优先走 Monaco 桥（避免被 IME 代理吞掉）
+        if (RemoteTextInputHub.HasSink && RemoteTextInputHub.TrySpecialKey(vk))
             return;
 
-        // 无目标或需中文组字：走系统 IME 代理
+        // 输入内容由手机当前输入法决定：先走 IME 代理（可中/英组字）
+        RememberExternalTarget();
         if (TryThroughPhoneIme(vk, keyCode))
             return;
 
-        node = CurrentTarget();
+        // Monaco：IME 未产出字符时，按键位映射直写 JS 桥
+        if (RemoteTextInputHub.HasSink && !_ctrl)
+        {
+            var upper = vk is >= 0x41 and <= 0x5A ? (_shift ^ _caps) : _shift;
+            var mapped = RemoteVkMap.ToChar(vk, upper);
+            if (!string.IsNullOrEmpty(mapped) && RemoteTextInputHub.TryCommit(mapped))
+                return;
+        }
+
+        // IME 未消费时回退到无障碍写入（系统输入框）
+        var node = CurrentTarget();
         if (node != null && EditText(node, vk))
             return;
 
@@ -301,7 +308,7 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
                 return false;
 
             var upper = vk is >= 0x41 and <= 0x5A ? (_shift ^ _caps) : _shift;
-            var text = VkToChar(vk, upper);
+            var text = RemoteVkMap.ToChar(vk, upper);
             if (string.IsNullOrEmpty(text)) return false;
             return InsertText(node, text);
         }
@@ -525,7 +532,10 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     private void OnImeCommitted(string text)
     {
         if (text.Length == 0) return;
-        // 优先已钉目标；否则再按焦点/指针位置找一次（IME 抢焦后常见）
+        // Monaco / HybridWebView：走页面 JS 桥（无障碍 SET_TEXT 无效）
+        if (RemoteTextInputHub.TryCommit(text))
+            return;
+
         var node = CurrentTarget() ?? FindEditable() ?? FindEditableAtCursor();
         if (node == null) return;
         if (!ReferenceEquals(node, _imeTarget)
@@ -542,8 +552,12 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
 
     private void OnImeDeleted(int utf16Count)
     {
+        if (utf16Count <= 0) return;
+        if (RemoteTextInputHub.TryDelete(utf16Count))
+            return;
+
         var node = CurrentTarget();
-        if (node == null || utf16Count <= 0) return;
+        if (node == null) return;
         try
         {
             node.Refresh();
@@ -815,53 +829,6 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         return className.Contains("EditText", StringComparison.Ordinal)
                || className.Contains("AutoCompleteTextView", StringComparison.Ordinal)
                || className.Contains("TextInput", StringComparison.Ordinal);
-    }
-
-    private static string? VkToChar(ushort vk, bool shift)
-    {
-        if (vk is >= 0x41 and <= 0x5A)
-            return ((char)(shift ? vk : vk + 32)).ToString();
-        if (vk is >= 0x30 and <= 0x39)
-        {
-            if (!shift) return ((char)vk).ToString();
-            return (vk - 0x30) switch
-            {
-                0 => ")",
-                1 => "!",
-                2 => "@",
-                3 => "#",
-                4 => "$",
-                5 => "%",
-                6 => "^",
-                7 => "&",
-                8 => "*",
-                9 => "(",
-                _ => null
-            };
-        }
-        if (vk is >= 0x60 and <= 0x69)
-            return ((char)('0' + (vk - 0x60))).ToString();
-        return vk switch
-        {
-            0x20 => " ",
-            0x6A => "*",
-            0x6B => "+",
-            0x6D => "-",
-            0x6E => ".",
-            0x6F => "/",
-            0xBA => shift ? ":" : ";",
-            0xBB => shift ? "+" : "=",
-            0xBC => shift ? "<" : ",",
-            0xBD => shift ? "_" : "-",
-            0xBE => shift ? ">" : ".",
-            0xBF => shift ? "?" : "/",
-            0xC0 => shift ? "~" : "`",
-            0xDB => shift ? "{" : "[",
-            0xDC => shift ? "|" : "\\",
-            0xDD => shift ? "}" : "]",
-            0xDE => shift ? "\"" : "'",
-            _ => null
-        };
     }
 
     private (float x, float y) ToPixels()

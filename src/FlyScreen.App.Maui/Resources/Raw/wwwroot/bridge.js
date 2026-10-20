@@ -10,6 +10,40 @@
 
   window.flyEditorReady = false;
 
+  /** 跨屏键盘：往 Monaco 插入文本（WebView 无障碍写不进编辑器） */
+  window.flyType = function (text) {
+    if (!editor || text == null || text === '') return false;
+    try {
+      editor.focus();
+      editor.trigger('keyboard', 'type', { text: String(text) });
+      reportCaret();
+      return true;
+    } catch (e) { return false; }
+  };
+
+  /** 跨屏键盘：特殊键 */
+  window.flyEditorAction = function (name) {
+    if (!editor) return false;
+    try {
+      editor.focus();
+      switch (String(name || '')) {
+        case 'backspace': editor.trigger('keyboard', 'deleteLeft', null); break;
+        case 'delete': editor.trigger('keyboard', 'deleteRight', null); break;
+        case 'enter': editor.trigger('keyboard', 'type', { text: '\n' }); break;
+        case 'left': editor.trigger('keyboard', 'cursorLeft', null); break;
+        case 'right': editor.trigger('keyboard', 'cursorRight', null); break;
+        case 'up': editor.trigger('keyboard', 'cursorUp', null); break;
+        case 'down': editor.trigger('keyboard', 'cursorDown', null); break;
+        case 'home': editor.trigger('keyboard', 'cursorHome', null); break;
+        case 'end': editor.trigger('keyboard', 'cursorEnd', null); break;
+        case 'tab': editor.trigger('keyboard', 'tab', null); break;
+        default: return false;
+      }
+      reportCaret();
+      return true;
+    } catch (e) { return false; }
+  };
+
   function post(obj) {
     try {
       if (window.HybridWebView && typeof HybridWebView.SendRawMessage === 'function')
