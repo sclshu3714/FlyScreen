@@ -23,8 +23,7 @@
   <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
     <DockPanel>
       <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
-              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
-              Cursor="SizeAll">
+              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
         <Grid ColumnDefinitions="*,Auto" Margin="12,0,4,0">
           <TextBlock x:Name="ClientTitleText" Text="添加程序" FontSize="13" FontWeight="SemiBold"
                      VerticalAlignment="Center" IsHitTestVisible="False"/>

@@ -349,7 +349,6 @@
     <!-- Linux/WSL：系统标题栏常因字体只画出「玄」。客户端标题栏可拖动整窗 -->
     <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
             Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
-            Cursor="SizeAll"
             PointerPressed="ClientTitleBar_PointerPressed"
             PointerMoved="ClientTitleBar_PointerMoved"
             PointerReleased="ClientTitleBar_PointerReleased"

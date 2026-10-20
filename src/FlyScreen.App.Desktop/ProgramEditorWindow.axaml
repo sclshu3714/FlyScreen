@@ -56,8 +56,7 @@
     <DockPanel>
       <!-- Linux：自绘标题栏，避免 X11 系统栏中文乱码 -->
       <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
-              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
-              Cursor="SizeAll">
+              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
         <Grid ColumnDefinitions="*,Auto" Margin="12,0,4,0">
           <TextBlock x:Name="ClientTitleText" Text="编辑程序" FontSize="13" FontWeight="SemiBold"
                      VerticalAlignment="Center" IsHitTestVisible="False"
