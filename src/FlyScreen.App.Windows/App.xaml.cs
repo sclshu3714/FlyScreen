@@ -69,3 +69,4 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 }
+
