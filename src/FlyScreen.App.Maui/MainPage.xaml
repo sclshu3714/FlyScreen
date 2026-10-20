@@ -366,7 +366,7 @@
                                         Clicked="ProgStop_Clicked" ToolTipProperties.Text="停止程序" />
                               </HorizontalStackLayout>
                             </Grid>
-                            <!-- 列宽按 ProgListHost 实际宽度分配，保证状态/操作始终在可视区内 -->
+                            <!-- 列宽严格等于容器宽；语言/状态/操作必显，窄屏可隐藏大小 -->
                             <Grid x:Name="ProgListHost" Grid.Row="3" RowDefinitions="Auto,*"
                                   VerticalOptions="Fill"
                                   SizeChanged="ProgListHost_SizeChanged">

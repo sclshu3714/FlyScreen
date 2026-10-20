@@ -125,6 +125,12 @@ public sealed class ProgListRowView : ContentView
             new(new GridLength(SharedColWidths[4])),
             new(new GridLength(SharedColWidths[5])),
         };
+        // 与表头一致：语言始终显示；仅大小列可在窄屏隐藏
+        if (_grid.Children.Count >= 6)
+        {
+            if (_grid.Children[2] is View lang) lang.IsVisible = true;
+            if (_grid.Children[3] is View size) size.IsVisible = SharedColWidths[3] > 1;
+        }
     }
 
     private MainPage? FindMainPage()

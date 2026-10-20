@@ -149,43 +149,69 @@ public partial class MainPage : ContentPage
         ApplyProgListColumns();
     }
 
-    // 勾选 / 语言 / 大小 / 状态 / 操作 + 间距；名称列吃剩余（按列表容器实际宽度）
-    private const double ProgWCheck = 36;
-    private const double ProgWLang = 100;
-    private const double ProgWSize = 70;
-    private const double ProgWStatus = 72;
-    private const double ProgWActions = 72;
-    private const double ProgWSpacing = 20;
-    private const double ProgWNameMin = 80;
+    // 勾选 / 语言 / 状态 / 操作 必显；窄屏只可隐藏大小
+    private const double ProgWCheck = 32;
+    private const double ProgWStatus = 56;
+    private const double ProgWActions = 64; // ▶ + ⋮
+    private const double ProgWLangMin = 72;
+    private const double ProgWLangPref = 88;
+    private const double ProgWSizePref = 56;
+    private const double ProgWNameMin = 56;
+    private const double ProgColSpacing = 4;
 
     private void ProgListHost_SizeChanged(object? sender, EventArgs e)
         => ApplyProgListColumns();
 
-    /// <summary>严格按 ProgListHost.Width 分配 6 列绝对宽度，状态/操作始终可见。</summary>
+    /// <summary>列宽之和严格等于容器宽；语言不隐藏，不够宽时只藏大小。</summary>
     private void ApplyProgListColumns()
     {
         if (ProgListHost == null || ProgListHeader == null) return;
+
         var hostW = ProgListHost.Width;
         if (hostW < 40)
         {
-            // 首次布局尚未就绪时用主区估算，仍扣除侧栏
-            var pageW = Width > 0 ? Width : 800;
-            hostW = Math.Max(280, pageW - (_compactLayout ? 48 : 168 + 48));
+            var pageW = Width > 0 ? Width : 360;
+            hostW = Math.Max(260, pageW - (_compactLayout ? 48 : 168 + 48));
         }
 
-        var fixedOther = ProgWCheck + ProgWLang + ProgWSize + ProgWStatus + ProgWActions + ProgWSpacing;
-        var nameW = Math.Max(ProgWNameMin, hostW - fixedOther);
-        // 极窄时压缩语言列，优先保住操作列
-        var langW = ProgWLang;
-        if (nameW + fixedOther > hostW + 0.5)
+        // 必显：勾选 + 语言 + 状态 + 操作 + 间距
+        var must = ProgWCheck + ProgWLangMin + ProgWStatus + ProgWActions + ProgColSpacing * 5;
+        var rest = hostW - must; // 留给名称（+可选大小）及语言加宽
+
+        double langW = ProgWLangMin;
+        double sizeW;
+        double nameW;
+        if (rest < ProgWNameMin)
         {
-            langW = 72;
-            fixedOther = ProgWCheck + langW + ProgWSize + ProgWStatus + ProgWActions + ProgWSpacing;
-            nameW = Math.Max(64, hostW - fixedOther);
+            // 极窄：压缩名称，仍保留语言
+            sizeW = 0;
+            nameW = Math.Max(40, rest);
+        }
+        else if (rest < ProgWNameMin + ProgWSizePref + (ProgWLangPref - ProgWLangMin))
+        {
+            // 中等：隐藏大小；余量给名称，语言尽量加到 pref
+            sizeW = 0;
+            var extra = rest - ProgWNameMin;
+            var langBoost = Math.Min(ProgWLangPref - ProgWLangMin, Math.Max(0, extra));
+            langW = ProgWLangMin + langBoost;
+            nameW = rest - langBoost;
+        }
+        else
+        {
+            langW = ProgWLangPref;
+            sizeW = ProgWSizePref;
+            nameW = rest - sizeW - (ProgWLangPref - ProgWLangMin);
         }
 
-        var widths = new[] { ProgWCheck, nameW, langW, ProgWSize, ProgWStatus, ProgWActions };
+        var used = ProgWCheck + nameW + langW + sizeW + ProgWStatus + ProgWActions + ProgColSpacing * 5;
+        if (used < hostW)
+            nameW += hostW - used;
+        else if (used > hostW + 0.5)
+            nameW = Math.Max(40, nameW - (used - hostW));
+
+        var widths = new[] { ProgWCheck, nameW, langW, sizeW, ProgWStatus, ProgWActions };
         ProgListRowView.SharedColWidths = widths;
+
         ProgListHeader.ColumnDefinitions = new ColumnDefinitionCollection
         {
             new(new GridLength(widths[0])),
@@ -195,8 +221,11 @@ public partial class MainPage : ContentPage
             new(new GridLength(widths[4])),
             new(new GridLength(widths[5])),
         };
+        ProgColLang.IsVisible = true;
+        ProgColSize.IsVisible = sizeW > 1;
+        ProgColStatus.IsVisible = true;
+        ProgColActions.IsVisible = true;
 
-        // 已生成的行同步列宽
         foreach (var row in FindProgRows(ProgList))
             row.ApplySharedWidths();
     }
