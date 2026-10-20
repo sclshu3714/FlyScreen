@@ -226,9 +226,12 @@
   require.config({ paths: { vs: 'vs' } });
   require(['vs/editor/editor.main'], function () {
     const style = document.createElement('style');
+    // 手机屏窄：压缩断点栏 + 行号宽度
     style.textContent =
-      '.fly-bp-glyph { background: #ef4444; border-radius: 50%; width: 10px !important; height: 10px !important; margin-left: 4px; margin-top: 4px; }' +
-      '.fly-bp-line { background: rgba(239,68,68,0.08); }';
+      '.fly-bp-glyph { background: #ef4444; border-radius: 50%; width: 8px !important; height: 8px !important; margin-left: 2px !important; margin-top: 3px !important; }' +
+      '.fly-bp-line { background: rgba(239,68,68,0.08); }' +
+      '.monaco-editor .glyph-margin { width: 14px !important; min-width: 14px !important; }' +
+      '.monaco-editor .margin-view-overlays .line-numbers { padding: 0 2px 0 0 !important; min-width: 0 !important; }';
     document.head.appendChild(style);
 
     editor = monaco.editor.create(document.getElementById('container'), {
@@ -241,6 +244,9 @@
       fontFamily: 'Consolas, Cascadia Mono, Menlo, monospace',
       glyphMargin: true,
       lineNumbers: 'on',
+      lineNumbersMinChars: 2,
+      lineDecorationsWidth: 4,
+      folding: false,
       scrollBeyondLastLine: false,
       wordWrap: 'off',
       tabSize: 4,
