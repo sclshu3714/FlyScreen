@@ -41,6 +41,7 @@ public partial class ProgramEditorWindow : Window
         _catalog = ProgramService.Instance.Catalog;
         _runner = ProgramService.Instance.Runner;
         InitializeComponent();
+        DesktopThemeService.Apply(DesktopThemeService.Current, this);
 
         var displayTitle = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
         _chrome = LinuxClientChrome.Attach(
@@ -87,7 +88,7 @@ public partial class ProgramEditorWindow : Window
         var def = HighlightingManager.Instance.GetDefinition(name);
         if (def == null && name is "PowerShell" or "Bash" or "Batch")
             def = HighlightingManager.Instance.GetDefinition("JavaScript");
-        CodeEditor.SyntaxHighlighting = def;
+        EditorHighlightingTheme.Apply(CodeEditor, def);
     }
 
     private int _closeStopArmed;
