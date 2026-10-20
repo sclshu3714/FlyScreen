@@ -1,5 +1,4 @@
 using FlyScreen.Helpers;
-using FlyScreen.AppMaui.Controls;
 using FlyScreen.AppMaui.Services;
 using Microsoft.Extensions.Logging;
 
@@ -13,9 +12,17 @@ public static class MauiProgram
         builder.UseMauiApp<App>();
 
 #if ANDROID
-        builder.ConfigureMauiHandlers(handlers =>
+        // 触控板「键盘」条：允许系统拼音候选（勿用 NoSuggestions）
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenPhoneIme", (handler, view) =>
         {
-            handlers.AddHandler<ComposeImeView, Platforms.Android.ComposeImeViewHandler>();
+            if (view is not Entry entry) return;
+            if (entry.StyleClass is null || !entry.StyleClass.Contains("PhoneIme")) return;
+            if (handler.PlatformView is not Android.Widget.EditText edit) return;
+            edit.ShowSoftInputOnFocus = true;
+            edit.InputType = Android.Text.InputTypes.ClassText;
+            edit.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
+            edit.SetSingleLine(true);
+            try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
         });
 
         // RadioButton 首次可见时常吃到 Material 夜间深色底；强制透明背景

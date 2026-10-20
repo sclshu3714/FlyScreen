@@ -2,11 +2,10 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:diag="clr-namespace:FlyScreen.Services;assembly=FlyScreen.Core"
-             xmlns:ctl="clr-namespace:FlyScreen.AppMaui.Controls"
              x:Class="FlyScreen.AppMaui.ProgramEditorPage"
              Title="编辑程序"
              BackgroundColor="{DynamicResource WinBg}">
-  <Grid RowDefinitions="Auto,*,Auto,Auto" Padding="12" RowSpacing="8">
+  <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
     <Grid ColumnDefinitions="*,Auto">
       <HorizontalStackLayout x:Name="ToolBar" Spacing="6" HorizontalOptions="Start">
         <!-- 返回：覆盖 SoftBlueBtn 的 MinWidth=88，避免撑宽叠到保存钮 -->
@@ -54,32 +53,8 @@
                      RawMessageReceived="OnHybridMessage" />
     </Border>
 
-    <!-- 原生组字条：内容先留在此；IME 选词或点「写入」后再进 Monaco -->
-    <Border x:Name="ComposeBar" Grid.Row="2" Stroke="{DynamicResource Line}" StrokeThickness="1"
-            StrokeShape="RoundRectangle 8" BackgroundColor="{DynamicResource SubtleBg}"
-            Padding="10,6">
-      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-        <Label x:Name="ComposeHintLabel" Text="组字"
-               TextColor="{DynamicResource Muted}" FontSize="12"
-               VerticalOptions="Center" />
-        <!-- Android 走 ComposeImeViewHandler(AppCompatEditText)，避免 Entry 默认 InputType 掐掉拼音候选 -->
-        <ctl:ComposeImeView x:Name="ComposeEntry" Grid.Column="1"
-               Placeholder="在此输入；中文请切系统输入法「中」并选词"
-               FontSize="14" HeightRequest="40"
-               ClearButtonVisibility="WhileEditing"
-               TextChanged="ComposeEntry_TextChanged"
-               Focused="ComposeEntry_Focused"
-               Completed="ComposeEntry_Completed"
-               HandlerChanged="ComposeEntry_HandlerChanged" />
-        <Button x:Name="ComposeCommitBtn" Grid.Column="2" Text="写入"
-                Style="{StaticResource SoftBlueBtn}"
-                HeightRequest="36" MinimumWidthRequest="56" Padding="10,0" FontSize="13"
-                Clicked="ComposeCommit_Clicked" />
-      </Grid>
-    </Border>
-
     <!-- 底部可折叠输出停靠窗 -->
-    <Border Grid.Row="3" Stroke="{DynamicResource Line}" StrokeThickness="1"
+    <Border Grid.Row="2" Stroke="{DynamicResource Line}" StrokeThickness="1"
             StrokeShape="RoundRectangle 8" BackgroundColor="{DynamicResource CardBg}">
       <Grid RowDefinitions="Auto,Auto">
         <Grid x:Name="OutputHeader" HeightRequest="30" Padding="10,0"

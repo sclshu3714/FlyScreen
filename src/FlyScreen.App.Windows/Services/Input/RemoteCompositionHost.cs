@@ -386,6 +386,7 @@ public sealed class RemoteCompositionHost : IDisposable
         candidates ??= [];
         var highlight = TryReadSelectionIndex();
         if (highlight < 0 && candidates.Count > 0) highlight = 0;
+        ReadCandidatePaging(out var numberBase, out var canPrev, out var canNext);
         if (reading == _lastReading
             && highlight == _lastHighlight
             && CandidatesEqual(candidates, _lastCandidates))
@@ -400,10 +401,44 @@ public sealed class RemoteCompositionHost : IDisposable
             Reading = reading,
             Candidates = candidates,
             Highlight = highlight,
-            NumberBase = 1,
-            CanPagePrev = candidates.Count > 0,
-            CanPageNext = candidates.Count > 0
+            NumberBase = numberBase,
+            CanPagePrev = canPrev,
+            CanPageNext = canNext
         });
+    }
+
+    private void ReadCandidatePaging(out int numberBase, out bool canPrev, out bool canNext)
+    {
+        numberBase = 1;
+        canPrev = false;
+        canNext = false;
+        if (_hwnd == IntPtr.Zero) return;
+        var himc = ImmGetContext(_hwnd);
+        if (himc == IntPtr.Zero) return;
+        try
+        {
+            var size = ImmGetCandidateList(himc, 0, IntPtr.Zero, 0);
+            if (size <= 0) return;
+            var buf = Marshal.AllocHGlobal(size);
+            try
+            {
+                if (ImmGetCandidateList(himc, 0, buf, size) <= 0) return;
+                var header = Marshal.PtrToStructure<CANDIDATELIST>(buf);
+                var pageStart = Math.Max(0, header.dwPageStart);
+                var pageSize = header.dwPageSize > 0 ? header.dwPageSize : 9;
+                numberBase = pageStart + 1;
+                canPrev = pageStart > 0;
+                canNext = pageStart + pageSize < header.dwCount;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buf);
+            }
+        }
+        finally
+        {
+            ImmReleaseContext(_hwnd, himc);
+        }
     }
 
     private void PublishCancel()

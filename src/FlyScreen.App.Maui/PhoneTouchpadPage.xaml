@@ -94,11 +94,16 @@
         <Grid x:Name="KeyboardStrip" Grid.Row="1" IsVisible="False"
               Padding="10,8" ColumnDefinitions="*,Auto" ColumnSpacing="8"
               BackgroundColor="{StaticResource SubtleBg}">
+          <!-- StyleClass=PhoneIme：Android 固定 ClassText，避免 Entry 默认 NoSuggestions 掐掉拼音候选 -->
           <Entry x:Name="KeyboardEntry"
+                 StyleClass="PhoneIme"
                  Placeholder="输入法/手写 → 直接发到电脑（本地不保留）"
                  FontSize="15"
-                 ReturnType="Default"
-                 BackgroundColor="Transparent" />
+                 ReturnType="Done"
+                 IsTextPredictionEnabled="True"
+                 IsSpellCheckEnabled="True"
+                 BackgroundColor="Transparent"
+                 Completed="KeyboardEntry_Completed" />
           <Button Grid.Column="1" Text="收起" Style="{StaticResource NormalBtn}"
                   MinimumWidthRequest="56" Padding="10,0" Clicked="DismissKeyboard_Clicked" />
         </Grid>

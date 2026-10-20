@@ -2,8 +2,7 @@
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 跨屏键盘 → 当前页「原生组字」接收器（程序编辑器）。
-/// 中文必须在可见 EditText 上由系统 IME 组字；Monaco 只收确认后的文本。
+/// 跨屏键盘 → 当前程序编辑器（Monaco）。有 sink 时勿再走透明 IME 代理。
 /// </summary>
 public static class RemoteTextInputHub
 {
@@ -19,13 +18,11 @@ public static class RemoteTextInputHub
 
     public static bool HasSink => _sink != null;
 
-    /// <summary>跨屏按键交给组字页；true 表示已消费，勿再走透明 IME 代理 / Vk 直写。</summary>
+    /// <summary>跨屏按键交给编辑器；true 表示已消费。</summary>
     public static bool TryHandleRemoteKey(ushort virtualKey, bool down, bool shift, bool caps, bool ctrl)
         => _sink?.TryHandleRemoteKey(virtualKey, down, shift, caps, ctrl) == true;
 
-    public static void ClearComposition() => _sink?.ClearComposition();
-
-    /// <summary>电脑侧确认的文本（中文词组 / 英文直出）写入当前编辑器。</summary>
+    /// <summary>电脑侧确认的文本写入当前编辑器。</summary>
     public static bool TryAcceptText(string text)
         => _sink?.TryAcceptRemoteText(text) == true;
 }
@@ -33,7 +30,6 @@ public static class RemoteTextInputHub
 public interface IRemoteTextInputSink
 {
     bool TryHandleRemoteKey(ushort virtualKey, bool down, bool shift, bool caps, bool ctrl);
-    void ClearComposition();
     bool TryAcceptRemoteText(string text);
 }
 #endif

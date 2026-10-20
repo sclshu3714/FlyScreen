@@ -234,7 +234,7 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
                 return;
         }
 
-        // 程序编辑器：全部交给可见组字条（系统 IME）；禁止透明代理 / Vk 直写拼音
+        // 程序编辑器：跨屏按键直写 Monaco，不走透明 IME 代理
         if (RemoteTextInputHub.HasSink
             && RemoteTextInputHub.TryHandleRemoteKey(vk, down, _shift, _caps, _ctrl))
             return;
@@ -549,7 +549,7 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     private void OnImeCommitted(string text)
     {
         if (text.Length == 0) return;
-        // 编辑器已改走可见组字条 / 电脑侧组字；此处仅服务其它 App 输入框
+        // 编辑器已由 RemoteTextInputHub 接管；此处仅服务其它 App 输入框
         if (RemoteTextInputHub.HasSink)
             return;
 

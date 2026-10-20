@@ -120,15 +120,16 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void InjectKey(ushort vk, bool down, bool extended)
     {
         if (_remotePointerSuppressed || !_receiving) return;
+        SoftKeyboardGuard.Hide();
 
-        // 无障碍已开：完整 IME + 手势路径
+        // 无障碍已开：完整 IME + 手势路径（跨屏字母由电脑组字，此处多为功能键）
         if (FlyScreenInputAccessibilityService.IsEnabled)
         {
             FlyScreenInputAccessibilityService.Instance?.Key(vk, down);
             return;
         }
 
-        // 无障碍未开：编辑器组字条仍可收键（中文依赖系统 IME / 软键盘）
+        // 无障碍未开：程序编辑器仍可直写 Monaco
         TrackModifierKeys(vk, down);
         if (RemoteTextInputHub.HasSink
             && RemoteTextInputHub.TryHandleRemoteKey(vk, down, _shiftKey, _capsKey, ctrl: false))
@@ -140,6 +141,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void InjectText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
+        SoftKeyboardGuard.Hide();
 
         // 编辑器 sink 优先：不依赖被控态，避免 TextInput 被 _receiving 门闩丢掉
         if (RemoteTextInputHub.TryAcceptText(text))
@@ -197,19 +199,9 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             PromptOverlayOnce();
 
         UpdateCursorVisual(entryX, entryY, relative: false, 0, 0);
-        // 跨屏打字由电脑组字，收起本机软键盘避免抢焦点
-        try
-        {
-            var activity = Platform.CurrentActivity;
-            var token = activity?.CurrentFocus?.WindowToken ?? activity?.Window?.DecorView?.WindowToken;
-            if (activity != null && token != null)
-            {
-                var imm = activity.GetSystemService(global::Android.Content.Context.InputMethodService)
-                    as global::Android.Views.InputMethods.InputMethodManager;
-                imm?.HideSoftInputFromWindow(token, global::Android.Views.InputMethods.HideSoftInputFlags.None);
-            }
-        }
-        catch { /* ignore */ }
+        // 跨屏打字由电脑后台组字，手机只显示候选条，禁止本机软键盘
+        SoftKeyboardGuard.SuppressWhileReceiving = true;
+        SoftKeyboardGuard.Hide();
 
         ControlTargetChanged?.Invoke(null);
         AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} showing={FlyScreenCursorOverlay.IsShowing} a11y={FlyScreenInputAccessibilityService.IsEnabled}");
@@ -313,6 +305,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private void EndRemoteCursor()
     {
         _receiving = false;
+        SoftKeyboardGuard.SuppressWhileReceiving = false;
         VirtualCursorOverlay.Hide();
         RemoteCompositionOverlay.Hide();
         FlyScreenCursorOverlay.End();
