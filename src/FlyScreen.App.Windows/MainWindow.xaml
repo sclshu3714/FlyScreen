@@ -543,6 +543,7 @@
         <local:StringBox x:Key="Str.DeleteTip" Value="删除"/>
         <local:StringBox x:Key="Str.Add" Value="添加"/>
         <local:StringBox x:Key="Str.ProgActStart" Value="启动"/>
+        <local:StringBox x:Key="Str.ProgActStop" Value="停止"/>
         <local:StringBox x:Key="Str.ProgActEdit" Value="编辑"/>
         <local:StringBox x:Key="Str.ProgActDelete" Value="删除"/>
         <local:StringBox x:Key="Str.ProgActLog" Value="日志"/>
@@ -1255,10 +1256,11 @@
                                 </StackPanel>
                             </Grid>
                             <ListView x:Name="ProgList" Grid.Row="3" BorderThickness="0"
-                                      Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}">
+                                      Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                                      SizeChanged="ProgList_SizeChanged">
                                 <ListView.View>
                                     <GridView>
-                                        <GridViewColumn Width="36">
+                                        <GridViewColumn x:Name="ProgColCheck" Width="36">
                                             <GridViewColumn.Header>
                                                 <CheckBox x:Name="ProgSelectAll" Click="ProgSelectAll_Click"/>
                                             </GridViewColumn.Header>
@@ -1268,8 +1270,9 @@
                                                 </DataTemplate>
                                             </GridViewColumn.CellTemplate>
                                         </GridViewColumn>
+                                        <!-- 名称列宽度在 SizeChanged 中按剩余空间计算 -->
                                         <GridViewColumn x:Name="ProgColName" Header="程序名称" Width="140" DisplayMemberBinding="{Binding Name}"/>
-                                        <GridViewColumn x:Name="ProgColLang" Header="语言" Width="90" DisplayMemberBinding="{Binding LanguageText}"/>
+                                        <GridViewColumn x:Name="ProgColLang" Header="语言" Width="110" DisplayMemberBinding="{Binding LanguageText}"/>
                                         <GridViewColumn x:Name="ProgColSize" Header="大小" Width="70" DisplayMemberBinding="{Binding SizeText}"/>
                                         <GridViewColumn x:Name="ProgColStatus" Header="状态" Width="70" DisplayMemberBinding="{Binding StatusText}"/>
                                         <GridViewColumn x:Name="ProgColActions" Header="操作" Width="176">
@@ -1277,10 +1280,36 @@
                                                 <DataTemplate>
                                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                         <Button Style="{StaticResource ProgIconBtn}"
-                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActStart}}"
                                                                 Tag="{Binding}" Click="ProgRowStart_Click">
+                                                            <Button.ToolTip>
+                                                                <TextBlock>
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Text" Value="{Binding Value, Source={StaticResource Str.ProgActStart}}"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsActivelyRunning}" Value="True">
+                                                                                    <Setter Property="Text" Value="{Binding Value, Source={StaticResource Str.ProgActStop}}"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
+                                                            </Button.ToolTip>
                                                             <Viewbox Style="{StaticResource ProgRowIcon}">
-                                                                <Path Data="{StaticResource GeoPlay}" Fill="#059669"/>
+                                                                <Path>
+                                                                    <Path.Style>
+                                                                        <Style TargetType="Path">
+                                                                            <Setter Property="Data" Value="{StaticResource GeoPlay}"/>
+                                                                            <Setter Property="Fill" Value="#059669"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsActivelyRunning}" Value="True">
+                                                                                    <Setter Property="Data" Value="{StaticResource GeoStop}"/>
+                                                                                    <Setter Property="Fill" Value="#DC2626"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Path.Style>
+                                                                </Path>
                                                             </Viewbox>
                                                         </Button>
                                                         <Button Style="{StaticResource ProgIconBtn}"

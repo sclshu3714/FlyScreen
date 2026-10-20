@@ -379,6 +379,7 @@ public partial class MainWindow : Window
         ProgStartBtn.ToolTip = ProgStartBtnText.Text;
         ProgStopBtn.ToolTip = ProgStopBtnText.Text;
         SetStr("Str.ProgActStart", Loc.T("Prog.ActStart"));
+        SetStr("Str.ProgActStop", Loc.T("Prog.ActStop"));
         SetStr("Str.ProgActEdit", Loc.T("Prog.ActEdit"));
         SetStr("Str.ProgActDelete", Loc.T("Prog.ActDelete"));
         SetStr("Str.ProgActLog", Loc.T("Prog.ActLog"));
@@ -1261,6 +1262,23 @@ public partial class MainWindow : Window
     private void ProgToolBarHost_SizeChanged(object sender, SizeChangedEventArgs e)
         => UpdateProgToolMode();
 
+    private void ProgList_SizeChanged(object sender, SizeChangedEventArgs e)
+        => FitProgListColumns();
+
+    /// <summary>程序列表：固定列按内容宽度，名称列吃满剩余空间，避免右侧留白。</summary>
+    private void FitProgListColumns()
+    {
+        if (ProgList == null || ProgColName == null) return;
+        var avail = ProgList.ActualWidth;
+        if (avail <= 1) return;
+        // 预留纵向滚动条与边距，避免出现横向滚动条抖动
+        var scroll = SystemParameters.VerticalScrollBarWidth + 8;
+        const double fixedCols = 36 + 110 + 70 + 70 + 176; // 勾选/语言/大小/状态/操作
+        var nameW = Math.Max(120, avail - scroll - fixedCols);
+        if (Math.Abs(ProgColName.Width - nameW) > 0.5)
+            ProgColName.Width = nameW;
+    }
+
     /// <summary>程序页顶部工具按钮：放得下时图标+文字，放不下时只留图标。</summary>
     private void UpdateProgToolMode()
     {
@@ -1291,6 +1309,7 @@ public partial class MainWindow : Window
         }
         ProgList.ItemsSource = null;
         ProgList.ItemsSource = svc.Catalog.Items;
+        Dispatcher.BeginInvoke(FitProgListColumns, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private IEnumerable<UserProgram> SelectedPrograms()
@@ -1361,8 +1380,20 @@ public partial class MainWindow : Window
     private async void ProgRowStart_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
-        try { await ProgramService.Instance.Runner.StartAsync(prog); }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, Loc.T("Prog.ActStart"), MessageBoxButton.OK, MessageBoxImage.Warning); }
+        var runner = ProgramService.Instance.Runner;
+        var stop = runner.IsRunning(prog.Id)
+                   || prog.RuntimeStatus is ProgramStatus.Running or ProgramStatus.Stopping;
+        try
+        {
+            if (stop) await runner.StopAsync(prog);
+            else await runner.StartAsync(prog);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message,
+                stop ? Loc.T("Prog.ActStop") : Loc.T("Prog.ActStart"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
         RefreshProgramsPage();
     }
 

@@ -6,6 +6,17 @@ public partial class App : MauiWinUIApplication
 {
     public App()
     {
+        // WebView2 勿写入安装目录（Program Files 无写权限会导致 HybridWebView 异常）
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FlyScreen", "WebView2");
+            Directory.CreateDirectory(dir);
+            Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", dir);
+        }
+        catch { /* ignore */ }
+
         InitializeComponent();
     }
 

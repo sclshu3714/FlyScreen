@@ -837,12 +837,14 @@
                   </Border>
                 </StackPanel>
                 <Grid RowDefinitions="Auto,*">
-                  <Grid ColumnDefinitions="40,*,90,70,70,176" Margin="0,0,0,4" MinHeight="32"
+                  <!-- 名称 *；语言略加宽适配「C# (.NET)」 -->
+                  <Grid ColumnDefinitions="40,*,110,70,70,176" Margin="0,0,0,4" MinHeight="32"
                         Background="{DynamicResource SubtleBg}">
                     <CheckBox x:Name="ProgSelectAll" Classes="progCheck"
                               IsCheckedChanged="ProgSelectAll_Changed"/>
                     <TextBlock x:Name="ProgColName" Grid.Column="1" Text="程序名称" FontWeight="SemiBold"
-                               FontSize="12" VerticalAlignment="Center" Margin="6,0"/>
+                               FontSize="12" VerticalAlignment="Center" Margin="6,0"
+                               TextTrimming="CharacterEllipsis"/>
                     <TextBlock x:Name="ProgColLang" Grid.Column="2" Text="语言" FontWeight="SemiBold"
                                FontSize="12" VerticalAlignment="Center"/>
                     <TextBlock x:Name="ProgColSize" Grid.Column="3" Text="大小" FontWeight="SemiBold"
@@ -856,17 +858,25 @@
                            Background="{DynamicResource ListBg}">
                     <ListBox.ItemTemplate>
                       <DataTemplate DataType="prog:UserProgram">
-                        <Grid ColumnDefinitions="40,*,90,70,70,176" MinHeight="36">
+                        <Grid ColumnDefinitions="40,*,110,70,70,176" MinHeight="36">
                           <CheckBox Classes="progCheck" IsChecked="{Binding IsSelected}"/>
-                          <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0"/>
-                          <TextBlock Grid.Column="2" Text="{Binding LanguageText}" VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" Margin="6,0"
+                                     TextTrimming="CharacterEllipsis"/>
+                          <TextBlock Grid.Column="2" Text="{Binding LanguageText}" VerticalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis"/>
                           <TextBlock Grid.Column="3" Text="{Binding SizeText}" VerticalAlignment="Center"/>
                           <TextBlock Grid.Column="4" Text="{Binding StatusText}" VerticalAlignment="Center"/>
                           <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowStart_Click" ToolTip.Tip="启动">
-                              <Viewbox Width="14" Height="14">
-                                <Path Fill="#059669" Data="{StaticResource GeoPlay}"/>
-                              </Viewbox>
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowStart_Click"
+                                    ToolTip.Tip="{Binding ActionToggleTip}">
+                              <Panel Width="14" Height="14">
+                                <Viewbox IsVisible="{Binding IsIdleForAction}">
+                                  <Path Fill="#059669" Data="{StaticResource GeoPlay}"/>
+                                </Viewbox>
+                                <Viewbox IsVisible="{Binding IsActivelyRunning}">
+                                  <Path Fill="#DC2626" Data="{StaticResource GeoStop}"/>
+                                </Viewbox>
+                              </Panel>
                             </Button>
                             <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowEdit_Click" ToolTip.Tip="编辑">
                               <Viewbox Width="14" Height="14">
