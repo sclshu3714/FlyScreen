@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using FlyScreen.AppMaui.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Programs;
@@ -100,13 +101,16 @@ public partial class ProgramEditorPage : ContentPage
             _page._contentPushed = true;
             var lang = _page._program.Language;
             _page._lineCount = ProgramEditorLimits.CountLines(source);
+            var dark = MauiThemeService.IsDark(MauiThemeService.Current);
             return new EditorBootstrap
             {
                 Value = source ?? "",
                 Language = ProgramEditorLanguageMap.MonacoLanguageId(lang),
                 Breakpoints = _page._program.Breakpoints.ToArray(),
                 MaxLines = ProgramEditorLimits.MaxLines,
-                Keywords = ProgramEditorCompletions.Keywords(lang).ToArray()
+                Keywords = ProgramEditorCompletions.Keywords(lang).ToArray(),
+                Theme = ProgramEditorTheme.MonacoThemeId(dark),
+                Background = ProgramEditorTheme.EditorBackgroundHex(dark)
             };
         }
     }
@@ -118,6 +122,8 @@ public partial class ProgramEditorPage : ContentPage
         public int[] Breakpoints { get; set; } = [];
         public int MaxLines { get; set; } = ProgramEditorLimits.MaxLines;
         public string[] Keywords { get; set; } = [];
+        public string Theme { get; set; } = "vs";
+        public string Background { get; set; } = "#FFFFFF";
     }
 
     protected override void OnAppearing()
@@ -257,6 +263,7 @@ public partial class ProgramEditorPage : ContentPage
     {
         var source = _pendingSource ?? _catalog.ReadSource(_program);
         var lang = _program.Language;
+        var dark = MauiThemeService.IsDark(MauiThemeService.Current);
         var payload = new
         {
             type = "init",
@@ -264,7 +271,9 @@ public partial class ProgramEditorPage : ContentPage
             language = ProgramEditorLanguageMap.MonacoLanguageId(lang),
             breakpoints = _program.Breakpoints.ToArray(),
             maxLines = ProgramEditorLimits.MaxLines,
-            keywords = ProgramEditorCompletions.Keywords(lang).ToArray()
+            keywords = ProgramEditorCompletions.Keywords(lang).ToArray(),
+            theme = ProgramEditorTheme.MonacoThemeId(dark),
+            background = ProgramEditorTheme.EditorBackgroundHex(dark)
         };
         await SendEditorAsync(payload).ConfigureAwait(true);
         _contentPushed = true;

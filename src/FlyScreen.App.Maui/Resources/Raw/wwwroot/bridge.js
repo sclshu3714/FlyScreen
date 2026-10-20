@@ -91,6 +91,28 @@
     });
   }
 
+  function applyTheme(theme, background) {
+    try {
+      if (theme) monaco.editor.setTheme(theme);
+      var dark = theme === 'vs-dark';
+      var bg = background || (dark ? '#0F172A' : '#FFFFFF');
+      var gutter = dark ? '#1E293B' : '#F3F4F6';
+      document.documentElement.style.background = bg;
+      document.body.style.background = bg;
+      var el = document.getElementById('container');
+      if (el) el.style.background = bg;
+      var styleId = 'fly-editor-gutter-style';
+      var st = document.getElementById(styleId);
+      if (!st) {
+        st = document.createElement('style');
+        st.id = styleId;
+        document.head.appendChild(st);
+      }
+      st.textContent =
+        '.monaco-editor .margin, .monaco-editor .glyph-margin { background-color: ' + gutter + ' !important; }';
+    } catch (e) { /* ignore */ }
+  }
+
   function applyBootstrap(data) {
     if (!editor || !data) return;
     const value = data.value != null ? String(data.value)
@@ -104,6 +126,9 @@
       keywordMap[language] = kw;
       keywordMap[language.toLowerCase()] = kw;
     }
+    var theme = data.theme || data.Theme || 'vs';
+    var background = data.background || data.Background;
+    applyTheme(theme, background);
     editor.setValue(value);
     try { monaco.editor.setModelLanguage(editor.getModel(), language); } catch (e) { /* ignore */ }
     registerCompletion(language);
@@ -153,6 +178,9 @@
         break;
       case 'clearBreakpoints':
         setBreakpoints([]);
+        break;
+      case 'setTheme':
+        applyTheme(msg.theme || msg.Theme, msg.background || msg.Background);
         break;
     }
   }

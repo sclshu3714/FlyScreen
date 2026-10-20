@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using FlyScreen.Helpers;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Rendering;
 
@@ -10,7 +11,9 @@ namespace FlyScreen.Editor;
 public sealed class BreakpointMargin : AbstractMargin
 {
     private static readonly SolidColorBrush DotBrush = CreateBrush(0xEF, 0x44, 0x44);
-    private static readonly SolidColorBrush BgBrush = CreateBrush(0xF3, 0xF4, 0xF6);
+    // 浅 #F3F4F6 / 深 #1E293B，与 ProgramEditorTheme.GutterBackgroundHex 一致
+    private static readonly SolidColorBrush LightBg = CreateBrush(0xF3, 0xF4, 0xF6);
+    private static readonly SolidColorBrush DarkBg = CreateBrush(0x1E, 0x29, 0x3B);
 
     private readonly Func<IReadOnlyCollection<int>> _getBreakpoints;
     private readonly Action<int> _toggle;
@@ -30,6 +33,9 @@ public sealed class BreakpointMargin : AbstractMargin
         return brush;
     }
 
+    private static SolidColorBrush CurrentBgBrush()
+        => ThemeService.IsDark(ThemeService.Current) ? DarkBg : LightBg;
+
     protected override HitTestResult HitTestCore(PointHitTestParameters hitTestParameters)
         => new PointHitTestResult(this, hitTestParameters.HitPoint);
 
@@ -42,7 +48,7 @@ public sealed class BreakpointMargin : AbstractMargin
         if (textView == null || !textView.VisualLinesValid)
             return;
 
-        drawingContext.DrawRectangle(BgBrush, null, new Rect(0, 0, ActualWidth, ActualHeight));
+        drawingContext.DrawRectangle(CurrentBgBrush(), null, new Rect(0, 0, ActualWidth, ActualHeight));
         var bps = _getBreakpoints();
         foreach (var line in textView.VisualLines)
         {

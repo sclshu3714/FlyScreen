@@ -85,7 +85,7 @@ public partial class ProgramEditorWindow : Window
         var def = HighlightingManager.Instance.GetDefinition(name);
         if (def == null && name is "PowerShell" or "Bash" or "Batch")
             def = HighlightingManager.Instance.GetDefinition("JavaScript");
-        CodeEditor.SyntaxHighlighting = def;
+        EditorHighlightingTheme.Apply(CodeEditor, def);
     }
 
     private int _closeStopArmed;
