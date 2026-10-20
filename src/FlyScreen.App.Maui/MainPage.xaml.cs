@@ -34,6 +34,11 @@ public partial class MainPage : ContentPage
     private bool _openProgramLog;
     private bool _progSelectAllUpdating;
     private UserProgram? _progMoreTarget;
+    private bool _hostWired;
+    private bool _uiPrepared;
+
+    /// <summary>触控板可在空闲时调用，把重 UI 初始化提前做完。</summary>
+    public bool IsUiPrepared => _uiPrepared;
 
     // 矩阵级拖拽：手势挂在 MachineMatrix 上，避免手指移出卡片后 Pan 被 Android 取消
     private bool _matrixInputWired;
@@ -57,14 +62,38 @@ public partial class MainPage : ContentPage
         Unloaded += (_, _) => _statusTimer?.Stop();
     }
 
-    private async void OnLoaded(object? sender, EventArgs e)
+    /// <summary>
+    /// 预热重活（LoadUi/矩阵/文案）。触控板空闲时调用后，点「设置」只需 Push，不再卡 3–4 秒。
+    /// </summary>
+    public void PrepareHeavyUi()
     {
+        if (_uiPrepared) return;
         Loc.SetCulture(_host.Settings.UiLanguage);
         MauiThemeService.Apply(_host.Settings.UiTheme, this);
         LoadUi();
         ApplyLocalizedUi();
         RebuildMatrix();
         PlatformLabel.Text = _host.PlatformBanner;
+        WireHostOnce();
+        RefreshNics();
+        RefreshDiscovery();
+        RefreshSlotStatuses();
+        if (!_initialPageChosen)
+        {
+            _initialPageChosen = true;
+            ShowPage(0);
+        }
+        else
+            ShowPage(_pageIndex);
+        var w = Width > 1 ? Width : 400;
+        ApplyResponsiveLayout(w);
+        _uiPrepared = true;
+    }
+
+    private void WireHostOnce()
+    {
+        if (_hostWired) return;
+        _hostWired = true;
         _host.StatusMessage += msg => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
         AppLog.Changed += () => MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -85,6 +114,22 @@ public partial class MainPage : ContentPage
         _host.Connections.Discovery.PeersUpdated += _ => MainThread.BeginInvokeOnMainThread(RefreshDiscovery);
         _host.Connections.PeerLinkChanged += (_, _, _) => MainThread.BeginInvokeOnMainThread(RefreshSlotStatuses);
 
+        _statusTimer = Dispatcher.CreateTimer();
+        _statusTimer.Interval = TimeSpan.FromSeconds(2);
+        _statusTimer.Tick += (_, _) => RefreshSlotStatuses();
+    }
+
+    private async void OnLoaded(object? sender, EventArgs e)
+    {
+        // 未预热则在此补齐；已预热则跳过重活，只刷新状态
+        if (!_uiPrepared)
+            PrepareHeavyUi();
+        else
+        {
+            RefreshSlotStatuses();
+            RefreshDiscovery();
+        }
+
         try
         {
             await _host.StartAsync();
@@ -100,23 +145,16 @@ public partial class MainPage : ContentPage
             StatusLabel.Text = $"网络启动失败：{ex.Message}";
         }
 
-        RefreshNics();
-        RefreshDiscovery();
-        RefreshSlotStatuses();
-        // 弹窗关闭可能再次触发 Loaded，不要强制回到「基础」
-        if (!_initialPageChosen)
-        {
-            _initialPageChosen = true;
-            ShowPage(0);
-        }
-        else
-            ShowPage(_pageIndex);
-        ApplyResponsiveLayout(Width);
+        _statusTimer?.Start();
+    }
 
-        _statusTimer = Dispatcher.CreateTimer();
-        _statusTimer.Interval = TimeSpan.FromSeconds(2);
-        _statusTimer.Tick += (_, _) => RefreshSlotStatuses();
-        _statusTimer.Start();
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        if (!_hostWired) return;
+        _statusTimer?.Start();
+        RefreshSlotStatuses();
+        RefreshDiscovery();
     }
 
     private void OnPageSizeChanged(object? sender, EventArgs e)
@@ -276,11 +314,21 @@ public partial class MainPage : ContentPage
         ProgMoreShareBtn.Text = $"⇪  {Loc.T("Prog.ActShare")}";
         ProgMoreDeleteBtn.Text = $"✕  {Loc.T("Prog.ActDelete")}";
 
-        // 先显示以便测量，再按锚点定位
-        ProgMoreOverlay.IsVisible = true;
+        // 先 Invisible 定位，避免 (0,0)→锚点 闪现
+        ProgMoreFlyout.Opacity = 0;
         ProgMoreFlyout.TranslationX = 0;
         ProgMoreFlyout.TranslationY = 0;
-        Dispatcher.Dispatch(() => PositionProgMoreFlyout(anchor));
+        ProgMoreOverlay.IsVisible = true;
+        Dispatcher.Dispatch(() =>
+        {
+            PositionProgMoreFlyout(anchor);
+            // 再排一帧确保 Width/坐标就绪后再显示
+            Dispatcher.Dispatch(() =>
+            {
+                PositionProgMoreFlyout(anchor);
+                ProgMoreFlyout.Opacity = 1;
+            });
+        });
     }
 
     private void PositionProgMoreFlyout(View anchor)
@@ -288,8 +336,8 @@ public partial class MainPage : ContentPage
         try
         {
             var pagePos = GetOffsetToPage(anchor);
-            var menuW = ProgMoreFlyout.Width > 1 ? ProgMoreFlyout.Width : 168;
-            var menuH = ProgMoreFlyout.Height > 1 ? ProgMoreFlyout.Height : 168;
+            var menuW = ProgMoreFlyout.Width > 1 ? ProgMoreFlyout.Width : 112;
+            var menuH = ProgMoreFlyout.Height > 1 ? ProgMoreFlyout.Height : 160;
             var pageW = Width > 1 ? Width : 800;
             var pageH = Height > 1 ? Height : 600;
 
@@ -347,6 +395,7 @@ public partial class MainPage : ContentPage
     {
         ProgMoreOverlay.IsVisible = false;
         _progMoreTarget = null;
+        ProgMoreFlyout.Opacity = 0;
         ProgMoreFlyout.TranslationX = 0;
         ProgMoreFlyout.TranslationY = 0;
     }

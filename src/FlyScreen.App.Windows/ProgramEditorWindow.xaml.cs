@@ -51,7 +51,6 @@ public partial class ProgramEditorWindow : Window
         Title = BaseTitle;
         SetToolButton(BtnSave, BtnSaveText, "Prog.Save");
         SetToolButton(BtnDebug, BtnDebugText, "Prog.Debug");
-        SetToolButton(BtnClearAllBp, BtnClearAllBpText, "Prog.ClearAllBp");
         SetToolButton(BtnRun, BtnRunText, "Prog.Run");
         SetToolButton(BtnStop, BtnStopText, "Prog.StopRun");
         OutputTitleText.Text = Loc.T("Prog.Output");
@@ -308,15 +307,6 @@ public partial class ProgramEditorWindow : Window
         _catalog.SaveMeta(_program);
         _bpMargin.InvalidateVisual();
         RefreshBpHint();
-    }
-
-    private void ClearAllBp_Click(object sender, RoutedEventArgs e)
-    {
-        _program.Breakpoints.Clear();
-        _catalog.SaveMeta(_program);
-        _bpMargin.InvalidateVisual();
-        RefreshBpHint();
-        AppLog.Info($"「{_program.Name}」已清除全部断点", _program.Id, _program.Name);
     }
 
     private async void Run_Click(object sender, RoutedEventArgs e)

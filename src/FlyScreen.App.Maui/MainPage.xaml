@@ -617,24 +617,28 @@
               Stroke="{DynamicResource Line}" StrokeThickness="1"
               StrokeShape="RoundRectangle 10"
               BackgroundColor="{DynamicResource CardBg}"
-              Padding="6" WidthRequest="168"
+              Padding="4" WidthRequest="112" MaximumWidthRequest="112"
               HorizontalOptions="Start" VerticalOptions="Start"
-              >
+              Opacity="0">
         <Border.Shadow>
           <Shadow Brush="#000000" Offset="0,4" Radius="12" Opacity="0.18" />
         </Border.Shadow>
         <VerticalStackLayout Spacing="2">
           <Button x:Name="ProgMoreEditBtn" Style="{StaticResource SoftBlueBtn}"
-                  HeightRequest="36" HorizontalOptions="Fill" Padding="10,0"
+                  HeightRequest="34" HorizontalOptions="Fill"
+                  MinimumWidthRequest="0" Padding="8,0" FontSize="13"
                   Clicked="ProgMoreEdit_Clicked" />
           <Button x:Name="ProgMoreLogBtn" Style="{StaticResource SoftBlueBtn}"
-                  HeightRequest="36" HorizontalOptions="Fill" Padding="10,0"
+                  HeightRequest="34" HorizontalOptions="Fill"
+                  MinimumWidthRequest="0" Padding="8,0" FontSize="13"
                   Clicked="ProgMoreLog_Clicked" />
           <Button x:Name="ProgMoreShareBtn" Style="{StaticResource SoftBlueBtn}"
-                  HeightRequest="36" HorizontalOptions="Fill" Padding="10,0"
+                  HeightRequest="34" HorizontalOptions="Fill"
+                  MinimumWidthRequest="0" Padding="8,0" FontSize="13"
                   Clicked="ProgMoreShare_Clicked" />
           <Button x:Name="ProgMoreDeleteBtn" Style="{StaticResource SoftBlueBtn}"
-                  HeightRequest="36" HorizontalOptions="Fill" Padding="10,0"
+                  HeightRequest="34" HorizontalOptions="Fill"
+                  MinimumWidthRequest="0" Padding="8,0" FontSize="13"
                   Clicked="ProgMoreDelete_Clicked" />
         </VerticalStackLayout>
       </Border>

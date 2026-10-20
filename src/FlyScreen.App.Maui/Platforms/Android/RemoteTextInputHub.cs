@@ -2,8 +2,8 @@
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 跨屏键盘 → 当前页文本接收器（如程序编辑器 Monaco）。
-/// WebView 无法可靠走无障碍 ACTION_SET_TEXT，需页面自行插入。
+/// 跨屏键盘 → 当前页「原生组字」接收器（程序编辑器）。
+/// 中文必须在可见 EditText 上由系统 IME 组字；Monaco 只收确认后的文本。
 /// </summary>
 public static class RemoteTextInputHub
 {
@@ -17,22 +17,23 @@ public static class RemoteTextInputHub
             _sink = null;
     }
 
-    public static bool TryCommit(string text)
-        => _sink?.TryCommitText(text) == true;
-
-    public static bool TryDelete(int utf16Count)
-        => _sink?.TryDelete(utf16Count) == true;
-
-    public static bool TrySpecialKey(ushort virtualKey)
-        => _sink?.TrySpecialKey(virtualKey) == true;
-
     public static bool HasSink => _sink != null;
+
+    /// <summary>跨屏按键交给组字页；true 表示已消费，勿再走透明 IME 代理 / Vk 直写。</summary>
+    public static bool TryHandleRemoteKey(ushort virtualKey, bool down, bool shift, bool caps, bool ctrl)
+        => _sink?.TryHandleRemoteKey(virtualKey, down, shift, caps, ctrl) == true;
+
+    public static void ClearComposition() => _sink?.ClearComposition();
+
+    /// <summary>电脑侧确认的文本（中文词组 / 英文直出）写入当前编辑器。</summary>
+    public static bool TryAcceptText(string text)
+        => _sink?.TryAcceptRemoteText(text) == true;
 }
 
 public interface IRemoteTextInputSink
 {
-    bool TryCommitText(string text);
-    bool TryDelete(int utf16Count);
-    bool TrySpecialKey(ushort virtualKey);
+    bool TryHandleRemoteKey(ushort virtualKey, bool down, bool shift, bool caps, bool ctrl);
+    void ClearComposition();
+    bool TryAcceptRemoteText(string text);
 }
 #endif

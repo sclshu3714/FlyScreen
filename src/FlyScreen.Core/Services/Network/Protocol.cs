@@ -53,7 +53,15 @@ public enum MessageType : byte
     /// <summary>高级「功能 / 行为」选项同步。</summary>
     BehaviorSync = 63,
     /// <summary>把本机程序发给已连接电脑；对端已有同名或相同 Id 则跳过。</summary>
-    ProgramShare = 64
+    ProgramShare = 64,
+    /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
+    CompositionUpdate = 70,
+    /// <summary>电脑→手机：取消组字浮层。</summary>
+    CompositionCancel = 71,
+    /// <summary>电脑→手机：已确认文本（插入目标）。</summary>
+    TextInput = 72,
+    /// <summary>手机→电脑：点选候选（Index 或直接 Text）。</summary>
+    CompositionSelect = 73
 }
 
 public readonly struct NetMessage
@@ -227,6 +235,48 @@ public sealed class KeyEventPayload
     public ushort VirtualKey { get; set; }
     public bool Down { get; set; }
     public bool Extended { get; set; }
+}
+
+/// <summary>跨屏中文组字：拼音行 + 候选列表（手机置顶展示）。</summary>
+public sealed class CompositionUpdatePayload
+{
+    /// <summary>正在组字的拼音/中间串，如 shi'fou'ke'yi。</summary>
+    public string Reading { get; set; } = "";
+    /// <summary>当前页候选（已是汉字词组）。</summary>
+    public List<string> Candidates { get; set; } = [];
+    /// <summary>高亮项 0-based；-1 表示无。</summary>
+    public int Highlight { get; set; }
+    /// <summary>候选起始编号（通常为 1）。</summary>
+    public int NumberBase { get; set; } = 1;
+    public bool CanPagePrev { get; set; }
+    public bool CanPageNext { get; set; }
+}
+
+public sealed class TextInputPayload
+{
+    public string Text { get; set; } = "";
+}
+
+public sealed class CompositionSelectPayload
+{
+    /// <summary>点选的候选下标（相对当前 Candidates）；优先于 Text。</summary>
+    public int Index { get; set; } = -1;
+    /// <summary>直接提交的汉字（手机点选时带上，避免 Imm 选词失败）。</summary>
+    public string? Text { get; set; }
+}
+
+/// <summary>对端是否需要电脑侧组字再下发候选（手机/平板）。</summary>
+public static class PeerComposition
+{
+    public static bool NeedsHostComposition(PeerRemoteInfo? info)
+    {
+        if (info == null) return false;
+        if (string.Equals(info.Platform, PeerPlatform.Android, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(info.Platform, PeerPlatform.HarmonyOS, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return string.Equals(info.DeviceClass, PeerDeviceClass.Phone, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(info.DeviceClass, PeerDeviceClass.Tablet, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 public sealed class ClipboardTextPayload

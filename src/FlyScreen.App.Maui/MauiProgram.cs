@@ -1,4 +1,5 @@
 using FlyScreen.Helpers;
+using FlyScreen.AppMaui.Controls;
 using FlyScreen.AppMaui.Services;
 using Microsoft.Extensions.Logging;
 
@@ -12,6 +13,11 @@ public static class MauiProgram
         builder.UseMauiApp<App>();
 
 #if ANDROID
+        builder.ConfigureMauiHandlers(handlers =>
+        {
+            handlers.AddHandler<ComposeImeView, Platforms.Android.ComposeImeViewHandler>();
+        });
+
         // RadioButton 首次可见时常吃到 Material 夜间深色底；强制透明背景
         Microsoft.Maui.Handlers.RadioButtonHandler.Mapper.AppendToMapping("FlyScreenRadioChrome", (handler, view) =>
         {

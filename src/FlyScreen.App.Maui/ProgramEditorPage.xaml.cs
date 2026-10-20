@@ -32,7 +32,6 @@ public partial class ProgramEditorPage : ContentPage
     private string _closeLabel = "关闭";
     private string _saveLabel = "保存";
     private string _debugLabel = "调试";
-    private string _clearBpLabel = "清除断点";
     private string _runLabel = "运行";
     private string _stopLabel = "停止";
     private readonly ObservableCollection<AppLogEntry> _outputItems = [];
@@ -41,11 +40,10 @@ public partial class ProgramEditorPage : ContentPage
     private bool _outputScrollPending;
     private DateTime _outputSince = DateTime.MinValue;
 
-    private const string IcClose = "←";
-    private const string IcSave = "↓";
-    private const string IcDebug = "※";
-    private const string IcClear = "✕";
-    private const string IcRun = "▶";
+    // 通用字形：软盘、实心三角(调试)、空心三角(运行)、红方块(停止)；返回为等长折线 Path
+    private const string IcSave = "💾";
+    private const string IcDebug = "▶";
+    private const string IcRun = "▷";
     private const string IcStop = "■";
 
     public Task WhenClosed => _closed.Task;
@@ -61,14 +59,12 @@ public partial class ProgramEditorPage : ContentPage
         _closeLabel = Loc.T("Prog.DlgCancel") == "取消" ? "关闭" : "Close";
         _saveLabel = Loc.T("Prog.Save");
         _debugLabel = Loc.T("Prog.Debug");
-        _clearBpLabel = Loc.T("Prog.ClearAllBp");
         _runLabel = Loc.T("Prog.Run");
         _stopLabel = Loc.T("Prog.StopRun");
         ApplyToolLabels(compact: false);
         ToolTipProperties.SetText(BtnClose, "关闭并返回");
         ToolTipProperties.SetText(BtnSave, _saveLabel);
         ToolTipProperties.SetText(BtnDebug, _debugLabel);
-        ToolTipProperties.SetText(BtnClearAllBp, _clearBpLabel);
         ToolTipProperties.SetText(BtnRun, _runLabel);
         ToolTipProperties.SetText(BtnStop, _stopLabel);
         OutputTitleText.Text = Loc.T("Prog.Output");
@@ -92,6 +88,11 @@ public partial class ProgramEditorPage : ContentPage
         RefreshOutput();
         SizeChanged += (_, _) => UpdateToolMode();
         AppLog.Changed += OnAppLogChanged;
+#if !ANDROID
+        ComposeBar.IsVisible = false;
+#else
+        ComposeHintLabel.Text = Loc.T("Prog.DlgCancel") == "取消" ? "组字" : "IME";
+#endif
     }
 
     /// <summary>供 Monaco bridge.js 的 HybridWebView.InvokeDotNet 调用。</summary>
@@ -139,6 +140,7 @@ public partial class ProgramEditorPage : ContentPage
 #if ANDROID
         // 每次出现都重新挂上：软键盘曾误触发 OnDisappearing 时可能被卸掉
         RemoteTextInputHub.Register(this);
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(200), FocusComposeEntry);
 #endif
         StartReadyPoll();
     }
@@ -431,23 +433,31 @@ public partial class ProgramEditorPage : ContentPage
 
     private void ApplyToolLabels(bool compact)
     {
+        // 工具条统一图标钮（36 宽）；文案只放 ToolTip，避免返回钮被文字撑宽
         _toolsCompact = compact;
-        BtnClose.Text = compact ? IcClose : $"{IcClose}  {_closeLabel}";
-        BtnSave.Text = compact ? IcSave : $"{IcSave}  {_saveLabel}";
-        BtnDebug.Text = compact ? IcDebug : $"{IcDebug}  {_debugLabel}";
-        BtnClearAllBp.Text = compact ? IcClear : $"{IcClear}  {_clearBpLabel}";
-        BtnRun.Text = compact ? IcRun : $"{IcRun}  {_runLabel}";
-        BtnStop.Text = compact ? IcStop : $"{IcStop}  {_stopLabel}";
-        var pad = compact ? new Thickness(8, 0) : new Thickness(10, 0);
-        foreach (var b in new[] { BtnClose, BtnSave, BtnDebug, BtnClearAllBp, BtnRun, BtnStop })
-            b.Padding = pad;
+        BtnClose.Text = " ";
+        BtnSave.Text = IcSave;
+        BtnDebug.Text = IcDebug;
+        BtnRun.Text = IcRun;
+        BtnStop.Text = IcStop;
+        BtnStop.TextColor = Color.FromArgb("#DC2626");
+        foreach (var b in new[] { BtnClose, BtnSave, BtnDebug, BtnRun, BtnStop })
+        {
+            b.Padding = new Thickness(0);
+            b.WidthRequest = 36;
+            b.MinimumWidthRequest = 36;
+            b.MaximumWidthRequest = 36;
+        }
+        BtnCloseHost.WidthRequest = 36;
+        BtnCloseHost.MinimumWidthRequest = 36;
+        BtnCloseHost.MaximumWidthRequest = 36;
     }
 
     private void UpdateToolMode()
     {
-        var compact = Width > 0 && Width < 640;
-        if (compact == _toolsCompact) return;
-        ApplyToolLabels(compact);
+        // 图标钮固定尺寸，不再随宽度切换文案
+        if (!_toolsCompact)
+            ApplyToolLabels(compact: true);
     }
 
     private void RefreshBpHint()
@@ -530,14 +540,6 @@ public partial class ProgramEditorPage : ContentPage
         }
     }
 
-    private void ClearAllBp_Clicked(object? sender, EventArgs e)
-    {
-        _program.Breakpoints.Clear();
-        _catalog.SaveMeta(_program);
-        SendEditor(new { type = "clearBreakpoints" });
-        RefreshBpHint();
-    }
-
     private async void Run_Clicked(object? sender, EventArgs e)
     {
         if (!await EnsureWithinLineLimitAsync()) return;
@@ -584,6 +586,7 @@ public partial class ProgramEditorPage : ContentPage
     {
         if (Interlocked.Exchange(ref _teardownArmed, 1) != 0) return;
 #if ANDROID
+        ClearComposition();
         RemoteTextInputHub.Unregister(this);
 #endif
         StopOnCloseIfNeeded();
@@ -606,53 +609,301 @@ public partial class ProgramEditorPage : ContentPage
         }
     }
 
+    private void ComposeEntry_HandlerChanged(object? sender, EventArgs e)
+    {
 #if ANDROID
-    // —— 跨屏键盘 → Monaco（WebView 不能靠无障碍 SET_TEXT）——
+        ConfigureComposeEditForIme();
+#endif
+    }
 
-    private void EvalEditorJs(string script)
+    private void ComposeEntry_Focused(object? sender, FocusEventArgs e)
+    {
+#if ANDROID
+        ConfigureComposeEditForIme();
+        EnsureComposeImeVisible();
+#endif
+    }
+
+    private void ComposeEntry_Completed(object? sender, EventArgs e)
+    {
+#if ANDROID
+        CommitComposeOrMonacoEnter();
+#endif
+    }
+
+    private void ComposeCommit_Clicked(object? sender, EventArgs e)
+    {
+#if ANDROID
+        FlushComposeToMonaco();
+        FocusComposeEntry();
+#endif
+    }
+
+    private void ComposeEntry_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+#if ANDROID
+        OnComposeTextChanged();
+#endif
+    }
+
+#if ANDROID
+    // —— 原生组字条：内容先留在条内；仅 IME 选词结束 / 回车 /「写入」才进 Monaco ——
+
+    private bool _composeUpdating;
+    private bool _wasComposing;
+
+    private void FocusComposeEntry()
     {
         try
         {
-            // 直接走平台 WebView，避免 MAUI EvaluateJavaScriptAsync 二次转义/排队丢键
-            if (CodeWeb.Handler?.PlatformView is global::Android.Webkit.WebView awv)
-            {
-                awv.EvaluateJavascript(script, null);
-                return;
-            }
+            if (!ComposeEntry.IsFocused)
+                ComposeEntry.Focus();
+            EnsureComposeImeVisible();
         }
-        catch { /* fall through */ }
-
-        try { _ = CodeWeb.EvaluateJavaScriptAsync(script); }
-        catch { /* WebView 未就绪 */ }
+        catch { /* ignore */ }
     }
 
-    public bool TryCommitText(string text)
+    private void ConfigureComposeEditForIme()
     {
-        if (string.IsNullOrEmpty(text)) return false;
-        var escaped = JsonSerializer.Serialize(text);
-        var script = $"window.flyType && window.flyType({escaped})";
-        if (MainThread.IsMainThread) EvalEditorJs(script);
-        else MainThread.BeginInvokeOnMainThread(() => EvalEditorJs(script));
-        return true;
+        try
+        {
+            if (ComposeEdit() is not { } edit) return;
+            edit.ShowSoftInputOnFocus = true;
+            edit.InputType = global::Android.Text.InputTypes.ClassText;
+            edit.ImeOptions = global::Android.Views.InputMethods.ImeAction.Done;
+            try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
+        }
+        catch { /* ignore */ }
     }
 
-    public bool TryDelete(int utf16Count)
+    private void EnsureComposeImeVisible()
     {
-        if (utf16Count <= 0) return false;
-        var n = Math.Min(utf16Count, 64);
+        try
+        {
+            if (ComposeEdit() is not { } edit) return;
+            ConfigureComposeEditForIme();
+            var imm = global::Android.App.Application.Context
+                .GetSystemService(global::Android.Content.Context.InputMethodService)
+                as global::Android.Views.InputMethods.InputMethodManager;
+            // 勿 RestartInput：会清掉正在进行的拼音组字
+            imm?.ShowSoftInput(edit, global::Android.Views.InputMethods.ShowFlags.Implicit);
+        }
+        catch { /* ignore */ }
+    }
+
+    private global::Android.Widget.EditText? ComposeEdit()
+        => ComposeEntry.Handler?.PlatformView as global::Android.Widget.EditText;
+
+    private bool IsComposeComposing()
+        => Platforms.Android.ComposeImeViewHandler.IsComposing(ComposeEdit());
+
+    private void OnComposeTextChanged()
+    {
+        if (_composeUpdating) return;
+
+        if (IsComposeComposing())
+        {
+            _wasComposing = true;
+            return; // 拼音过程只留在组字条
+        }
+
+        // 刚从组字状态确认（选词）→ 写入 Monaco
+        if (_wasComposing)
+        {
+            _wasComposing = false;
+            FlushComposeToMonaco();
+        }
+        // 英文/直接字母：留在组字条，等回车或「写入」
+    }
+
+    private void FlushComposeToMonaco()
+    {
+        var text = ComposeEntry.Text ?? "";
+        if (string.IsNullOrEmpty(text)) return;
+        MonacoType(text);
+        _composeUpdating = true;
+        _wasComposing = false;
+        ComposeEntry.Text = "";
+        _composeUpdating = false;
+    }
+
+    private void CommitComposeOrMonacoEnter()
+    {
+        if (!string.IsNullOrEmpty(ComposeEntry.Text) || _wasComposing || IsComposeComposing())
+            FlushComposeToMonaco();
+        else
+            MonacoAction("enter");
+        FocusComposeEntry();
+    }
+
+    public void ClearComposition()
+    {
         void Run()
         {
-            for (var i = 0; i < n; i++)
-                EvalEditorJs("window.flyEditorAction && window.flyEditorAction('backspace')");
+            _composeUpdating = true;
+            _wasComposing = false;
+            ComposeEntry.Text = "";
+            _composeUpdating = false;
+        }
+        if (MainThread.IsMainThread) Run();
+        else MainThread.BeginInvokeOnMainThread(Run);
+    }
+
+    public bool TryAcceptRemoteText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        void Run()
+        {
+            ClearComposition();
+            MonacoType(text);
         }
         if (MainThread.IsMainThread) Run();
         else MainThread.BeginInvokeOnMainThread(Run);
         return true;
     }
 
-    public bool TrySpecialKey(ushort virtualKey)
+    public bool TryHandleRemoteKey(ushort virtualKey, bool down, bool shift, bool caps, bool ctrl)
     {
-        var action = virtualKey switch
+        if (MainThread.IsMainThread)
+            return HandleRemoteKeyCore(virtualKey, down, shift, caps, ctrl);
+
+        var handled = false;
+        using var done = new ManualResetEventSlim(false);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try { handled = HandleRemoteKeyCore(virtualKey, down, shift, caps, ctrl); }
+            finally { done.Set(); }
+        });
+        done.Wait(TimeSpan.FromSeconds(2));
+        return handled;
+    }
+
+    private bool HandleRemoteKeyCore(ushort vk, bool down, bool shift, bool caps, bool ctrl)
+    {
+        FocusComposeEntry();
+
+        if (vk is 0x10 or 0xA0 or 0xA1 or 0x14)
+        {
+            DispatchToCompose(vk, down, shift);
+            return true;
+        }
+
+        if (!down)
+        {
+            DispatchToCompose(vk, false, shift);
+            return true;
+        }
+
+        if (ctrl)
+            return false;
+
+        var composing = IsComposeComposing();
+        var barHasText = !string.IsNullOrEmpty(ComposeEntry.Text);
+
+        // 回车：条内有字则写入 Monaco；否则编辑器换行
+        if (vk == 0x0D)
+        {
+            if (composing)
+            {
+                DispatchToCompose(vk, true, shift);
+                return true;
+            }
+            CommitComposeOrMonacoEnter();
+            return true;
+        }
+
+        // 组字中或条内已有内容：退格/空格/数字选词进组字条
+        if (composing || barHasText)
+        {
+            if (vk is 0x08 or 0x2E or (>= 0x30 and <= 0x39) or 0x20)
+            {
+                DispatchToCompose(vk, true, shift);
+                // Dispatch 未改文本时（常见），退格手动改 Entry
+                if (vk == 0x08 && !IsComposeComposing())
+                    ComposeBackspaceFallback();
+                return true;
+            }
+        }
+
+        // 导航：仅条空且未组字时进 Monaco
+        if (!composing && !barHasText && TryMonacoSpecial(vk))
+            return true;
+
+        if (DispatchToCompose(vk, true, shift))
+            return true;
+
+        // IME 未写入时：ASCII 留在组字条（不再直灌 Monaco）
+        if (!composing)
+        {
+            var upper = vk is >= 0x41 and <= 0x5A ? (shift ^ caps) : shift;
+            var mapped = RemoteVkMap.ToChar(vk, upper);
+            if (!string.IsNullOrEmpty(mapped))
+            {
+                AppendToComposeBar(mapped);
+                return true;
+            }
+            if (vk == 0x08)
+            {
+                ComposeBackspaceFallback();
+                return true;
+            }
+        }
+
+        return TryMonacoSpecial(vk);
+    }
+
+    private void AppendToComposeBar(string mapped)
+    {
+        _composeUpdating = true;
+        ComposeEntry.Text = (ComposeEntry.Text ?? "") + mapped;
+        _composeUpdating = false;
+        // 光标移到末尾
+        try { ComposeEntry.CursorPosition = ComposeEntry.Text?.Length ?? 0; } catch { /* ignore */ }
+    }
+
+    private void ComposeBackspaceFallback()
+    {
+        var t = ComposeEntry.Text ?? "";
+        if (t.Length == 0) return;
+        _composeUpdating = true;
+        ComposeEntry.Text = t[..^1];
+        _composeUpdating = false;
+    }
+
+    private bool DispatchToCompose(ushort vk, bool down, bool shift)
+    {
+        var edit = ComposeEdit();
+        if (edit == null) return false;
+        var keyCode = RemoteVkMap.ToAndroidKeyCode(vk);
+        if (keyCode <= 0) return false;
+
+        if (!edit.IsFocused)
+            edit.RequestFocus();
+
+        var before = edit.Text ?? "";
+        var now = global::Android.OS.SystemClock.UptimeMillis();
+        var meta = shift ? global::Android.Views.MetaKeyStates.ShiftOn : 0;
+        var action = down
+            ? global::Android.Views.KeyEventActions.Down
+            : global::Android.Views.KeyEventActions.Up;
+        var ev = new global::Android.Views.KeyEvent(
+            now, now, action, (global::Android.Views.Keycode)keyCode, 0, meta,
+            deviceId: -1, scancode: 0,
+            flags: global::Android.Views.KeyEventFlags.SoftKeyboard
+                   | global::Android.Views.KeyEventFlags.KeepTouchMode);
+        edit.DispatchKeyEvent(ev);
+
+        if (!down) return true;
+
+        // 只有真正开始组字或文本变化才算成功；否则交给 ASCII 回退写入组字条
+        var after = edit.Text ?? "";
+        return IsComposeComposing()
+               || !string.Equals(after, before, StringComparison.Ordinal);
+    }
+
+    private bool TryMonacoSpecial(ushort vk)
+    {
+        var action = vk switch
         {
             0x08 => "backspace",
             0x2E => "delete",
@@ -667,11 +918,37 @@ public partial class ProgramEditorPage : ContentPage
             _ => null
         };
         if (action == null) return false;
-        var name = JsonSerializer.Serialize(action);
-        var script = $"window.flyEditorAction && window.flyEditorAction({name})";
-        if (MainThread.IsMainThread) EvalEditorJs(script);
-        else MainThread.BeginInvokeOnMainThread(() => EvalEditorJs(script));
+        MonacoAction(action);
         return true;
+    }
+
+    private void MonacoType(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var escaped = JsonSerializer.Serialize(text);
+        EvalEditorJs($"window.flyType && window.flyType({escaped})");
+    }
+
+    private void MonacoAction(string action)
+    {
+        var name = JsonSerializer.Serialize(action);
+        EvalEditorJs($"window.flyEditorAction && window.flyEditorAction({name})");
+    }
+
+    private void EvalEditorJs(string script)
+    {
+        try
+        {
+            if (CodeWeb.Handler?.PlatformView is global::Android.Webkit.WebView awv)
+            {
+                awv.EvaluateJavascript(script, null);
+                return;
+            }
+        }
+        catch { /* fall through */ }
+
+        try { _ = CodeWeb.EvaluateJavaScriptAsync(script); }
+        catch { /* WebView 未就绪 */ }
     }
 #endif
 }

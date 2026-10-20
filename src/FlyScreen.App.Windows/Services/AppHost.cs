@@ -162,6 +162,12 @@ public sealed class AppHost : IAsyncDisposable
                 Input.OnCursorOwnerChanged(p.OwnerMachine);
                 break;
             }
+            case MessageType.CompositionSelect:
+            {
+                var p = MessageCodec.DecodeJson<CompositionSelectPayload>(msg.Payload);
+                Input.HandleCompositionSelect(peer, p);
+                break;
+            }
             // LayoutSync 由 LayoutSyncHelper 处理
         }
     }

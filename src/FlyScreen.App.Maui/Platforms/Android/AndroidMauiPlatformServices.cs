@@ -128,16 +128,28 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             return;
         }
 
-        // 无障碍未开：程序编辑器仍可通过 JS 桥收键（无中文组字，仅键位映射）
+        // 无障碍未开：编辑器组字条仍可收键（中文依赖系统 IME / 软键盘）
         TrackModifierKeys(vk, down);
-        if (down && RemoteTextInputHub.HasSink)
+        if (RemoteTextInputHub.HasSink
+            && RemoteTextInputHub.TryHandleRemoteKey(vk, down, _shiftKey, _capsKey, ctrl: false))
+            return;
+
+        PromptTouchInjectionOnce();
+    }
+
+    public void InjectText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+
+        // 编辑器 sink 优先：不依赖被控态，避免 TextInput 被 _receiving 门闩丢掉
+        if (RemoteTextInputHub.TryAcceptText(text))
+            return;
+
+        if (_remotePointerSuppressed || !_receiving) return;
+
+        if (FlyScreenInputAccessibilityService.IsEnabled)
         {
-            if (RemoteTextInputHub.TrySpecialKey(vk))
-                return;
-            var upper = vk is >= 0x41 and <= 0x5A ? (_shiftKey ^ _capsKey) : _shiftKey;
-            var mapped = RemoteVkMap.ToChar(vk, upper);
-            if (!string.IsNullOrEmpty(mapped))
-                RemoteTextInputHub.TryCommit(mapped);
+            FlyScreenInputAccessibilityService.Instance?.InsertCommittedText(text);
             return;
         }
 
@@ -185,6 +197,20 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             PromptOverlayOnce();
 
         UpdateCursorVisual(entryX, entryY, relative: false, 0, 0);
+        // 跨屏打字由电脑组字，收起本机软键盘避免抢焦点
+        try
+        {
+            var activity = Platform.CurrentActivity;
+            var token = activity?.CurrentFocus?.WindowToken ?? activity?.Window?.DecorView?.WindowToken;
+            if (activity != null && token != null)
+            {
+                var imm = activity.GetSystemService(global::Android.Content.Context.InputMethodService)
+                    as global::Android.Views.InputMethods.InputMethodManager;
+                imm?.HideSoftInputFromWindow(token, global::Android.Views.InputMethods.HideSoftInputFlags.None);
+            }
+        }
+        catch { /* ignore */ }
+
         ControlTargetChanged?.Invoke(null);
         AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} showing={FlyScreenCursorOverlay.IsShowing} a11y={FlyScreenInputAccessibilityService.IsEnabled}");
     }
@@ -288,6 +314,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         _receiving = false;
         VirtualCursorOverlay.Hide();
+        RemoteCompositionOverlay.Hide();
         FlyScreenCursorOverlay.End();
         FlyScreenInputAccessibilityService.Instance?.EndSession();
         ApplySuppressState();

@@ -13,6 +13,8 @@ public partial class PhoneTouchpadPage : ContentPage
     private static readonly TimeSpan KeyboardCommitDelay = TimeSpan.FromMilliseconds(420);
 
     private readonly MauiAppHost _host;
+    private MainPage? _settingsPage;
+    private bool _openingSettings;
     private string? _activePeer;
     private bool _keyboardOpen;
 
@@ -52,6 +54,8 @@ public partial class PhoneTouchpadPage : ContentPage
         SetKeyboardOpen(false);
         // 触控板控制对端：屏蔽电脑穿透鼠标，避免双指针；本机外接鼠标照常
         _host.Platform.SetRemotePointerSuppressed(true);
+        // 设置页 XAML + LoadUi 很重：空闲时创建并 PrepareHeavyUi，点击时只做导航
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(200), WarmSettingsPage);
     }
 
     private void OnUnloaded(object? sender, EventArgs e)
@@ -458,6 +462,50 @@ public partial class PhoneTouchpadPage : ContentPage
             MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down }));
     }
 
+    private void WarmSettingsPage()
+    {
+        try
+        {
+            _settingsPage ??= ResolveSettingsPage();
+            // InitializeComponent 之后把 LoadUi/矩阵等重活做掉，避免点设置时再卡 3–4 秒
+            if (!_settingsPage.IsUiPrepared)
+                _settingsPage.PrepareHeavyUi();
+        }
+        catch { /* 预热失败则点击时再创建 */ }
+    }
+
+    private MainPage ResolveSettingsPage()
+    {
+        // MauiProgram 已注册 Singleton；勿每次 new（InitializeComponent 是卡顿主因）
+        var services = Handler?.MauiContext?.Services
+                       ?? Application.Current?.Handler?.MauiContext?.Services;
+        if (services?.GetService(typeof(MainPage)) is MainPage fromDi)
+            return fromDi;
+        return new MainPage();
+    }
+
     private async void OpenSettings_Clicked(object? sender, EventArgs e)
-        => await Navigation.PushAsync(new MainPage { Title = "设置" });
+    {
+        if (_openingSettings) return;
+        _openingSettings = true;
+        SettingsBtn.IsEnabled = false;
+        var prevStatus = StatusLabel.Text;
+        try
+        {
+            StatusLabel.Text = "正在打开设置…";
+            var page = _settingsPage ??= ResolveSettingsPage();
+            if (!page.IsUiPrepared)
+                page.PrepareHeavyUi();
+            page.Title = "设置";
+            if (Navigation.NavigationStack.Contains(page))
+                return;
+            await Navigation.PushAsync(page, animated: false);
+        }
+        finally
+        {
+            StatusLabel.Text = prevStatus ?? StatusLabel.Text;
+            _openingSettings = false;
+            SettingsBtn.IsEnabled = true;
+        }
+    }
 }

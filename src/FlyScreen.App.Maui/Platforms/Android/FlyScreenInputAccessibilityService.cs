@@ -223,23 +223,33 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         {
             case 0x10 or 0xA0 or 0xA1:
                 _shift = down;
-                _ime?.Dispatch((int)global::Android.Views.Keycode.ShiftLeft, down, false);
-                return;
+                break;
             case 0x11 or 0xA2 or 0xA3:
                 _ctrl = down;
-                return;
+                break;
             case 0x14:
                 if (down) _caps = !_caps;
-                return;
+                break;
             case 0x12 or 0xA4 or 0xA5:
                 return;
         }
+
+        // 程序编辑器：全部交给可见组字条（系统 IME）；禁止透明代理 / Vk 直写拼音
+        if (RemoteTextInputHub.HasSink
+            && RemoteTextInputHub.TryHandleRemoteKey(vk, down, _shift, _caps, _ctrl))
+            return;
 
         var keyCode = VkToAndroidKeyCode(vk);
         if (!down)
         {
             if (keyCode > 0)
                 _ime?.Dispatch(keyCode, false, false);
+            return;
+        }
+
+        if (vk is 0x10 or 0xA0 or 0xA1)
+        {
+            _ime?.Dispatch((int)global::Android.Views.Keycode.ShiftLeft, down, false);
             return;
         }
 
@@ -254,25 +264,11 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             return;
         }
 
-        // 程序编辑器：特殊键优先走 Monaco 桥（避免被 IME 代理吞掉）
-        if (RemoteTextInputHub.HasSink && RemoteTextInputHub.TrySpecialKey(vk))
-            return;
-
-        // 输入内容由手机当前输入法决定：先走 IME 代理（可中/英组字）
+        // 非编辑器：IME 代理（其它 App 输入框）
         RememberExternalTarget();
         if (TryThroughPhoneIme(vk, keyCode))
             return;
 
-        // Monaco：IME 未产出字符时，按键位映射直写 JS 桥
-        if (RemoteTextInputHub.HasSink && !_ctrl)
-        {
-            var upper = vk is >= 0x41 and <= 0x5A ? (_shift ^ _caps) : _shift;
-            var mapped = RemoteVkMap.ToChar(vk, upper);
-            if (!string.IsNullOrEmpty(mapped) && RemoteTextInputHub.TryCommit(mapped))
-                return;
-        }
-
-        // IME 未消费时回退到无障碍写入（系统输入框）
         var node = CurrentTarget();
         if (node != null && EditText(node, vk))
             return;
@@ -529,11 +525,11 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         return _ime.Ensure(_wm, _overlayType);
     }
 
-    private void OnImeCommitted(string text)
+    /// <summary>电脑侧组字确认的文本（不经本机软键盘）。</summary>
+    public void InsertCommittedText(string text)
     {
-        if (text.Length == 0) return;
-        // Monaco / HybridWebView：走页面 JS 桥（无障碍 SET_TEXT 无效）
-        if (RemoteTextInputHub.TryCommit(text))
+        if (string.IsNullOrEmpty(text)) return;
+        if (RemoteTextInputHub.TryAcceptText(text))
             return;
 
         var node = CurrentTarget() ?? FindEditable() ?? FindEditableAtCursor();
@@ -550,10 +546,20 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
             InsertText(node, text);
     }
 
+    private void OnImeCommitted(string text)
+    {
+        if (text.Length == 0) return;
+        // 编辑器已改走可见组字条 / 电脑侧组字；此处仅服务其它 App 输入框
+        if (RemoteTextInputHub.HasSink)
+            return;
+
+        InsertCommittedText(text);
+    }
+
     private void OnImeDeleted(int utf16Count)
     {
         if (utf16Count <= 0) return;
-        if (RemoteTextInputHub.TryDelete(utf16Count))
+        if (RemoteTextInputHub.HasSink)
             return;
 
         var node = CurrentTarget();
@@ -655,38 +661,7 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         }
     }
 
-    private static int VkToAndroidKeyCode(ushort vk) => vk switch
-    {
-        >= 0x41 and <= 0x5A => 29 + (vk - 0x41),
-        >= 0x30 and <= 0x39 => 7 + (vk - 0x30),
-        >= 0x60 and <= 0x69 => 7 + (vk - 0x60),
-        0x20 => 62,
-        0x08 => 67,
-        0x2E => 112,
-        0x0D => 66,
-        0x09 => 61,
-        0x25 => 21,
-        0x26 => 19,
-        0x27 => 22,
-        0x28 => 20,
-        0x6A => 17,
-        0x6B => 81,
-        0x6D => 69,
-        0x6E => 56,
-        0x6F => 76,
-        0xBA => 74,
-        0xBB => 70,
-        0xBC => 55,
-        0xBD => 69,
-        0xBE => 56,
-        0xBF => 76,
-        0xC0 => 68,
-        0xDB => 71,
-        0xDC => 73,
-        0xDD => 72,
-        0xDE => 75,
-        _ => -1
-    };
+    private static int VkToAndroidKeyCode(ushort vk) => RemoteVkMap.ToAndroidKeyCode(vk);
 
     private global::Android.Views.Accessibility.AccessibilityNodeInfo? FindEditable()
     {
@@ -829,6 +804,15 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         return className.Contains("EditText", StringComparison.Ordinal)
                || className.Contains("AutoCompleteTextView", StringComparison.Ordinal)
                || className.Contains("TextInput", StringComparison.Ordinal);
+    }
+
+    /// <summary>远程光标屏幕像素（供组字浮层锚定）。</summary>
+    public bool TryGetCursorScreenPixels(out int x, out int y)
+    {
+        var (fx, fy) = ToPixels();
+        x = (int)Math.Round(fx);
+        y = (int)Math.Round(fy);
+        return true;
     }
 
     private (float x, float y) ToPixels()

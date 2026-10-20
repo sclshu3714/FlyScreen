@@ -48,6 +48,7 @@ public sealed class InputRouter : IDisposable
     private bool _isCursorOwner = true;
     private Dispatcher? _hookDispatcher;
     private long _lastCursorOwnerBroadcastTick;
+    private RemoteCompositionHost? _composition;
 
     public bool EasyMouseEnabled { get; set; } = true;
     public bool IsControllingRemote => _controllingRemote;
@@ -69,6 +70,7 @@ public sealed class InputRouter : IDisposable
     {
         // LL 钩子回调跑在安装线程；ShowCursor 计数也必须只在该线程调整
         _hookDispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        EnsureCompositionHost();
         _mouseProc = MouseHookCallback;
         _keyProc = KeyHookCallback;
         using var cur = System.Diagnostics.Process.GetCurrentProcess();
@@ -146,6 +148,7 @@ public sealed class InputRouter : IDisposable
             _lastY = py;
         }
 
+        _composition?.Deactivate();
         // 本机重新成为操作机：显示本机光标，并通知其它机器隐藏
         BecomeCursorOwner(broadcast: true);
         ControlTargetChanged?.Invoke(null);
@@ -246,6 +249,32 @@ public sealed class InputRouter : IDisposable
         ControlTargetChanged?.Invoke(peer);
         var (sx, sy) = _remoteCursor.Clamped01();
         _ = SendSwitchAsync(peer, sx, sy);
+
+        if (PeerComposition.NeedsHostComposition(_connections.GetPeerRemoteInfo(peer)))
+            _composition?.Activate(peer);
+        else
+            _composition?.Deactivate();
+    }
+
+    private void EnsureCompositionHost()
+    {
+        if (_composition != null || _hookDispatcher == null) return;
+        _composition = new RemoteCompositionHost(_hookDispatcher);
+        _composition.CompositionUpdated += (peer, payload) =>
+            _ = SendCompositionUpdateAsync(peer, payload);
+        _composition.TextCommitted += (peer, text) =>
+            _ = SendTextInputAsync(peer, text);
+        _composition.CompositionCancelled += peer =>
+            _ = SendCompositionCancelAsync(peer);
+    }
+
+    /// <summary>手机点选候选 / 翻页。</summary>
+    public void HandleCompositionSelect(string peer, CompositionSelectPayload? payload)
+    {
+        if (payload == null) return;
+        if (!string.Equals(peer, _activePeer, StringComparison.OrdinalIgnoreCase)) return;
+        if (_composition == null || !_composition.IsActive) return;
+        _composition.SelectCandidate(payload.Index, payload.Text);
     }
 
     /// <summary>控远端时将本机光标钉在虚拟桌面中部，用相对位移驱动对端虚拟坐标。</summary>
@@ -431,12 +460,99 @@ public sealed class InputRouter : IDisposable
         if (_controllingRemote && !string.IsNullOrEmpty(_activePeer))
         {
             var extended = (info.flags & 1) != 0;
-            _ = SendKeyAsync(_activePeer, (ushort)info.vkCode, down, extended);
+            var vk = (ushort)info.vkCode;
+            if (TryRouteCompositionKey(_activePeer, vk, down, extended))
+                return (IntPtr)1;
+
+            _ = SendKeyAsync(_activePeer, vk, down, extended);
             return (IntPtr)1;
         }
 
         return NativeMethods.CallNextHookEx(_keyHook, nCode, wParam, lParam);
     }
+
+    /// <summary>
+    /// 控手机/平板：可打印键与组字相关键进本机隐藏 IME；修饰键/功能键仍直发对端。
+    /// </summary>
+    private bool TryRouteCompositionKey(string peer, ushort vk, bool down, bool extended)
+    {
+        if (_composition == null) return false;
+        if (!PeerComposition.NeedsHostComposition(_connections.GetPeerRemoteInfo(peer)))
+            return false;
+
+        // Ctrl/Alt/Win 组合留给对端快捷键
+        if (IsCtrlDown() || IsAltDown() || IsWinDown())
+            return false;
+
+        // 功能键、导航键（非组字时）直发；组字中方向/翻页/Esc/退格进宿主
+        if (IsFunctionKey(vk))
+            return false;
+
+        var composing = _composition.IsComposing;
+        if (vk is 0x25 or 0x26 or 0x27 or 0x28 or 0x21 or 0x22) // arrows / page
+        {
+            if (!composing) return false;
+            _composition.FeedKey(vk, down, extended);
+            return true;
+        }
+
+        if (vk == 0x1B) // Esc
+        {
+            if (composing)
+            {
+                if (down) _composition.CancelComposition();
+                return true;
+            }
+            return false;
+        }
+
+        if (vk == 0x0D) // Enter：组字确认进宿主，否则对端换行
+        {
+            if (composing)
+            {
+                _composition.FeedKey(vk, down, extended);
+                return true;
+            }
+            return false;
+        }
+
+        // 字母数字符号、空格、退格、OEM —— 进宿主组字/英文直出
+        if (IsCompositionFeedKey(vk))
+        {
+            _composition.FeedKey(vk, down, extended);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsCompositionFeedKey(ushort vk)
+        => vk is (>= 0x30 and <= 0x39) // 0-9
+            or (>= 0x41 and <= 0x5A) // A-Z
+            or (>= 0x60 and <= 0x69) // numpad
+            or 0x08 or 0x20 // Backspace Space
+            or 0xBA or 0xBB or 0xBC or 0xBD or 0xBE or 0xBF or 0xC0 // OEM
+            or 0xDB or 0xDC or 0xDD or 0xDE
+            or 0x10 or 0xA0 or 0xA1 or 0x14; // Shift / Caps（组字大小写）
+
+    private static bool IsFunctionKey(ushort vk)
+        => vk is (>= 0x70 and <= 0x8B) // F1-F24
+            or 0x2E or 0x24 or 0x23 or 0x2D // Del Home End Insert
+            or 0x09 or 0x5B or 0x5C; // Tab Win
+
+    private static bool IsCtrlDown()
+        => (NativeMethods.GetAsyncKeyState(0x11) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA2) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA3) & 0x8000) != 0;
+
+    private static bool IsAltDown()
+        => (NativeMethods.GetAsyncKeyState(0x12) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA4) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA5) & 0x8000) != 0;
+
+    private static bool IsWinDown()
+        => (NativeMethods.GetAsyncKeyState(0x5B) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0x5C) & 0x8000) != 0;
 
     /// <summary>
     /// 本机物理键鼠活动：成为活动电脑、显示光标，并通知其它机器进入非活动态。
@@ -474,6 +590,7 @@ public sealed class InputRouter : IDisposable
         _focusOnLocal = true;
         _isCursorOwner = true;
         _edgeGate.Reset();
+        _composition?.Deactivate();
         ShowLocalCursor();
         if (wasRemote)
         {
@@ -999,8 +1116,39 @@ public sealed class InputRouter : IDisposable
         catch { /* ignore */ }
     }
 
+    private async Task SendCompositionUpdateAsync(string peer, CompositionUpdatePayload payload)
+    {
+        try
+        {
+            await _connections.SendToAsync(peer, MessageType.CompositionUpdate,
+                MessageCodec.JsonBytes(payload)).ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+    }
+
+    private async Task SendTextInputAsync(string peer, string text)
+    {
+        try
+        {
+            await _connections.SendToAsync(peer, MessageType.TextInput,
+                MessageCodec.JsonBytes(new TextInputPayload { Text = text })).ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+    }
+
+    private async Task SendCompositionCancelAsync(string peer)
+    {
+        try
+        {
+            await _connections.SendToAsync(peer, MessageType.CompositionCancel, Array.Empty<byte>()).ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+    }
+
     public void Dispose()
     {
+        _composition?.Dispose();
+        _composition = null;
         ShowLocalCursor();
         Stop();
     }
