@@ -83,7 +83,10 @@ public static class VirtualCursorOverlay
     {
 #if ANDROID
         lock (Gate)
+        {
+            if (!_visible) return;
             _visible = false;
+        }
         MainThread.BeginInvokeOnMainThread(() => _view?.Invalidate());
 #endif
     }

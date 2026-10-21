@@ -911,11 +911,12 @@
           <Grid x:Name="PageLog" IsVisible="False" MinHeight="420">
             <Border Classes="card" Padding="16">
               <DockPanel>
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,8">
                   <TextBlock x:Name="LogTitleText" Text="日志" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                   <CheckBox x:Name="LogErrorsOnlyCheck" Grid.Column="1" Content="仅错误" VerticalAlignment="Center"
                             Margin="12,0,0,0" IsCheckedChanged="LogFilter_Changed"/>
-                  <Button x:Name="LogClearBtn" Grid.Column="2" Content="清除" Margin="12,0,0,0" Click="LogClear_Click"/>
+                  <Button x:Name="LogDownloadBtn" Grid.Column="2" Content="下载" Margin="12,0,0,0" Click="LogDownload_Click"/>
+                  <Button x:Name="LogClearBtn" Grid.Column="3" Content="清除" Margin="8,0,0,0" Click="LogClear_Click"/>
                 </Grid>
                 <TextBlock x:Name="LogHintText" DockPanel.Dock="Top" Text="收录运行中的状态与错误。新记录在底部。"
                            Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>

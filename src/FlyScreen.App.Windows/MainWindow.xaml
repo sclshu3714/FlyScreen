@@ -1362,6 +1362,8 @@
                             </Grid.RowDefinitions>
                             <DockPanel Margin="0,0,0,8">
                                 <Button x:Name="LogClearBtn" DockPanel.Dock="Right" Content="清除" Click="LogClear_Click"
+                                        Style="{StaticResource SoftBlueBtn}" Padding="12,4" Margin="8,0,0,0"/>
+                                <Button x:Name="LogDownloadBtn" DockPanel.Dock="Right" Content="下载" Click="LogDownload_Click"
                                         Style="{StaticResource SoftBlueBtn}" Padding="12,4" Margin="12,0,0,0"/>
                                 <CheckBox x:Name="LogErrorsOnlyCheck" Content="仅错误" VerticalAlignment="Center"
                                           Checked="LogFilter_Changed" Unchecked="LogFilter_Changed"/>

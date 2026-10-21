@@ -142,6 +142,11 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
     {
         lock (_cursorGate)
         {
+            if (_drawCursor == enabled)
+            {
+                _cursorWanted = _sessionActive && _drawCursor;
+                return;
+            }
             _drawCursor = enabled;
             _cursorWanted = _sessionActive && _drawCursor;
         }

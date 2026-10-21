@@ -516,8 +516,15 @@ public sealed class FlyScreenCursorOverlayService : Service
         return true;
     }
 
+    private long _screenCachedAt;
+
     private void RefreshScreen()
     {
+        // 每帧查 WindowMetrics 偏贵；尺寸很少变，短缓存即可
+        var now = System.Environment.TickCount64;
+        if (_screenW > 0 && _screenH > 0 && now - _screenCachedAt < 1000)
+            return;
+
         try
         {
             if (OperatingSystem.IsAndroidVersionAtLeast(30))
@@ -528,6 +535,7 @@ public sealed class FlyScreenCursorOverlayService : Service
                 {
                     _screenW = max.Width();
                     _screenH = max.Height();
+                    _screenCachedAt = now;
                     return;
                 }
 
@@ -536,6 +544,7 @@ public sealed class FlyScreenCursorOverlayService : Service
                 {
                     _screenW = bounds.Width();
                     _screenH = bounds.Height();
+                    _screenCachedAt = now;
                     return;
                 }
             }
@@ -546,6 +555,7 @@ public sealed class FlyScreenCursorOverlayService : Service
             {
                 _screenW = size.X;
                 _screenH = size.Y;
+                _screenCachedAt = now;
                 return;
             }
         }
@@ -558,6 +568,7 @@ public sealed class FlyScreenCursorOverlayService : Service
         if (dm == null) return;
         _screenW = dm.WidthPixels;
         _screenH = dm.HeightPixels;
+        _screenCachedAt = now;
     }
 
     private void StopSelfSafe()

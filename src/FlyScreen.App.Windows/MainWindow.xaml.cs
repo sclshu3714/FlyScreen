@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -367,6 +368,7 @@ public partial class MainWindow : Window
         LogTitleText.Text = Loc.T("Log.Title");
         RefreshLogHint();
         LogErrorsOnlyCheck.Content = Loc.T("Log.ErrorsOnly");
+        LogDownloadBtn.Content = Loc.T("Log.Download");
         LogClearBtn.Content = Loc.T("Log.Clear");
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T("Prog.Hint");
@@ -1481,6 +1483,39 @@ public partial class MainWindow : Window
     }
 
     private void LogClear_Click(object sender, RoutedEventArgs e) => AppLog.Clear();
+
+    private void LogDownload_Click(object sender, RoutedEventArgs e)
+    {
+        var text = AppLog.FormatExport(
+            LogErrorsOnlyCheck.IsChecked == true,
+            _logProgramId,
+            _logProgramName);
+        if (string.IsNullOrEmpty(text))
+        {
+            StatusText.Text = Loc.T("Log.DownloadEmpty");
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = Loc.T("Log.Download"),
+            Filter = "Text (*.txt)|*.txt|All files (*.*)|*.*",
+            FileName = AppLog.SuggestExportFileName(),
+            DefaultExt = ".txt",
+            AddExtension = true
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            File.WriteAllText(dlg.FileName, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            StatusText.Text = string.Format(Loc.T("Log.DownloadOk"), dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = string.Format(Loc.T("Log.DownloadFail"), ex.Message);
+        }
+    }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {

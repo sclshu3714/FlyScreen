@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
@@ -655,6 +656,7 @@ public partial class MainPage : ContentPage
         LogTitleText.Text = Loc.T("Log.Title");
         LogHintText.Text = Loc.T("Log.Hint");
         LogErrorsOnlyLabel.Text = Loc.T("Log.ErrorsOnly");
+        LogDownloadBtn.Text = Loc.T("Log.Download");
         LogClearBtn.Text = Loc.T("Log.Clear");
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T(
@@ -1647,6 +1649,77 @@ public partial class MainPage : ContentPage
     }
 
     private void LogClear_Clicked(object? sender, EventArgs e) => AppLog.Clear();
+
+    private async void LogDownload_Clicked(object? sender, EventArgs e)
+    {
+        var text = AppLog.FormatExport(
+            LogErrorsOnlyCheck.IsChecked,
+            _logProgramId,
+            _logProgramName);
+        if (string.IsNullOrEmpty(text))
+        {
+            await DisplayAlertAsync(Loc.T("Log.Download"), Loc.T("Log.DownloadEmpty"), "OK");
+            return;
+        }
+
+        var fileName = AppLog.SuggestExportFileName();
+        try
+        {
+#if ANDROID
+            var saved = await TrySaveLogToAndroidDownloadsAsync(fileName, text).ConfigureAwait(true);
+            if (saved != null)
+            {
+                await DisplayAlertAsync(Loc.T("Log.Download"),
+                    string.Format(Loc.T("Log.DownloadOk"), saved), "OK");
+                return;
+            }
+#endif
+            var path = System.IO.Path.Combine(FileSystem.CacheDirectory, fileName);
+            await File.WriteAllTextAsync(path, text, new UTF8Encoding(false)).ConfigureAwait(true);
+            await Share.Default.RequestAsync(new ShareFileRequest
+            {
+                Title = Loc.T("Log.Download"),
+                File = new ShareFile(path, "text/plain")
+            }).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(Loc.T("Log.Download"),
+                string.Format(Loc.T("Log.DownloadFail"), ex.Message), "OK");
+        }
+    }
+
+#if ANDROID
+    private static async Task<string?> TrySaveLogToAndroidDownloadsAsync(string fileName, string text)
+    {
+        try
+        {
+            var activity = Platform.CurrentActivity;
+            var resolver = activity?.ContentResolver;
+            if (resolver == null) return null;
+
+            var values = new Android.Content.ContentValues();
+            values.Put(Android.Provider.MediaStore.IMediaColumns.DisplayName, fileName);
+            values.Put(Android.Provider.MediaStore.IMediaColumns.MimeType, "text/plain");
+            values.Put(Android.Provider.MediaStore.IMediaColumns.RelativePath,
+                Android.OS.Environment.DirectoryDownloads);
+
+            var uri = resolver.Insert(Android.Provider.MediaStore.Downloads.ExternalContentUri, values);
+            if (uri == null) return null;
+
+            await using var stream = resolver.OpenOutputStream(uri);
+            if (stream == null) return null;
+            var bytes = Encoding.UTF8.GetBytes(text);
+            await stream.WriteAsync(bytes).ConfigureAwait(false);
+            await stream.FlushAsync().ConfigureAwait(false);
+            return System.IO.Path.Combine(Android.OS.Environment.DirectoryDownloads ?? "Download", fileName);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+#endif
 
     private void LayoutMode_Clicked(object? sender, EventArgs e)
     {
