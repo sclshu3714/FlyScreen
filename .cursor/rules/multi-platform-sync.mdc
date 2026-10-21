@@ -1,0 +1,32 @@
+---
+description: 跨端功能修改必须多端同步（Windows / Maui Android / Core 协议）
+alwaysApply: true
+---
+
+# 多端同步修改
+
+FlyScreen 是跨端项目：电脑组字/键鼠在 **Windows**，手机浮层/注入在 **Maui Android**，协议与共享逻辑在 **Core**。
+
+## 必须遵守
+
+修改任一端的功能时，若行为依赖对端或共享协议，**同一任务内同步改完所有相关端**，禁止只改 Win 或只改 Maui。
+
+## 典型对照
+
+| 改动类型 | 通常需同步 |
+| --- | --- |
+| 组字/候选浮层（拼音、多行、翻页、取消） | `RemoteCompositionHost`（Win）+ `RemoteCompositionOverlay`（Maui）+ `Protocol` / `CompositionUpdatePayload`（Core） |
+| 键鼠/触控转发 | `InputRouter`（Win）+ `AndroidMauiPlatformServices` / 无障碍注入（Maui）+ 相关 `MessageType` |
+| 协议字段/消息类型 | `Protocol.cs`（Core）+ 收发两端的编解码与处理分支 |
+| 仅一端的纯 UI 文案/布局且不改协议 | 可只改该端；若影响对端展示约定仍要同步 |
+
+## 自检清单
+
+1. 是否新增/修改了 `MessageType` 或 Payload 字段？→ Core + 所有收发端。
+2. 电脑侧状态变化是否要反映到手机 UI（或相反）？→ 两端都要改。
+3. 编译验证：至少构建 **Core + 改动的各端工程**（Win / Maui），不要只编一端就结束。
+
+## 反例
+
+- 只在 Win 做 Imm 翻页/多行，Maui 仍按旧序号或旧布局展示。
+- 只改 Maui 浮层隐藏，不通知 Win `CompositionCancel` 清 Imm。

@@ -244,12 +244,16 @@ public sealed class CompositionUpdatePayload
     public string Reading { get; set; } = "";
     /// <summary>当前页候选（已是汉字词组）。</summary>
     public List<string> Candidates { get; set; } = [];
-    /// <summary>高亮项 0-based；-1 表示无。</summary>
+    /// <summary>高亮项 0-based（相对当前 Candidates）；-1 表示无。</summary>
     public int Highlight { get; set; }
-    /// <summary>候选起始编号（通常为 1）。</summary>
+    /// <summary>候选起始编号（单行通常为 1）。</summary>
     public int NumberBase { get; set; } = 1;
     public bool CanPagePrev { get; set; }
     public bool CanPageNext { get; set; }
+    /// <summary>多行候选模式（逻辑上按 GridColumns 分行，数字键 1–N 只作用于当前行）。</summary>
+    public bool MultiLine { get; set; }
+    /// <summary>每行逻辑列数（默认 5；手机纵向展示时按此分行与编号）。</summary>
+    public int GridColumns { get; set; } = 5;
 }
 
 public sealed class TextInputPayload
