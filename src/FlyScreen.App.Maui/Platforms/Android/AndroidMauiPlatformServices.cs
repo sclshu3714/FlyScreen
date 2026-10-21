@@ -105,6 +105,9 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void InjectMouseButton(int button, bool down)
     {
         if (_remotePointerSuppressed || !_receiving) return;
+        // 组字浮层可见时：点空白取消词条（点在候选条上则保留，供选词）
+        if (down)
+            RemoteCompositionOverlay.DismissIfPointerOutside();
         InjectTouch(() => FlyScreenInputAccessibilityService.Instance?.Click(button, down));
     }
 
@@ -307,7 +310,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         _receiving = false;
         SoftKeyboardGuard.SuppressWhileReceiving = false;
         VirtualCursorOverlay.Hide();
-        RemoteCompositionOverlay.Hide();
+        RemoteCompositionOverlay.DismissAndCancel();
         FlyScreenCursorOverlay.End();
         FlyScreenInputAccessibilityService.Instance?.EndSession();
         ApplySuppressState();

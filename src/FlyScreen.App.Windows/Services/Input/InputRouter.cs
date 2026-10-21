@@ -277,6 +277,14 @@ public sealed class InputRouter : IDisposable
         _composition.SelectCandidate(payload.Index, payload.Text);
     }
 
+    /// <summary>手机点空白 / 切应用：取消组字。</summary>
+    public void HandleCompositionCancel(string peer)
+    {
+        if (!string.Equals(peer, _activePeer, StringComparison.OrdinalIgnoreCase)) return;
+        if (_composition == null || !_composition.IsActive) return;
+        _composition.CancelComposition();
+    }
+
     /// <summary>控远端时将本机光标钉在虚拟桌面中部，用相对位移驱动对端虚拟坐标。</summary>
     private void PinLocalCursorForRemoteControl()
     {
@@ -489,16 +497,18 @@ public sealed class InputRouter : IDisposable
             return false;
 
         var composing = _composition.IsComposing;
+        var candidateUi = _composition.HasCandidateSession;
         if (vk is 0x25 or 0x26 or 0x27 or 0x28 or 0x21 or 0x22) // arrows / page
         {
-            if (!composing) return false;
+            // 有拼音缓冲或候选时即进本机导航（不单靠 IsComposing，否则上下左右无效）
+            if (!candidateUi) return false;
             _composition.FeedKey(vk, down, extended);
             return true;
         }
 
         if (vk == 0x1B) // Esc
         {
-            if (composing)
+            if (candidateUi)
             {
                 if (down) _composition.CancelComposition();
                 return true;
@@ -508,7 +518,7 @@ public sealed class InputRouter : IDisposable
 
         if (vk == 0x0D) // Enter：组字确认进宿主，否则对端换行
         {
-            if (composing)
+            if (composing || candidateUi)
             {
                 _composition.FeedKey(vk, down, extended);
                 return true;
@@ -520,7 +530,7 @@ public sealed class InputRouter : IDisposable
         // 未组字时的退格/Delete 发给手机（Monaco），避免被空宿主吞掉
         if (IsCompositionFeedKey(vk))
         {
-            if (!composing && vk is 0x08 or 0x2E)
+            if (!composing && !candidateUi && vk is 0x08 or 0x2E)
                 return false;
             _composition.FeedKey(vk, down, extended);
             return true;

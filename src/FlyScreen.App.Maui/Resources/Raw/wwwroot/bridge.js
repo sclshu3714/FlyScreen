@@ -174,13 +174,28 @@
   function reportCaret() {
     if (!editor) return;
     var pos = editor.getPosition() || { lineNumber: 1, column: 1 };
+    var caretX = 0, caretY = 0;
+    try {
+      // 相对编辑器可视区；再加上 container 在 WebView 中的位置
+      var sc = editor.getScrolledVisiblePosition(pos);
+      var el = document.getElementById('container');
+      var rect = el ? el.getBoundingClientRect() : { left: 0, top: 0 };
+      if (sc) {
+        caretX = rect.left + sc.left;
+        caretY = rect.top + sc.top + (sc.height || 16);
+      }
+    } catch (e) { /* ignore */ }
     post({
       type: 'caret',
       line: pos.lineNumber,
       column: pos.column,
-      lineCount: editor.getModel() ? editor.getModel().getLineCount() : 1
+      lineCount: editor.getModel() ? editor.getModel().getLineCount() : 1,
+      caretX: caretX,
+      caretY: caretY
     });
   }
+
+  window.flyReportCaret = reportCaret;
 
   function handleHostMessage(raw) {
     let msg;

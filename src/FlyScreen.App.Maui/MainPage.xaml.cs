@@ -335,19 +335,19 @@ public partial class MainPage : ContentPage
     {
         try
         {
-            var pagePos = GetOffsetToPage(anchor);
             var menuW = ProgMoreFlyout.Width > 1 ? ProgMoreFlyout.Width : 112;
             var menuH = ProgMoreFlyout.Height > 1 ? ProgMoreFlyout.Height : 160;
             var pageW = Width > 1 ? Width : 800;
             var pageH = Height > 1 ? Height : 600;
 
-            // 默认：菜单右对齐锚点右缘，出现在按钮下方
-            var x = pagePos.X + anchor.Width - menuW;
-            var y = pagePos.Y + anchor.Height + 4;
+            var pagePos = GetAnchorInOverlay(anchor);
+            // 菜单右对齐 ⋮ 按钮右缘，出现在按钮正下方
+            var x = pagePos.X + Math.Max(anchor.Width, 1) - menuW;
+            var y = pagePos.Y + Math.Max(anchor.Height, 1) + 4;
             if (x < 8) x = 8;
             if (x + menuW > pageW - 8) x = Math.Max(8, pageW - menuW - 8);
             if (y + menuH > pageH - 8)
-                y = Math.Max(8, pagePos.Y - menuH - 4); // 下方空间不够则翻到上方
+                y = Math.Max(8, pagePos.Y - menuH - 4);
 
             ProgMoreFlyout.TranslationX = x;
             ProgMoreFlyout.TranslationY = y;
@@ -359,13 +359,30 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private Point GetOffsetToPage(VisualElement element)
+    /// <summary>锚点相对 ProgMoreOverlay 的 MAUI 坐标（DIP）。Android 用屏幕像素换算，避免 CollectionView 累加偏移错误。</summary>
+    private Point GetAnchorInOverlay(View anchor)
     {
+#if ANDROID
+        try
+        {
+            if (anchor.Handler?.PlatformView is global::Android.Views.View av
+                && ProgMoreOverlay.Handler?.PlatformView is global::Android.Views.View ov)
+            {
+                var aLoc = new int[2];
+                var oLoc = new int[2];
+                av.GetLocationOnScreen(aLoc);
+                ov.GetLocationOnScreen(oLoc);
+                var density = DeviceDisplay.MainDisplayInfo.Density;
+                if (density <= 0) density = 1;
+                return new Point((aLoc[0] - oLoc[0]) / density, (aLoc[1] - oLoc[1]) / density);
+            }
+        }
+        catch { /* fall through */ }
+#endif
 #if WINDOWS
         try
         {
-            // 相对 ProgMoreOverlay 定位，Translation 才与菜单父容器对齐
-            if (element.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe
+            if (anchor.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe
                 && ProgMoreOverlay.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement overlay)
             {
                 var t = fe.TransformToVisual(overlay);
@@ -376,7 +393,7 @@ public partial class MainPage : ContentPage
         catch { /* fall through */ }
 #endif
         double x = 0, y = 0;
-        VisualElement? cur = element;
+        VisualElement? cur = anchor;
         while (cur != null && !ReferenceEquals(cur, ProgMoreOverlay) && cur is not Page)
         {
             x += cur.X;

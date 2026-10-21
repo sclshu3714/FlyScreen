@@ -168,6 +168,12 @@ public sealed class AppHost : IAsyncDisposable
                 Input.HandleCompositionSelect(peer, p);
                 break;
             }
+            case MessageType.CompositionCancel:
+            {
+                // 手机点空白 / 切应用 → 取消本机组字
+                Input.HandleCompositionCancel(peer);
+                break;
+            }
             // LayoutSync 由 LayoutSyncHelper 处理
         }
     }

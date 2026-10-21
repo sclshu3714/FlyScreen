@@ -135,6 +135,8 @@ public partial class ProgramEditorPage : ContentPage
 #if ANDROID
         // 每次出现都重新挂上：软键盘曾误触发 OnDisappearing 时可能被卸掉
         RemoteTextInputHub.Register(this);
+        Services.CompositionCaretAnchor.RequestRefresh = () =>
+            EvalEditorJs("window.flyReportCaret&&window.flyReportCaret()");
 #endif
         StartReadyPoll();
     }
@@ -248,6 +250,9 @@ public partial class ProgramEditorPage : ContentPage
                     _caretLine = cl;
                 if (root.TryGetProperty("lineCount", out var lc) && lc.TryGetInt32(out var total))
                     _lineCount = total;
+                if (root.TryGetProperty("caretX", out var cxEl) && cxEl.TryGetDouble(out var cx)
+                    && root.TryGetProperty("caretY", out var cyEl) && cyEl.TryGetDouble(out var cy))
+                    Services.CompositionCaretAnchor.UpdateFromWebView(cx, cy, CodeWeb);
                 RefreshBpHint();
                 break;
             case "lineLimitExceeded":
@@ -581,6 +586,8 @@ public partial class ProgramEditorPage : ContentPage
         if (Interlocked.Exchange(ref _teardownArmed, 1) != 0) return;
 #if ANDROID
         RemoteTextInputHub.Unregister(this);
+        Services.CompositionCaretAnchor.RequestRefresh = null;
+        Services.CompositionCaretAnchor.Clear();
 #endif
         StopOnCloseIfNeeded();
         _closed.TrySetResult();

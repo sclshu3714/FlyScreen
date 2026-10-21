@@ -815,6 +815,27 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         return true;
     }
 
+    /// <summary>当前可编辑焦点框大致插入点（框底边左侧），用于非 Monaco 场景。</summary>
+    public bool TryGetFocusedEditableCaretScreenPixels(out int x, out int y)
+    {
+        x = y = 0;
+        try
+        {
+            var node = CurrentTarget() ?? FindEditable() ?? FindEditableAtCursor();
+            if (node == null) return false;
+            var bounds = new global::Android.Graphics.Rect();
+            node.GetBoundsInScreen(bounds);
+            if (bounds.Width() <= 0 || bounds.Height() <= 0) return false;
+            x = bounds.Left + Math.Min(24, bounds.Width() / 4);
+            y = bounds.Bottom;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private (float x, float y) ToPixels()
     {
         // 有系统悬浮指针时，以箭头尖真实屏幕坐标为准，消除「指针在 V、点到 G」类上下偏移
