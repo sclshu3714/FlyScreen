@@ -27,6 +27,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private bool _touchpadWantsSuppress;
     private string? _lastOverlayWarn;
     private long _lastOverlayWarnTicks;
+    private bool? _a11yDrawCursor;
 
     public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
     {
@@ -60,6 +61,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     /// <summary>Activity OnResume：若仍在触控板页，恢复屏蔽。</summary>
     public void NotifyAppForegrounded()
     {
+        FlyScreenCursorOverlay.InvalidateCanDrawCache();
         ApplySuppressState();
     }
 
@@ -185,18 +187,21 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
         _remotePointerSuppressed = false;
         _receiving = true;
+        _a11yDrawCursor = null;
+        FlyScreenCursorOverlay.InvalidateCanDrawCache();
 
         // 禁止应用内 DecorView 箭头——它只活在玄鸟窗口里，退后台必消失
         VirtualCursorOverlay.Hide();
 
+        var canOverlay = FlyScreenCursorOverlay.CanDraw();
         if (FlyScreenInputAccessibilityService.IsEnabled)
         {
             // 有悬浮窗权限时不画无障碍箭头，避免双指针乱跳
-            FlyScreenInputAccessibilityService.Instance!.SetDrawCursor(!FlyScreenCursorOverlay.CanDraw());
+            SetA11yDrawCursor(!canOverlay);
             FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
         }
 
-        if (FlyScreenCursorOverlay.CanDraw())
+        if (canOverlay)
             FlyScreenCursorOverlay.ShowAt(entryX, entryY);
         else
             PromptOverlayOnce();
@@ -261,12 +266,10 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     /// <summary>
     /// 指针只走系统层：悬浮窗 或 无障碍 Overlay。
     /// 绝不走 VirtualCursorOverlay（DecorView），否则退后台/多任务预览里像「画在玄鸟里面」。
+    /// 热路径：不每帧 Hide / 不每帧查权限 / 不每帧 SetDrawCursor。
     /// </summary>
     private void UpdateCursorVisual(double nx, double ny, bool relative, int dx, int dy)
     {
-        // 始终隐藏应用内箭头
-        VirtualCursorOverlay.Hide();
-
         if (FlyScreenCursorOverlay.CanDraw())
         {
             if (!FlyScreenCursorOverlay.IsShowing)
@@ -279,7 +282,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
             if (FlyScreenCursorOverlay.IsShowing)
             {
-                FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(false);
+                SetA11yDrawCursor(false);
                 return;
             }
 
@@ -302,12 +305,20 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         }
 
         // 唯一备用：无障碍系统 Overlay（不要 VirtualCursorOverlay）
-        FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(true);
+        SetA11yDrawCursor(true);
+    }
+
+    private void SetA11yDrawCursor(bool enabled)
+    {
+        if (_a11yDrawCursor == enabled) return;
+        _a11yDrawCursor = enabled;
+        FlyScreenInputAccessibilityService.Instance?.SetDrawCursor(enabled);
     }
 
     private void EndRemoteCursor()
     {
         _receiving = false;
+        _a11yDrawCursor = null;
         SoftKeyboardGuard.SuppressWhileReceiving = false;
         VirtualCursorOverlay.Hide();
         RemoteCompositionOverlay.DismissAndCancel();

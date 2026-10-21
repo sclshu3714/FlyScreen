@@ -46,22 +46,73 @@
     } catch (e) { return false; }
   };
 
+  /** 智能提示浮层是否可见（跨屏键不会走 Monaco 原生 KeyDown） */
+  function isSuggestVisible() {
+    if (!editor) return false;
+    try {
+      var ctrl = editor.getContribution('editor.contrib.suggestController');
+      if (ctrl && ctrl.model && ctrl.model.state !== 0)
+        return true;
+    } catch (e) { /* fall through */ }
+    try {
+      var el = document.querySelector('.monaco-editor .suggest-widget');
+      if (!el) return false;
+      if (el.classList.contains('visible') || el.classList.contains('frozen'))
+        return true;
+      // 部分版本不用 visible class，看是否在布局中
+      return el.offsetWidth > 0 && el.offsetHeight > 0
+        && window.getComputedStyle(el).visibility !== 'hidden';
+    } catch (e) { return false; }
+  }
+
+  /** 有提示时接受当前项；返回是否已处理 */
+  function tryAcceptSuggest() {
+    if (!editor || !isSuggestVisible()) return false;
+    try {
+      editor.trigger('keyboard', 'acceptSelectedSuggestion', {});
+      return true;
+    } catch (e) { return false; }
+  }
+
   /** 跨屏键盘：特殊键 */
   window.flyEditorAction = function (name) {
     if (!editor) return false;
     try {
       editor.focus();
-      switch (String(name || '')) {
+      var action = String(name || '');
+      switch (action) {
         case 'backspace': editor.trigger('keyboard', 'deleteLeft', null); break;
         case 'delete': editor.trigger('keyboard', 'deleteRight', null); break;
-        case 'enter': editor.trigger('keyboard', 'type', { text: '\n' }); break;
+        case 'enter':
+          // 有智能提示时回车选中，否则换行
+          if (!tryAcceptSuggest())
+            editor.trigger('keyboard', 'type', { text: '\n' });
+          break;
+        case 'tab':
+          // 有智能提示时 Tab 补全，否则缩进
+          if (!tryAcceptSuggest())
+            editor.trigger('keyboard', 'tab', null);
+          break;
         case 'left': editor.trigger('keyboard', 'cursorLeft', null); break;
         case 'right': editor.trigger('keyboard', 'cursorRight', null); break;
-        case 'up': editor.trigger('keyboard', 'cursorUp', null); break;
-        case 'down': editor.trigger('keyboard', 'cursorDown', null); break;
+        case 'up':
+          if (isSuggestVisible())
+            editor.trigger('keyboard', 'selectPrevSuggestion', {});
+          else
+            editor.trigger('keyboard', 'cursorUp', null);
+          break;
+        case 'down':
+          if (isSuggestVisible())
+            editor.trigger('keyboard', 'selectNextSuggestion', {});
+          else
+            editor.trigger('keyboard', 'cursorDown', null);
+          break;
         case 'home': editor.trigger('keyboard', 'cursorHome', null); break;
         case 'end': editor.trigger('keyboard', 'cursorEnd', null); break;
-        case 'tab': editor.trigger('keyboard', 'tab', null); break;
+        case 'escape':
+          if (isSuggestVisible())
+            editor.trigger('keyboard', 'hideSuggestWidget', {});
+          break;
         default: return false;
       }
       reportCaret();
@@ -329,9 +380,11 @@
       insertSpaces: true,
       quickSuggestions: { other: true, comments: false, strings: true },
       suggestOnTriggerCharacters: true,
+      acceptSuggestionOnEnter: 'on',
+      tabCompletion: 'on',
       wordBasedSuggestions: 'currentDocument',
       snippetSuggestions: 'inline',
-      suggest: { showKeywords: true, showSnippets: true, preview: true }
+      suggest: { showKeywords: true, showSnippets: true, preview: true, insertMode: 'replace' }
     });
 
     editor.onMouseDown(function (e) {

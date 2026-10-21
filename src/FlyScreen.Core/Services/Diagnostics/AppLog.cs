@@ -148,6 +148,36 @@ public static class AppLog
         try { Changed?.Invoke(); } catch { /* ignore */ }
     }
 
+    /// <summary>导出当前筛选条件下的全部日志（完整时间戳，便于下载后检索）。</summary>
+    public static string FormatExport(
+        bool errorsOnly = false,
+        string? programId = null,
+        string? programName = null)
+    {
+        var items = Snapshot(errorsOnly, programId, programName);
+        if (items.Count == 0) return "";
+
+        var sb = new StringBuilder(items.Count * 96);
+        sb.AppendLine($"# FlyScreen log export {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine($"# entries={items.Count} errorsOnly={errorsOnly}");
+        sb.AppendLine();
+        foreach (var e in items)
+        {
+            var tag = e.Level switch
+            {
+                AppLogLevel.Error => "错误",
+                AppLogLevel.Warn => "警告",
+                _ => "信息"
+            };
+            sb.Append('[').Append(e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff")).Append("] ")
+              .Append(tag).Append("  ").AppendLine(e.Message);
+        }
+        return sb.ToString();
+    }
+
+    public static string SuggestExportFileName()
+        => $"FlyScreen-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
+
     /// <summary>
     /// 计算相对 <paramref name="lastWritten"/> 的新增日志文本（仅追加，绝不重放旧行）。
     /// 环缓冲丢掉 last 时只接上 Time 更新的行，避免整表重刷。

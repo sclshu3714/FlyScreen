@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -411,6 +413,7 @@ public partial class MainWindow : Window
         LogTitleText.Text = Loc.T("Log.Title");
         LogHintText.Text = Loc.T("Log.Hint");
         LogErrorsOnlyCheck.Content = Loc.T("Log.ErrorsOnly");
+        LogDownloadBtn.Content = Loc.T("Log.Download");
         LogClearBtn.Content = Loc.T("Log.Clear");
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T("Prog.Hint");
@@ -950,6 +953,47 @@ public partial class MainWindow : Window
     }
 
     private void LogClear_Click(object? sender, RoutedEventArgs e) => AppLog.Clear();
+
+    private async void LogDownload_Click(object? sender, RoutedEventArgs e)
+    {
+        var text = AppLog.FormatExport(
+            LogErrorsOnlyCheck.IsChecked == true,
+            _logProgramId,
+            _logProgramName);
+        if (string.IsNullOrEmpty(text))
+        {
+            StatusText.Text = Loc.T("Log.DownloadEmpty");
+            return;
+        }
+
+        try
+        {
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = Loc.T("Log.Download"),
+                SuggestedFileName = AppLog.SuggestExportFileName(),
+                DefaultExtension = "txt",
+                FileTypeChoices =
+                [
+                    new FilePickerFileType("Text") { Patterns = ["*.txt"] },
+                    new FilePickerFileType("All") { Patterns = ["*.*"] }
+                ]
+            }).ConfigureAwait(true);
+
+            if (file == null) return;
+
+            await using (var stream = await file.OpenWriteAsync().ConfigureAwait(true))
+            await using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                await writer.WriteAsync(text).ConfigureAwait(true);
+
+            var path = file.TryGetLocalPath() ?? file.Name;
+            StatusText.Text = string.Format(Loc.T("Log.DownloadOk"), path);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = string.Format(Loc.T("Log.DownloadFail"), ex.Message);
+        }
+    }
 
     private void RefreshAboutPage()
     {

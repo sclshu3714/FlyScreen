@@ -10,10 +10,38 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// </summary>
 public static class FlyScreenCursorOverlay
 {
+    /// <summary>
+    /// Settings.CanDrawOverlays 每次都走 Binder，热路径不能每帧查。
+    /// 缓存数秒；权限变更后调 <see cref="InvalidateCanDrawCache"/>。
+    /// </summary>
+    private static readonly object CanDrawGate = new();
+    private static bool _canDrawCached;
+    private static long _canDrawCachedAt;
+    private const int CanDrawCacheMs = 3000;
+
     public static bool CanDraw()
     {
+        var now = Environment.TickCount64;
+        lock (CanDrawGate)
+        {
+            if (_canDrawCachedAt != 0 && now - _canDrawCachedAt < CanDrawCacheMs)
+                return _canDrawCached;
+        }
+
         var ctx = global::Android.App.Application.Context;
-        return ctx != null && global::Android.Provider.Settings.CanDrawOverlays(ctx);
+        var ok = ctx != null && global::Android.Provider.Settings.CanDrawOverlays(ctx);
+        lock (CanDrawGate)
+        {
+            _canDrawCached = ok;
+            _canDrawCachedAt = now;
+        }
+        return ok;
+    }
+
+    public static void InvalidateCanDrawCache()
+    {
+        lock (CanDrawGate)
+            _canDrawCachedAt = 0;
     }
 
     public static bool IsShowing => FlyScreenCursorOverlayService.IsShowing;
