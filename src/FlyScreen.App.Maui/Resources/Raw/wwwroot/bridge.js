@@ -10,13 +10,38 @@
 
   window.flyEditorReady = false;
 
+  /** 跨屏插入是否应拉起补全（对齐桌面 AvalonEdit：字母 / _ / .） */
+  function shouldTriggerSuggest(text) {
+    if (!text) return false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text.charAt(i);
+      if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '.')
+        return true;
+    }
+    return false;
+  }
+
+  function triggerSuggestSoon() {
+    if (!editor) return;
+    // type 之后下一帧再触发，确保 model/光标已更新
+    setTimeout(function () {
+      try {
+        editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+      } catch (e) { /* ignore */ }
+    }, 0);
+  }
+
   /** 跨屏键盘：往 Monaco 插入文本（WebView 无障碍写不进编辑器） */
   window.flyType = function (text) {
     if (!editor || text == null || text === '') return false;
     try {
       editor.focus();
-      editor.trigger('keyboard', 'type', { text: String(text) });
+      var s = String(text);
+      editor.trigger('keyboard', 'type', { text: s });
       reportCaret();
+      // 程序化 type 不会走真实键盘，quickSuggestions 常不弹；显式拉起智能提示
+      if (shouldTriggerSuggest(s))
+        triggerSuggestSoon();
       return true;
     } catch (e) { return false; }
   };
@@ -89,8 +114,10 @@
     var words = keywordMap[language] || keywordMap[language && language.toLowerCase()] || [];
     if (!words.length || !language || language === 'plaintext') return;
 
+    // 字母也作为 trigger，便于本机软键盘；跨屏仍靠 flyType 里显式 triggerSuggest
+    var letterTriggers = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'.split('');
     completionDisposable = monaco.languages.registerCompletionItemProvider(language, {
-      triggerCharacters: ['.', '_'],
+      triggerCharacters: ['.'].concat(letterTriggers),
       provideCompletionItems: function (model, position) {
         var word = model.getWordUntilPosition(position);
         var range = {
