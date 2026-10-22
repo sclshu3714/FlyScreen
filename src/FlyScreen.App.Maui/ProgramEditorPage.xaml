@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:diag="clr-namespace:FlyScreen.Services;assembly=FlyScreen.Core"
              x:Class="FlyScreen.AppMaui.ProgramEditorPage"
              Title="编辑程序"
              BackgroundColor="{DynamicResource WinBg}">
@@ -25,10 +24,27 @@
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
                 FontSize="18"
                 Clicked="Save_Clicked" ToolTipProperties.Text="保存" />
-        <Button x:Name="BtnDebug" Style="{StaticResource SoftBlueBtn}"
+        <Button x:Name="BtnBuild" Style="{StaticResource SoftBlueBtn}"
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="20"
-                Clicked="Debug_Clicked" ToolTipProperties.Text="调试" />
+                FontSize="18"
+                Clicked="Build_Clicked" ToolTipProperties.Text="生成" />
+        <!-- 调试：Path 图标随 Running/Paused 切换暂停/继续（避免 emoji 与调试 ▶ 无法区分） -->
+        <Grid x:Name="BtnDebugHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32">
+          <Button x:Name="BtnDebug" Style="{StaticResource SoftBlueBtn}"
+                  Text=" " Margin="0" Padding="0"
+                  WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32"
+                  Clicked="Debug_Clicked" ToolTipProperties.Text="调试" />
+          <Path x:Name="BtnDebugIconPlay" InputTransparent="True"
+                Data="M8,5 L19,12 L8,19 Z"
+                Fill="{DynamicResource Blue}"
+                Aspect="Uniform" WidthRequest="16" HeightRequest="16"
+                VerticalOptions="Center" HorizontalOptions="Center" />
+          <Path x:Name="BtnDebugIconPause" InputTransparent="True" IsVisible="False"
+                Data="M7,5 H10 V19 H7 Z M14,5 H17 V19 H14 Z"
+                Fill="#D97706"
+                Aspect="Uniform" WidthRequest="16" HeightRequest="16"
+                VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
         <Button x:Name="BtnRun" Style="{StaticResource PrimaryBtn}"
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
                 FontSize="20"
@@ -74,15 +90,14 @@
                   Clicked="OutputClear_Clicked" />
         </Grid>
         <Grid x:Name="OutputBody" Grid.Row="1" IsVisible="False" HeightRequest="150">
-          <CollectionView x:Name="OutputList" SelectionMode="None"
-                          BackgroundColor="{DynamicResource ListBg}">
-            <CollectionView.ItemTemplate>
-              <DataTemplate x:DataType="diag:AppLogEntry">
-                <Label Text="{Binding Display}" FontFamily="Consolas" FontSize="12"
-                       Margin="8,2" LineBreakMode="WordWrap" />
-              </DataTemplate>
-            </CollectionView.ItemTemplate>
-          </CollectionView>
+          <!-- ScrollView+Label：Editor.Text+= 会把滚动条打回顶部；这里追加后 ScrollToAsync 到底 -->
+          <ScrollView x:Name="OutputScroll" BackgroundColor="{DynamicResource ListBg}"
+                      VerticalOptions="Fill" HorizontalScrollBarVisibility="Never">
+            <Label x:Name="OutputLabel" FontFamily="Consolas" FontSize="12"
+                   TextColor="{DynamicResource Text}"
+                   LineBreakMode="WordWrap" Margin="8,4"
+                   HorizontalOptions="Fill" />
+          </ScrollView>
           <Label x:Name="OutputEmptyText"
                  Text="运行或调试后，程序输出会显示在这里。"
                  TextColor="{DynamicResource Muted}" FontSize="12"

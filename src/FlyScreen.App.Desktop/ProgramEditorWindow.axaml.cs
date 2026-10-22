@@ -22,6 +22,7 @@ public partial class ProgramEditorWindow : Window
     private readonly ProgramCatalog _catalog;
     private readonly ProgramRunner _runner;
     private readonly BreakpointMargin _bpMargin;
+    private readonly DebugCurrentLineRenderer _debugLineRenderer = new();
     private LinuxClientChrome? _chrome;
     private int _caretLine = 1;
     private bool _toolModeUpdating;
@@ -30,6 +31,9 @@ public partial class ProgramEditorWindow : Window
     private bool _outputRefreshPending;
     private DateTime _outputSince = DateTime.MinValue;
     private AppLogEntry? _outputLastWritten;
+    private ProgramDebugGate? _debugGate;
+    private int? _lastPausedLineLogged;
+    private DispatcherTimer? _debugPollTimer;
 
     public ProgramEditorWindow() : this(new UserProgram { Name = "design" })
     {
@@ -53,6 +57,7 @@ public partial class ProgramEditorWindow : Window
             FontFamily = ff;
 
         SetTool(BtnSave, BtnSaveText, "Prog.Save");
+        SetTool(BtnBuild, BtnBuildText, "Prog.Build");
         SetTool(BtnDebug, BtnDebugText, "Prog.Debug");
         SetTool(BtnRun, BtnRunText, "Prog.Run");
         SetTool(BtnStop, BtnStopText, "Prog.StopRun");
@@ -60,6 +65,7 @@ public partial class ProgramEditorWindow : Window
         OutputClearBtn.Content = Loc.T("Prog.OutputClear");
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
         ApplyOutputExpanded(false);
+        RefreshDebugUi();
 
         CodeEditor.Options.EnableHyperlinks = false;
         CodeEditor.Options.ConvertTabsToSpaces = true;
@@ -68,6 +74,8 @@ public partial class ProgramEditorWindow : Window
         _ = new EditorCompletion(CodeEditor, () => _program.Language);
         _bpMargin = new BreakpointMargin(() => _program.Breakpoints, ToggleBreakpoint);
         CodeEditor.TextArea.LeftMargins.Insert(0, _bpMargin);
+        _debugLineRenderer.DarkTheme = DesktopThemeService.IsDark(DesktopThemeService.Current);
+        CodeEditor.TextArea.TextView.BackgroundRenderers.Add(_debugLineRenderer);
         CodeEditor.TextArea.Caret.PositionChanged += (_, _) =>
         {
             _caretLine = CodeEditor.TextArea.Caret.Line;
@@ -96,6 +104,8 @@ public partial class ProgramEditorWindow : Window
     {
         if (System.Threading.Interlocked.Exchange(ref _closeStopArmed, 1) != 0) return;
         AppLog.Changed -= OnAppLogChanged;
+        StopDebugPoll();
+        DetachDebugGate();
         if (!_runner.IsRunning(_program.Id)) return;
 
         var prog = _program;
@@ -217,11 +227,13 @@ public partial class ProgramEditorWindow : Window
             return;
         _toolsCompact = compact;
         BtnSaveText.IsVisible = !compact;
+        BtnBuildText.IsVisible = !compact;
         BtnDebugText.IsVisible = !compact;
         BtnRunText.IsVisible = !compact;
         BtnStopText.IsVisible = !compact;
         var pad = compact ? new Thickness(8, 0) : new Thickness(10, 0);
         BtnSave.Padding = pad;
+        BtnBuild.Padding = pad;
         BtnDebug.Padding = pad;
         BtnRun.Padding = pad;
         BtnStop.Padding = pad;
@@ -305,6 +317,7 @@ public partial class ProgramEditorWindow : Window
             _program.Breakpoints.Sort();
         }
         _catalog.SaveMeta(_program);
+        (_debugGate ?? ProgramDebugGate.Current)?.SetBreakpoints(_program.Breakpoints);
         _caretLine = line;
         _bpMargin.InvalidateVisual();
         RefreshBpHint();
@@ -322,7 +335,35 @@ public partial class ProgramEditorWindow : Window
         {
             ApplyAutoFormat();
             e.Handled = true;
+            return;
         }
+        if (e.Key == Key.F9)
+        {
+            ToggleBreakpoint(_caretLine);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.F10)
+        {
+            TryStep(over: true);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.F11)
+        {
+            TryStep(over: false);
+            e.Handled = true;
+        }
+    }
+
+    private void TryStep(bool over)
+    {
+        var gate = _debugGate ?? ProgramDebugGate.Current;
+        if (gate == null || !_runner.IsRunning(_program.Id)) return;
+        if (gate.Phase != ProgramDebugPhase.Paused) return;
+        if (over) gate.StepOver();
+        else gate.StepInto();
+        RefreshDebugUi();
     }
 
     private async void Save_Click(object? sender, RoutedEventArgs e)
@@ -334,23 +375,62 @@ public partial class ProgramEditorWindow : Window
         AppLog.Info($"已保存程序「{_program.Name}」");
     }
 
+    private async void Build_Click(object? sender, RoutedEventArgs e)
+        => await TryBuildAsync();
+
+    private async Task<bool> TryBuildAsync()
+    {
+        ApplyAutoFormat();
+        if (!await EnsureWithinLineLimitAsync()) return false;
+        EnsureOutputVisible();
+        SaveSilent();
+        var file = string.IsNullOrWhiteSpace(_program.FileName) ? "main.cs" : _program.FileName;
+        var result = ProgramCompiler.Compile(_program.Language, CodeEditor.Text ?? "", file);
+        AppLog.Info(result.FormatReport($"—— {Loc.T("Prog.Build")} {_program.Name} ——"), _program.Id, _program.Name);
+        RefreshOutput();
+        return result.Success;
+    }
+
     private async void Debug_Click(object? sender, RoutedEventArgs e)
     {
+        var gate = ProgramDebugGate.Current;
+        if (gate != null && _runner.IsRunning(_program.Id))
+        {
+            if (gate.Phase == ProgramDebugPhase.Paused)
+                gate.Continue();
+            else if (gate.Phase == ProgramDebugPhase.Running)
+                gate.RequestPause();
+            RefreshDebugUi();
+            return;
+        }
+
         ApplyAutoFormat();
         if (!await EnsureWithinLineLimitAsync()) return;
         EnsureOutputVisible();
         var original = CodeEditor.Text ?? "";
         SaveSilent();
+
+        if (_program.Language == ProgramLanguage.CSharp && !await TryBuildAsync())
+            return;
+
         if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
         {
             var injected = PythonBreakpointInjector.Inject(original, _program.Breakpoints);
             _catalog.WriteSource(_program, injected);
             AppLog.Info($"已为「{_program.Name}」注入 {PythonBreakpointInjector.CountInjected(_program.Breakpoints, original)} 处 Python breakpoint()", _program.Id, _program.Name);
         }
-        else
-            AppLog.Info($"调试「{_program.Name}」：断点已记录（完整调试器后续扩展）", _program.Id, _program.Name);
-        try { await _runner.StartAsync(_program, debug: true); }
-        catch (Exception ex) { AppLog.Error(ex, "调试启动失败", _program.Id, _program.Name); }
+        try
+        {
+            await _runner.StartAsync(_program, debug: true);
+            AttachDebugGate(ProgramDebugGate.Current);
+            StartDebugPoll();
+            RefreshDebugUi();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "调试启动失败", _program.Id, _program.Name);
+            DetachDebugGate();
+        }
         finally
         {
             if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
@@ -360,6 +440,120 @@ public partial class ProgramEditorWindow : Window
             }
             RefreshOutput();
         }
+    }
+
+    private void AttachDebugGate(ProgramDebugGate? gate)
+    {
+        if (_debugGate != null)
+            _debugGate.StateChanged -= OnDebugGateChanged;
+        _debugGate = gate;
+        _lastPausedLineLogged = null;
+        if (_debugGate != null)
+            _debugGate.StateChanged += OnDebugGateChanged;
+    }
+
+    private void DetachDebugGate()
+    {
+        if (_debugGate != null)
+            _debugGate.StateChanged -= OnDebugGateChanged;
+        _debugGate = null;
+        _lastPausedLineLogged = null;
+        RefreshDebugUi();
+    }
+
+    private void OnDebugGateChanged()
+        => Dispatcher.UIThread.Post(RefreshDebugUi);
+
+    private void StartDebugPoll()
+    {
+        StopDebugPoll();
+        _debugPollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _debugPollTimer.Tick += (_, _) =>
+        {
+            if (!_runner.IsRunning(_program.Id))
+            {
+                StopDebugPoll();
+                DetachDebugGate();
+                return;
+            }
+            RefreshDebugUi();
+        };
+        _debugPollTimer.Start();
+    }
+
+    private void StopDebugPoll()
+    {
+        if (_debugPollTimer == null) return;
+        _debugPollTimer.Stop();
+        _debugPollTimer = null;
+    }
+
+    private void RefreshDebugUi()
+    {
+        var gate = _debugGate ?? ProgramDebugGate.Current;
+        var running = _runner.IsRunning(_program.Id);
+        _debugLineRenderer.DarkTheme = DesktopThemeService.IsDark(DesktopThemeService.Current);
+
+        if (!running || gate == null || gate.Phase == ProgramDebugPhase.Idle)
+        {
+            SetDebugTool(Loc.T("Prog.Debug"), "GeoPlay");
+            SetDebugLineHighlight(null);
+            return;
+        }
+
+        if (gate.Phase == ProgramDebugPhase.Paused)
+        {
+            SetDebugTool(Loc.T("Prog.Continue"), "GeoPlay");
+            var line = gate.PausedLine;
+            SetDebugLineHighlight(line is > 0 ? line : null);
+            if (line is > 0)
+            {
+                try
+                {
+                    CodeEditor.ScrollToLine(line.Value);
+                    CodeEditor.TextArea.Caret.Line = line.Value;
+                    CodeEditor.TextArea.Caret.Column = 1;
+                }
+                catch { /* ignore */ }
+
+                if (_lastPausedLineLogged != line)
+                {
+                    _lastPausedLineLogged = line;
+                    var locals = gate.Locals;
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append(Loc.T("Prog.DebugPaused", line.Value));
+                    if (locals.Count > 0)
+                    {
+                        sb.Append("  ").Append(Loc.T("Prog.DebugLocals"));
+                        foreach (var kv in locals)
+                            sb.Append(' ').Append(kv.Key).Append('=').Append(kv.Value).Append(';');
+                    }
+                    AppLog.Info(sb.ToString(), _program.Id, _program.Name);
+                    RefreshOutput();
+                }
+            }
+            return;
+        }
+
+        _lastPausedLineLogged = null;
+        SetDebugLineHighlight(null);
+        SetDebugTool(Loc.T("Prog.Pause"), "GeoPause");
+    }
+
+    private void SetDebugLineHighlight(int? line)
+    {
+        if (_debugLineRenderer.Line == line) return;
+        _debugLineRenderer.Line = line;
+        _bpMargin.SetCurrentLine(line);
+        CodeEditor.TextArea.TextView.InvalidateLayer(AvaloniaEdit.Rendering.KnownLayer.Background);
+    }
+
+    private void SetDebugTool(string label, string geoKey)
+    {
+        BtnDebugText.Text = label;
+        ToolTip.SetTip(BtnDebug, label + " (F9 断点 · F10 逐过程 · F11 逐语句)");
+        if (Resources.TryGetResource(geoKey, null, out var r) && r is Geometry g)
+            BtnDebugIcon.Data = g;
     }
 
     private async void Run_Click(object? sender, RoutedEventArgs e)
@@ -377,6 +571,8 @@ public partial class ProgramEditorWindow : Window
     {
         try { await _runner.StopAsync(_program); }
         catch (Exception ex) { AppLog.Error(ex, "停止失败", _program.Id, _program.Name); }
+        StopDebugPoll();
+        DetachDebugGate();
         RefreshOutput();
     }
 

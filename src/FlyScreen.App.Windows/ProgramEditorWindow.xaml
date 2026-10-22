@@ -30,8 +30,12 @@
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     </Style>
     <Geometry x:Key="GeoSave">M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z</Geometry>
+    <!-- 生成：锤子 -->
+    <Geometry x:Key="GeoBuild">M2,20L20,2L22,4L4,22L2,20M16.5,6.5L17.5,7.5L7.5,17.5L6.5,16.5L16.5,6.5M15,1L13,3L21,11L23,9L15,1Z</Geometry>
     <!-- 调试：实心三角 -->
     <Geometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</Geometry>
+    <!-- 暂停：双竖条 -->
+    <Geometry x:Key="GeoPause">M8,5H11V19H8V5M13,5H16V19H13V5Z</Geometry>
     <!-- 运行：空心三角（EvenOdd） -->
     <Geometry x:Key="GeoPlayOutline">F0 M8,5 L19,12 L8,19 Z M10.4,9 L10.4,15 L15.5,12 Z</Geometry>
     <!-- 停止：偏小的方块 -->
@@ -123,10 +127,16 @@
   <Window.InputBindings>
     <KeyBinding Key="S" Modifiers="Control" Command="{x:Static ApplicationCommands.Save}"/>
     <KeyBinding Key="F" Modifiers="Shift+Alt" Command="{x:Static local:ProgramEditorWindow.FormatCommand}"/>
+    <KeyBinding Key="F9" Command="{x:Static local:ProgramEditorWindow.ToggleBreakpointCommand}"/>
+    <KeyBinding Key="F10" Command="{x:Static local:ProgramEditorWindow.StepOverCommand}"/>
+    <KeyBinding Key="F11" Command="{x:Static local:ProgramEditorWindow.StepIntoCommand}"/>
   </Window.InputBindings>
   <Window.CommandBindings>
     <CommandBinding Command="{x:Static ApplicationCommands.Save}" Executed="Save_Executed"/>
     <CommandBinding Command="{x:Static local:ProgramEditorWindow.FormatCommand}" Executed="Format_Executed"/>
+    <CommandBinding Command="{x:Static local:ProgramEditorWindow.ToggleBreakpointCommand}" Executed="ToggleBreakpoint_Executed"/>
+    <CommandBinding Command="{x:Static local:ProgramEditorWindow.StepOverCommand}" Executed="StepOver_Executed"/>
+    <CommandBinding Command="{x:Static local:ProgramEditorWindow.StepIntoCommand}" Executed="StepInto_Executed"/>
   </Window.CommandBindings>
 
   <Border Background="{DynamicResource WinBg}" Padding="12">
@@ -144,10 +154,18 @@
                 <TextBlock x:Name="BtnSaveText" Text="保存" Style="{StaticResource EditorToolLabel}"/>
               </StackPanel>
             </Button>
+            <Button x:Name="BtnBuild" Style="{StaticResource EditorToolBtn}" Click="Build_Click" ToolTip="生成">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoBuild}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnBuildText" Text="生成" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
             <Button x:Name="BtnDebug" Style="{StaticResource EditorToolBtn}" Click="Debug_Click" ToolTip="调试">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Viewbox Style="{StaticResource EditorToolIcon}">
-                  <Path Data="{StaticResource GeoPlay}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                  <Path x:Name="BtnDebugIcon" Data="{StaticResource GeoPlay}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                 </Viewbox>
                 <TextBlock x:Name="BtnDebugText" Text="调试" Style="{StaticResource EditorToolLabel}"/>
               </StackPanel>
