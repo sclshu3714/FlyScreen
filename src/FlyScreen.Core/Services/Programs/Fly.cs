@@ -24,6 +24,13 @@ public static class Fly
     public static string[] Texts(int max = 80)
         => Require()?.CollectTexts(max).ToArray() ?? [];
 
+    /// <summary>
+    /// 局部屏幕 OCR：截取屏幕矩形 (left,top)–(right,bottom)（像素），返回识别到的全部文本；
+    /// 识别失败或无文字返回 <c>""</c>。
+    /// </summary>
+    public static string Ocr(int left, int top, int right, int bottom)
+        => Require()?.OcrRegion(left, top, right, bottom) ?? "";
+
     public static bool TapText(string text)
         => Require()?.TapText(text) == true;
 
@@ -74,6 +81,7 @@ public sealed class FlyScriptBridge
     public int screenHeight() => Fly.ScreenHeight;
     public bool hasText(string text) => Fly.HasText(text);
     public string[] texts(int max = 80) => Fly.Texts(max);
+    public string ocr(int left, int top, int right, int bottom) => Fly.Ocr(left, top, right, bottom);
     public bool tapText(string text) => Fly.TapText(text);
     public bool tap(double nx, double ny) => Fly.Tap(nx, ny);
     public bool swipe(double x1, double y1, double x2, double y2, int durationMs = 320)

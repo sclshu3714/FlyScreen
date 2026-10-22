@@ -328,7 +328,7 @@ public sealed class ProgramCatalog
             ? $$"""
             // namespace: {{prog.Namespace}}
             // name: {{prog.Name}}
-            // 手机脚本：Fly 读界面 / 点击 / 滑动（需开启「玄鸟键鼠注入」无障碍）
+            // 手机脚本：Fly 读界面 / OCR / 点击 / 滑动（需开启「玄鸟键鼠注入」无障碍；Ocr 需 Android 11+）
             // 红果免费漫剧包名多为 com.kylin.read；广告结束出现「上滑继续观看…」时自动上滑
 
             Console.WriteLine("ready=" + Fly.Ready + " app=" + Fly.App);
