@@ -375,7 +375,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
             var go = await page.DisplayAlertAsync(
                 "模拟点击需要系统接口",
-                "在其他应用上点击/滑动需要开启「玄鸟键鼠注入」无障碍服务。",
+                "在其他应用上点击/滑动需要开启「玄鸟键鼠注入」无障碍服务。\n也可在「高级 → 行为 → 无障碍注入」中开启（仅手机、无电脑时同样可用）。",
                 "去开启",
                 "稍后");
             if (go)

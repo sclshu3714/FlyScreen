@@ -152,6 +152,20 @@
                                         <CheckBox x:Name="EasyMouseCheck" IsChecked="True" VerticalOptions="Center" />
                                         <Label x:Name="EasyMouseLabel" Text="轻松鼠标（移出边缘切换）" VerticalOptions="Center" FontSize="13" />
                                     </HorizontalStackLayout>
+                                    <!-- 仅 Android：无障碍注入（与电脑穿入提示双入口，状态同步） -->
+                                    <HorizontalStackLayout x:Name="A11yInjectRow" IsVisible="False"
+                                                           Spacing="4" MinimumHeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="A11yInjectCheck" VerticalOptions="Start" Margin="0,2,0,0"
+                                                  CheckedChanged="A11yInject_Changed" />
+                                        <VerticalStackLayout VerticalOptions="Center" Spacing="0">
+                                            <Label x:Name="A11yInjectLabel" Text="无障碍注入（键鼠/程序控机）"
+                                                   VerticalOptions="Center" FontSize="13" LineBreakMode="WordWrap" />
+                                            <Label x:Name="A11yInjectTipLabel"
+                                                   Text="开=跳转系统设置；关=直接停用。电脑穿入时仍会提示。"
+                                                   TextColor="{DynamicResource Muted}" FontSize="11"
+                                                   LineBreakMode="WordWrap" />
+                                        </VerticalStackLayout>
+                                    </HorizontalStackLayout>
                                 </VerticalStackLayout>
                                 <VerticalStackLayout x:Name="EdgeCrossColumn" Grid.Column="2" Spacing="0">
                                     <Label x:Name="EdgeCrossTitleText" Text="穿边模式" FontAttributes="Bold" Margin="0,0,0,4" />

@@ -1,5 +1,6 @@
 using FlyScreen.Helpers;
 using FlyScreen.AppMaui.Services;
+using FlyScreen.Services.Programs;
 using Microsoft.Extensions.Logging;
 
 namespace FlyScreen.AppMaui;
@@ -78,6 +79,8 @@ public static class MauiProgram
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
             host.Settings, host.Transfers));
+        // 用户程序 Fly.* 控机：无障碍服务连上后也会再设一次
+        ProgramDevice.Current = Platforms.Android.AndroidProgramDeviceControl.Instance;
 #elif MACCATALYST || IOS
         // Mac / iOS：壳可跑；键鼠注入等仍走 Null（正式桌面 Mac 见 Avalonia）
         host.AttachPlatform(NullMauiPlatformServices.Instance);
