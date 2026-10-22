@@ -42,9 +42,14 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
     public bool SwipeUp(double distance = 0.45, int durationMs = 320)
     {
         var d = Math.Clamp(distance, 0.1, 0.9);
-        var mid = 0.5;
-        var y1 = Math.Clamp(0.5 + d / 2, 0.05, 0.95);
-        var y2 = Math.Clamp(0.5 - d / 2, 0.05, 0.95);
+        var (w, h) = ScreenSize;
+        // 横屏竖直行程短，加大相对距离并略偏左，避开右侧系统手势区
+        var landscape = w > h && h > 0;
+        var mid = landscape ? 0.42 : 0.5;
+        if (landscape)
+            d = Math.Clamp(Math.Max(d, 0.58), 0.1, 0.85);
+        var y1 = Math.Clamp(0.5 + d / 2, 0.08, 0.92);
+        var y2 = Math.Clamp(0.5 - d / 2, 0.08, 0.92);
         return Swipe(mid, y1, mid, y2, durationMs);
     }
 

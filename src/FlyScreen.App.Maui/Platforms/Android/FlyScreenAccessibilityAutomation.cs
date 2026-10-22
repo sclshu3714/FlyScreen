@@ -1,4 +1,5 @@
 #if ANDROID
+using Android.AccessibilityServices;
 using Android.Graphics;
 using Android.OS;
 using Android.Views.Accessibility;
@@ -115,11 +116,55 @@ public sealed partial class FlyScreenInputAccessibilityService
         var c = (float)(Math.Clamp(x2, 0, 1) * Math.Max(_screenW - 1, 1));
         var d = (float)(Math.Clamp(y2, 0, 1) * Math.Max(_screenH - 1, 1));
         var ms = Math.Clamp(durationMs, 50, 3000);
-        return RunOnUi(() =>
+
+        // 主线程不能 Wait 回调（会死锁），只能 fire-and-forget
+        if (Looper.MainLooper != null && Looper.MyLooper() == Looper.MainLooper)
         {
             DispatchSwipe(a, b, c, d, ms);
             return true;
+        }
+
+        var done = new ManualResetEventSlim(false);
+        // 回调可能在 binder 线程；用数组盒避免可见性问题
+        var box = new[] { false };
+        _ui.Post(() =>
+        {
+            try
+            {
+                var path = new Path();
+                path.MoveTo(a, b);
+                path.LineTo(c, d);
+                var stroke = new GestureDescription.StrokeDescription(path, 0, ms);
+                var builder = new GestureDescription.Builder();
+                builder.AddStroke(stroke);
+                var gesture = builder.Build();
+                if (gesture == null)
+                {
+                    done.Set();
+                    return;
+                }
+
+                var accepted = DispatchGesture(
+                    gesture,
+                    new SwipeGestureCallback(ok =>
+                    {
+                        box[0] = ok;
+                        done.Set();
+                    }),
+                    null);
+                if (!accepted)
+                    done.Set();
+            }
+            catch
+            {
+                box[0] = false;
+                done.Set();
+            }
         });
+
+        if (!done.Wait(ms + 2500))
+            return false;
+        return box[0];
     }
 
     public bool TryGlobalBack()
