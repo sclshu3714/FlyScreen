@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="flyscreen_accessibility_desc">仅用于在其他应用上模拟点击和滑动。鼠标移入本机、显示指针不需要这项服务。请仅在信任的局域网环境开启。</string>
+  <string name="flyscreen_accessibility_desc">用于在其他应用上模拟点击/滑动，以及用户程序局部屏幕 OCR。鼠标移入本机、显示指针不需要这项服务。请仅在信任的局域网环境开启。</string>
   <string name="flyscreen_accessibility_label">玄鸟键鼠注入</string>
 </resources>

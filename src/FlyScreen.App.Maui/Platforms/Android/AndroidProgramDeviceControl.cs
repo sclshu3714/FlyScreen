@@ -30,6 +30,9 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
         => FlyScreenInputAccessibilityService.Instance?.CollectVisibleTexts(max)
            ?? (IReadOnlyList<string>)Array.Empty<string>();
 
+    public string OcrRegion(int left, int top, int right, int bottom)
+        => FlyScreenInputAccessibilityService.Instance?.TryOcrRegion(left, top, right, bottom) ?? "";
+
     public bool TapText(string text)
         => FlyScreenInputAccessibilityService.Instance?.TryTapText(text) == true;
 

@@ -20,6 +20,12 @@ public interface IProgramDeviceControl
     /// <summary>收集当前可见文本（去重，最多 <paramref name="max"/> 条）。</summary>
     IReadOnlyList<string> CollectTexts(int max = 80);
 
+    /// <summary>
+    /// 截取屏幕矩形区域做 OCR，返回识别到的全部文本；失败或无文字返回空字符串。
+    /// 坐标为屏幕像素（与 <see cref="ScreenSize"/> 同源），可为任意对角顺序。
+    /// </summary>
+    string OcrRegion(int left, int top, int right, int bottom);
+
     /// <summary>点击第一个包含文案的节点中心；找不到返回 false。</summary>
     bool TapText(string text);
 

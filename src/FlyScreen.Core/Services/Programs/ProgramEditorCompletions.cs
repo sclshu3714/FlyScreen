@@ -88,7 +88,7 @@ public static class ProgramEditorCompletions
         "Console", "WriteLine", "Write", "ReadLine", "Task", "Delay", "List", "Dictionary",
         "StringBuilder", "Exception", "ArgumentException", "ArgumentNullException", "nameof",
         "async", "await", "get", "set", "value", "record", "init", "required",
-        "Fly", "Ready", "App", "HasText", "Texts", "TapText", "Tap", "Swipe", "SwipeUp",
+        "Fly", "Ready", "App", "HasText", "Texts", "Ocr", "TapText", "Tap", "Swipe", "SwipeUp",
         "SwipeDown", "Back", "Home", "OpenSettings", "ScreenWidth", "ScreenHeight", "ct"
     ];
 
@@ -103,7 +103,7 @@ public static class ProgramEditorCompletions
         "then", "catch", "finally", "setTimeout", "setInterval", "clearTimeout", "Array",
         "Object", "String", "Number", "Boolean", "Map", "Set", "Math", "Date", "Error",
         "require", "module", "exports", "process", "Buffer", "undefined", "NaN", "Infinity",
-        "Fly", "ready", "app", "hasText", "texts", "tapText", "tap", "swipe", "swipeUp",
+        "Fly", "ready", "app", "hasText", "texts", "ocr", "tapText", "tap", "swipe", "swipeUp",
         "swipeDown", "back", "home", "openSettings", "sleep", "screenWidth", "screenHeight"
     ];
 
