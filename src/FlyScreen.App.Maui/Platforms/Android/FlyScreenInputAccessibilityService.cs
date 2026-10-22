@@ -883,26 +883,36 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
 
     private void RefreshScreenSize()
     {
+        // 手势归一化必须跟「当前旋转后的物理像素」一致。
+        // MaximumWindowMetrics 在部分机型上仍是竖屏自然尺寸，横屏会把 Y 算到屏外导致上滑无效。
         try
         {
-            if (OperatingSystem.IsAndroidVersionAtLeast(30))
-            {
-                var max = _wm?.MaximumWindowMetrics?.Bounds;
-                if (max != null && max.Width() > 0 && max.Height() > 0)
-                {
-                    _screenW = max.Width();
-                    _screenH = max.Height();
-                    return;
-                }
-            }
+            _wm ??= GetSystemService(WindowService) as IWindowManager;
 
             var size = new global::Android.Graphics.Point();
-            _wm?.DefaultDisplay?.GetRealSize(size);
+            // Context.Display（API 30+）/ DefaultDisplay：随旋转交换宽高
+            global::Android.Views.Display? display = null;
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+                display = Display;
+            display ??= _wm?.DefaultDisplay;
+            display?.GetRealSize(size);
             if (size.X > 0 && size.Y > 0)
             {
                 _screenW = size.X;
                 _screenH = size.Y;
                 return;
+            }
+
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+            {
+                // 当前窗口（会随旋转），不要用 MaximumWindowMetrics
+                var cur = _wm?.CurrentWindowMetrics?.Bounds;
+                if (cur != null && cur.Width() > 0 && cur.Height() > 0)
+                {
+                    _screenW = cur.Width();
+                    _screenH = cur.Height();
+                    return;
+                }
             }
         }
         catch
@@ -1150,6 +1160,19 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         var gesture = builder.Build();
         if (gesture != null)
             DispatchGesture(gesture, null, null);
+    }
+
+    private sealed class SwipeGestureCallback : AccessibilityService.GestureResultCallback
+    {
+        private readonly Action<bool> _onDone;
+
+        public SwipeGestureCallback(Action<bool> onDone) => _onDone = onDone;
+
+        public override void OnCompleted(GestureDescription? gestureDescription)
+            => _onDone(true);
+
+        public override void OnCancelled(GestureDescription? gestureDescription)
+            => _onDone(false);
     }
 
     private void EnsureCursorOverlay()

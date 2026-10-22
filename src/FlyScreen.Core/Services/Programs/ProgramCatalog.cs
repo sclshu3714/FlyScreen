@@ -329,7 +329,7 @@ public sealed class ProgramCatalog
             // namespace: {{prog.Namespace}}
             // name: {{prog.Name}}
             // 手机脚本：Fly 读界面 / 点击 / 滑动（需开启「玄鸟键鼠注入」无障碍）
-            // 例：广告结束出现「上滑继续观看短剧」时自动上滑
+            // 红果免费漫剧包名多为 com.kylin.read；广告结束出现「上滑继续观看…」时自动上滑
 
             Console.WriteLine("ready=" + Fly.Ready + " app=" + Fly.App);
             if (!Fly.Ready)
@@ -339,16 +339,61 @@ public sealed class ProgramCatalog
                 return;
             }
 
+            string[] apps = { "com.kylin.read", "kylin", "hongguo" };
+            string[] tips = { "上滑继续观看漫剧", "上滑继续观看短剧", "上滑继续观看", "继续观看漫剧" };
+            var tipArmed = true;
+            long coolUntil = 0;
             while (!ct.IsCancellationRequested)
             {
-                if (Fly.HasText("上滑继续观看短剧"))
+                var app = Fly.App ?? "";
+                if (app.Length > 0 && !apps.Any(h => app.Contains(h, StringComparison.OrdinalIgnoreCase)))
                 {
-                    Console.WriteLine("检测到上滑提示 → SwipeUp");
-                    Fly.SwipeUp();
-                    await Delay(1500);
+                    tipArmed = true;
+                    await Delay(1200);
+                    continue;
                 }
-                else
+                var hit = tips.FirstOrDefault(t => Fly.HasText(t));
+                if (hit == null)
+                {
+                    tipArmed = true;
+                    await Delay(700);
+                    continue;
+                }
+                var now = Environment.TickCount64;
+                if (!tipArmed || now < coolUntil)
+                {
+                    await Delay(400);
+                    continue;
+                }
+                tipArmed = false;
+                coolUntil = now + 8000;
+                var w = Fly.ScreenWidth;
+                var h = Fly.ScreenHeight;
+                var landscape = w > h && h > 0;
+                var dist = landscape ? 0.62 : 0.50;
+                var dur = landscape ? 450 : 380;
+                Console.WriteLine("已识别「" + hit + "」→ SwipeUp " + (landscape ? "横屏" : "竖屏") + " " + w + "x" + h);
+                var ok = Fly.SwipeUp(dist, dur);
+                if (!ok)
+                {
+                    Console.WriteLine("上滑失败：手势取消（识别成功）");
+                    tipArmed = true;
+                    coolUntil = now + 1500;
+                    await Delay(600);
+                    continue;
+                }
+                var cleared = false;
+                for (var i = 0; i < 10 && !ct.IsCancellationRequested; i++)
+                {
+                    await Delay(400);
+                    if (!Fly.HasText(hit)) { cleared = true; break; }
+                }
+                if (!cleared)
+                {
+                    Console.WriteLine("上滑完成但提示仍在 → 左滑补救");
+                    Fly.Swipe(0.78, 0.50, 0.22, 0.50, 420);
                     await Delay(800);
+                }
             }
             """
             : $$"""
