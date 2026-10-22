@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Collections.ObjectModel;
 using System.Text.Json;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.Helpers.Localization;
@@ -31,21 +30,25 @@ public partial class ProgramEditorPage : ContentPage
     private string? _pendingSource;
     private string _closeLabel = "关闭";
     private string _saveLabel = "保存";
+    private string _buildLabel = "生成";
     private string _debugLabel = "调试";
     private string _runLabel = "运行";
     private string _stopLabel = "停止";
-    private readonly ObservableCollection<AppLogEntry> _outputItems = [];
     private bool _outputExpanded;
     private bool _outputRefreshPending;
     private bool _outputScrollPending;
     private DateTime _outputSince = DateTime.MinValue;
+    private AppLogEntry? _outputLastWritten;
+    private ProgramDebugGate? _debugGate;
+    private int? _lastPausedLineLogged;
+    private int? _lastDebugLineSent;
+    private IDispatcherTimer? _debugPollTimer;
 
-    // 通用字形：软盘、实心三角(调试)、空心三角(运行)、红方块(停止)；返回为等长折线 Path
+    // 通用字形：软盘、生成、运行、停止；调试钮用 Path（见 BtnDebugIcon）
     private const string IcSave = "💾";
-    private const string IcDebug = "▶";
+    private const string IcBuild = "🔨";
     private const string IcRun = "▷";
     private const string IcStop = "■";
-
     public Task WhenClosed => _closed.Task;
 
     public ProgramEditorPage(UserProgram program)
@@ -58,19 +61,20 @@ public partial class ProgramEditorPage : ContentPage
         Title = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
         _closeLabel = Loc.T("Prog.DlgCancel") == "取消" ? "关闭" : "Close";
         _saveLabel = Loc.T("Prog.Save");
+        _buildLabel = Loc.T("Prog.Build");
         _debugLabel = Loc.T("Prog.Debug");
         _runLabel = Loc.T("Prog.Run");
         _stopLabel = Loc.T("Prog.StopRun");
         ApplyToolLabels(compact: false);
         ToolTipProperties.SetText(BtnClose, "关闭并返回");
         ToolTipProperties.SetText(BtnSave, _saveLabel);
+        ToolTipProperties.SetText(BtnBuild, _buildLabel);
         ToolTipProperties.SetText(BtnDebug, _debugLabel);
         ToolTipProperties.SetText(BtnRun, _runLabel);
         ToolTipProperties.SetText(BtnStop, _stopLabel);
         OutputTitleText.Text = Loc.T("Prog.Output");
         OutputClearBtn.Text = Loc.T("Prog.OutputClear");
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
-        OutputList.ItemsSource = _outputItems;
         ApplyOutputExpanded(false);
 
         ToolbarItems.Add(new ToolbarItem
@@ -240,10 +244,17 @@ public partial class ProgramEditorPage : ContentPage
                     }
                     _program.Breakpoints.Sort();
                     _catalog.SaveMeta(_program);
+                    (_debugGate ?? ProgramDebugGate.Current)?.SetBreakpoints(_program.Breakpoints);
                     if (root.TryGetProperty("line", out var lineEl) && lineEl.TryGetInt32(out var l))
                         _caretLine = l;
                     RefreshBpHint();
                 }
+                break;
+            case "debugStepOver":
+                TryStep(over: true);
+                break;
+            case "debugStepInto":
+                TryStep(over: false);
                 break;
             case "caret":
                 if (root.TryGetProperty("line", out var caret) && caret.TryGetInt32(out var cl))
@@ -382,7 +393,8 @@ public partial class ProgramEditorPage : ContentPage
     private void OutputClear_Clicked(object? sender, EventArgs e)
     {
         _outputSince = DateTime.Now;
-        _outputItems.Clear();
+        _outputLastWritten = null;
+        OutputLabel.Text = "";
         OutputEmptyText.IsVisible = true;
     }
 
@@ -407,26 +419,38 @@ public partial class ProgramEditorPage : ContentPage
         var items = AppLog.Snapshot(false, _program.Id, _program.Name)
             .Where(e => e.Time >= _outputSince)
             .ToList();
-        var added = AppLog.SyncTo(_outputItems, items);
-        OutputEmptyText.IsVisible = _outputItems.Count == 0;
-        if (added && _outputExpanded)
+        var chunk = AppLog.FormatNewLines(items, ref _outputLastWritten);
+        if (chunk != null)
+            OutputLabel.Text = (OutputLabel.Text ?? "") + chunk;
+        OutputEmptyText.IsVisible = string.IsNullOrEmpty(OutputLabel.Text);
+        if (chunk != null && _outputExpanded)
             ScrollOutputToEnd();
     }
 
     private void ScrollOutputToEnd()
     {
-        if (!_outputExpanded || _outputItems.Count == 0) return;
+        if (!_outputExpanded || string.IsNullOrEmpty(OutputLabel.Text)) return;
         if (_outputScrollPending) return;
         _outputScrollPending = true;
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
+        // 等布局算出 ContentSize 再滚到底，避免仍停在顶部
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), async () =>
         {
             _outputScrollPending = false;
-            if (!_outputExpanded || _outputItems.Count == 0) return;
+            if (!_outputExpanded || string.IsNullOrEmpty(OutputLabel.Text)) return;
             try
             {
-                OutputList.ScrollTo(_outputItems[^1], position: ScrollToPosition.End, animate: false);
+                await OutputScroll.ScrollToAsync(OutputLabel, ScrollToPosition.End, animated: false)
+                    .ConfigureAwait(true);
             }
-            catch { /* ignore */ }
+            catch
+            {
+                try
+                {
+                    var y = Math.Max(0, OutputScroll.ContentSize.Height - OutputScroll.Height);
+                    await OutputScroll.ScrollToAsync(0, y, animated: false).ConfigureAwait(true);
+                }
+                catch { /* ignore */ }
+            }
         });
     }
 
@@ -436,11 +460,12 @@ public partial class ProgramEditorPage : ContentPage
         _toolsCompact = compact;
         BtnClose.Text = " ";
         BtnSave.Text = IcSave;
-        BtnDebug.Text = IcDebug;
+        BtnBuild.Text = IcBuild;
+        BtnDebug.Text = " ";
         BtnRun.Text = IcRun;
         BtnStop.Text = IcStop;
         BtnStop.TextColor = Color.FromArgb("#DC2626");
-        foreach (var b in new[] { BtnClose, BtnSave, BtnDebug, BtnRun, BtnStop })
+        foreach (var b in new[] { BtnClose, BtnSave, BtnBuild, BtnDebug, BtnRun, BtnStop })
         {
             b.Padding = new Thickness(0);
             b.WidthRequest = 36;
@@ -450,6 +475,10 @@ public partial class ProgramEditorPage : ContentPage
         BtnCloseHost.WidthRequest = 36;
         BtnCloseHost.MinimumWidthRequest = 36;
         BtnCloseHost.MaximumWidthRequest = 36;
+        BtnDebugHost.WidthRequest = 36;
+        BtnDebugHost.MinimumWidthRequest = 36;
+        BtnDebugHost.MaximumWidthRequest = 36;
+        RefreshDebugUi();
     }
 
     private void UpdateToolMode()
@@ -512,22 +541,61 @@ public partial class ProgramEditorPage : ContentPage
     private async void Save_Clicked(object? sender, EventArgs e)
         => await SaveFromEditorAsync();
 
+    private async void Build_Clicked(object? sender, EventArgs e)
+        => await TryBuildAsync();
+
+    private async Task<bool> TryBuildAsync()
+    {
+        var text = await GetEditorTextAsync();
+        text = ProgramEditorFormatter.Format(text, _program.Language);
+        if (!await EnsureWithinLineLimitAsync(text)) return false;
+        EnsureOutputVisible();
+        await SaveFromEditorAsync(text);
+        text = _pendingSource ?? text;
+        var file = string.IsNullOrWhiteSpace(_program.FileName) ? "main.cs" : _program.FileName;
+        var result = ProgramCompiler.Compile(_program.Language, text, file);
+        AppLog.Info(result.FormatReport($"—— {Loc.T("Prog.Build")} {_program.Name} ——"), _program.Id, _program.Name);
+        RefreshOutput();
+        return result.Success;
+    }
+
     private async void Debug_Clicked(object? sender, EventArgs e)
     {
+        var gate = ProgramDebugGate.Current;
+        if (gate != null && _runner.IsRunning(_program.Id))
+        {
+            if (gate.Phase == ProgramDebugPhase.Paused)
+                gate.Continue();
+            else if (gate.Phase == ProgramDebugPhase.Running)
+                gate.RequestPause();
+            RefreshDebugUi();
+            return;
+        }
+
         var original = await GetEditorTextAsync();
         original = ProgramEditorFormatter.Format(original, _program.Language);
         if (!await EnsureWithinLineLimitAsync(original)) return;
         EnsureOutputVisible();
         await SaveFromEditorAsync(original);
         original = _pendingSource ?? original;
+
+        if (_program.Language == ProgramLanguage.CSharp && !await TryBuildAsync())
+            return;
+
         if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
         {
             var injected = PythonBreakpointInjector.Inject(original, _program.Breakpoints);
             _catalog.WriteSource(_program, injected);
             AppLog.Info($"已为「{_program.Name}」注入 {PythonBreakpointInjector.CountInjected(_program.Breakpoints, original)} 处 Python breakpoint()", _program.Id, _program.Name);
         }
-        try { await _runner.StartAsync(_program, debug: true); }
-        catch (Exception ex) { await DisplayAlertAsync(Title, ex.Message, "OK"); }
+        try
+        {
+            await _runner.StartAsync(_program, debug: true);
+            AttachDebugGate(ProgramDebugGate.Current);
+            StartDebugPoll();
+            RefreshDebugUi();
+        }
+        catch (Exception ex) { await DisplayAlertAsync(Title, ex.Message, "OK"); DetachDebugGate(); }
         finally
         {
             if (_program.Language == ProgramLanguage.Python && _program.Breakpoints.Count > 0)
@@ -537,6 +605,128 @@ public partial class ProgramEditorPage : ContentPage
             }
             RefreshOutput();
         }
+    }
+
+    private void AttachDebugGate(ProgramDebugGate? gate)
+    {
+        if (_debugGate != null)
+            _debugGate.StateChanged -= OnDebugGateChanged;
+        _debugGate = gate;
+        _lastPausedLineLogged = null;
+        if (_debugGate != null)
+            _debugGate.StateChanged += OnDebugGateChanged;
+    }
+
+    private void DetachDebugGate()
+    {
+        if (_debugGate != null)
+            _debugGate.StateChanged -= OnDebugGateChanged;
+        _debugGate = null;
+        _lastPausedLineLogged = null;
+        RefreshDebugUi();
+    }
+
+    private void OnDebugGateChanged()
+        => MainThread.BeginInvokeOnMainThread(RefreshDebugUi);
+
+    private void StartDebugPoll()
+    {
+        StopDebugPoll();
+        _debugPollTimer = Dispatcher.CreateTimer();
+        _debugPollTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _debugPollTimer.Tick += (_, _) =>
+        {
+            if (!_runner.IsRunning(_program.Id))
+            {
+                StopDebugPoll();
+                DetachDebugGate();
+                return;
+            }
+            RefreshDebugUi();
+        };
+        _debugPollTimer.Start();
+    }
+
+    private void StopDebugPoll()
+    {
+        if (_debugPollTimer == null) return;
+        _debugPollTimer.Stop();
+        _debugPollTimer = null;
+    }
+
+    private void RefreshDebugUi()
+    {
+        var gate = _debugGate ?? ProgramDebugGate.Current;
+        var running = _runner.IsRunning(_program.Id);
+        if (!running || gate == null || gate.Phase == ProgramDebugPhase.Idle)
+        {
+            SetDebugIcon(pausedBars: false, Loc.T("Prog.Debug"), "#2563EB");
+            SetEditorDebugLine(null, force: false);
+            return;
+        }
+
+        if (gate.Phase == ProgramDebugPhase.Paused)
+        {
+            // 暂停中：绿色 ▶ = 继续；黄底 + 三角指示当前执行行
+            SetDebugIcon(pausedBars: false, Loc.T("Prog.Continue"), "#16A34A");
+            var line = gate.PausedLine;
+            // 暂停期间每次轮询都重发装饰（首次可能 editor 未就绪被丢弃）
+            SetEditorDebugLine(line is > 0 ? line : null, force: true);
+            if (line is > 0 && _lastPausedLineLogged != line)
+            {
+                _lastPausedLineLogged = line;
+                var locals = gate.Locals;
+                var sb = new System.Text.StringBuilder();
+                sb.Append(Loc.T("Prog.DebugPaused", line.Value));
+                if (locals.Count > 0)
+                {
+                    sb.Append("  ").Append(Loc.T("Prog.DebugLocals"));
+                    foreach (var kv in locals)
+                        sb.Append(' ').Append(kv.Key).Append('=').Append(kv.Value).Append(';');
+                }
+                AppLog.Info(sb.ToString(), _program.Id, _program.Name);
+                RefreshOutput();
+            }
+            return;
+        }
+
+        _lastPausedLineLogged = null;
+        SetEditorDebugLine(null, force: false);
+        // 运行中：⏸ 暂停
+        SetDebugIcon(pausedBars: true, Loc.T("Prog.Pause"), "#D97706");
+    }
+
+    /// <summary>直接调 JS flySetDebugLine，避免 JSON 消息路径丢失。</summary>
+    private void SetEditorDebugLine(int? line, bool force)
+    {
+        if (!force && _lastDebugLineSent == line) return;
+        _lastDebugLineSent = line;
+        var n = line is > 0 ? line.Value : -1;
+        // 优先直调；再兜底走 host message
+        EvalEditorJs($"window.flySetDebugLine&&window.flySetDebugLine({n})");
+        SendEditor(new { type = "setDebugLine", line = n });
+    }
+
+    private void SetDebugIcon(bool pausedBars, string tip, string colorHex)
+    {
+        BtnDebug.Text = " ";
+        BtnDebugIconPlay.IsVisible = !pausedBars;
+        BtnDebugIconPause.IsVisible = pausedBars;
+        if (!pausedBars)
+            BtnDebugIconPlay.Fill = new SolidColorBrush(Color.FromArgb(colorHex));
+        else
+            BtnDebugIconPause.Fill = new SolidColorBrush(Color.FromArgb(colorHex));
+        ToolTipProperties.SetText(BtnDebug, tip);
+    }
+
+    private void TryStep(bool over)
+    {
+        var gate = _debugGate ?? ProgramDebugGate.Current;
+        if (gate == null || !_runner.IsRunning(_program.Id)) return;
+        if (gate.Phase != ProgramDebugPhase.Paused) return;
+        if (over) gate.StepOver();
+        else gate.StepInto();
+        RefreshDebugUi();
     }
 
     private async void Run_Clicked(object? sender, EventArgs e)
@@ -553,6 +743,8 @@ public partial class ProgramEditorPage : ContentPage
     {
         try { await _runner.StopAsync(_program); }
         catch (Exception ex) { await DisplayAlertAsync(Title, ex.Message, "OK"); }
+        StopDebugPoll();
+        DetachDebugGate();
         RefreshOutput();
     }
 
@@ -565,6 +757,8 @@ public partial class ProgramEditorPage : ContentPage
     {
         if (Interlocked.Exchange(ref _closeStopArmed, 1) != 0) return;
         AppLog.Changed -= OnAppLogChanged;
+        StopDebugPoll();
+        DetachDebugGate();
         if (!_runner.IsRunning(_program.Id)) return;
 
         var prog = _program;
@@ -705,9 +899,12 @@ public partial class ProgramEditorPage : ContentPage
         var name = JsonSerializer.Serialize(action);
         EvalEditorJs($"window.flyEditorAction && window.flyEditorAction({name})");
     }
+#endif
 
+    /// <summary>向 Monaco 注入脚本（Android 走原生 EvaluateJavascript，其它端走 HybridWebView）。</summary>
     private void EvalEditorJs(string script)
     {
+#if ANDROID
         try
         {
             if (CodeWeb.Handler?.PlatformView is global::Android.Webkit.WebView awv)
@@ -717,9 +914,8 @@ public partial class ProgramEditorPage : ContentPage
             }
         }
         catch { /* fall through */ }
-
+#endif
         try { _ = CodeWeb.EvaluateJavaScriptAsync(script); }
         catch { /* WebView 未就绪 */ }
     }
-#endif
 }

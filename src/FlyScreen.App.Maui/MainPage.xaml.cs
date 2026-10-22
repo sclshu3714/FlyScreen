@@ -39,6 +39,15 @@ public partial class MainPage : ContentPage
     private bool _uiPrepared;
     private bool _a11yInjectUpdating;
     private bool _a11yInjectWired;
+    private bool _pageAlive = true;
+
+    // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
+    private Action<string>? _onStatusMessage;
+    private Action? _onAppLogChanged;
+    private Action<string>? _onLayoutSynced;
+    private Action<string>? _onBehaviorSynced;
+    private Action<IReadOnlyList<DiscoveredPeer>>? _onPeersUpdated;
+    private Action<string, bool, bool>? _onPeerLinkChanged;
 
     /// <summary>触控板可在空闲时调用，把重 UI 初始化提前做完。</summary>
     public bool IsUiPrepared => _uiPrepared;
@@ -62,7 +71,14 @@ public partial class MainPage : ContentPage
         AutoStartCheck.IsEnabled = _host.Platform.SupportsAutoStart;
         Loaded += OnLoaded;
         SizeChanged += OnPageSizeChanged;
-        Unloaded += (_, _) => _statusTimer?.Stop();
+        Unloaded += OnUnloaded;
+    }
+
+    private void OnUnloaded(object? sender, EventArgs e)
+    {
+        _pageAlive = false;
+        _statusTimer?.Stop();
+        UnwireHost();
     }
 
     /// <summary>
@@ -97,29 +113,86 @@ public partial class MainPage : ContentPage
     {
         if (_hostWired) return;
         _hostWired = true;
-        _host.StatusMessage += msg => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
-        AppLog.Changed += () => MainThread.BeginInvokeOnMainThread(() =>
+        _pageAlive = true;
+
+        _onStatusMessage = msg => RunOnUi(() => StatusLabel.Text = msg);
+        _onAppLogChanged = () => RunOnUi(() =>
         {
             if (PageLog.IsVisible)
                 RefreshLogPage();
         });
-        _host.LayoutSyncedFromPeer += _ => MainThread.BeginInvokeOnMainThread(() =>
+        _onLayoutSynced = _ => RunOnUi(() =>
         {
             LoadUi();
             ApplyLocalizedUi();
             RebuildMatrix();
         });
-        _host.BehaviorSyncedFromPeer += _ => MainThread.BeginInvokeOnMainThread(() =>
+        _onBehaviorSynced = _ => RunOnUi(() =>
         {
             LoadUi();
             ApplyLocalizedUi();
         });
-        _host.Connections.Discovery.PeersUpdated += _ => MainThread.BeginInvokeOnMainThread(RefreshDiscovery);
-        _host.Connections.PeerLinkChanged += (_, _, _) => MainThread.BeginInvokeOnMainThread(RefreshSlotStatuses);
+        _onPeersUpdated = _ => RunOnUi(RefreshDiscovery);
+        _onPeerLinkChanged = (_, _, _) => RunOnUi(RefreshSlotStatuses);
+
+        _host.StatusMessage += _onStatusMessage;
+        AppLog.Changed += _onAppLogChanged;
+        _host.LayoutSyncedFromPeer += _onLayoutSynced;
+        _host.BehaviorSyncedFromPeer += _onBehaviorSynced;
+        _host.Connections.Discovery.PeersUpdated += _onPeersUpdated;
+        _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
 
         _statusTimer = Dispatcher.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2);
-        _statusTimer.Tick += (_, _) => RefreshSlotStatuses();
+        _statusTimer.Tick += (_, _) =>
+        {
+            if (_pageAlive && Handler != null)
+                RefreshSlotStatuses();
+        };
+    }
+
+    private void UnwireHost()
+    {
+        if (!_hostWired) return;
+        _hostWired = false;
+
+        if (_onStatusMessage != null)
+            _host.StatusMessage -= _onStatusMessage;
+        if (_onAppLogChanged != null)
+            AppLog.Changed -= _onAppLogChanged;
+        if (_onLayoutSynced != null)
+            _host.LayoutSyncedFromPeer -= _onLayoutSynced;
+        if (_onBehaviorSynced != null)
+            _host.BehaviorSyncedFromPeer -= _onBehaviorSynced;
+        if (_onPeersUpdated != null)
+            _host.Connections.Discovery.PeersUpdated -= _onPeersUpdated;
+        if (_onPeerLinkChanged != null)
+            _host.Connections.PeerLinkChanged -= _onPeerLinkChanged;
+
+        _onStatusMessage = null;
+        _onAppLogChanged = null;
+        _onLayoutSynced = null;
+        _onBehaviorSynced = null;
+        _onPeersUpdated = null;
+        _onPeerLinkChanged = null;
+    }
+
+    /// <summary>关闭窗体后平台主线程可能不可用；先判断存活再调度，并吞掉关闭期异常。</summary>
+    private void RunOnUi(Action action)
+    {
+        if (!_pageAlive || Handler is null) return;
+        try
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (!_pageAlive || Handler is null) return;
+                try { action(); }
+                catch (ObjectDisposedException) { /* ignore */ }
+                catch (InvalidOperationException) { /* ignore */ }
+            });
+        }
+        catch (ObjectDisposedException) { /* ignore */ }
+        catch (InvalidOperationException) { /* ignore */ }
     }
 
     private async void OnLoaded(object? sender, EventArgs e)
@@ -154,6 +227,10 @@ public partial class MainPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        _pageAlive = true;
+        // Unloaded 会反订阅；再次显示时补回
+        if (!_hostWired && _uiPrepared)
+            WireHostOnce();
         if (!_hostWired) return;
         _statusTimer?.Start();
         RefreshSlotStatuses();
@@ -1337,6 +1414,7 @@ public partial class MainPage : ContentPage
 
     private void RefreshSlotStatuses()
     {
+        if (!_pageAlive || Handler is null) return;
         foreach (var st in _host.Connections.GetConfiguredPeerStatuses())
         {
             var slot = _slots.FirstOrDefault(s =>

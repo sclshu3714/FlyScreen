@@ -3,6 +3,7 @@
   let editor = null;
   let bpDecorations = [];
   let breakpoints = [];
+  let debugLineDecorations = [];
   let bootstrapped = false;
   let maxLines = 1000;
   let keywordMap = {};
@@ -147,6 +148,44 @@
     }));
     bpDecorations = editor.deltaDecorations(bpDecorations, decs);
   }
+
+  function setDebugLine(line) {
+    if (!editor) return false;
+    const n = line == null ? 0 : Number(line);
+    if (!n || n < 1 || !isFinite(n)) {
+      debugLineDecorations = editor.deltaDecorations(debugLineDecorations, []);
+      return true;
+    }
+    var model = editor.getModel();
+    if (!model) return false;
+    var max = model.getLineCount();
+    if (n > max) n = max;
+    // 黄底整行 + glyph 栏黄三角（glyph 比 linesDecorations 更稳）
+    debugLineDecorations = editor.deltaDecorations(debugLineDecorations, [{
+      range: new monaco.Range(n, 1, n, model.getLineMaxColumn(n)),
+      options: {
+        isWholeLine: true,
+        className: 'fly-debug-line',
+        glyphMarginClassName: 'fly-debug-glyph-arrow',
+        linesDecorationsClassName: 'fly-debug-arrow',
+        overviewRuler: {
+          color: '#FACC15',
+          position: monaco.editor.OverviewRulerLane.Full
+        },
+        zIndex: 10
+      }
+    }]);
+    try {
+      editor.revealLineInCenter(n);
+      editor.setPosition({ lineNumber: n, column: 1 });
+    } catch (e) { /* ignore */ }
+    return true;
+  }
+
+  // 供 C# 直接 EvaluateJavaScript 调用，绕过 JSON 消息路径
+  window.flySetDebugLine = function (line) {
+    try { return setDebugLine(line); } catch (e) { return false; }
+  };
 
   function toggleBreakpoint(line) {
     const i = breakpoints.indexOf(line);
@@ -309,6 +348,21 @@
       case 'setTheme':
         applyTheme(msg.theme || msg.Theme, msg.background || msg.Background);
         break;
+      case 'revealLine': {
+        const line = Number(msg.line || msg.Line || 1);
+        if (editor && line >= 1) {
+          editor.revealLineInCenter(line);
+          editor.setPosition({ lineNumber: line, column: 1 });
+          editor.focus();
+        }
+        break;
+      }
+      case 'setDebugLine': {
+        const raw = msg.line != null ? msg.line : msg.Line;
+        const n = raw == null ? 0 : Number(raw);
+        setDebugLine(n > 0 ? n : null);
+        break;
+      }
     }
   }
 
@@ -357,7 +411,25 @@
     style.textContent =
       '.fly-bp-glyph { background: #ef4444; border-radius: 50%; width: 8px !important; height: 8px !important; margin-left: 2px !important; margin-top: 3px !important; }' +
       '.fly-bp-line { background: rgba(239,68,68,0.08); }' +
-      '.monaco-editor .glyph-margin { width: 14px !important; min-width: 14px !important; }' +
+      /* 当前调试行黄底：覆盖 cdr / current-line 多层 */
+      '.monaco-editor .view-overlays .cdr.fly-debug-line,' +
+      '.monaco-editor .view-overlays .fly-debug-line,' +
+      '.monaco-editor .margin-view-overlays .fly-debug-line {' +
+      '  background: rgba(250,204,21,0.35) !important;' +
+      '}' +
+      '.monaco-editor.vs-dark .view-overlays .cdr.fly-debug-line,' +
+      '.monaco-editor.vs-dark .view-overlays .fly-debug-line,' +
+      '.monaco-editor.hc-black .view-overlays .fly-debug-line {' +
+      '  background: rgba(202,138,4,0.55) !important;' +
+      '}' +
+      /* glyph 栏 / 行装饰栏黄三角 */
+      '.fly-debug-glyph-arrow, .fly-debug-arrow {' +
+      '  width: 0 !important; height: 0 !important; background: transparent !important;' +
+      '  border-style: solid !important; border-width: 5px 0 5px 9px !important;' +
+      '  border-color: transparent transparent transparent #FACC15 !important;' +
+      '  margin-left: 2px !important; margin-top: 3px !important;' +
+      '}' +
+      '.monaco-editor .glyph-margin { width: 16px !important; min-width: 16px !important; }' +
       '.monaco-editor .margin-view-overlays .line-numbers { padding: 0 2px 0 0 !important; min-width: 0 !important; }';
     document.head.appendChild(style);
 
@@ -414,6 +486,18 @@
     // Shift+Alt+F：请求宿主按语言格式化
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, function () {
       post({ type: 'formatRequested', value: editor.getValue() });
+    });
+
+    // F9 断点 / F10 逐过程 / F11 逐语句（对齐 VS）
+    editor.addCommand(monaco.KeyCode.F9, function () {
+      var pos = editor.getPosition();
+      if (pos) toggleBreakpoint(pos.lineNumber);
+    });
+    editor.addCommand(monaco.KeyCode.F10, function () {
+      post({ type: 'debugStepOver' });
+    });
+    editor.addCommand(monaco.KeyCode.F11, function () {
+      post({ type: 'debugStepInto' });
     });
 
     window.flyEditorReady = true;

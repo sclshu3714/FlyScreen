@@ -78,11 +78,21 @@ public sealed class ProgramRunner
             ? $"调试启动「{prog.Name}」({prog.LanguageText} · 本机引擎)"
             : $"已启动「{prog.Name}」({prog.LanguageText} · 本机引擎)", prog.Id, prog.Name);
 
+        ProgramDebugGate? gate = null;
+        if (debug && prog.Language == ProgramLanguage.CSharp)
+        {
+            gate = new ProgramDebugGate();
+            ProgramDebugGate.Current = gate;
+        }
+
         _ = Task.Run(async () =>
         {
             try
             {
-                await InProcessProgramExecutor.RunAsync(prog, source, cts.Token).ConfigureAwait(false);
+                await InProcessProgramExecutor.RunAsync(
+                    prog, source, cts.Token,
+                    debug: debug,
+                    debugGate: gate).ConfigureAwait(false);
                 job.ExitCode = 0;
                 if (!job.Stopping)
                     AppLog.Info($"「{prog.Name}」已结束 (exit=0)", prog.Id, prog.Name);
@@ -103,6 +113,9 @@ public sealed class ProgramRunner
             }
             finally
             {
+                try { gate?.EndRun(); } catch { /* ignore */ }
+                if (ProgramDebugGate.Current == gate)
+                    ProgramDebugGate.Current = null;
                 job.Completed = true;
                 _running.TryRemove(prog.Id, out _);
                 // 强制停止时 StopAsync 已把状态置 Idle，避免再写成「错误」
@@ -178,6 +191,9 @@ public sealed class ProgramRunner
         job.Stopping = true;
         prog.RuntimeStatus = ProgramStatus.Stopping;
         AppLog.Info($"正在停止「{prog.Name}」…", prog.Id, prog.Name);
+
+        // 协作式调试：先放开闸门，再取消，避免 Hit/Poll 永久阻塞
+        try { ProgramDebugGate.Current?.EndRun(); } catch { /* ignore */ }
 
         try
         {

@@ -1,8 +1,6 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using Jint;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.Scripting;
 
 namespace FlyScreen.Services.Programs;
 
@@ -31,7 +29,9 @@ public static class InProcessProgramExecutor
         string source,
         CancellationToken ct,
         Action<string>? onInfo = null,
-        Action<string>? onWarn = null)
+        Action<string>? onWarn = null,
+        bool debug = false,
+        ProgramDebugGate? debugGate = null)
     {
         onInfo ??= s => AppLog.Info(s, prog.Id, prog.Name);
         onWarn ??= s => AppLog.Warn(s, prog.Id, prog.Name);
@@ -42,7 +42,7 @@ public static class InProcessProgramExecutor
                 await RunJavaScriptAsync(prog, source, ct, onInfo, onWarn).ConfigureAwait(false);
                 break;
             case ProgramLanguage.CSharp:
-                await RunCSharpAsync(prog, source, ct, onInfo, onWarn).ConfigureAwait(false);
+                await RunCSharpAsync(prog, source, ct, onInfo, onWarn, debug, debugGate).ConfigureAwait(false);
                 break;
             default:
                 throw new NotSupportedException($"进程内执行不支持：{prog.LanguageText}");
@@ -95,28 +95,20 @@ public static class InProcessProgramExecutor
 
     private static async Task RunCSharpAsync(
         UserProgram prog, string source, CancellationToken ct,
-        Action<string> onInfo, Action<string> onWarn)
+        Action<string> onInfo, Action<string> onWarn,
+        bool debug, ProgramDebugGate? debugGate)
     {
-        // 常见 await Task.Delay(n) 补上 ct，否则点停止无法打断延时
-        var code = InjectCancellationIntoDelays(source ?? "");
+        var code = ProgramScriptHost.PrepareSource(source ?? "");
+        if (debug)
+        {
+            var bps = prog.Breakpoints ?? [];
+            code = ProgramDebugInstrumenter.Instrument(code, bps);
+            onInfo($"调试「{prog.Name}」：断点 {bps.Count} 处已注入协作式暂停");
+        }
 
-        var options = ScriptOptions.Default
-            .WithLanguageVersion(Microsoft.CodeAnalysis.CSharp.LanguageVersion.Latest)
-            .AddReferences(
-                typeof(object).Assembly,
-                typeof(Console).Assembly,
-                typeof(Enumerable).Assembly,
-                typeof(Task).Assembly,
-                typeof(StringBuilder).Assembly,
-                typeof(Fly).Assembly)
-            .AddImports(
-                "System",
-                "System.Collections.Generic",
-                "System.Linq",
-                "System.Text",
-                "System.Threading",
-                "System.Threading.Tasks",
-                "FlyScreen.Services.Programs");
+        var options = ProgramScriptHost.CreateScriptOptions();
+        var gate = debugGate ?? (debug ? new ProgramDebugGate() : null);
+        gate?.SetBreakpoints(prog.Breakpoints ?? []);
 
         await CSharpConsoleGate.WaitAsync(ct).ConfigureAwait(false);
         var prevOut = Console.Out;
@@ -126,33 +118,32 @@ public static class InProcessProgramExecutor
             Console.SetOut(new LineLogWriter(s => onInfo($"[{prog.Name}] {s}")));
             Console.SetError(new LineLogWriter(s => onWarn($"[{prog.Name}] {s}")));
 
-            var globals = new CSharpScriptGlobals { CancellationToken = ct };
+            gate?.BeginRun();
+            var globals = new CSharpScriptGlobals
+            {
+                CancellationToken = ct,
+                __flyDbg = gate ?? ProgramDebugGateNop.Instance
+            };
             var script = CSharpScript.Create(code, options, typeof(CSharpScriptGlobals));
             var state = await script.RunAsync(globals, cancellationToken: ct).ConfigureAwait(false);
             _ = state;
         }
         finally
         {
+            gate?.EndRun();
             try { Console.SetOut(prevOut); } catch { /* ignore */ }
             try { Console.SetError(prevErr); } catch { /* ignore */ }
             CSharpConsoleGate.Release();
         }
     }
 
-    /// <summary>Task.Delay(x) → Task.Delay(x, ct)；已带 token 的不改。</summary>
-    private static string InjectCancellationIntoDelays(string source)
-    {
-        return Regex.Replace(
-            source,
-            @"Task\s*\.\s*Delay\s*\(\s*(?<arg>[^,\)]+?)\s*\)",
-            m => $"Task.Delay({m.Groups["arg"].Value.Trim()}, ct)",
-            RegexOptions.CultureInvariant);
-    }
-
     public sealed class CSharpScriptGlobals
     {
         public CancellationToken CancellationToken { get; init; }
         public CancellationToken ct => CancellationToken;
+
+        /// <summary>调试闸门（非调试时为 Nop）。</summary>
+        public ProgramDebugGate __flyDbg { get; set; } = ProgramDebugGateNop.Instance;
 
         /// <summary>可取消延时，脚本可写 await Delay(1000)。</summary>
         public Task Delay(int milliseconds)
@@ -199,4 +190,20 @@ public static class InProcessProgramExecutor
             base.Dispose(disposing);
         }
     }
+}
+
+/// <summary>非调试运行：Hit/Poll 立即返回。</summary>
+public sealed class ProgramDebugGateNop : ProgramDebugGate
+{
+    public static ProgramDebugGateNop Instance { get; } = new();
+
+    private ProgramDebugGateNop() { }
+
+    public override Task HitAsync(int line, params (string Name, object? Value)[] locals)
+        => Task.CompletedTask;
+
+    public override Task LineAsync(int line, params (string Name, object? Value)[] locals)
+        => Task.CompletedTask;
+
+    public override Task PollAsync() => Task.CompletedTask;
 }

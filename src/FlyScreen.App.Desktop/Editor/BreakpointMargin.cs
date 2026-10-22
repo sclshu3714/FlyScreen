@@ -16,8 +16,11 @@ public sealed class BreakpointMargin : AbstractMargin
     private static readonly IBrush LightBg = new SolidColorBrush(Color.FromRgb(0xF3, 0xF4, 0xF6));
     private static readonly IBrush DarkBg = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B));
 
+    private static readonly IBrush ArrowBrush = new SolidColorBrush(Color.FromRgb(0xFA, 0xCC, 0x15));
+
     private readonly Func<IReadOnlyCollection<int>> _getBreakpoints;
     private readonly Action<int> _toggle;
+    private int? _currentLine;
 
     public BreakpointMargin(Func<IReadOnlyCollection<int>> getBreakpoints, Action<int> toggle)
     {
@@ -25,6 +28,14 @@ public sealed class BreakpointMargin : AbstractMargin
         _toggle = toggle;
         Cursor = new Cursor(StandardCursorType.Hand);
         ToolTip.SetTip(this, "点击添加/取消断点");
+    }
+
+    /// <summary>调试当前执行行（黄三角）；null 清除。</summary>
+    public void SetCurrentLine(int? line)
+    {
+        if (_currentLine == line) return;
+        _currentLine = line;
+        InvalidateVisual();
     }
 
     private static IBrush CurrentBgBrush()
@@ -44,11 +55,28 @@ public sealed class BreakpointMargin : AbstractMargin
         foreach (var line in textView.VisualLines)
         {
             var num = line.FirstDocumentLine.LineNumber;
-            if (!bps.Contains(num)) continue;
             var y = line.GetTextLineVisualYPosition(line.TextLines[0], VisualYPosition.TextMiddle)
                     - textView.VerticalOffset;
-            context.DrawEllipse(DotBrush, null, new Point(Bounds.Width / 2, y), 5, 5);
+            if (bps.Contains(num))
+                context.DrawEllipse(DotBrush, null, new Point(Bounds.Width / 2, y), 5, 5);
+            if (_currentLine == num)
+                DrawCurrentArrow(context, y);
         }
+    }
+
+    private void DrawCurrentArrow(DrawingContext context, double midY)
+    {
+        var tipX = Bounds.Width - 2;
+        var backX = 3.0;
+        var geo = new StreamGeometry();
+        using (var ctx = geo.Open())
+        {
+            ctx.BeginFigure(new Point(backX, midY - 5), isFilled: true);
+            ctx.LineTo(new Point(tipX, midY));
+            ctx.LineTo(new Point(backX, midY + 5));
+            ctx.EndFigure(true);
+        }
+        context.DrawGeometry(ArrowBrush, null, geo);
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
