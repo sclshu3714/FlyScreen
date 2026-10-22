@@ -9,6 +9,7 @@ using Android.Util;
 using Android.Views;
 using Android.Views.Accessibility;
 using Android.Widget;
+using FlyScreen.Services.Programs;
 using Path = Android.Graphics.Path;
 using View = Android.Views.View;
 
@@ -25,7 +26,7 @@ namespace FlyScreen.AppMaui.Platforms.Android;
     ForegroundServiceType = global::Android.Content.PM.ForegroundService.TypeSpecialUse)]
 [IntentFilter(["android.accessibilityservice.AccessibilityService"])]
 [MetaData("android.accessibilityservice", Resource = "@xml/flyscreen_accessibility_config")]
-public sealed class FlyScreenInputAccessibilityService : AccessibilityService
+public sealed partial class FlyScreenInputAccessibilityService : AccessibilityService
 {
     public static FlyScreenInputAccessibilityService? Instance { get; private set; }
 
@@ -73,6 +74,8 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         Instance = this;
         RefreshScreenSize();
         EnsureCursorOverlay();
+        ProgramDevice.Current = AndroidProgramDeviceControl.Instance;
+        RaiseEnabledChanged();
     }
 
     public override void OnAccessibilityEvent(AccessibilityEvent? e)
@@ -96,9 +99,13 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         if (ReferenceEquals(Instance, this))
             Instance = null;
         base.OnDestroy();
+        RaiseEnabledChanged();
     }
 
     public static bool IsEnabled => Instance != null;
+
+    /// <summary>无障碍启停变化（高级设置复选框与提示入口共用）。</summary>
+    public static event System.Action? EnabledChanged;
 
     public static void OpenAccessibilitySettings()
     {
@@ -106,6 +113,28 @@ public sealed class FlyScreenInputAccessibilityService : AccessibilityService
         var intent = new Intent(global::Android.Provider.Settings.ActionAccessibilitySettings);
         intent.AddFlags(ActivityFlags.NewTask);
         ctx.StartActivity(intent);
+    }
+
+    /// <summary>关闭本服务（高级设置取消勾选）。无法静默开启，开启须走系统设置。</summary>
+    public static bool TryDisableSelf()
+    {
+        var svc = Instance;
+        if (svc == null) return true;
+        try
+        {
+            svc.DisableSelf();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyScreen", "a11y DisableSelf: " + ex.Message);
+            return false;
+        }
+    }
+
+    private static void RaiseEnabledChanged()
+    {
+        try { EnabledChanged?.Invoke(); } catch { /* ignore */ }
     }
 
     public void BeginSession(double entryX, double entryY)

@@ -43,5 +43,24 @@ public class MainActivity : MauiAppCompatActivity
         {
             /* ignore */
         }
+
+        // 从无障碍设置返回：刷新「高级 → 行为」勾选状态
+        try
+        {
+            Microsoft.Maui.Controls.Application.Current?.Dispatcher.Dispatch(() =>
+            {
+                foreach (var w in Microsoft.Maui.Controls.Application.Current?.Windows ?? [])
+                {
+                    if (w.Page is NavigationPage nav && nav.CurrentPage is MainPage mp)
+                        mp.RefreshA11yInjectFromResume();
+                    else if (w.Page is MainPage main)
+                        main.RefreshA11yInjectFromResume();
+                }
+            });
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
 }

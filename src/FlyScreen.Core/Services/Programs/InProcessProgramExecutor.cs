@@ -7,8 +7,9 @@ using Microsoft.CodeAnalysis.Scripting;
 namespace FlyScreen.Services.Programs;
 
 /// <summary>
-/// 手机端进程内执行：JavaScript（Jint）与 C#（Roslyn Scripting）。
-/// 不依赖系统安装的 node / dotnet。
+/// 进程内执行：C#（Roslyn，全端）与 JavaScript（Jint，手机端）。
+/// C# 统一走脚本引擎，才能使用 <see cref="Fly"/> / <c>ct</c> / <c>Delay</c>；
+/// 电脑上 <see cref="Fly"/> 无设备实现时 <see cref="Fly.Ready"/> 为 false。
 /// </summary>
 public static class InProcessProgramExecutor
 {
@@ -18,9 +19,12 @@ public static class InProcessProgramExecutor
     public static bool Supports(ProgramLanguage lang)
         => lang is ProgramLanguage.JavaScript or ProgramLanguage.CSharp;
 
-    /// <summary>手机上对 JS/C# 优先走嵌入引擎。</summary>
+    /// <summary>
+    /// C# 全端进程内（含 Fly API）；JS 仅手机进程内（电脑仍可用系统 node）。
+    /// </summary>
     public static bool PreferInProcess(ProgramLanguage lang)
-        => IsMobileHost && Supports(lang);
+        => lang == ProgramLanguage.CSharp
+           || (IsMobileHost && lang == ProgramLanguage.JavaScript);
 
     public static async Task RunAsync(
         UserProgram prog,
@@ -63,6 +67,17 @@ public static class InProcessProgramExecutor
 
             engine.SetValue("__flyLog", new Action<string>(s => onInfo($"[{prog.Name}] {s}")));
             engine.SetValue("__flyWarn", new Action<string>(s => onWarn($"[{prog.Name}] {s}")));
+            engine.SetValue("Fly", new FlyScriptBridge());
+            // 可取消的 sleep(ms)，便于循环脚本被「停止」打断
+            engine.SetValue("sleep", new Action<int>(ms =>
+            {
+                var end = Environment.TickCount64 + Math.Max(0, ms);
+                while (Environment.TickCount64 < end)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    Thread.Sleep(Math.Min(50, (int)Math.Max(1, end - Environment.TickCount64)));
+                }
+            }));
             engine.Execute("""
                 var console = {
                   log: function() { __flyLog(Array.prototype.slice.call(arguments).join(' ')); },
@@ -92,14 +107,16 @@ public static class InProcessProgramExecutor
                 typeof(Console).Assembly,
                 typeof(Enumerable).Assembly,
                 typeof(Task).Assembly,
-                typeof(StringBuilder).Assembly)
+                typeof(StringBuilder).Assembly,
+                typeof(Fly).Assembly)
             .AddImports(
                 "System",
                 "System.Collections.Generic",
                 "System.Linq",
                 "System.Text",
                 "System.Threading",
-                "System.Threading.Tasks");
+                "System.Threading.Tasks",
+                "FlyScreen.Services.Programs");
 
         await CSharpConsoleGate.WaitAsync(ct).ConfigureAwait(false);
         var prevOut = Console.Out;

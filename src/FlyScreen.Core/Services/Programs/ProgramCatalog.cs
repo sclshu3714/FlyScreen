@@ -324,15 +324,62 @@ public sealed class ProgramCatalog
             if __name__ == "__main__":
                 main()
             """,
-        ProgramLanguage.CSharp =>
-            $$"""
+        ProgramLanguage.CSharp => InProcessProgramExecutor.IsMobileHost
+            ? $$"""
+            // namespace: {{prog.Namespace}}
+            // name: {{prog.Name}}
+            // 手机脚本：Fly 读界面 / 点击 / 滑动（需开启「玄鸟键鼠注入」无障碍）
+            // 例：广告结束出现「上滑继续观看短剧」时自动上滑
+
+            Console.WriteLine("ready=" + Fly.Ready + " app=" + Fly.App);
+            if (!Fly.Ready)
+            {
+                Console.WriteLine("请开启无障碍：玄鸟键鼠注入");
+                Fly.OpenSettings();
+                return;
+            }
+
+            while (!ct.IsCancellationRequested)
+            {
+                if (Fly.HasText("上滑继续观看短剧"))
+                {
+                    Console.WriteLine("检测到上滑提示 → SwipeUp");
+                    Fly.SwipeUp();
+                    await Delay(1500);
+                }
+                else
+                    await Delay(800);
+            }
+            """
+            : $$"""
             // namespace: {{prog.Namespace}}
             // name: {{prog.Name}}
 
             Console.WriteLine("Hello from {{prog.Name}}");
             """,
-        ProgramLanguage.JavaScript =>
-            $$"""
+        ProgramLanguage.JavaScript => InProcessProgramExecutor.IsMobileHost
+            ? $$"""
+            // package: {{prog.Namespace}}
+            // name: {{prog.Name}}
+            // 手机脚本：Fly.hasText / Fly.swipeUp / sleep(ms)
+
+            console.log("ready=" + Fly.ready() + " app=" + Fly.app());
+            if (!Fly.ready()) {
+              console.warn("请开启无障碍：玄鸟键鼠注入");
+              Fly.openSettings();
+            } else {
+              while (true) {
+                if (Fly.hasText("上滑继续观看短剧")) {
+                  console.log("检测到上滑提示 → swipeUp");
+                  Fly.swipeUp();
+                  sleep(1500);
+                } else {
+                  sleep(800);
+                }
+              }
+            }
+            """
+            : $$"""
             // package: {{prog.Namespace}}
             // name: {{prog.Name}}
 

@@ -87,7 +87,9 @@ public static class ProgramEditorCompletions
         "unchecked", "unsafe", "ushort", "using", "var", "virtual", "void", "volatile", "while",
         "Console", "WriteLine", "Write", "ReadLine", "Task", "Delay", "List", "Dictionary",
         "StringBuilder", "Exception", "ArgumentException", "ArgumentNullException", "nameof",
-        "async", "await", "get", "set", "value", "record", "init", "required"
+        "async", "await", "get", "set", "value", "record", "init", "required",
+        "Fly", "Ready", "App", "HasText", "Texts", "TapText", "Tap", "Swipe", "SwipeUp",
+        "SwipeDown", "Back", "Home", "OpenSettings", "ScreenWidth", "ScreenHeight", "ct"
     ];
 
     private static readonly string[] JavaScript =
@@ -100,7 +102,9 @@ public static class ProgramEditorCompletions
         "console", "log", "error", "warn", "info", "JSON", "parse", "stringify", "Promise",
         "then", "catch", "finally", "setTimeout", "setInterval", "clearTimeout", "Array",
         "Object", "String", "Number", "Boolean", "Map", "Set", "Math", "Date", "Error",
-        "require", "module", "exports", "process", "Buffer", "undefined", "NaN", "Infinity"
+        "require", "module", "exports", "process", "Buffer", "undefined", "NaN", "Infinity",
+        "Fly", "ready", "app", "hasText", "texts", "tapText", "tap", "swipe", "swipeUp",
+        "swipeDown", "back", "home", "openSettings", "sleep", "screenWidth", "screenHeight"
     ];
 
     private static readonly string[] PowerShell =

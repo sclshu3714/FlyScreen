@@ -37,6 +37,8 @@ public partial class MainPage : ContentPage
     private UserProgram? _progMoreTarget;
     private bool _hostWired;
     private bool _uiPrepared;
+    private bool _a11yInjectUpdating;
+    private bool _a11yInjectWired;
 
     /// <summary>触控板可在空闲时调用，把重 UI 初始化提前做完。</summary>
     public bool IsUiPrepared => _uiPrepared;
@@ -766,11 +768,15 @@ public partial class MainPage : ContentPage
         RelativeMouseLabel.Text = Loc.T("Opt.MoveRel");
         BlockCornersLabel.Text = Loc.T("Opt.BlockCorner");
         EasyMouseLabel.Text = Loc.T("Opt.EasyMouse");
+        A11yInjectLabel.Text = Loc.T("Opt.A11yInject");
+        A11yInjectTipLabel.Text = Loc.T("Opt.A11yInjectTip");
         EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
         EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
         EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
         EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
         RefreshEdgeCrossTip();
+        WireA11yInjectUi();
+        SyncA11yInjectCheck();
 
         HotTitleText.Text = Loc.T("Hot.Title");
         HotSwitchText.Text = Loc.T("Hot.Switch");
@@ -1398,7 +1404,10 @@ public partial class MainPage : ContentPage
 
         // 首次显示高级页时 Android RadioButton 可能仍是 Material 深色底，显式刷一遍
         if (index == 1)
+        {
             RefreshOptionsRadioChrome();
+            SyncA11yInjectCheck();
+        }
 
         if (index == 5)
             RefreshAboutPage();
@@ -1720,6 +1729,71 @@ public partial class MainPage : ContentPage
         }
     }
 #endif
+
+    private void WireA11yInjectUi()
+    {
+#if ANDROID
+        A11yInjectRow.IsVisible = true;
+        if (_a11yInjectWired) return;
+        _a11yInjectWired = true;
+        Platforms.Android.FlyScreenInputAccessibilityService.EnabledChanged += () =>
+            MainThread.BeginInvokeOnMainThread(SyncA11yInjectCheck);
+#else
+        A11yInjectRow.IsVisible = false;
+#endif
+    }
+
+    private void SyncA11yInjectCheck()
+    {
+#if ANDROID
+        if (!A11yInjectRow.IsVisible) return;
+        _a11yInjectUpdating = true;
+        try
+        {
+            A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsEnabled;
+        }
+        finally
+        {
+            _a11yInjectUpdating = false;
+        }
+#endif
+    }
+
+    /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。</summary>
+    public void RefreshA11yInjectFromResume() => SyncA11yInjectCheck();
+
+    private async void A11yInject_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+#if ANDROID
+        if (_a11yInjectUpdating) return;
+
+        var wantOn = e.Value;
+        var enabled = Platforms.Android.FlyScreenInputAccessibilityService.IsEnabled;
+
+        if (wantOn)
+        {
+            if (enabled) return;
+            // 不能静默开启：跳转系统设置（与电脑穿入提示同一入口）
+            var go = await DisplayAlertAsync(
+                Loc.T("Opt.A11yInjectOpenTitle"),
+                Loc.T("Opt.A11yInjectOpenBody"),
+                Loc.T("Opt.A11yInjectGo"),
+                Loc.T("Opt.A11yInjectLater"));
+            if (go)
+                Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
+            // 未真正开启前保持未勾选，避免假状态
+            SyncA11yInjectCheck();
+            return;
+        }
+
+        // 关闭：直接停用本服务
+        if (enabled)
+            Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf();
+        SyncA11yInjectCheck();
+#else
+        await Task.CompletedTask;
+#endif
+    }
 
     private void LayoutMode_Clicked(object? sender, EventArgs e)
     {
