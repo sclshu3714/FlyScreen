@@ -6,7 +6,7 @@ namespace FlyScreen.DesktopUi.Services;
 
 /// <summary>
 /// Mac/Linux 桌面：轮询本机文本/文件路径并宣告；对端文件宣告时不预拉，
-/// 打开收件箱时再接收（与 Win「粘贴才传」对齐；本端无 CF_HDROP）。
+/// 由「接收剪贴板文件」或后续粘贴路径显式拉取（与 Win「粘贴才传」对齐；本端无 CF_HDROP）。
 /// </summary>
 public sealed class DesktopClipboardCoordinator : IDisposable
 {
@@ -57,7 +57,7 @@ public sealed class DesktopClipboardCoordinator : IDisposable
 
     private void OnRemoteFilesAnnounced()
     {
-        // 与 Win 对齐：宣告时不拉取；用户打开收件箱或显式接收时再传
+        // 与 Win 对齐：宣告时不拉取；由「接收剪贴板文件」显式拉取
     }
 
     private async Task PollLocalAsync()

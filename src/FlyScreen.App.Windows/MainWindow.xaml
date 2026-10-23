@@ -1245,6 +1245,7 @@
                             <Rectangle Width="1" Height="22" Fill="{DynamicResource Line}" Margin="4,0,12,0"
                          VerticalAlignment="Center"/>
                             <Button x:Name="OpenInboxBtn" Content="打开收件箱" Margin="0,0,8,0" Click="OpenInbox_Click"/>
+                            <Button x:Name="ReceiveClipboardBtn" Content="接收剪贴板文件" Margin="0,0,8,0" Click="ReceiveClipboardFiles_Click"/>
                             <Button x:Name="ClearTransfersBtn" Content="清除已完成" Margin="0" Click="ClearTransfers_Click"/>
                         </StackPanel>
                     </Border>

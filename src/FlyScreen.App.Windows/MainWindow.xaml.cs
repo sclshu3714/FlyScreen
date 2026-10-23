@@ -447,6 +447,7 @@ public partial class MainWindow : Window
         DirectTransferBtn.Content = Loc.T("Xfer.Direct");
         DirectTransferBtn.ToolTip = Loc.T("Tip.DirectTransfer");
         OpenInboxBtn.Content = Loc.T("Xfer.OpenInbox");
+        ReceiveClipboardBtn.Content = Loc.T("Xfer.ReceiveClipboard");
         ClearTransfersBtn.Content = Loc.T("Xfer.ClearDone");
         ClearTransfersBtn.ToolTip = Loc.T("Tip.ClearTransfers");
         ColDir.Header = Loc.T("Xfer.Col.Dir");
@@ -1093,18 +1094,33 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
     }
 
-    private async void OpenInbox_Click(object sender, RoutedEventArgs e)
+    private void OpenInbox_Click(object sender, RoutedEventArgs e)
     {
-        if (_host.Transfers.HasRemotePendingFiles)
-        {
-            StatusText.Text = "正在接收对端文件…";
-            try { await _host.Transfers.PullRemoteFilesForPasteAsync(); }
-            catch { /* ignore */ }
-        }
-
         var dir = _host.Transfers.InboxDirectory;
         Directory.CreateDirectory(dir);
         Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
+    }
+
+    private async void ReceiveClipboardFiles_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_host.Transfers.HasRemotePendingFiles)
+        {
+            StatusText.Text = Loc.T("Xfer.NoPendingClipboard");
+            return;
+        }
+
+        StatusText.Text = Loc.T("Xfer.ReceivingClipboard");
+        try
+        {
+            var files = await _host.Transfers.PullRemoteFilesForPasteAsync();
+            StatusText.Text = files is { Count: > 0 }
+                ? string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count)
+                : Loc.T("Xfer.ReceiveClipboardFail");
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
     }
 
     private void ClearTransfers_Click(object sender, RoutedEventArgs e)

@@ -310,6 +310,7 @@
                             <Button x:Name="DirectTransferBtn" Text="直接传输…" Style="{StaticResource PrimaryBtn}" Clicked="DirectTransfer_Clicked" />
                             <BoxView WidthRequest="1" Color="{DynamicResource Line}" Margin="4,4" />
                             <Button x:Name="OpenInboxBtn" Text="打开收件箱" Style="{StaticResource NormalBtn}" Clicked="OpenInbox_Clicked" />
+                            <Button x:Name="ReceiveClipboardBtn" Text="接收剪贴板文件" Style="{StaticResource NormalBtn}" Clicked="ReceiveClipboardFiles_Clicked" />
                             <Button x:Name="ClearTransfersBtn" Text="清除已完成" Style="{StaticResource NormalBtn}" Clicked="ClearTransfers_Clicked" />
                         </HorizontalStackLayout>
                     </Border>
