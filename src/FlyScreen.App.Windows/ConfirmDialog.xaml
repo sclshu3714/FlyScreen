@@ -1,0 +1,120 @@
+<Window x:Class="FlyScreen.ConfirmDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="确认"
+        Width="420"
+        MinWidth="360"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="13">
+  <Window.Resources>
+    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
+    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+    <SolidColorBrush x:Key="ControlHover" Color="#F9FAFB"/>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <!-- 自定义模板：圆角 + 悬停只改底色，Foreground 始终跟主题 Text（避免系统高亮浅蓝底+白字） -->
+    <Style x:Key="DlgNormalBtn" TargetType="Button">
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource CardBg}"
+                    BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                    CornerRadius="8" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Content="{TemplateBinding Content}"
+                                TextBlock.Foreground="{TemplateBinding Foreground}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHover}"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Line}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="DlgPrimaryBtn" TargetType="Button">
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="Padding" Value="16,0"/>
+      <Setter Property="MinWidth" Value="96"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource Blue}" CornerRadius="8"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Content="{TemplateBinding Content}"
+                                TextBlock.Foreground="White"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BluePress}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Border Background="{DynamicResource WinBg}" Padding="20">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <TextBlock x:Name="TitleText" Text="确认" FontSize="15" FontWeight="SemiBold"
+                 TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+      <TextBlock x:Name="MessageText" Grid.Row="1" TextWrapping="Wrap"
+                 LineHeight="22" Margin="0,0,0,18"/>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button x:Name="CancelBtn" Style="{StaticResource DlgNormalBtn}" Content="取消"
+                IsCancel="True" Click="Cancel_Click"/>
+        <Button x:Name="SecondaryBtn" Style="{StaticResource DlgNormalBtn}" Content="否"
+                Click="Secondary_Click"/>
+        <Button x:Name="PrimaryBtn" Style="{StaticResource DlgPrimaryBtn}" Content="是"
+                IsDefault="True" Click="Primary_Click"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

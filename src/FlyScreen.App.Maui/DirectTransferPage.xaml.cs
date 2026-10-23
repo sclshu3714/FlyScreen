@@ -1,17 +1,23 @@
 using System.Collections.ObjectModel;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
+#if WINDOWS
+using FlyScreen.Win32Clipboard;
+#endif
 
 namespace FlyScreen.AppMaui;
 
 public partial class DirectTransferPage : ContentPage
 {
     private readonly MauiAppHost _host;
-    private readonly ObservableCollection<string> _paths = [];
+    private readonly ObservableCollection<PathItem> _paths = [];
     private readonly ObservableCollection<PeerOption> _peers = [];
     private readonly ObservableCollection<FolderPreset> _presets = [];
     private int _loadingFolders;
     private readonly TaskCompletionSource<bool> _tcs = new();
+#if WINDOWS
+    private ExplorerFileDropTarget? _explorerDrop;
+#endif
 
     public Task<bool> Result => _tcs.Task;
 
@@ -19,6 +25,8 @@ public partial class DirectTransferPage : ContentPage
     {
         InitializeComponent();
         _host = host;
+        Title = "";
+        NavigationPage.SetHasNavigationBar(this, false);
         ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerPicker.ItemsSource = _peers;
@@ -29,7 +37,6 @@ public partial class DirectTransferPage : ContentPage
 
     private void ApplyLocalizedUi()
     {
-        Title = Loc.T("DT.Title");
         AddFilesBtn.Text = Loc.T("DT.AddFiles");
         AddFolderBtn.Text = Loc.T("DT.AddFolder");
         RemoveSelectedBtn.Text = Loc.T("DT.Remove");
@@ -47,6 +54,7 @@ public partial class DirectTransferPage : ContentPage
 
     private void OnLoaded(object? sender, EventArgs e)
     {
+        AttachExplorerDrop();
         RefreshPeers();
         if (_peers.Count == 0)
         {
@@ -59,8 +67,51 @@ public partial class DirectTransferPage : ContentPage
         }
     }
 
+    private void AttachExplorerDrop()
+    {
+#if WINDOWS
+        _explorerDrop?.Dispose();
+        _explorerDrop = null;
+        try
+        {
+            var win = Window ?? Application.Current?.Windows.FirstOrDefault();
+            if (win?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
+                return;
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);
+            _explorerDrop = ExplorerFileDropTarget.TryAttach(hwnd, paths =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    foreach (var p in paths)
+                    {
+                        if (File.Exists(p) || Directory.Exists(p))
+                            AddPath(p);
+                    }
+                });
+            });
+        }
+        catch
+        {
+            // ignore
+        }
+#endif
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+#if WINDOWS
+        _explorerDrop?.Dispose();
+        _explorerDrop = null;
+#endif
+        _tcs.TrySetResult(false);
+    }
+
     private void UpdateDropHint()
         => PathDropHint.IsVisible = _paths.Count == 0;
+
+    private IEnumerable<string> PathValues()
+        => _paths.Select(p => p.Path);
 
     private void RefreshPeers()
     {
@@ -178,87 +229,27 @@ public partial class DirectTransferPage : ContentPage
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         path = path.Trim();
-        if (_paths.Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)))
+        if (_paths.Any(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase)))
             return;
-        _paths.Add(path);
+        _paths.Add(new PathItem(path));
         UpdateDropHint();
         StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
     }
 
-    private void PathList_DragOver(object? sender, DragEventArgs e)
-        => e.AcceptedOperation = DataPackageOperation.Copy;
-
-    private async void PathList_Drop(object? sender, DropEventArgs e)
-    {
-        try
-        {
-            // 属性字典：Win 上常见 FileNames / FileName
-            foreach (var key in new[] { "FileNames", "FileName", "Files" })
-            {
-                if (!e.Data.Properties.TryGetValue(key, out var val) || val is null) continue;
-                if (val is IEnumerable<string> many)
-                {
-                    foreach (var n in many)
-                        TryAddDropped(n);
-                    return;
-                }
-
-                if (val is string one)
-                {
-                    TryAddDropped(one);
-                    return;
-                }
-            }
-
-            if (e.Data.Properties.TryGetValue("Text", out var textObj) && textObj is string text
-                && !string.IsNullOrWhiteSpace(text))
-            {
-                foreach (var line in text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                    TryAddDropped(line.Trim().Trim('"'));
-                return;
-            }
-
-            // 部分版本提供 GetTextAsync
-            try
-            {
-                var t = await e.Data.GetTextAsync().ConfigureAwait(true);
-                if (!string.IsNullOrWhiteSpace(t))
-                {
-                    foreach (var line in t.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                        TryAddDropped(line.Trim().Trim('"'));
-                }
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-        catch
-        {
-            // 拖放失败不阻断手动添加
-        }
-    }
-
-    private void TryAddDropped(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return;
-        if (!File.Exists(raw) && !Directory.Exists(raw)) return;
-        AddPath(raw);
-    }
-
     private void RemoveSelected_Clicked(object? sender, EventArgs e)
     {
-        var selected = PathList.SelectedItems?.OfType<string>().ToList() ?? [];
+        var selected = _paths.Where(p => p.IsSelected).ToList();
         foreach (var s in selected)
             _paths.Remove(s);
-        PathList.SelectedItems?.Clear();
         UpdateDropHint();
+        StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
     }
 
     private void ClearPaths_Clicked(object? sender, EventArgs e)
     {
         _paths.Clear();
         UpdateDropHint();
+        StatusText.Text = string.Format(Loc.T("DT.Selected"), 0);
     }
 
     private async void Start_Clicked(object? sender, EventArgs e)
@@ -291,7 +282,7 @@ public partial class DirectTransferPage : ContentPage
         StartBtn.IsEnabled = false;
         StatusText.Text = string.Format(Loc.T("DT.Started"), peer.Name);
 
-        var snapshot = _paths.ToList();
+        var snapshot = PathValues().ToList();
         var peerName = peer.Name;
         var dest = target;
         _ = Task.Run(async () =>
@@ -317,10 +308,22 @@ public partial class DirectTransferPage : ContentPage
         await Navigation.PopModalAsync();
     }
 
-    protected override void OnDisappearing()
+    private sealed class PathItem(string path) : System.ComponentModel.INotifyPropertyChanged
     {
-        base.OnDisappearing();
-        _tcs.TrySetResult(false);
+        private bool _selected = true; // 添加/拖入默认勾选，便于「移除所选」
+        public string Path { get; } = path;
+        public bool IsSelected
+        {
+            get => _selected;
+            set
+            {
+                if (_selected == value) return;
+                _selected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     }
 
     private sealed class PeerOption(string name)

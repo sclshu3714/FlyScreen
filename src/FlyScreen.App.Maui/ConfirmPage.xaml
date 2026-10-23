@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FlyScreen.AppMaui.ConfirmPage"
+             Title="确认"
+             BackgroundColor="#80000000">
+  <Grid Padding="24">
+    <Border Style="{StaticResource Card}"
+            MaximumWidthRequest="420"
+            MinimumWidthRequest="280"
+            VerticalOptions="Center"
+            HorizontalOptions="Center"
+            Padding="20"
+            BackgroundColor="{DynamicResource WinBg}">
+      <VerticalStackLayout Spacing="0">
+        <Label x:Name="TitleLabel" Text="确认" FontSize="15" FontAttributes="Bold"
+               TextColor="{DynamicResource Text}" LineBreakMode="WordWrap" Margin="0,0,0,10" />
+        <Label x:Name="MessageLabel" FontSize="13" TextColor="{DynamicResource Text}"
+               LineBreakMode="WordWrap" Margin="0,0,0,18" />
+        <FlexLayout Wrap="Wrap" JustifyContent="End" AlignItems="Center">
+          <Button x:Name="CancelBtn" Text="取消" Style="{StaticResource NormalBtn}"
+                  Margin="0,0,8,0" Clicked="Cancel_Clicked" />
+          <Button x:Name="SecondaryBtn" Text="否" Style="{StaticResource NormalBtn}"
+                  Margin="0,0,8,0" Clicked="Secondary_Clicked" />
+          <Button x:Name="PrimaryBtn" Text="是" Style="{StaticResource PrimaryBtn}"
+                  Clicked="Primary_Clicked" />
+        </FlexLayout>
+      </VerticalStackLayout>
+    </Border>
+  </Grid>
+</ContentPage>

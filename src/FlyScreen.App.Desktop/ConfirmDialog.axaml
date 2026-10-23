@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ConfirmDialog"
+        Title="确认"
+        Width="420"
+        MinWidth="360"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13">
+  <Border Padding="20" Background="{DynamicResource WinBg}">
+    <Grid RowDefinitions="Auto,Auto,Auto">
+      <TextBlock x:Name="TitleText" Text="确认" FontSize="15" FontWeight="SemiBold"
+                 TextWrapping="Wrap" Margin="0,0,0,10"/>
+      <TextBlock x:Name="MessageText" Grid.Row="1" TextWrapping="Wrap" LineHeight="22"
+                 Margin="0,0,0,18"/>
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="CancelBtn" Classes="normal" Content="取消" MinWidth="88" Margin="0"
+                Click="Cancel_Click"/>
+        <Button x:Name="SecondaryBtn" Classes="normal" Content="否" MinWidth="88" Margin="0"
+                Click="Secondary_Click"/>
+        <Button x:Name="PrimaryBtn" Classes="primary" Content="是" MinWidth="96" Margin="0"
+                Click="Primary_Click"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

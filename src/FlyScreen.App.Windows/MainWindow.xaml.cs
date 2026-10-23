@@ -1118,14 +1118,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        var r = MessageBox.Show(
+        var choice = ConfirmDialog.ShowTransferDelete(
             this,
-            Loc.T("Xfer.ConfirmClearReceive"),
             Loc.T("Xfer.ConfirmClearTitle"),
-            MessageBoxButton.YesNoCancel,
-            MessageBoxImage.Question);
-        if (r == MessageBoxResult.Cancel) return;
-        _host.Transfers.ClearCompleted(deleteReceiveFiles: r == MessageBoxResult.Yes);
+            Loc.T("Xfer.ConfirmClearReceive"));
+        if (choice == UiConfirmChoice.Cancel) return;
+        _host.Transfers.ClearCompleted(deleteReceiveFiles: choice == UiConfirmChoice.Primary);
     }
 
     private void DeleteTransfer_Click(object sender, RoutedEventArgs e)
@@ -1147,14 +1145,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        var r = MessageBox.Show(
+        var choice = ConfirmDialog.ShowTransferDelete(
             this,
-            Loc.T("Xfer.ConfirmDeleteReceive"),
             Loc.T("Xfer.ConfirmDeleteTitle"),
-            MessageBoxButton.YesNoCancel,
-            MessageBoxImage.Question);
-        if (r == MessageBoxResult.Cancel) return;
-        _host.Transfers.RemoveItem(item, deleteCache: r == MessageBoxResult.Yes);
+            Loc.T("Xfer.ConfirmDeleteReceive"));
+        if (choice == UiConfirmChoice.Cancel) return;
+        _host.Transfers.RemoveItem(item, deleteCache: choice == UiConfirmChoice.Primary);
     }
 
     private void TransferFileName_Click(object sender, MouseButtonEventArgs e)

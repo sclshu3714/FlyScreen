@@ -2,10 +2,12 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
+using FlyScreen.Win32Clipboard;
 
 namespace FlyScreen;
 
@@ -16,11 +18,15 @@ public partial class DirectTransferWindow : Window
     private readonly ObservableCollection<PeerOption> _peers = [];
     private readonly ObservableCollection<FolderPreset> _presets = [];
     private int _loadingFolders;
+    private ExplorerFileDropTarget? _explorerDrop;
+    private HwndSource? _hwndSource;
+    private readonly HwndSourceHook _dropHook;
 
     public DirectTransferWindow(AppHost host)
     {
         InitializeComponent();
         _host = host;
+        _dropHook = DropWndProc;
         ThemeService.ApplyToChildWindow(this);
         ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
@@ -31,7 +37,10 @@ public partial class DirectTransferWindow : Window
             if (PathDropHint != null)
                 PathDropHint.Visibility = _paths.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         };
+        // SourceInitialized：句柄已有，早于 Loaded，避免 WPF 先 RegisterDragDrop
+        SourceInitialized += (_, _) => AttachExplorerDrop();
         Loaded += OnLoaded;
+        Closed += (_, _) => DetachExplorerDrop();
     }
 
     private void ApplyLocalizedUi()
@@ -55,6 +64,8 @@ public partial class DirectTransferWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         ThemeService.ApplyToChildWindow(this);
+        // 再挂一次：防止 Loaded 后其它逻辑重新 RegisterDragDrop
+        AttachExplorerDrop();
         RefreshPeers();
         if (_peers.Count == 0)
         {
@@ -65,6 +76,52 @@ public partial class DirectTransferWindow : Window
         {
             PeerCombo.SelectedIndex = 0;
         }
+    }
+
+    private void AttachExplorerDrop()
+    {
+        DetachExplorerDrop();
+        // 禁止 WPF OLE 投放（提权下只会显示禁止光标）
+        AllowDrop = false;
+        PathDropBorder.AllowDrop = false;
+        PathList.AllowDrop = false;
+
+        var hwnd = new WindowInteropHelper(this).EnsureHandle();
+        _explorerDrop = ExplorerFileDropTarget.TryAttachWpf(hwnd, paths =>
+        {
+            foreach (var p in paths)
+            {
+                if (File.Exists(p) || Directory.Exists(p))
+                    AddPath(p);
+            }
+        });
+        if (_explorerDrop is null) return;
+
+        _hwndSource = HwndSource.FromHwnd(hwnd);
+        _hwndSource?.AddHook(_dropHook);
+
+        // 布局完成后再 Revoke + DragAccept，防止 WPF 延迟 RegisterDragDrop
+        Dispatcher.BeginInvoke(
+            () => _explorerDrop?.Reaffirm(),
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void DetachExplorerDrop()
+    {
+        if (_hwndSource != null)
+        {
+            try { _hwndSource.RemoveHook(_dropHook); } catch { /* ignore */ }
+            _hwndSource = null;
+        }
+
+        _explorerDrop?.Dispose();
+        _explorerDrop = null;
+    }
+
+    private IntPtr DropWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        _explorerDrop?.TryHandle(hwnd, msg, wParam, lParam, ref handled);
+        return IntPtr.Zero;
     }
 
     private void RefreshPeers()
@@ -164,101 +221,6 @@ public partial class DirectTransferWindow : Window
             return;
         _paths.Add(path);
         StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
-    }
-
-    private static bool HasFileDrop(System.Windows.IDataObject data)
-    {
-        try
-        {
-            return data.GetDataPresent(System.Windows.DataFormats.FileDrop, true)
-                   || data.GetDataPresent("FileDrop")
-                   || data.GetDataPresent("FileNameW")
-                   || data.GetDataPresent("FileName");
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string[]? ReadDroppedPaths(System.Windows.IDataObject data)
-    {
-        try
-        {
-            if (data.GetData(System.Windows.DataFormats.FileDrop, true) is string[] arr && arr.Length > 0)
-                return arr;
-        }
-        catch { /* ignore */ }
-
-        try
-        {
-            if (data.GetData("FileNameW") is string[] w && w.Length > 0)
-                return w;
-            if (data.GetData("FileNameW") is string oneW && !string.IsNullOrWhiteSpace(oneW))
-                return [oneW];
-        }
-        catch { /* ignore */ }
-
-        try
-        {
-            if (data.GetData("FileName") is string[] a && a.Length > 0)
-                return a;
-            if (data.GetData("FileName") is string one && !string.IsNullOrWhiteSpace(one))
-                return [one];
-        }
-        catch { /* ignore */ }
-
-        return null;
-    }
-
-    private void PathList_PreviewDragOver(object sender, System.Windows.DragEventArgs e)
-    {
-        if (HasFileDrop(e.Data))
-        {
-            // Effects 必须落在 AllowedEffects 内，否则资源管理器会显示禁止光标
-            var allow = e.AllowedEffects;
-            if ((allow & System.Windows.DragDropEffects.Copy) != 0)
-                e.Effects = System.Windows.DragDropEffects.Copy;
-            else if ((allow & System.Windows.DragDropEffects.Link) != 0)
-                e.Effects = System.Windows.DragDropEffects.Link;
-            else if ((allow & System.Windows.DragDropEffects.Move) != 0)
-                e.Effects = System.Windows.DragDropEffects.Move;
-            else
-                e.Effects = System.Windows.DragDropEffects.None;
-        }
-        else
-        {
-            e.Effects = System.Windows.DragDropEffects.None;
-        }
-
-        e.Handled = true;
-    }
-
-    private void PathList_PreviewDrop(object sender, System.Windows.DragEventArgs e)
-    {
-        var dropped = ReadDroppedPaths(e.Data);
-        if (dropped is not { Length: > 0 })
-        {
-            e.Handled = true;
-            return;
-        }
-
-        var added = 0;
-        foreach (var raw in dropped)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) continue;
-            // 保留顶层路径：文件夹整夹添加，由传输端展开层级
-            if (!File.Exists(raw) && !Directory.Exists(raw)) continue;
-            var before = _paths.Count;
-            AddPath(raw);
-            if (_paths.Count > before) added++;
-        }
-
-        if (PathDropHint != null)
-            PathDropHint.Visibility = _paths.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (added > 0)
-            StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
-        e.Handled = true;
     }
 
     private void RemoveSelected_Click(object sender, RoutedEventArgs e)

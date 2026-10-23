@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Text;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services;
@@ -1584,6 +1585,13 @@ public partial class MainPage : ContentPage
     private Task PushModalAsync(Page page)
         => Navigation.PushModalAsync(new NavigationPage(page));
 
+    private async Task<UiConfirmChoice> ShowConfirmAsync(ConfirmPage page)
+    {
+        // 无 NavigationPage 外壳，避免顶栏；半透明遮罩直接盖主页
+        await Navigation.PushModalAsync(page, animated: true);
+        return await page.Result;
+    }
+
     private async void ProgAdd_Clicked(object? sender, EventArgs e)
     {
         var page = new ProgramAddPage();
@@ -2411,7 +2419,8 @@ public partial class MainPage : ContentPage
     private async void DirectTransfer_Clicked(object? sender, EventArgs e)
     {
         var page = new DirectTransferPage(_host);
-        await PushModalAsync(page);
+        // 无 NavigationPage，避免顶栏「直接传输」标题
+        await Navigation.PushModalAsync(page, animated: true);
         if (await page.Result)
             ShowPage(3);
     }
@@ -2456,16 +2465,11 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var choice = await DisplayActionSheetAsync(
+        var choice = await ShowConfirmAsync(ConfirmPage.ForTransferDelete(
             Loc.T("Xfer.ConfirmClearTitle"),
-            Loc.T("DT.Cancel"),
-            null,
-            Loc.T("Xfer.DeleteFiles"),
-            Loc.T("Xfer.KeepFiles"));
-        if (choice == Loc.T("Xfer.DeleteFiles"))
-            _host.Transfers.ClearCompleted(deleteReceiveFiles: true);
-        else if (choice == Loc.T("Xfer.KeepFiles"))
-            _host.Transfers.ClearCompleted(deleteReceiveFiles: false);
+            Loc.T("Xfer.ConfirmClearReceive")));
+        if (choice == UiConfirmChoice.Cancel) return;
+        _host.Transfers.ClearCompleted(deleteReceiveFiles: choice == UiConfirmChoice.Primary);
     }
 
     private void TransferFileName_Tapped(object? sender, TappedEventArgs e)
@@ -2493,16 +2497,11 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var choice = await DisplayActionSheetAsync(
+        var choice = await ShowConfirmAsync(ConfirmPage.ForTransferDelete(
             Loc.T("Xfer.ConfirmDeleteTitle"),
-            Loc.T("DT.Cancel"),
-            null,
-            Loc.T("Xfer.DeleteFiles"),
-            Loc.T("Xfer.KeepFiles"));
-        if (choice == Loc.T("Xfer.DeleteFiles"))
-            _host.Transfers.RemoveItem(item, deleteCache: true);
-        else if (choice == Loc.T("Xfer.KeepFiles"))
-            _host.Transfers.RemoveItem(item, deleteCache: false);
+            Loc.T("Xfer.ConfirmDeleteReceive")));
+        if (choice == UiConfirmChoice.Cancel) return;
+        _host.Transfers.RemoveItem(item, deleteCache: choice == UiConfirmChoice.Primary);
     }
 
     private void Tray_Clicked(object? sender, EventArgs e)
