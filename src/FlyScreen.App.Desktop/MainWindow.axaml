@@ -32,6 +32,10 @@
     <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
     <StreamGeometry x:Key="GeoStop">M6,6H18V18H6V6Z</StreamGeometry>
     <StreamGeometry x:Key="GeoEdit">M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoChevronLeft">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoRefresh">M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoToEnd">M4,6H20V8H4V6M4,18H20V16H4V18M4,11H20V13H4V11Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoDownload">M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -911,15 +915,66 @@
           <Grid x:Name="PageLog" IsVisible="False" MinHeight="420">
             <Border Classes="card" Padding="16">
               <DockPanel>
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,8">
-                  <TextBlock x:Name="LogTitleText" Text="日志" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                  <CheckBox x:Name="LogErrorsOnlyCheck" Grid.Column="1" Content="仅错误" VerticalAlignment="Center"
-                            Margin="12,0,0,0" IsCheckedChanged="LogFilter_Changed"/>
-                  <Button x:Name="LogDownloadBtn" Grid.Column="2" Content="下载" Margin="12,0,0,0" Click="LogDownload_Click"/>
-                  <Button x:Name="LogClearBtn" Grid.Column="3" Content="清除" Margin="8,0,0,0" Click="LogClear_Click"/>
-                </Grid>
-                <TextBlock x:Name="LogHintText" DockPanel.Dock="Top" Text="收录运行中的状态与错误。新记录在底部。"
-                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                <TextBlock x:Name="LogTitleText" DockPanel.Dock="Top" Text="日志" FontSize="15" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="0,0,0,6"/>
+                <Border x:Name="LogToolBarHost" DockPanel.Dock="Top" Margin="0,0,0,6" ClipToBounds="True"
+                        SizeChanged="LogToolBarHost_SizeChanged">
+                  <StackPanel x:Name="LogToolBar" Orientation="Horizontal" Spacing="3" HorizontalAlignment="Left">
+                    <ComboBox x:Name="LogLevelFilter" MinWidth="52" Width="72" VerticalAlignment="Center"
+                              SelectionChanged="LogFilter_Changed"/>
+                    <Button x:Name="LogPrevBtn" Classes="progTool" MinWidth="30" Click="LogPrev_Click"
+                            ToolTip.Tip="更早">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoChevronLeft}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogPrevBtnText" Text="更早" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
+                    <Button x:Name="LogNextBtn" Classes="progTool" MinWidth="30" Click="LogNext_Click"
+                            ToolTip.Tip="更新">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoRefresh}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogNextBtnText" Text="更新" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
+                    <Button x:Name="LogLatestBtn" Classes="progTool" MinWidth="30" Click="LogLatest_Click"
+                            ToolTip.Tip="最新">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoToEnd}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogLatestBtnText" Text="最新" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
+                    <Button x:Name="LogDownloadBtn" Classes="progTool" MinWidth="30" Click="LogDownload_Click"
+                            ToolTip.Tip="下载">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoDownload}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogDownloadBtnText" Text="下载" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
+                    <Button x:Name="LogClearBtn" Classes="progTool" MinWidth="30" Click="LogClear_Click"
+                            ToolTip.Tip="清除">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoDelete}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogClearBtnText" Text="清除" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                </Border>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8" Spacing="2">
+                  <TextBlock x:Name="LogPageText" FontSize="12" Foreground="{DynamicResource Muted}"
+                             TextWrapping="Wrap"/>
+                  <TextBlock x:Name="LogHintText" Text="收录运行中的状态与错误。新记录在底部。"
+                             FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+                </StackPanel>
                 <ListBox x:Name="LogList" Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}">
                   <ListBox.ItemTemplate>
                     <DataTemplate DataType="diag:AppLogEntry">

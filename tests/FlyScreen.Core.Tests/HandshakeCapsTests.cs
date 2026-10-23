@@ -47,7 +47,26 @@ public class HandshakeCapsTests
         Assert.Contains(PeerCaps.EdgeMouse, effective);
         Assert.Contains(PeerCaps.InjectInput, effective);
         Assert.Contains(PeerCaps.AbsPointer, effective);
+        Assert.Contains(PeerCaps.BulkTransfer, effective);
         Assert.DoesNotContain(PeerCaps.LayoutSync, effective);
+    }
+
+    [Fact]
+    public void BulkMessageTypes_FileAndClipboardChunks_AreBulk()
+    {
+        Assert.True(BulkMessageTypes.IsBulk(MessageType.FileChunk));
+        Assert.True(BulkMessageTypes.IsBulk(MessageType.ClipboardInlineChunk));
+        Assert.True(BulkMessageTypes.IsBulk(MessageType.ClipboardImageChunk));
+        Assert.False(BulkMessageTypes.IsBulk(MessageType.MouseMove));
+        Assert.False(BulkMessageTypes.IsBulk(MessageType.ClipboardFilesAnnounce));
+        Assert.False(BulkMessageTypes.IsBulk(MessageType.ClipboardFilesPull));
+    }
+
+    [Fact]
+    public void DesktopFull_IncludesBulkTransfer()
+    {
+        Assert.Contains(PeerCaps.BulkTransfer, PeerCaps.DesktopFull);
+        Assert.Contains(PeerCaps.BulkTransfer, PeerCaps.AndroidMobile);
     }
 
     [Fact]

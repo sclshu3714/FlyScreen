@@ -14,7 +14,7 @@
 | 版本 | 状态 | 说明 |
 |------|------|------|
 | 1 | 现网 / 兼容 | 现有 Win 消息集（键鼠、剪贴板、文件、布局等） |
-| 2 | 已落地字段 | 握手 JSON 可选：`Platform`、`DeviceClass`、`Caps`、`AppVersion`；旧端忽略多余字段 |
+| 2 | 已落地字段 | 握手 JSON 可选：`Platform`、`DeviceClass`、`Caps`、`AppVersion`、`Channel`；旧端忽略多余字段 |
 | 3+ | 未来 | 破坏性变更时使用 |
 
 ## 3. 握手扩展（Version ≥ 2 逻辑字段）
@@ -45,6 +45,17 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 ```
 
 实现：`LocalPeerIdentity.IntersectCaps` / `ConnectionManager.PeerSupports` / `IsPeerEdgeMouseCapable`。
+
+### 3.2 独立大块传输通道（Bulk）
+
+双方 Caps 均含 `BulkTransfer` 时，在**同一 TCP 端口**再建第二条连接，握手 `Channel=1`（`PeerChannel.Bulk`）：
+
+| 通道 | 承载 |
+| --- | --- |
+| Control（`Channel=0`/缺省） | 键鼠、心跳、布局/行为同步、剪贴板宣告与拉取信令 |
+| Bulk（`Channel=1`） | `File*`、`ClipboardInlineChunk/Complete`、`ClipboardImageChunk/Complete` |
+
+旧端无 `BulkTransfer` / 忽略 `Channel`：大块消息仍走控制面（兼容）。建立 bulk 须对端 **Caps 显式含** `BulkTransfer`（不可用「空 Caps=legacy 全开」逻辑）。
 
 无任何有效输入能力时：保持连接；边缘切换不会选中该 peer。
 

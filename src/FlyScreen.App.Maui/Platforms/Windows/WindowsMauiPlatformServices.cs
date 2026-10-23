@@ -78,8 +78,9 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void SetEasyMouse(bool enabled)
     {
-        if (_router != null)
-            _router.EasyMouseEnabled = enabled;
+        if (_router == null) return;
+        _router.EasyMouseEnabled = enabled;
+        _router.RefreshEdgeCrossFromSettings();
     }
 
     public void InjectMouseMoveAbsolute(double nx, double ny)

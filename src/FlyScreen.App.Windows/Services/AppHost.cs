@@ -39,6 +39,7 @@ public sealed class AppHost : IAsyncDisposable
         _behaviorSync.BehaviorSyncedFromPeer += from =>
         {
             Input.EasyMouseEnabled = Settings.EasyMouse;
+            Input.RefreshEdgeCrossFromSettings();
             try { BehaviorSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
         };
         _layoutSync = new LayoutSyncHelper(Settings, Connections);
