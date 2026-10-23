@@ -106,6 +106,7 @@ public static class InProcessProgramExecutor
             onInfo($"调试「{prog.Name}」：断点 {bps.Count} 处已注入协作式暂停");
         }
 
+        var (wrapped, _) = ProgramScriptHost.WrapAsEntry(code);
         var options = ProgramScriptHost.CreateScriptOptions();
         var gate = debugGate ?? (debug ? new ProgramDebugGate() : null);
         gate?.SetBreakpoints(prog.Breakpoints ?? []);
@@ -119,14 +120,13 @@ public static class InProcessProgramExecutor
             Console.SetError(new LineLogWriter(s => onWarn($"[{prog.Name}] {s}")));
 
             gate?.BeginRun();
-            var globals = new CSharpScriptGlobals
-            {
-                CancellationToken = ct,
-                __flyDbg = gate ?? ProgramDebugGateNop.Instance
-            };
-            var script = CSharpScript.Create(code, options, typeof(CSharpScriptGlobals));
-            var state = await script.RunAsync(globals, cancellationToken: ct).ConfigureAwait(false);
-            _ = state;
+            // 无 globalsType，避免单文件宿主 Location 为空导致元数据引用失败
+            var script = CSharpScript.Create(wrapped, options);
+            var state = await script.RunAsync(cancellationToken: ct).ConfigureAwait(false);
+            if (state.ReturnValue is Func<CancellationToken, ProgramDebugGate, Task> entry)
+                await entry(ct, gate ?? ProgramDebugGateNop.Instance).ConfigureAwait(false);
+            else if (state.ReturnValue is Task t)
+                await t.ConfigureAwait(false);
         }
         finally
         {
@@ -137,17 +137,13 @@ public static class InProcessProgramExecutor
         }
     }
 
+    /// <summary>保留类型供旧代码/文档引用；运行路径已改为 <see cref="ProgramScriptHost.WrapAsEntry"/>。</summary>
     public sealed class CSharpScriptGlobals
     {
         public CancellationToken CancellationToken { get; init; }
         public CancellationToken ct => CancellationToken;
-
-        /// <summary>调试闸门（非调试时为 Nop）。</summary>
         public ProgramDebugGate __flyDbg { get; set; } = ProgramDebugGateNop.Instance;
-
-        /// <summary>可取消延时，脚本可写 await Delay(1000)。</summary>
-        public Task Delay(int milliseconds)
-            => Task.Delay(milliseconds, CancellationToken);
+        public Task Delay(int milliseconds) => Task.Delay(milliseconds, CancellationToken);
     }
 
     private sealed class LineLogWriter : TextWriter
