@@ -1,9 +1,11 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -12,7 +14,10 @@ using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
+using FlyScreen.Services.Update;
 using WinForms = System.Windows.Forms;
+using Media = System.Windows.Media;
 
 namespace FlyScreen;
 
@@ -31,6 +36,42 @@ public partial class MainWindow : Window
     private System.Windows.Point _dragStart;
     private object? _dragItem;
     private bool _syncingNav;
+    private readonly GitHubUpdateService _helpUpdater = new();
+    private UpdateCheckResult? _helpLastCheck;
+    private bool _helpUpdateReady;
+    private bool _helpFixReady;
+    private bool _progToolModeUpdating;
+    private bool _optionsFeatStacked;
+
+    public static readonly DependencyProperty ProgToolsCompactProperty =
+        DependencyProperty.Register(nameof(ProgToolsCompact), typeof(bool), typeof(MainWindow), new PropertyMetadata(false));
+
+    public bool ProgToolsCompact
+    {
+        get => (bool)GetValue(ProgToolsCompactProperty);
+        set => SetValue(ProgToolsCompactProperty, value);
+    }
+
+    public static readonly DependencyProperty LogToolsCompactProperty =
+        DependencyProperty.Register(nameof(LogToolsCompact), typeof(bool), typeof(MainWindow), new PropertyMetadata(false));
+
+    public bool LogToolsCompact
+    {
+        get => (bool)GetValue(LogToolsCompactProperty);
+        set => SetValue(LogToolsCompactProperty, value);
+    }
+
+    private bool _logToolModeUpdating;
+    private string? _logProgramId;
+    private string? _logProgramName;
+    private bool _openProgramLog;
+    private int _logPageFromLatest;
+    private int _logTotalPages;
+    private readonly ObservableCollection<AppLogEntry> _logItems = new();
+    private bool _logStickToBottom = true;
+    private bool _logFilterReady;
+    private int _logKnownTotal;
+    private AppLogEntry? _logWatermark;
 
     public MainWindow()
     {
@@ -56,9 +97,18 @@ public partial class MainWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Loaded);
 
         _host.StatusMessage += msg => Dispatcher.Invoke(() => StatusText.Text = msg);
+        AppLog.Changed += () => Dispatcher.Invoke(() =>
+        {
+            // 仅在「最新」页增量追加，避免整表重绑闪烁回顶
+            if (PageLog.Visibility == Visibility.Visible && _logPageFromLatest == 0)
+                RefreshLogPageLive();
+        });
+        LogList.ItemsSource = _logItems;
+        ProgramService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshProgramsPage);
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
         _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
+        _host.BehaviorSyncedFromPeer += OnBehaviorSyncedFromPeer;
 
         _host.Clipboard.Start(this);
         await _host.StartAsync();
@@ -111,7 +161,13 @@ public partial class MainWindow : Window
         _trayOpen = new WinForms.ToolStripMenuItem(Loc.T("Tray.Open"), null, (_, _) => { Show(); Activate(); });
         _trayReconnect = new WinForms.ToolStripMenuItem(Loc.T("Tray.Reconnect"), null,
             async (_, _) => await _host.Connections.ReconnectNowAsync());
-        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) => ShowAbout());
+        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) =>
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            ShowPage(5);
+        });
         _trayExit = new WinForms.ToolStripMenuItem(Loc.T("Tray.Exit"), null, (_, _) => ExitApp());
         menu.Items.AddRange([_trayOpen, _trayReconnect, _trayAbout, _trayExit]);
         _tray.ContextMenuStrip = menu;
@@ -145,6 +201,7 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
         // 注册表与设置任一为开则视为开启，并写回一致状态
         var autoStart = AutoStartHelper.IsEnabled() || s.AutoStart;
         AutoStartCheck.IsChecked = autoStart;
@@ -179,7 +236,7 @@ public partial class MainWindow : Window
         for (var i = 0; i < 4; i++)
         {
             var name = i < s.MachineSlots.Count ? s.MachineSlots[i] : "";
-            var isLocal = string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            var isLocal = string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
             _slots.Add(new MachineSlot
             {
                 Index = i,
@@ -260,6 +317,7 @@ public partial class MainWindow : Window
         s.MoveMouseRelatively = MoveRelCheck.IsChecked == true;
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
+        s.EdgeCrossMode = ReadEdgeCrossModeUi();
         s.AutoStart = AutoStartCheck.IsChecked == true;
         if (!AutoStartHelper.SetEnabled(s.AutoStart))
             StatusText.Text = s.AutoStart
@@ -298,22 +356,22 @@ public partial class MainWindow : Window
         s.Save();
 
         _host.Input.EasyMouseEnabled = s.EasyMouse;
+        _host.Input.RefreshEdgeCrossFromSettings();
     }
 
     private void ApplyLocalizedUi()
     {
-        // 供 DataTemplate 使用的动态文案
-        Resources["Str.Delete"] = Loc.T("Btn.Delete");
-        Resources["Str.DeleteTip"] = Loc.T("Tip.DeleteTransfer");
-        Resources["Str.Add"] = Loc.T("Btn.Add");
-        Resources["Str.Search"] = Loc.T("Search.Placeholder");
+        // DataTemplate 内文案（StringBox 可通知绑定刷新）
+        SetStr("Str.DeleteTip", Loc.T("Tip.DeleteTransfer"));
+        SetStr("Str.Add", Loc.T("Btn.Add"));
 
-        TabBasic.Content = Loc.T("Tab.Basic");
-        TabOptions.Content = Loc.T("Tab.Options");
-        TabNetwork.Content = Loc.T("Tab.Network");
-        TabTransfer.Content = Loc.T("Tab.Transfer");
-        AboutBtn.Content = Loc.T("Btn.About");
-        HelpBtn.Content = Loc.T("Btn.Help");
+        AboutBtnText.Text = Loc.T("Btn.About");
+        HelpBtnText.Text = Loc.T("Btn.Help").Replace("？ ", "").Replace("? ", "");
+        HelpDocBtn.Content = Loc.T("Help.ShowDoc");
+        RefreshHelpToolbarLabels();
+        RefreshAboutPage();
+        if (PageHelp.Visibility == Visibility.Visible)
+            ShowHelpDocument();
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
@@ -325,7 +383,44 @@ public partial class MainWindow : Window
         NavShareText.Text = Loc.T("Nav.Share");
         NavSecurityText.Text = Loc.T("Nav.Security");
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
+        NavLogText.Text = Loc.T("Nav.Log");
+        NavProgramsText.Text = Loc.T("Nav.Programs");
         SearchPlaceholderText.Text = Loc.T("Search.Placeholder");
+        LogTitleText.Text = Loc.T("Log.Title");
+        RefreshLogHint();
+        LogDownloadBtnText.Text = Loc.T("Log.Download");
+        LogClearBtnText.Text = Loc.T("Log.Clear");
+        LogPrevBtnText.Text = Loc.T("Log.Prev");
+        LogNextBtnText.Text = Loc.T("Log.Next");
+        LogLatestBtnText.Text = Loc.T("Log.Latest");
+        LogDownloadBtn.ToolTip = LogDownloadBtnText.Text;
+        LogClearBtn.ToolTip = LogClearBtnText.Text;
+        LogPrevBtn.ToolTip = LogPrevBtnText.Text;
+        LogNextBtn.ToolTip = LogNextBtnText.Text;
+        LogLatestBtn.ToolTip = LogLatestBtnText.Text;
+        EnsureLogLevelFilterItems();
+        Dispatcher.BeginInvoke(UpdateLogToolMode, System.Windows.Threading.DispatcherPriority.Loaded);
+        ProgTitleText.Text = Loc.T("Prog.Title");
+        ProgHintText.Text = Loc.T("Prog.Hint");
+        ProgAddBtnText.Text = Loc.T("Prog.Add");
+        ProgDeleteBtnText.Text = Loc.T("Prog.Delete");
+        ProgStartBtnText.Text = Loc.T("Prog.Start");
+        ProgStopBtnText.Text = Loc.T("Prog.Stop");
+        ProgAddBtn.ToolTip = ProgAddBtnText.Text;
+        ProgDeleteBtn.ToolTip = ProgDeleteBtnText.Text;
+        ProgStartBtn.ToolTip = ProgStartBtnText.Text;
+        ProgStopBtn.ToolTip = ProgStopBtnText.Text;
+        SetStr("Str.ProgActStart", Loc.T("Prog.ActStart"));
+        SetStr("Str.ProgActStop", Loc.T("Prog.ActStop"));
+        SetStr("Str.ProgActEdit", Loc.T("Prog.ActEdit"));
+        SetStr("Str.ProgActDelete", Loc.T("Prog.ActDelete"));
+        SetStr("Str.ProgActLog", Loc.T("Prog.ActLog"));
+        SetStr("Str.ProgActShare", Loc.T("Prog.ActShare"));
+        ProgColName.Header = Loc.T("Prog.ColName");
+        ProgColLang.Header = Loc.T("Prog.ColLang");
+        ProgColSize.Header = Loc.T("Prog.ColSize");
+        ProgColStatus.Header = Loc.T("Prog.ColStatus");
+        ProgColActions.Header = Loc.T("Prog.ColActions");
 
         SecurityTitleText.Text = Loc.T("Sec.Title");
         ShowKeyCheck.Content = Loc.T("Sec.Show");
@@ -352,13 +447,13 @@ public partial class MainWindow : Window
         DirectTransferBtn.Content = Loc.T("Xfer.Direct");
         DirectTransferBtn.ToolTip = Loc.T("Tip.DirectTransfer");
         OpenInboxBtn.Content = Loc.T("Xfer.OpenInbox");
+        ReceiveClipboardBtn.Content = Loc.T("Xfer.ReceiveClipboard");
         ClearTransfersBtn.Content = Loc.T("Xfer.ClearDone");
         ClearTransfersBtn.ToolTip = Loc.T("Tip.ClearTransfers");
         ColDir.Header = Loc.T("Xfer.Col.Dir");
         ColName.Header = Loc.T("Xfer.Col.Name");
         ColPeer.Header = Loc.T("Xfer.Col.Peer");
         ColSize.Header = Loc.T("Xfer.Col.Size");
-        ColProgress.Header = Loc.T("Xfer.Col.Progress");
         ColStatus.Header = Loc.T("Xfer.Col.Status");
 
         FeatTitleText.Text = Loc.T("Feat.Title");
@@ -397,6 +492,11 @@ public partial class MainWindow : Window
         SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
         SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
 
+        EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
+        EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
+        EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
+        EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        RefreshEdgeCrossTip();
         foreach (var item in _host.Transfers.Items)
             item.RefreshLocalized();
 
@@ -409,6 +509,13 @@ public partial class MainWindow : Window
         TransferList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
         DiscoveryList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
         DiscoveryList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
+        UpdateProgToolMode();
+    }
+
+    private void SetStr(string key, string value)
+    {
+        if (Resources[key] is StringBox box)
+            box.Value = value;
     }
 
     private static void SetOpt(System.Windows.Controls.CheckBox box, string contentKey, string tipKey)
@@ -417,10 +524,94 @@ public partial class MainWindow : Window
         box.ToolTip = Loc.T(tipKey);
     }
 
+    private void LoadEdgeCrossModeUi(int mode)
+    {
+        EdgeCrossBarrierRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossDoubleRadio.IsChecked = mode == 1;
+        EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        EdgeCrossBarrierRadio.Checked += EdgeCrossMode_Changed;
+        EdgeCrossDoubleRadio.Checked += EdgeCrossMode_Changed;
+        EdgeCrossSpeedRadio.Checked += EdgeCrossMode_Changed;
+        RefreshEdgeCrossTip();
+    }
+
+    private int ReadEdgeCrossModeUi()
+    {
+        if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
+        if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        return 0;
+    }
+
+    private void EdgeCrossMode_Changed(object sender, RoutedEventArgs e) => RefreshEdgeCrossTip();
+
+    private void RefreshEdgeCrossTip()
+    {
+        var key = ReadEdgeCrossModeUi() switch
+        {
+            1 => "Tip.EdgeCross.DoubleTap",
+            2 => "Tip.EdgeCross.SpeedBurst",
+            _ => "Tip.EdgeCross.BarrierFree"
+        };
+        EdgeCrossTipText.Text = Loc.T(key);
+    }
+
+    /// <summary>高级顶栏：宽屏功能/行为/穿边三列，窄屏纵向堆叠。</summary>
+    private void OptionsFeatGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        => ApplyOptionsFeatPlacement(OptionsFeatGrid.ActualWidth);
+
+    private void ApplyOptionsFeatPlacement(double width)
+    {
+        if (!IsLoaded || width <= 1 || FeatColumn == null || BehColumn == null || EdgeCrossColumn == null)
+            return;
+        var stacked = width < 640;
+        if (stacked == _optionsFeatStacked && OptionsFeatGrid.ColumnDefinitions.Count == (stacked ? 1 : 3))
+            return;
+        _optionsFeatStacked = stacked;
+
+        OptionsFeatGrid.ColumnDefinitions.Clear();
+        OptionsFeatGrid.RowDefinitions.Clear();
+        if (stacked)
+        {
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(FeatColumn, 0);
+            Grid.SetColumn(FeatColumn, 0);
+            Grid.SetRow(BehColumn, 1);
+            Grid.SetColumn(BehColumn, 0);
+            Grid.SetRow(EdgeCrossColumn, 2);
+            Grid.SetColumn(EdgeCrossColumn, 0);
+            FeatColumn.Margin = new Thickness(0, 0, 0, 12);
+            BehColumn.Margin = new Thickness(0, 0, 0, 12);
+            EdgeCrossColumn.Margin = new Thickness(0);
+        }
+        else
+        {
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            OptionsFeatGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            OptionsFeatGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(FeatColumn, 0);
+            Grid.SetColumn(FeatColumn, 0);
+            Grid.SetRow(BehColumn, 0);
+            Grid.SetColumn(BehColumn, 1);
+            Grid.SetRow(EdgeCrossColumn, 0);
+            Grid.SetColumn(EdgeCrossColumn, 2);
+            FeatColumn.Margin = new Thickness(0, 0, 10, 0);
+            BehColumn.Margin = new Thickness(5, 0, 5, 0);
+            EdgeCrossColumn.Margin = new Thickness(10, 0, 0, 0);
+        }
+    }
+
     private async void Apply_Click(object sender, RoutedEventArgs e)
     {
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
+        await _host.BroadcastBehaviorSyncAsync();
         await _host.RestartNetworkingAsync();
         StatusText.Text = Loc.T("Sys.Applied");
         SyncSlotLocalFlags();
@@ -433,6 +624,35 @@ public partial class MainWindow : Window
             ApplyLayoutFromSettings();
             StatusText.Text = $"已同步布局 ← {from}";
         });
+    }
+
+    private void OnBehaviorSyncedFromPeer(string from)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            ApplyBehaviorFromSettings();
+            StatusText.Text = $"已同步功能与行为 ← {from}";
+        });
+    }
+
+    /// <summary>用设置中的功能/行为选项刷新高级页 UI（对端同步时调用）。</summary>
+    private void ApplyBehaviorFromSettings()
+    {
+        var s = _host.Settings;
+        WrapMouseCheck.IsChecked = s.WrapMouse;
+        ShareClipboardCheck.IsChecked = s.ShareClipboard;
+        TransferFileCheck.IsChecked = s.TransferFile;
+        HideMouseCheck.IsChecked = s.HideMouseAtEdge;
+        DrawCursorCheck.IsChecked = s.DrawMouseCursor;
+        SameSubnetCheck.IsChecked = s.SameSubnetOnly;
+        ShowStatusCheck.IsChecked = s.ShowStatusMessages;
+        BlockSaverCheck.IsChecked = s.BlockScreenSaver;
+        MoveRelCheck.IsChecked = s.MoveMouseRelatively;
+        BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
+        EasyMouseCheck.IsChecked = s.EasyMouse;
+        LoadEdgeCrossModeUi(s.EdgeCrossMode);
+        _host.Input.EasyMouseEnabled = s.EasyMouse;
+        _host.Input.RefreshEdgeCrossFromSettings();
     }
 
     /// <summary>用设置中的 MachineSlots / TwoRow 刷新矩阵 UI（对端同步时调用）。</summary>
@@ -449,7 +669,7 @@ public partial class MainWindow : Window
             var name = i < s.MachineSlots.Count ? s.MachineSlots[i] : "";
             name = string.IsNullOrWhiteSpace(name) ? "" : name.Trim();
             var slot = _slots[i];
-            var isLocal = string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            var isLocal = string.Equals(name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
             slot.Name = name;
             slot.Enabled = !string.IsNullOrWhiteSpace(name);
             slot.IsLocal = isLocal;
@@ -462,20 +682,27 @@ public partial class MainWindow : Window
             }
             else
             {
-                slot.OutboundOk = false;
-                slot.InboundOk = false;
-                slot.RefreshStatus();
                 if (!string.IsNullOrEmpty(name))
                 {
-                    var ip = _host.Connections.Discovery.FindIp(name);
-                    if (ip != null) slot.ResolvedIp = ip;
-                    var reachable = _host.Connections.IsPeerReachable(name);
-                    if (reachable)
+                    var st = _host.Connections.GetPeerStatus(name);
+                    slot.OutboundOk = st.Outbound;
+                    slot.InboundOk = st.Inbound;
+                    if (!string.IsNullOrEmpty(st.DiscoveredIp))
+                        slot.ResolvedIp = st.DiscoveredIp;
+                    else
                     {
-                        // PeerLinkChanged 会再刷新；先标为连接中
-                        slot.RefreshStatus();
+                        var ip = _host.Connections.Discovery.FindIp(name);
+                        if (ip != null) slot.ResolvedIp = ip;
                     }
                 }
+                else
+                {
+                    slot.OutboundOk = false;
+                    slot.InboundOk = false;
+                    slot.ResolvedIp = "";
+                }
+
+                slot.RefreshStatus();
             }
         }
 
@@ -490,7 +717,7 @@ public partial class MainWindow : Window
     {
         foreach (var slot in _slots)
         {
-            slot.IsLocal = string.Equals(slot.Name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+            slot.IsLocal = string.Equals(slot.Name, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
             if (slot.IsLocal) slot.RefreshStatus();
         }
     }
@@ -654,7 +881,7 @@ public partial class MainWindow : Window
         var used = new HashSet<string>(
             _slots.Where(s => !string.IsNullOrWhiteSpace(s.Name)).Select(s => s.Name),
             StringComparer.OrdinalIgnoreCase);
-        used.Add(Environment.MachineName);
+        used.Add(LocalPeerIdentity.MachineName);
         return _host.Connections.Discovery.GetPeers()
             .Where(p => !string.IsNullOrWhiteSpace(p.MachineName) && !used.Contains(p.MachineName))
             .ToList();
@@ -686,10 +913,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var menu = new ContextMenu();
+        var menu = new System.Windows.Controls.ContextMenu();
         foreach (var peer in unused)
         {
-            var item = new MenuItem
+            var item = new System.Windows.Controls.MenuItem
             {
                 Header = string.IsNullOrEmpty(peer.Ip) ? peer.MachineName : $"{peer.MachineName}  ({peer.Ip})",
                 Tag = peer
@@ -763,13 +990,13 @@ public partial class MainWindow : Window
         PersistSlots();
         RefreshDiscovery();
         RedrawArrows();
-        StatusText.Text = $"已移除 {name}，可在局域网自动发现中再添加";
-        _ = RestartAfterSlotChangeAsync();
+        StatusText.Text = $"已移除 {name}，将从所有已连接电脑布局中踢出";
+        _ = RemovePeerAndSyncAsync(name);
     }
 
     private void TryAddPeer(DiscoveredPeer peer)
     {
-        if (string.Equals(peer.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(peer.MachineName, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
         {
             StatusText.Text = "不能添加本机";
             return;
@@ -784,7 +1011,7 @@ public partial class MainWindow : Window
         var empty = _slots.FirstOrDefault(s => string.IsNullOrWhiteSpace(s.Name));
         if (empty == null)
         {
-            System.Windows.MessageBox.Show("没有空的机器槽位，请先移除一台电脑。", "玄鸟");
+            System.Windows.MessageBox.Show("没有空的机器槽位（最多 4 台），请先移除一台电脑。", "玄鸟");
             return;
         }
 
@@ -796,10 +1023,11 @@ public partial class MainWindow : Window
         empty.InboundOk = false;
         empty.RefreshStatus();
         PersistSlots();
+        _host.Connections.ArmLayoutJoin(peer.MachineName);
         RefreshDiscovery();
         RedrawArrows();
-        StatusText.Text = $"已添加 {peer.MachineName}";
-        _ = RestartAfterSlotChangeAsync();
+        StatusText.Text = $"已添加 {peer.MachineName}，正在与对端合并布局";
+        _ = RestartAfterSlotChangeAsync(merge: true);
     }
 
     private void PersistSlots()
@@ -814,16 +1042,35 @@ public partial class MainWindow : Window
         SyncSlotLocalFlags();
     }
 
-    private async Task RestartAfterSlotChangeAsync()
+    private async Task RestartAfterSlotChangeAsync(bool merge)
     {
         try
         {
-            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            if (merge)
+                await _host.BroadcastLayoutMergeAsync().ConfigureAwait(true);
+            else
+                await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
             await _host.RestartNetworkingAsync().ConfigureAwait(true);
         }
         catch
         {
             // ignore reconnect errors
+        }
+    }
+
+    private async Task RemovePeerAndSyncAsync(string removedPeer)
+    {
+        try
+        {
+            await _host.Connections.DropPeerAsync(removedPeer).ConfigureAwait(true);
+            await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
+            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
+            _host.RestoreCursorIfLayoutSolo();
+        }
+        catch
+        {
+            // ignore
         }
     }
 
@@ -849,19 +1096,96 @@ public partial class MainWindow : Window
 
     private void OpenInbox_Click(object sender, RoutedEventArgs e)
     {
-        var dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "FlyScreen", "Inbox");
+        var dir = _host.Transfers.InboxDirectory;
         Directory.CreateDirectory(dir);
         Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
     }
 
-    private void ClearTransfers_Click(object sender, RoutedEventArgs e) => _host.Transfers.ClearCompleted();
+    private async void ReceiveClipboardFiles_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_host.Transfers.HasRemotePendingFiles)
+        {
+            StatusText.Text = Loc.T("Xfer.NoPendingClipboard");
+            return;
+        }
+
+        StatusText.Text = Loc.T("Xfer.ReceivingClipboard");
+        try
+        {
+            var files = await _host.Transfers.PullRemoteFilesForPasteAsync();
+            StatusText.Text = files is { Count: > 0 }
+                ? string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count)
+                : Loc.T("Xfer.ReceiveClipboardFail");
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+    }
+
+    private void ClearTransfers_Click(object sender, RoutedEventArgs e)
+    {
+        var hasReceive = _host.Transfers.Items.Any(i =>
+            i.Direction == TransferDirection.Receive
+            && i.State is TransferState.Completed or TransferState.Failed or TransferState.Cancelled);
+        if (!hasReceive)
+        {
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: false);
+            return;
+        }
+
+        var choice = ConfirmDialog.ShowTransferDelete(
+            this,
+            Loc.T("Xfer.ConfirmClearTitle"),
+            Loc.T("Xfer.ConfirmClearReceive"));
+        if (choice == UiConfirmChoice.Cancel) return;
+        _host.Transfers.ClearCompleted(deleteReceiveFiles: choice == UiConfirmChoice.Primary);
+    }
 
     private void DeleteTransfer_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (sender is FrameworkElement { Tag: TransferItem item })
+        if (sender is not FrameworkElement { Tag: TransferItem item }) return;
+
+        // 传输中：未完成文件无意义，直接删记录+文件
+        if (item.State is TransferState.Queued or TransferState.Transferring)
+        {
             _host.Transfers.RemoveItem(item, deleteCache: true);
+            return;
+        }
+
+        // 发送项：不删本机源文件
+        if (item.Direction != TransferDirection.Receive)
+        {
+            _host.Transfers.RemoveItem(item, deleteCache: false);
+            return;
+        }
+
+        var choice = ConfirmDialog.ShowTransferDelete(
+            this,
+            Loc.T("Xfer.ConfirmDeleteTitle"),
+            Loc.T("Xfer.ConfirmDeleteReceive"));
+        if (choice == UiConfirmChoice.Cancel) return;
+        _host.Transfers.RemoveItem(item, deleteCache: choice == UiConfirmChoice.Primary);
+    }
+
+    private void TransferFileName_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TransferItem item })
+            RevealTransferPath(item);
+        e.Handled = true;
+    }
+
+    private void TransferList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (TransferList.SelectedItem is TransferItem item)
+            RevealTransferPath(item);
+    }
+
+    private void RevealTransferPath(TransferItem item)
+    {
+        if (!PathReveal.TryReveal(item.FullPath, out var error))
+            StatusText.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
     }
 
     private void Matrix_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -964,16 +1288,12 @@ public partial class MainWindow : Window
         if (!IsLoaded || _syncingNav) return;
         if (NavNetwork.IsChecked == true) ShowPage(2);
         else if (NavShare.IsChecked == true) ShowPage(3);
+        else if (NavSecurity.IsChecked == true) ShowPage(4);
         else if (NavAdvanced.IsChecked == true) ShowPage(1);
-        else ShowPage(0);
-    }
-
-    private void TopTab_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!IsLoaded || _syncingNav) return;
-        if (TabOptions.IsChecked == true) ShowPage(1);
-        else if (TabNetwork.IsChecked == true) ShowPage(2);
-        else if (TabTransfer.IsChecked == true) ShowPage(3);
+        else if (NavPrograms.IsChecked == true) ShowPage(8);
+        else if (NavLog.IsChecked == true) ShowPage(7);
+        else if (NavAbout.IsChecked == true) ShowPage(5);
+        else if (NavHelp.IsChecked == true) ShowPage(6);
         else ShowPage(0);
     }
 
@@ -983,6 +1303,11 @@ public partial class MainWindow : Window
         PageOptions.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         PageNetwork.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         PageTransfer.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        PageSecurity.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
+        PageAbout.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
+        PageHelp.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
+        PageLog.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
+        PagePrograms.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
 
         _syncingNav = true;
         try
@@ -990,20 +1315,31 @@ public partial class MainWindow : Window
             switch (index)
             {
                 case 0:
-                    TabBasic.IsChecked = true;
-                    if (NavSecurity.IsChecked != true) NavBasic.IsChecked = true;
+                    NavBasic.IsChecked = true;
                     break;
                 case 1:
-                    TabOptions.IsChecked = true;
                     NavAdvanced.IsChecked = true;
                     break;
                 case 2:
-                    TabNetwork.IsChecked = true;
                     NavNetwork.IsChecked = true;
                     break;
                 case 3:
-                    TabTransfer.IsChecked = true;
                     NavShare.IsChecked = true;
+                    break;
+                case 4:
+                    NavSecurity.IsChecked = true;
+                    break;
+                case 5:
+                    NavAbout.IsChecked = true;
+                    break;
+                case 6:
+                    NavHelp.IsChecked = true;
+                    break;
+                case 7:
+                    NavLog.IsChecked = true;
+                    break;
+                case 8:
+                    NavPrograms.IsChecked = true;
                     break;
             }
         }
@@ -1011,6 +1347,514 @@ public partial class MainWindow : Window
 
         if (index == 0)
             Dispatcher.BeginInvoke(RedrawArrows, System.Windows.Threading.DispatcherPriority.Loaded);
+        else if (index == 3)
+            Dispatcher.BeginInvoke(FitTransferListColumns, System.Windows.Threading.DispatcherPriority.Loaded);
+        else if (index == 5)
+            RefreshAboutPage();
+        else if (index == 6)
+            ShowHelpDocument();
+        else if (index == 7)
+        {
+            if (!_openProgramLog)
+            {
+                _logProgramId = null;
+                _logProgramName = null;
+            }
+            _openProgramLog = false;
+            RefreshLogHint();
+            RefreshLogPage();
+        }
+        else if (index == 8)
+        {
+            RefreshProgramsPage();
+            Dispatcher.BeginInvoke(UpdateProgToolMode, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    private void ProgToolBarHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateProgToolMode();
+
+    private void ProgList_SizeChanged(object sender, SizeChangedEventArgs e)
+        => FitProgListColumns();
+
+    private void TransferList_SizeChanged(object sender, SizeChangedEventArgs e)
+        => FitTransferListColumns();
+
+    /// <summary>传输列表：固定列定宽，文件名列吃满剩余空间，避免操作列后空白。</summary>
+    private void FitTransferListColumns()
+    {
+        if (TransferList == null || ColName == null) return;
+        var avail = TransferList.ActualWidth;
+        if (avail <= 1) return;
+        // 预留纵向滚动条与边距，避免出现横向滚动条抖动
+        var scroll = SystemParameters.VerticalScrollBarWidth + 8;
+        const double fixedCols = 56 + 120 + 100 + 88 + 40; // 方向/对端/大小/状态/操作
+        var nameW = Math.Max(120, avail - scroll - fixedCols);
+        if (Math.Abs(ColName.Width - nameW) > 0.5)
+            ColName.Width = nameW;
+    }
+
+    /// <summary>程序列表：固定列按内容宽度，名称列吃满剩余空间，避免右侧留白。</summary>
+    private void FitProgListColumns()
+    {
+        if (ProgList == null || ProgColName == null) return;
+        var avail = ProgList.ActualWidth;
+        if (avail <= 1) return;
+        // 预留纵向滚动条与边距，避免出现横向滚动条抖动
+        var scroll = SystemParameters.VerticalScrollBarWidth + 8;
+        const double fixedCols = 36 + 110 + 70 + 70 + 176; // 勾选/语言/大小/状态/操作
+        var nameW = Math.Max(120, avail - scroll - fixedCols);
+        if (Math.Abs(ProgColName.Width - nameW) > 0.5)
+            ProgColName.Width = nameW;
+    }
+
+    /// <summary>程序页顶部工具按钮：放得下时图标+文字，放不下时只留图标。</summary>
+    private void UpdateProgToolMode()
+    {
+        if (!IsLoaded || _progToolModeUpdating || ProgToolBarHost.ActualWidth <= 1) return;
+        _progToolModeUpdating = true;
+        try
+        {
+            var available = ProgToolBarHost.ActualWidth;
+            // 先按「图标+文字」测量。左对齐时 ActualWidth 不会超过父级，必须用无限宽 Measure。
+            ProgToolsCompact = false;
+            ProgToolBar.Measure(new System.Windows.Size(double.PositiveInfinity, 48));
+            var toolbarNeed = ProgToolBar.DesiredSize.Width;
+            ProgToolsCompact = toolbarNeed > available + 0.5;
+        }
+        finally
+        {
+            _progToolModeUpdating = false;
+        }
+    }
+
+    private void RefreshProgramsPage()
+    {
+        var svc = ProgramService.Instance;
+        foreach (var p in svc.Catalog.Items)
+        {
+            svc.Catalog.RefreshSize(p);
+            svc.Runner.SyncStatus(p);
+        }
+        ProgList.ItemsSource = null;
+        ProgList.ItemsSource = svc.Catalog.Items;
+        Dispatcher.BeginInvoke(FitProgListColumns, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private IEnumerable<UserProgram> SelectedPrograms()
+        => ProgramService.Instance.Catalog.Items.Where(p => p.IsSelected);
+
+    private void ProgSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        var on = ProgSelectAll.IsChecked == true;
+        foreach (var p in ProgramService.Instance.Catalog.Items)
+            p.IsSelected = on;
+    }
+
+    private void ProgAdd_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new ProgramAddDialog { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            ProgramService.Instance.Catalog.Create(
+                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
+            RefreshProgramsPage();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, Loc.T("Prog.Add"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void ProgDelete_Click(object sender, RoutedEventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            MessageBox.Show(this, Loc.T("Prog.SelectFirst"), Loc.T("Prog.Delete"), MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (MessageBox.Show(this, Loc.T("Prog.ConfirmDelete"), Loc.T("Prog.Delete"),
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+        await ProgramService.Instance.Runner.DeleteManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgStart_Click(object sender, RoutedEventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            MessageBox.Show(this, Loc.T("Prog.SelectFirst"), Loc.T("Prog.Start"), MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        await ProgramService.Instance.Runner.StartManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgStop_Click(object sender, RoutedEventArgs e)
+    {
+        var list = SelectedPrograms().ToList();
+        if (list.Count == 0)
+        {
+            MessageBox.Show(this, Loc.T("Prog.SelectFirst"), Loc.T("Prog.Stop"), MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        await ProgramService.Instance.Runner.StopManyAsync(list);
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowStart_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        var runner = ProgramService.Instance.Runner;
+        var stop = runner.IsRunning(prog.Id)
+                   || prog.RuntimeStatus is ProgramStatus.Running or ProgramStatus.Stopping;
+        try
+        {
+            if (stop) await runner.StopAsync(prog);
+            else await runner.StartAsync(prog);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message,
+                stop ? Loc.T("Prog.ActStop") : Loc.T("Prog.ActStart"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        RefreshProgramsPage();
+    }
+
+    private void ProgRowEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        var win = new ProgramEditorWindow(prog) { Owner = this };
+        win.ShowDialog();
+        RefreshProgramsPage();
+    }
+
+    private async void ProgRowDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        if (MessageBox.Show(this, Loc.T("Prog.ConfirmDelete"), Loc.T("Prog.ActDelete"),
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+        try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, Loc.T("Prog.ActDelete"), MessageBoxButton.OK, MessageBoxImage.Warning); }
+        RefreshProgramsPage();
+    }
+
+    private void ProgRowLog_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        _logProgramId = prog.Id;
+        _logProgramName = prog.Name;
+        _logPageFromLatest = 0;
+        _openProgramLog = true;
+        if (NavLog.IsChecked == true)
+            ShowPage(7);
+        else
+            NavLog.IsChecked = true;
+    }
+
+    private async void ProgRowShare_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        var share = ProgramShareService.Current;
+        if (share == null)
+        {
+            MessageBox.Show(this, Loc.T("Prog.ShareNone"), Loc.T("Prog.ActShare"), MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        ProgramShareResult result;
+        try
+        {
+            result = await share.ShareAsync(prog);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, Loc.T("Prog.ActShare"), MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var text = result.Reachable == 0
+            ? Loc.T("Prog.ShareNone")
+            : string.Format(Loc.T("Prog.ShareSent"), result.Sent);
+        MessageBox.Show(this, text, Loc.T("Prog.ActShare"), MessageBoxButton.OK,
+            result.Reachable == 0 ? MessageBoxImage.Information : MessageBoxImage.Information);
+    }
+
+    private void RefreshLogHint()
+    {
+        LogHintText.Text = string.IsNullOrEmpty(_logProgramName)
+            ? Loc.T("Log.Hint")
+            : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
+    }
+
+    private AppLogLevelFilter CurrentLogLevelFilter()
+    {
+        if (LogLevelFilter.SelectedItem is ComboBoxItem { Tag: AppLogLevelFilter f })
+            return f;
+        return AppLogLevelFilter.All;
+    }
+
+    private void EnsureLogLevelFilterItems()
+    {
+        var selected = CurrentLogLevelFilter();
+        _logFilterReady = false;
+        LogLevelFilter.Items.Clear();
+        void Add(AppLogLevelFilter f, string key)
+            => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
+        Add(AppLogLevelFilter.All, "Log.LevelAll");
+        Add(AppLogLevelFilter.Info, "Log.LevelInfo");
+        Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
+        Add(AppLogLevelFilter.Error, "Log.LevelError");
+        foreach (ComboBoxItem it in LogLevelFilter.Items)
+        {
+            if (it.Tag is AppLogLevelFilter f && f == selected)
+            {
+                LogLevelFilter.SelectedItem = it;
+                break;
+            }
+        }
+        if (LogLevelFilter.SelectedIndex < 0)
+            LogLevelFilter.SelectedIndex = 0;
+        _logFilterReady = true;
+    }
+
+    private void ApplyLogPageChrome(AppLogPage page)
+    {
+        _logPageFromLatest = page.PageFromLatest;
+        _logTotalPages = page.TotalPages;
+        _logKnownTotal = page.TotalCount;
+        LogPageText.Text = page.TotalCount == 0
+            ? Loc.T("Log.Empty")
+            : page.PageFromLatest == 0
+                ? string.Format(Loc.T("Log.PageLatest"), page.TotalCount)
+                : string.Format(Loc.T("Log.Page"), page.PageFromLatest + 1, page.TotalPages, page.TotalCount);
+        LogPrevBtn.IsEnabled = page.HasOlder;
+        LogNextBtn.IsEnabled = page.HasNewer;
+        LogLatestBtn.IsEnabled = page.HasNewer;
+    }
+
+    private void ReplaceLogItems(IReadOnlyList<AppLogEntry> items)
+    {
+        _logItems.Clear();
+        foreach (var e in items)
+            _logItems.Add(e);
+    }
+
+    private void LogToolBarHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateLogToolMode();
+
+    /// <summary>日志工具栏：一行排布；放不下时只留图标。</summary>
+    private void UpdateLogToolMode()
+    {
+        if (!IsLoaded || _logToolModeUpdating || LogToolBarHost.ActualWidth <= 1) return;
+        _logToolModeUpdating = true;
+        try
+        {
+            var available = LogToolBarHost.ActualWidth;
+            LogToolsCompact = false;
+            LogLevelFilter.Width = 72;
+            LogToolBar.Measure(new System.Windows.Size(double.PositiveInfinity, 48));
+            var need = LogToolBar.DesiredSize.Width;
+            LogToolsCompact = need > available + 0.5;
+            // 极窄：图标按钮 + 缩短筛选框
+            LogLevelFilter.Width = LogToolsCompact
+                ? (available < 240 ? 52 : 64)
+                : 72;
+        }
+        finally
+        {
+            _logToolModeUpdating = false;
+        }
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject? root)
+    {
+        if (root == null) return null;
+        if (root is ScrollViewer sv) return sv;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var found = FindScrollViewer(VisualTreeHelper.GetChild(root, i));
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private void ScrollLogToEndQuiet()
+    {
+        var sv = FindScrollViewer(LogList);
+        if (sv == null) return;
+        sv.ScrollToVerticalOffset(sv.ExtentHeight);
+    }
+
+    /// <summary>最新页：水印增量追加；失配时整页替换尾部（禁止按时间重放整表）。</summary>
+    private void RefreshLogPageLive()
+    {
+        var level = CurrentLogLevelFilter();
+        var stick = _logStickToBottom;
+        var delta = AppLog.DeltaSince(
+            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+        var uiChanged = false;
+
+        if (delta.Reset)
+        {
+            uiChanged = !LogItemsSameTail(delta.Items);
+            if (uiChanged)
+                ReplaceLogItems(delta.Items);
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1] : null;
+            if (uiChanged)
+                _logKnownTotal = Math.Max(_logKnownTotal, _logItems.Count);
+        }
+        else if (delta.Items.Count > 0)
+        {
+            foreach (var e in delta.Items)
+                _logItems.Add(e);
+            _logWatermark = _logItems[^1];
+            _logKnownTotal = Math.Max(_logKnownTotal + delta.Items.Count, _logItems.Count);
+            uiChanged = true;
+        }
+        else
+            return;
+
+        if (!uiChanged)
+            return;
+
+        LogPageText.Text = _logKnownTotal == 0
+            ? Loc.T("Log.Empty")
+            : string.Format(Loc.T("Log.PageLatest"), _logKnownTotal);
+        LogPrevBtn.IsEnabled = _logKnownTotal > AppLog.DefaultPageSize || _logTotalPages > 1;
+        LogNextBtn.IsEnabled = false;
+        LogLatestBtn.IsEnabled = false;
+
+        _logStickToBottom = stick;
+        if (stick)
+            Dispatcher.BeginInvoke(ScrollLogToEndQuiet, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private bool LogItemsSameTail(IReadOnlyList<AppLogEntry> items)
+    {
+        if (_logItems.Count != items.Count) return false;
+        if (items.Count == 0) return true;
+        return ReferenceEquals(_logItems[0], items[0])
+               && ReferenceEquals(_logItems[^1], items[^1]);
+    }
+
+    private void RefreshLogPage()
+    {
+        var level = CurrentLogLevelFilter();
+        var page = AppLog.GetPage(
+            _logPageFromLatest,
+            AppLog.DefaultPageSize,
+            level,
+            _logProgramId,
+            _logProgramName);
+        ApplyLogPageChrome(page);
+        if (page.PageFromLatest == 0)
+        {
+            // 最新页始终用水印增量源（内存）；内存空时才回退磁盘页（无水印，后续 live 会 Reset 到内存）
+            var delta = AppLog.DeltaSince(null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            if (delta.Items.Count > 0)
+                ReplaceLogItems(delta.Items);
+            else
+                ReplaceLogItems(page.Items);
+            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1] : null;
+            _logStickToBottom = true;
+            Dispatcher.BeginInvoke(ScrollLogToEndQuiet, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+        else
+        {
+            ReplaceLogItems(page.Items);
+            _logWatermark = null;
+            _logStickToBottom = false;
+        }
+    }
+
+    private void LogList_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.ViewportHeight <= 0) return;
+        // 程序化贴底滚动时忽略，避免 Add 导致 Extent 变化把 stick 打成 false
+        if (e.ExtentHeightChange != 0 && e.VerticalChange == 0)
+            return;
+        _logStickToBottom = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 24;
+    }
+
+    private void LogFilter_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_logFilterReady) return;
+        _logPageFromLatest = 0;
+        if (IsLoaded && PageLog.Visibility == Visibility.Visible)
+            RefreshLogPage();
+    }
+
+    private void LogPrev_Click(object sender, RoutedEventArgs e)
+    {
+        _logPageFromLatest++;
+        RefreshLogPage();
+    }
+
+    private void LogNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_logPageFromLatest > 0)
+            _logPageFromLatest--;
+        RefreshLogPage();
+    }
+
+    private void LogLatest_Click(object sender, RoutedEventArgs e)
+    {
+        _logPageFromLatest = 0;
+        RefreshLogPage();
+    }
+
+    private void LogClear_Click(object sender, RoutedEventArgs e)
+    {
+        AppLog.Clear();
+        _logPageFromLatest = 0;
+        _logTotalPages = 0;
+        _logKnownTotal = 0;
+        _logWatermark = null;
+        _logItems.Clear();
+        LogPageText.Text = Loc.T("Log.Empty");
+        LogPrevBtn.IsEnabled = false;
+        LogNextBtn.IsEnabled = false;
+        LogLatestBtn.IsEnabled = false;
+    }
+
+    private void LogDownload_Click(object sender, RoutedEventArgs e)
+    {
+        var text = AppLog.FormatExport(
+            CurrentLogLevelFilter(),
+            _logProgramId,
+            _logProgramName);
+        if (string.IsNullOrEmpty(text))
+        {
+            StatusText.Text = Loc.T("Log.DownloadEmpty");
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = Loc.T("Log.Download"),
+            Filter = "Text (*.txt)|*.txt|All files (*.*)|*.*",
+            FileName = AppLog.SuggestExportFileName(),
+            DefaultExt = ".txt",
+            AddExtension = true
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            File.WriteAllText(dlg.FileName, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            StatusText.Text = string.Format(Loc.T("Log.DownloadOk"), dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = string.Format(Loc.T("Log.DownloadFail"), ex.Message);
+        }
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -1023,28 +1867,311 @@ public partial class MainWindow : Window
             ShowPage(3);
         else if (q.Contains("快捷") || q.Contains("高级") || q.Contains("选项"))
             ShowPage(1);
-        else if (q.Contains("密钥") || q.Contains("布局") || q.Contains("安全"))
+        else if (q.Contains("密钥") || q.Contains("安全"))
+            ShowPage(4);
+        else if (q.Contains("程序") || q.Contains("脚本") || q.Contains("python"))
+            ShowPage(8);
+        else if (q.Contains("日志") || q.Contains("错误"))
+            ShowPage(7);
+        else if (q.Contains("关于") || q.Contains("版本"))
+            ShowPage(5);
+        else if (q.Contains("帮助") || q.Contains("更新") || q.Contains("诊断") || q.Contains("修复"))
+            ShowPage(6);
+        else if (q.Contains("布局") || q.Contains("基础"))
             ShowPage(0);
     }
 
-    private void About_Click(object sender, RoutedEventArgs e) => ShowAbout();
-
-    private void ShowAbout()
+    private void RefreshAboutPage()
     {
         var ver = typeof(MainWindow).Assembly.GetName().Version;
         var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
-        System.Windows.MessageBox.Show(
-            this,
-            string.Format(Loc.T("About.Body"), verText),
-            Loc.T("About.Title"),
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+        AboutTitleText.Text = Loc.T("About.Title");
+        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
     }
 
-    private void Help_Click(object sender, RoutedEventArgs e)
+    private void RefreshHelpToolbarLabels()
     {
-        var win = new HelpWindow(_host) { Owner = this };
-        win.ShowDialog();
+        HelpUpdateBtn.Content = _helpUpdateReady ? Loc.T("Help.ApplyUpdate") : Loc.T("Help.CheckUpdate");
+        HelpDiagBtn.Content = _helpFixReady ? Loc.T("Help.DiagFix") : Loc.T("Help.DiagCheck");
+        HelpUpdateBtn.Style = (Style)FindResource(_helpUpdateReady ? "PrimaryBtn" : "SoftBlueBtn");
+        HelpDiagBtn.Style = (Style)FindResource(_helpFixReady ? "PrimaryBtn" : "SoftWarnBtn");
+    }
+
+    private void HelpDoc_Click(object sender, RoutedEventArgs e) => ShowHelpDocument();
+
+    private async void HelpUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_helpUpdateReady)
+            await ApplyHelpUpdateAsync();
+        else
+            await CheckHelpUpdateAsync();
+    }
+
+    private async void HelpDiag_Click(object sender, RoutedEventArgs e)
+    {
+        if (_helpFixReady)
+            await FixHelpDiagAsync();
+        else
+            await CheckHelpDiagAsync();
+    }
+
+    private async Task CheckHelpUpdateAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog(Loc.T("Help.CheckingUpdate"));
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
+            _helpLastCheck = result;
+            _helpUpdateReady = result is { Success: true, UpdateAvailable: true };
+            RefreshHelpToolbarLabels();
+
+            if (result.Success && result.UpdateAvailable)
+            {
+                var notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
+                    ? result.Message
+                    : $"版本 {result.RemoteVersion}\n\n{result.ReleaseNotes}";
+                ShowHelpLog(notes);
+            }
+            else if (result.Success)
+            {
+                ShowHelpLog(string.IsNullOrWhiteSpace(result.Message) ? Loc.T("Help.NoUpdate") : result.Message);
+            }
+            else
+            {
+                ShowHelpLog(result.Message);
+            }
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private async Task ApplyHelpUpdateAsync()
+    {
+        if (_helpLastCheck is not { Success: true, UpdateAvailable: true })
+        {
+            _helpUpdateReady = false;
+            RefreshHelpToolbarLabels();
+            ShowHelpLog(Loc.T("Help.NeedCheckFirst"));
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            this,
+            string.Format(
+                Loc.T("Help.ConfirmUpdate"),
+                _helpLastCheck.RemoteVersion,
+                _helpLastCheck.AssetName ?? Loc.T("Help.AssetUnnamed")),
+            Loc.T("Help.ConfirmUpdateTitle"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        SetHelpBusy(true);
+        ShowHelpUpdateProgress(0, indeterminate: false);
+        try
+        {
+            var progress = new Progress<UpdateDownloadProgress>(OnHelpUpdateProgress);
+            var apply = await _helpUpdater.DownloadAndApplyAsync(_helpLastCheck, progress).ConfigureAwait(true);
+            ShowHelpLog(apply.Message);
+            if (apply.ShouldExit)
+            {
+                ShowHelpLog(Loc.T("Help.Restarting"));
+                HelpUpdateProgressBar.IsIndeterminate = true;
+                HelpUpdateProgressBar.Visibility = Visibility.Visible;
+                await Task.Delay(300).ConfigureAwait(true);
+                ExitForUpdate();
+                return;
+            }
+
+            HideHelpUpdateProgress();
+        }
+        finally
+        {
+            if (IsLoaded)
+                SetHelpBusy(false);
+        }
+    }
+
+    private void OnHelpUpdateProgress(UpdateDownloadProgress p)
+    {
+        var msg = string.IsNullOrWhiteSpace(p.Message)
+            ? string.Format(Loc.T("Help.Downloading"), Math.Max(0, p.Percent))
+            : p.Message;
+        ShowHelpLog(msg);
+        ShowHelpUpdateProgress(p.Percent, p.IsIndeterminate);
+    }
+
+    private async Task CheckHelpDiagAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            ShowHelpLog(Loc.T("Help.CheckingConn"));
+            var diag = new ConnectionDiagnostics(_host);
+            var report = await diag.CheckAsync().ConfigureAwait(true);
+            _helpFixReady = report.Items.Any(i =>
+                i.Level is DiagnosticLevel.Error or DiagnosticLevel.Warn);
+            RefreshHelpToolbarLabels();
+            var text = report.FormatText();
+            if (!_helpFixReady)
+                text += "\n\n" + Loc.T("Help.NoProblems");
+            ShowHelpLog(text);
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private async Task FixHelpDiagAsync()
+    {
+        SetHelpBusy(true);
+        try
+        {
+            var diag = new ConnectionDiagnostics(_host);
+            var progress = new Progress<string>(s => ShowHelpLog(s));
+            var report = await diag.FixAsync(progress).ConfigureAwait(true);
+            _helpFixReady = report.Items.Any(i =>
+                i.Level is DiagnosticLevel.Error or DiagnosticLevel.Warn);
+            RefreshHelpToolbarLabels();
+            ShowHelpLog(report.FormatText());
+            ReloadAfterDiagnostics();
+        }
+        finally
+        {
+            SetHelpBusy(false);
+        }
+    }
+
+    private void SetHelpBusy(bool busy)
+    {
+        HelpDocBtn.IsEnabled = !busy;
+        HelpUpdateBtn.IsEnabled = !busy;
+        HelpDiagBtn.IsEnabled = !busy;
+        Cursor = busy ? System.Windows.Input.Cursors.Wait : System.Windows.Input.Cursors.Arrow;
+    }
+
+    private void ShowHelpUpdateProgress(double percent, bool indeterminate)
+    {
+        HelpUpdateProgressBar.Visibility = Visibility.Visible;
+        HelpUpdateProgressBar.IsIndeterminate = indeterminate;
+        if (!indeterminate)
+            HelpUpdateProgressBar.Value = Math.Clamp(percent, 0, 100);
+    }
+
+    private void HideHelpUpdateProgress()
+    {
+        HelpUpdateProgressBar.IsIndeterminate = false;
+        HelpUpdateProgressBar.Value = 0;
+        HelpUpdateProgressBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowHelpDocument()
+    {
+        HideHelpUpdateProgress();
+        HelpRich.Document = BuildHelpDocument();
+        HelpRich.Foreground = TryFindResource("Text") as Media.Brush ?? Media.Brushes.Black;
+        HelpRich.Background = Media.Brushes.Transparent;
+    }
+
+    private void ShowHelpLog(string text)
+    {
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(0),
+            FontFamily = new Media.FontFamily("Consolas, Microsoft YaHei UI, Segoe UI"),
+            FontSize = 13,
+            LineHeight = 20,
+            Foreground = TryFindResource("Text") as Media.Brush ?? Media.Brushes.Black
+        };
+        foreach (var line in (text ?? "").Replace("\r\n", "\n").Split('\n'))
+        {
+            doc.Blocks.Add(new Paragraph(new Run(line))
+            {
+                Margin = new Thickness(0, 0, 0, 2)
+            });
+        }
+
+        HelpRich.Document = doc;
+    }
+
+    private FlowDocument BuildHelpDocument()
+    {
+        var muted = TryFindResource("Muted") as Media.Brush ?? Media.Brushes.Gray;
+        var text = TryFindResource("Text") as Media.Brush ?? Media.Brushes.Black;
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(0),
+            FontFamily = new Media.FontFamily("Microsoft YaHei UI, Segoe UI"),
+            FontSize = 13,
+            LineHeight = 22,
+            Foreground = text
+        };
+
+        Paragraph DocTitle(string t) => new(new Run(t)
+        {
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = text
+        })
+        { Margin = new Thickness(0, 0, 0, 10) };
+
+        Paragraph Heading(string t) => new(new Run(t)
+        {
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = text
+        })
+        { Margin = new Thickness(0, 12, 0, 6) };
+
+        Paragraph Para(string t) => new(new Run(t) { Foreground = muted })
+        { Margin = new Thickness(0, 0, 0, 4) };
+
+        List Numbered(params string[] items)
+        {
+            var list = new List { MarkerStyle = TextMarkerStyle.Decimal, Margin = new Thickness(8, 0, 0, 4) };
+            foreach (var item in items)
+                list.ListItems.Add(new ListItem(Para(item)));
+            return list;
+        }
+
+        List Bullets(params string[] items)
+        {
+            var list = new List { MarkerStyle = TextMarkerStyle.Disc, Margin = new Thickness(8, 0, 0, 4) };
+            foreach (var item in items)
+                list.ListItems.Add(new ListItem(Para(item)));
+            return list;
+        }
+
+        doc.Blocks.Add(DocTitle(Loc.T("Help.Doc.Title")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.Intro")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Quick")));
+        doc.Blocks.Add(Numbered(
+            Loc.T("Help.Doc.Q1"), Loc.T("Help.Doc.Q2"), Loc.T("Help.Doc.Q3"),
+            Loc.T("Help.Doc.Q4"), Loc.T("Help.Doc.Q5")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Clip")));
+        doc.Blocks.Add(Bullets(
+            Loc.T("Help.Doc.C1"), Loc.T("Help.Doc.C2"),
+            Loc.T("Help.Doc.C3"), Loc.T("Help.Doc.C4"), Loc.T("Help.Doc.C5")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Opts")));
+        doc.Blocks.Add(Bullets(
+            Loc.T("Help.Doc.O1"), Loc.T("Help.Doc.O2"), Loc.T("Help.Doc.O3"),
+            Loc.T("Help.Doc.O4"), Loc.T("Help.Doc.O5"), Loc.T("Help.Doc.O6"), Loc.T("Help.Doc.O7")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Hot")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.H1")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.H2")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Net")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.N1")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.N2")));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Update")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.U1")));
+        doc.Blocks.Add(Para(GitHubUpdateService.ReleasesUrl));
+        doc.Blocks.Add(Heading(Loc.T("Help.Doc.Diag")));
+        doc.Blocks.Add(Para(Loc.T("Help.Doc.D1")));
+        return doc;
     }
 
     /// <summary>诊断修复后刷新布局槽位与连接状态显示。</summary>

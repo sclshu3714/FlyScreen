@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using FlyScreen.Models;
 using FlyScreen.Native;
 using WinForms = System.Windows.Forms;
 
@@ -19,8 +20,19 @@ public static class ClipboardBridge
     private static string? _lastAppliedImageKey;
     private static string? _lastAppliedInlineKey;
     private static PendingFileDropDataObject? _pendingDataObject;
+    private static int _offeringPending;
+    private static int _virtualPasteArmed;
 
     public static bool IsSuppressed => Volatile.Read(ref _suppress) > 0;
+
+    /// <summary>是否仍挂着懒粘贴用的 OLE FileDrop（尚未被其它程序覆盖）。</summary>
+    public static bool HasPendingDataObject => _pendingDataObject != null;
+
+    /// <summary>是否已挂虚拟文件剪贴板（FileGroupDescriptor）。</summary>
+    public static bool HasVirtualFilePaste => Volatile.Read(ref _virtualPasteArmed) != 0;
+
+    /// <summary>正在挂接占位剪贴板（Clear/SetDataObject 期间为 true）。</summary>
+    public static bool IsOfferingPending => Volatile.Read(ref _offeringPending) != 0;
 
     public static void Suppress(int milliseconds = 2000)
     {
@@ -71,8 +83,40 @@ public static class ClipboardBridge
         => _lastAppliedFilesKey != null && _lastAppliedFilesKey == BuildFilesKey(files);
 
     /// <summary>
-    /// 用 OLE DataObject 登记待粘贴文件：资源管理器“粘贴”可用；
-    /// 拉取在后台进行，GetData 时泵送消息等待，避免卡死 Explorer/本程序。
+    /// 虚拟文件剪贴板：FileGroupDescriptorW + FileContents。
+    /// QueryGetData 高亮粘贴；GetData 时才拉取真实内容（微软推荐，避免 CF_HDROP 0KB）。
+    /// </summary>
+    public static bool OfferVirtualFilePaste(
+        Func<Task<IReadOnlyList<ClipboardPasteEntry>?>> materializeAsync)
+    {
+        Suppress(2500);
+        Interlocked.Exchange(ref _offeringPending, 1);
+        try
+        {
+            var data = new FlyScreen.Win32Clipboard.VirtualFilePasteDataObject(materializeAsync);
+            for (var i = 0; i < 8; i++)
+            {
+                if (FlyScreen.Win32Clipboard.VirtualFilePasteDataObject.TrySetClipboard(data))
+                {
+                    _pendingDataObject = null;
+                    Interlocked.Exchange(ref _virtualPasteArmed, 1);
+                    _lastAppliedFilesKey = "virtual-paste:" + Guid.NewGuid().ToString("N");
+                    return true;
+                }
+
+                Thread.Sleep(40 + i * 20);
+            }
+
+            return false;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _offeringPending, 0);
+        }
+    }
+
+    /// <summary>
+    /// 旧版 OLE FileDrop 占位（保留供兼容）；新路径请用 <see cref="OfferVirtualFilePaste"/>。
     /// </summary>
     public static bool OfferPendingFileDrop(
         IReadOnlyList<string> placeholderPaths,
@@ -80,69 +124,187 @@ public static class ClipboardBridge
     {
         if (placeholderPaths.Count == 0) return false;
 
-        Suppress(2000);
+        Suppress(2500);
+        Interlocked.Exchange(ref _offeringPending, 1);
         try
         {
             var data = new PendingFileDropDataObject(placeholderPaths, materializeAsync);
-            _pendingDataObject = data;
-            WinForms.Clipboard.Clear();
-            // copy:false：仅在真正 GetData（粘贴）时才拉取，其它电脑不会传文件
-            WinForms.Clipboard.SetDataObject(data, copy: false);
-            MarkAppliedFiles(placeholderPaths);
-            return true;
-        }
-        catch
-        {
-            _pendingDataObject = null;
-            return false;
-        }
-    }
 
-    /// <summary>Win32 延迟 CF_HDROP 回退（Explorer 右键粘贴可能仍灰）。</summary>
-    public static bool OfferDelayedFileDrop(IntPtr ownerHwnd)
-    {
-        Suppress(1500);
-        for (var i = 0; i < 5; i++)
-        {
-            if (NativeMethods.OpenClipboard(ownerHwnd))
-                break;
-            Thread.Sleep(40);
-            if (i == 4) return false;
-        }
-
-        try
-        {
-            NativeMethods.EmptyClipboard();
-
-            // Preferred DropEffect = COPY，有助于启用粘贴
-            var fmt = NativeMethods.RegisterClipboardFormat("Preferred DropEffect");
-            if (fmt != 0)
+            Exception? last = null;
+            for (var i = 0; i < 8; i++)
             {
-                var hEffect = NativeMethods.GlobalAlloc(
-                    NativeMethods.GMEM_MOVEABLE | NativeMethods.GMEM_ZEROINIT, (UIntPtr)4);
-                if (hEffect != IntPtr.Zero)
+                try
                 {
-                    var p = NativeMethods.GlobalLock(hEffect);
-                    if (p != IntPtr.Zero)
-                    {
-                        Marshal.WriteInt32(p, 1); // DROPEFFECT_COPY
-                        NativeMethods.GlobalUnlock(hEffect);
-                        NativeMethods.SetClipboardData(fmt, hEffect);
-                    }
+                    WinForms.Clipboard.SetDataObject(data, copy: false);
+                    _pendingDataObject = data;
+                    MarkAppliedFiles(placeholderPaths);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    Thread.Sleep(40 + i * 20);
                 }
             }
 
-            NativeMethods.SetClipboardData(NativeMethods.CF_HDROP, IntPtr.Zero);
-            return true;
+            _pendingDataObject = null;
+            System.Diagnostics.Debug.WriteLine("OfferPendingFileDrop failed: " + last?.Message);
+            return false;
         }
         finally
         {
-            NativeMethods.CloseClipboard();
+            Interlocked.Exchange(ref _offeringPending, 0);
+        }
+    }
+
+    /// <summary>
+    /// Win32 立即写入 CF_HDROP（真实占位路径）。资源管理器据此点亮「粘贴」。
+    /// 内容可稍后写入同一路径；勿用延迟 NULL（Win10/11 上粘贴常保持灰色）。
+    /// </summary>
+    public static bool OfferImmediateFileDrop(IntPtr ownerHwnd, IReadOnlyList<string> placeholderPaths)
+    {
+        if (placeholderPaths.Count == 0 || ownerHwnd == IntPtr.Zero) return false;
+
+        Suppress(2500);
+        Interlocked.Exchange(ref _offeringPending, 1);
+        try
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                if (!NativeMethods.OpenClipboard(ownerHwnd))
+                {
+                    Thread.Sleep(40 + i * 20);
+                    continue;
+                }
+
+                try
+                {
+                    NativeMethods.EmptyClipboard();
+
+                    var fmt = NativeMethods.RegisterClipboardFormat("Preferred DropEffect");
+                    if (fmt != 0)
+                    {
+                        var hEffect = NativeMethods.GlobalAlloc(
+                            NativeMethods.GMEM_MOVEABLE | NativeMethods.GMEM_ZEROINIT, (UIntPtr)4);
+                        if (hEffect != IntPtr.Zero)
+                        {
+                            var p = NativeMethods.GlobalLock(hEffect);
+                            if (p != IntPtr.Zero)
+                            {
+                                Marshal.WriteInt32(p, 1); // DROPEFFECT_COPY
+                                NativeMethods.GlobalUnlock(hEffect);
+                                NativeMethods.SetClipboardData(fmt, hEffect);
+                            }
+                        }
+                    }
+
+                    var hDrop = CreateHDrop(placeholderPaths);
+                    if (hDrop == IntPtr.Zero) return false;
+                    if (NativeMethods.SetClipboardData(NativeMethods.CF_HDROP, hDrop) == IntPtr.Zero)
+                    {
+                        try { NativeMethods.GlobalFree(hDrop); } catch { /* ignore */ }
+                        return false;
+                    }
+
+                    _pendingDataObject = null;
+                    MarkAppliedFiles(placeholderPaths);
+                    return NativeMethods.IsClipboardFormatAvailable(NativeMethods.CF_HDROP);
+                }
+                finally
+                {
+                    NativeMethods.CloseClipboard();
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _offeringPending, 0);
+        }
+    }
+
+    /// <summary>将已拉取的文件/文件夹合并进占位路径（保持 CF_HDROP 顶层路径不变）。</summary>
+    public static void MergeFilesIntoPlaceholders(IReadOnlyList<string> materialized, IReadOnlyList<string> placeholders)
+    {
+        if (materialized.Count == 0 || placeholders.Count == 0) return;
+
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in materialized)
+        {
+            if (File.Exists(path) || Directory.Exists(path))
+                byName[Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))] = path;
+        }
+
+        for (var i = 0; i < placeholders.Count; i++)
+        {
+            var dest = placeholders[i];
+            var name = Path.GetFileName(dest.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!byName.TryGetValue(name, out var src))
+            {
+                if (i < materialized.Count
+                    && (File.Exists(materialized[i]) || Directory.Exists(materialized[i])))
+                    src = materialized[i];
+                else
+                    continue;
+            }
+
+            try
+            {
+                if (string.Equals(Path.GetFullPath(src), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (Directory.Exists(src))
+                {
+                    CopyDirectoryReplace(src, dest);
+                    continue;
+                }
+
+                var dir = Path.GetDirectoryName(dest);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                if (File.Exists(dest))
+                    File.Delete(dest);
+                if (Directory.Exists(dest))
+                    Directory.Delete(dest, recursive: true);
+
+                if (!NativeMethods.CreateHardLink(dest, src, IntPtr.Zero))
+                    File.Copy(src, dest, overwrite: true);
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(src))
+                        File.Copy(src, dest, overwrite: true);
+                }
+                catch { /* ignore */ }
+            }
+        }
+    }
+
+    private static void CopyDirectoryReplace(string sourceDir, string destDir)
+    {
+        if (File.Exists(destDir))
+            File.Delete(destDir);
+        Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(sourceDir, file);
+            var target = Path.Combine(destDir, rel);
+            var parent = Path.GetDirectoryName(target);
+            if (!string.IsNullOrEmpty(parent))
+                Directory.CreateDirectory(parent);
+            File.Copy(file, target, overwrite: true);
         }
     }
 
     public static void ClearPendingDataObject()
-        => _pendingDataObject = null;
+    {
+        _pendingDataObject = null;
+        Interlocked.Exchange(ref _virtualPasteArmed, 0);
+    }
 
     /// <summary>
     /// 在 WM_RENDERFORMAT 期间（系统已打开剪贴板）写入真实文件列表。
@@ -220,19 +382,94 @@ public static class ClipboardBridge
 
     public static string[]? TryGetFiles()
     {
+        // 优先 Win32：资源管理器「复制」常用延迟 CF_HDROP，WPF/WinForms 有时读不到
+        var win32 = TryGetFilesViaWin32HDrop();
+        if (win32 is { Length: > 0 }) return win32;
+
         try
         {
-            if (!System.Windows.Clipboard.ContainsFileDropList()) return null;
-            var list = System.Windows.Clipboard.GetFileDropList();
-            var arr = new string[list.Count];
-            list.CopyTo(arr, 0);
-            return arr;
+            if (System.Windows.Clipboard.ContainsFileDropList())
+            {
+                var list = System.Windows.Clipboard.GetFileDropList();
+                var arr = new string[list.Count];
+                list.CopyTo(arr, 0);
+                return arr;
+            }
         }
         catch
         {
-            return null;
+            // fall through
         }
+
+        try
+        {
+            if (WinForms.Clipboard.ContainsFileDropList())
+            {
+                var list = WinForms.Clipboard.GetFileDropList();
+                var arr = new string[list.Count];
+                list.CopyTo(arr, 0);
+                return arr;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
     }
+
+    /// <summary>用 DragQueryFile 强制物化延迟 CF_HDROP（Explorer 复制）。</summary>
+    public static string[]? TryGetFilesViaWin32HDrop()
+    {
+        if (!NativeMethods.IsClipboardFormatAvailable(NativeMethods.CF_HDROP))
+            return null;
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (!NativeMethods.OpenClipboard(IntPtr.Zero))
+            {
+                Thread.Sleep(20 + attempt * 15);
+                continue;
+            }
+
+            try
+            {
+                var hDrop = NativeMethods.GetClipboardData(NativeMethods.CF_HDROP);
+                if (hDrop == IntPtr.Zero) return null;
+
+                var count = NativeMethods.DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
+                if (count == 0) return null;
+
+                var paths = new List<string>((int)count);
+                var sb = new StringBuilder(520);
+                for (uint i = 0; i < count; i++)
+                {
+                    sb.Clear();
+                    var len = NativeMethods.DragQueryFile(hDrop, i, sb, (uint)sb.Capacity);
+                    if (len == 0) continue;
+                    var path = sb.ToString();
+                    if (!string.IsNullOrWhiteSpace(path))
+                        paths.Add(path);
+                }
+
+                return paths.Count > 0 ? paths.ToArray() : null;
+            }
+            finally
+            {
+                NativeMethods.CloseClipboard();
+            }
+        }
+
+        return null;
+    }
+
+    public static uint GetClipboardSequenceNumber()
+        => NativeMethods.GetClipboardSequenceNumber();
+
+    /// <summary>本机用户复制后清除「已应用」标记，避免挡住再次宣告。</summary>
+    public static void ClearLastAppliedFilesKey()
+        => _lastAppliedFilesKey = null;
 
     /// <summary>读取剪贴板位图并编码为 PNG（截图 Win+Shift+S 等）。</summary>
     public static byte[]? TryGetPngBytes()
@@ -256,13 +493,7 @@ public static class ClipboardBridge
     }
 
     public static string BuildImageKey(byte[] png)
-    {
-        if (png.Length == 0) return "0";
-        // 长度 + 头尾采样，避免整图哈希开销
-        var head = png.Length > 16 ? BitConverter.ToString(png, 0, 16) : BitConverter.ToString(png);
-        var tail = png.Length > 32 ? BitConverter.ToString(png, png.Length - 16, 16) : "";
-        return $"{png.Length}:{head}:{tail}";
-    }
+        => ClipboardInlineData.BuildImageKey(png);
 
     public static bool IsSameAsLastAppliedImage(byte[] png)
         => _lastAppliedImageKey != null && _lastAppliedImageKey == BuildImageKey(png);

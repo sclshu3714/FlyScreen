@@ -6,33 +6,37 @@ using WinForms = System.Windows.Forms;
 namespace FlyScreen.Services.Clipboard;
 
 /// <summary>
-/// OLE 剪贴板：先占位启用“粘贴”；拉取在后台进行，GetData 时用消息泵等待，避免 UI/Explorer 死锁。
+/// OLE 懒粘贴：仅声明「有文件」，绝不在构造时 SetData 空路径。
+/// 资源管理器真正 GetData（粘贴）时才拉取，并返回已写满内容的路径。
 /// </summary>
 internal sealed class PendingFileDropDataObject : WinForms.DataObject
 {
     public const string PreferredDropEffectFormat = "Preferred DropEffect";
 
     private readonly Func<Task<string[]?>> _materializeAsync;
-    private readonly string[] _placeholderPaths;
+    private readonly string[] _announceNames;
     private readonly object _gate = new();
     private Task<string[]?>? _pullTask;
-    private bool _merged;
+    private string[]? _livePaths;
+    private bool _resolved;
 
     public PendingFileDropDataObject(
-        IReadOnlyList<string> placeholderPaths,
+        IReadOnlyList<string> announcePlaceholderPaths,
         Func<Task<string[]?>> materializeAsync)
     {
-        _placeholderPaths = placeholderPaths.ToArray();
+        // 仅名称提示；禁止 SetData(FileDrop, 空占位)——否则资源管理器会直接复制 0KB
+        _announceNames = announcePlaceholderPaths
+            .Select(p => Path.GetFileName(p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToArray()!;
         _materializeAsync = materializeAsync;
 
-        SetData(WinForms.DataFormats.FileDrop, autoConvert: false, _placeholderPaths);
         SetData(PreferredDropEffectFormat, autoConvert: false,
             BitConverter.GetBytes((int)WinForms.DragDropEffects.Copy));
     }
 
     public override bool GetDataPresent(string format, bool autoConvert)
     {
-        // 只声明“有文件可粘贴”，绝不在此开始网络拉取
         if (IsFileDropFormat(format) || IsDropEffectFormat(format))
             return true;
         return base.GetDataPresent(format, autoConvert);
@@ -45,30 +49,37 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
         return base.GetDataPresent(format);
     }
 
+    public override string[] GetFormats(bool autoConvert)
+    {
+        return
+        [
+            WinForms.DataFormats.FileDrop,
+            PreferredDropEffectFormat
+        ];
+    }
+
+    [Obsolete("DataObject.GetData is obsolete; kept for OLE FileDrop compatibility.")]
+#pragma warning disable WFDEV005
     public override object? GetData(string format, bool autoConvert)
     {
         if (IsDropEffectFormat(format))
             return BitConverter.GetBytes((int)WinForms.DragDropEffects.Copy);
 
         if (IsFileDropFormat(format))
-        {
-            EnsureMaterialized();
-            return _placeholderPaths;
-        }
+            return ResolveLivePaths();
 
         return base.GetData(format, autoConvert);
     }
 
+    [Obsolete("DataObject.GetData is obsolete; kept for OLE FileDrop compatibility.")]
     public override object? GetData(Type format)
     {
         if (format == typeof(string[]))
-        {
-            EnsureMaterialized();
-            return _placeholderPaths;
-        }
+            return ResolveLivePaths();
 
         return base.GetData(format);
     }
+#pragma warning restore WFDEV005
 
     private void EnsurePullStarted()
     {
@@ -88,73 +99,69 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
         }
     }
 
-    private void EnsureMaterialized()
+    private string[] ResolveLivePaths()
     {
         EnsurePullStarted();
         var task = _pullTask!;
 
-        // 关键须在持锁时等待；在 UI 线程上泵送消息，让接收回调能更新列表
         if (!task.IsCompleted)
             UiThread.WaitWithPumping(task, TimeSpan.FromMinutes(30));
 
         lock (_gate)
         {
-            if (_merged) return;
-            _merged = true;
-            try
+            if (!_resolved)
             {
-                string[]? files = null;
-                if (task.IsCompletedSuccessfully)
-                    files = task.Result;
+                _resolved = true;
+                try
+                {
+                    if (task.IsCompletedSuccessfully)
+                    {
+                        var files = task.Result;
+                        if (files is { Length: > 0 } && PathsReady(files))
+                            _livePaths = files;
+                    }
+                }
+                catch
+                {
+                    // leave null
+                }
+            }
 
-                if (files is { Length: > 0 })
-                    MergeIntoPlaceholders(files, _placeholderPaths);
-            }
-            catch
+            if (_livePaths is { Length: > 0 })
             {
-                // 保留占位
+                // 物化后写入 DataObject，供后续查询；此前绝不 SetData 空路径
+                try
+                {
+                    SetData(WinForms.DataFormats.FileDrop, autoConvert: false, _livePaths);
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                return _livePaths;
             }
+
+            return [];
         }
     }
 
-    private static void MergeIntoPlaceholders(string[] materialized, string[] placeholders)
+    private static bool PathsReady(IReadOnlyList<string> paths)
     {
-        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in materialized)
+        foreach (var p in paths)
         {
-            if (File.Exists(path))
-                byName[Path.GetFileName(path)] = path;
-        }
-
-        for (var i = 0; i < placeholders.Length; i++)
-        {
-            var dest = placeholders[i];
-            var name = Path.GetFileName(dest);
-            if (!byName.TryGetValue(name, out var src))
-            {
-                if (i < materialized.Length && File.Exists(materialized[i]))
-                    src = materialized[i];
-                else
-                    continue;
-            }
-
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-                if (string.Equals(Path.GetFullPath(src), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                if (File.Exists(dest))
-                    File.Delete(dest);
-
-                if (!Native.NativeMethods.CreateHardLink(dest, src, IntPtr.Zero))
-                    File.Copy(src, dest, overwrite: true);
+                if (File.Exists(p) || Directory.Exists(p))
+                    return true;
             }
             catch
             {
-                try { File.Copy(src, dest, overwrite: true); } catch { /* ignore */ }
+                // continue
             }
         }
+
+        return false;
     }
 
     private static bool IsFileDropFormat(string? format)
@@ -173,8 +180,8 @@ internal sealed class PendingFileDropDataObject : WinForms.DataObject
     public override string ToString()
     {
         var sb = new StringBuilder("PendingFileDrop:");
-        foreach (var p in _placeholderPaths)
-            sb.Append(Path.GetFileName(p)).Append(';');
+        foreach (var n in _announceNames)
+            sb.Append(n).Append(';');
         return sb.ToString();
     }
 }

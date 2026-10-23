@@ -1,0 +1,98 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MAUI Windows：独立 exe → artifacts/release/FlyScreen-{ver}-maui-win-x64.exe -->
+  <Import Project="PublishProject.Common.props" />
+  <PropertyGroup>
+    <FlyScreenPublishTitle>发布 MAUI Windows 独立 exe (maui-win-x64)</FlyScreenPublishTitle>
+    <FlyScreenPublishRid>maui-win-x64</FlyScreenPublishRid>
+    <FlyScreenPublishKind>Exe</FlyScreenPublishKind>
+    <FlyScreenPublishStagingDir>src\FlyScreen.App.Maui\bin\publish\maui-win-x64</FlyScreenPublishStagingDir>
+  </PropertyGroup>
+
+  <!--
+    单文件 exe 启动时激活 Microsoft.UI.Xaml.Application 会 ClassFactory 0x80040111。
+    Windows App SDK 自包含清单有两处问题：
+    1. CreateWinRTRegistration 按时间戳增量。普通 Build 生成的 app.manifest 没有 loadFrom，
+       单文件 publish 若跳过该目标，激活仍去 exe 旁边找 Microsoft.ui.xaml.dll，
+       而这些 DLL 已被解压到临时目录。
+    2. PublishSingleFile=true 时同一 DLL 会再写一条 loadFrom 项，同名文件重复，
+       进程激活上下文直接失败（side-by-side configuration is incorrect）。
+    发布前删掉缓存清单，并在清单生成后、链接前合并重复项、保留 loadFrom。
+  -->
+  <UsingTask TaskName="FlyScreenWriteTextFile" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Path ParameterType="System.String" Required="true" />
+      <Text ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        File.WriteAllText(Path, Text);
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="FlyScreenPrepareMauiWinPublish" BeforeTargets="FlyScreenPublish">
+    <PropertyGroup>
+      <_FsMauiWinFixDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)obj\maui-win'))</_FsMauiWinFixDir>
+      <_FsMauiWinTargets>$(_FsMauiWinFixDir)\SingleFileManifest.targets</_FsMauiWinTargets>
+      <_FsMauiWinDedupe>$(_FsMauiWinFixDir)\Dedupe-WinAppSdkManifest.ps1</_FsMauiWinDedupe>
+      <_FsMauiWinScript>$(_FsMauiWinFixDir)\Publish.ps1</_FsMauiWinScript>
+      <FlyScreenPublishCommand>powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsMauiWinScript)&quot; -TargetsPath &quot;$(_FsMauiWinTargets)&quot; -DedupeScript &quot;$(_FsMauiWinDedupe)&quot;</FlyScreenPublishCommand>
+    </PropertyGroup>
+    <MakeDir Directories="$(_FsMauiWinFixDir)" />
+    <FlyScreenWriteTextFile Path="$(_FsMauiWinTargets)" Text="$(_FsMauiWinTargetsBody)" />
+    <FlyScreenWriteTextFile Path="$(_FsMauiWinDedupe)" Text="$(_FsMauiWinDedupeBody)" />
+    <FlyScreenWriteTextFile Path="$(_FsMauiWinScript)" Text="$(_FsMauiWinScriptBody)" />
+  </Target>
+
+  <PropertyGroup>
+    <!-- %24 在本项目求值后变成 $，留给 MAUI 工程再展开 IntermediateOutputPath。 -->
+    <_FsMauiWinTargetsBody><![CDATA[<Project>
+  <Target Name="FlyScreenDedupeWinAppSdkManifest" AfterTargets="CreateWinRTRegistration">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;%24(FlyScreenMauiWinDedupeScript)&quot; -Manifest &quot;%24(IntermediateOutputPath)Manifests\app.manifest&quot;" />
+  </Target>
+</Project>
+]]></_FsMauiWinTargetsBody>
+    <_FsMauiWinDedupeBody><![CDATA[param(
+    [Parameter(Mandatory = $true)]
+    [string]$Manifest
+)
+$ErrorActionPreference = 'Stop'
+if (-not (Test-Path -LiteralPath $Manifest)) { exit 0 }
+[xml]$doc = Get-Content -LiteralPath $Manifest
+$ns = 'urn:schemas-microsoft-com:asm.v3'
+$files = @($doc.DocumentElement.GetElementsByTagName('file', $ns))
+foreach ($g in ($files | Group-Object { $_.GetAttribute('name').ToLowerInvariant() })) {
+    if ($g.Count -lt 2) { continue }
+    $keep = $g.Group | Sort-Object { $_.ChildNodes.Count } -Descending | Select-Object -First 1
+    $withLoad = @($g.Group | Where-Object { $_.GetAttribute('loadFrom') })
+    if ($withLoad.Count -gt 0 -and -not $keep.GetAttribute('loadFrom')) {
+        $keep.SetAttribute('loadFrom', $withLoad[0].GetAttribute('loadFrom'))
+    }
+    foreach ($extra in $g.Group) {
+        if (-not [object]::ReferenceEquals($extra, $keep)) {
+            [void]$extra.ParentNode.RemoveChild($extra)
+        }
+    }
+}
+$doc.Save($Manifest)
+Write-Host "WinRT manifest deduped: $Manifest"
+]]></_FsMauiWinDedupeBody>
+    <_FsMauiWinScriptBody><![CDATA[param(
+    [Parameter(Mandatory = $true)]
+    [string]$TargetsPath,
+    [Parameter(Mandatory = $true)]
+    [string]$DedupeScript
+)
+$ErrorActionPreference = 'Stop'
+$manifestDir = 'src\FlyScreen.App.Maui\obj\Release\net10.0-windows10.0.19041.0\win-x64\Manifests'
+if (Test-Path -LiteralPath $manifestDir) {
+    Remove-Item -LiteralPath (Join-Path $manifestDir 'app.manifest'), (Join-Path $manifestDir 'WindowsAppSDK.manifest') -Force -ErrorAction SilentlyContinue
+}
+& dotnet publish 'src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj' -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true "-p:CustomAfterMicrosoftCommonTargets=$TargetsPath" "-p:FlyScreenMauiWinDedupeScript=$DedupeScript" -o 'src\FlyScreen.App.Maui\bin\publish\maui-win-x64'
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+]]></_FsMauiWinScriptBody>
+  </PropertyGroup>
+
+  <Import Project="PublishProject.Common.targets" />
+</Project>

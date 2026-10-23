@@ -1,0 +1,10 @@
+﻿{
+  "name": "common",
+  "version": "1.0.4",
+  "description": "玄鸟鸿蒙共享：协议、发现、连接、宿主",
+  "main": "Index.ets",
+  "author": "xuanniao",
+  "license": "UNLICENSED",
+  "dependencies": {}
+}
+

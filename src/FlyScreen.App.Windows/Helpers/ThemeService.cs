@@ -37,6 +37,8 @@ public static class ThemeService
         Set(rd, "Muted", dark ? "#94A3B8" : "#6B7280");
         Set(rd, "Text", dark ? "#E2E8F0" : "#111827");
         Set(rd, "Success", dark ? "#34D399" : "#059669");
+        Set(rd, "Warn", dark ? "#FBBF24" : "#D97706");
+        Set(rd, "WarnSoft", dark ? "#422006" : "#FEF3C7");
         Set(rd, "WinBg", dark ? "#0F172A" : "#F7F8FA");
         Set(rd, "CardBg", dark ? "#1E293B" : "#FFFFFF");
         Set(rd, "PaneBg", dark ? "#111827" : "#FFFFFF");
@@ -64,14 +66,20 @@ public static class ThemeService
         root.InvalidateArrange();
     }
 
-    /// <summary>同步 DWM 标题栏深/浅色（需 HWND；过早则挂到 SourceInitialized）。</summary>
+    /// <summary>
+    /// 同步 DWM 标题栏深/浅色。
+    /// 构造期窗口尚未显示，Win10 会忽略这次绘制；等 Loaded 与首帧空闲后再刷一次。
+    /// </summary>
     private static void ApplyNativeTitleBar(Window window, bool dark)
     {
         void Apply()
         {
             try
             {
-                var hwnd = new WindowInteropHelper(window).EnsureHandle();
+                var helper = new WindowInteropHelper(window);
+                var hwnd = helper.Handle;
+                if (hwnd == IntPtr.Zero)
+                    hwnd = helper.EnsureHandle();
                 NativeMethods.ApplyTitleBarTheme(hwnd, dark);
             }
             catch
@@ -80,23 +88,10 @@ public static class ThemeService
             }
         }
 
-        if (window.IsLoaded || PresentationSource.FromVisual(window) != null)
-        {
-            Apply();
-            return;
-        }
-
-        // 避免重复订阅：先卸再挂
-        void OnSourceInitialized(object? sender, EventArgs e)
-        {
-            window.SourceInitialized -= OnSourceInitialized;
-            Apply();
-        }
-
-        window.SourceInitialized -= OnSourceInitialized;
-        window.SourceInitialized += OnSourceInitialized;
-        // 尽量立刻建句柄，多数情况下可马上生效
-        try { Apply(); } catch { /* SourceInitialized 兜底 */ }
+        Apply();
+        // 显示之后再刷：对应「最小化/拉动后标题栏才变深色」
+        window.Dispatcher.BeginInvoke(Apply, DispatcherPriority.Loaded);
+        window.Dispatcher.BeginInvoke(Apply, DispatcherPriority.ContextIdle);
     }
 
     private static void OverrideSystemColorsOn(ResourceDictionary rd, bool dark)

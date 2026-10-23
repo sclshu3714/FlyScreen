@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- WPF stable：独立 exe → artifacts/release/FlyScreen-{ver}-win-x64.exe -->
+  <Import Project="PublishProject.Common.props" />
+  <PropertyGroup>
+    <FlyScreenPublishTitle>发布 WPF Windows 独立 exe (win-x64) [stable]</FlyScreenPublishTitle>
+    <FlyScreenPublishRid>win-x64</FlyScreenPublishRid>
+    <FlyScreenPublishKind>Exe</FlyScreenPublishKind>
+    <FlyScreenPublishStagingDir>src\FlyScreen.App.Windows\bin\publish\win-x64</FlyScreenPublishStagingDir>
+    <FlyScreenPublishCommand>dotnet publish "src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "src\FlyScreen.App.Windows\bin\publish\win-x64"</FlyScreenPublishCommand>
+  </PropertyGroup>
+  <Import Project="PublishProject.Common.targets" />
+</Project>

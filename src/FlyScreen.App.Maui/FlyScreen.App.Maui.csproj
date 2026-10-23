@@ -1,0 +1,213 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 与 VS MAUI 模板一致（勿用自定义属性包一层，否则 VS 设计时还原常漏 TFM → NETSDK1005）。
+         仅 Windows：-p:FlyScreenMauiTfms=windows -->
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(FlyScreenMauiTfms)' == 'windows'">net10.0-windows10.0.19041.0</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FlyScreen.AppMaui</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationTitle>玄鸟</ApplicationTitle>
+    <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
+    <!-- ApplicationDisplayVersion / ApplicationVersion 由 build/FlyScreen.Version.targets 与 Win 同源 -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <!-- .NET 10 默认 AndroidPackageFormats=aab;apk，Release 会再走一遍 aab，并在生成通用 apk 时删掉 *-Signed.apk。内测只出 apk。 -->
+    <AndroidPackageFormat Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">apk</AndroidPackageFormat>
+    <AndroidPackageFormats Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">apk</AndroidPackageFormats>
+    <!-- 真机常为 arm/arm64；仅 arm64+x64 时部分机型按 32 位加载会 UnsatisfiedLinkError(n_onCreate) -->
+    <RuntimeIdentifiers Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">android-arm;android-arm64;android-x64</RuntimeIdentifiers>
+    <!--
+      默认 Marshal Methods 只在 JNI_OnLoad 里 RegisterNatives，不导出 Java_crc…_n_1onCreate。
+      真机若登记失败，启动即 UnsatisfiedLinkError: MauiApplication.n_onCreate。
+      关闭后改走传统 JNI 符号，和生成的 Java 包装一致。
+    -->
+    <AndroidEnableMarshalMethods Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">false</AndroidEnableMarshalMethods>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- 非打包：F5 用 Project 配置；VS 项目右键「发布」对 unpackaged 常不可用，见 Properties/PublishProfiles/SingleFile-win-x64.pubxml -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
+    <IsPublishable>true</IsPublishable>
+    <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
+  <!-- VS「调试 Android」要求显式符号；否则报「此项目配置未启用调试」 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <AndroidIncludeDebugSymbols>true</AndroidIncludeDebugSymbols>
+  </PropertyGroup>
+
+  <!-- Release 未签名 APK 无法安装（packageInfo is null）。内测旁加载用 sideload keystore；上架 Play 请换正式库并用 -p 覆盖 -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>$(MSBuildThisFileDirectory)..\..\build\android\flyscreen-sideload.keystore</AndroidSigningKeyStore>
+    <AndroidSigningStorePass>flyscreen</AndroidSigningStorePass>
+    <AndroidSigningKeyAlias>flyscreen</AndroidSigningKeyAlias>
+    <AndroidSigningKeyPass>flyscreen</AndroidSigningKeyPass>
+  </PropertyGroup>
+
+  <!-- Windows 用 .ico；跨平台图标/启动图用玄鸟 png（与 Desktop Assets 同源） -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- win-x64 发布：单文件自包含（与 PublishProfiles/SingleFile-win-x64.pubxml / Publish-FlyScreenMaui.ps1 一致） -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
+    <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+  </PropertyGroup>
+
+  <!-- VS / msbuild：dotnet msbuild -t:PublishMauiWinX64 -->
+  <Target Name="PublishMauiWinX64">
+    <PropertyGroup>
+      <_FsMauiWinPub>$(MSBuildThisFileDirectory)bin\publish\maui-win-x64</_FsMauiWinPub>
+    </PropertyGroup>
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectFullPath)&quot; -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o &quot;$(_FsMauiWinPub)&quot;" />
+    <Message Importance="High" Text="MAUI win-x64 → $(_FsMauiWinPub)" />
+  </Target>
+
+  <ItemGroup>
+    <!-- 勿设不透明 Color：会把透明区填实，Windows 任务栏/托盘出现黑底方块。
+         Android 自适应底板用极浅透明无关色即可；前景仍是带 Alpha 的玄鸟 png。 -->
+    <MauiIcon Include="Resources\AppIcon\appicon.png" BaseSize="256,256" />
+    <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#0F172A" BaseSize="256,256" />
+  </ItemGroup>
+
+  <!-- 显式打包 Monaco 等 Raw 资源（默认 MauiAsset 在本工程评估为空，导致 HybridWebView 404） -->
+  <ItemGroup>
+    <MauiAsset Include="Resources\Raw\**\*">
+      <!-- 资源名相对 Raw：wwwroot/index.html、monaco/... -->
+      <LogicalName>%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </MauiAsset>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <Content Include="Platforms\Windows\Assets\**\*">
+      <Link>Assets\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Platforms\Windows\Assets\appiconLogo.png">
+      <Link>Square44x44Logo.png</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+  </ItemGroup>
+
+  <!-- Fly.Ocr：局部截屏 + 中英 OCR（仅 Android；捆绑模型）
+       与 ML Kit 对齐 AndroidX，避免 Fragment/Lifecycle 主包与 Ktx 版本错位导致 R8 duplicate class。 -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PackageReference Include="Xamarin.AndroidX.DocumentFile" Version="1.1.0.1" />
+    <PackageReference Include="Xamarin.Google.MLKit.TextRecognition.Chinese" Version="116.0.1.9" />
+    <PackageReference Include="Xamarin.AndroidX.Fragment" Version="1.9.0" />
+    <PackageReference Include="Xamarin.AndroidX.Fragment.Ktx" Version="1.9.0" />
+    <PackageReference Include="Xamarin.AndroidX.Activity" Version="1.13.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Activity.Ktx" Version="1.13.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.Common" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.LiveData" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.LiveData.Core" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.LiveData.Core.Ktx" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.Runtime" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.Runtime.Android" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.Runtime.Ktx" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.Runtime.Ktx.Android" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.ViewModel" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Lifecycle.ViewModel.Ktx" Version="2.11.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Collection.Jvm" Version="1.6.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.Collection.Ktx" Version="1.6.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.SavedState" Version="1.5.0.1" />
+    <PackageReference Include="Xamarin.AndroidX.SavedState.SavedState.Ktx" Version="1.5.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+  </ItemGroup>
+
+  <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.Version.targets" />
+
+  <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->
+  <Target Name="FlyScreen_PreClearAndroidIntermediates"
+          BeforeTargets="_CleanMonoAndroidIntermediateDir"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1&quot; -Configuration &quot;$(Configuration)&quot; -TargetFramework &quot;$(TargetFramework)&quot;"
+          IgnoreExitCode="true"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1')" />
+  </Target>
+
+  <!-- 登记 APK，避免下次 IncrementalClean 把未出现在上一轮 FileWrites 里的 Signed / FlyScreen.apk 删掉。 -->
+  <Target Name="FlyScreen_ProtectApkFileWrites"
+          BeforeTargets="IncrementalClean"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PropertyGroup>
+      <_FsPkgId Condition="'$(_AndroidPackage)' != ''">$(_AndroidPackage)</_FsPkgId>
+      <_FsPkgId Condition="'$(_FsPkgId)' == ''">$(ApplicationId)</_FsPkgId>
+    </PropertyGroup>
+    <ItemGroup>
+      <FileWrites Include="$(OutDir)$(_FsPkgId).apk" />
+      <FileWrites Include="$(OutDir)$(_FsPkgId)-Signed.apk" />
+      <FileWrites Include="$(OutDir)$(_FsPkgId)-Signed.apk.idsig" />
+      <FileWrites Include="$(OutDir)FlyScreen.apk" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    CLI：Build 内部会 _Sign，结束后补一次。
+    VS 右键存档：SignAndroidPackage 之后，IDE 会删掉非 *-Signed.apk，再把 *-Signed.apk 改名为包名。
+    不要挂在 _CopyPackage 上，否则会提前生成 -Signed.apk，_Sign 被当成已完成而跳过。
+    RestoreAfterVisualStudio 在 IDE 改名之后把 -Signed.apk / FlyScreen.apk 拷回去。
+  -->
+  <Target Name="FlyScreen_EnsureSignedApk"
+          AfterTargets="SignAndroidPackage"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <CallTarget Targets="FlyScreen_EnsureSignedApkCore" />
+  </Target>
+  <Target Name="FlyScreen_EnsureSignedApkOnCliBuild"
+          AfterTargets="Build"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(BuildingInsideVisualStudio)' != 'true'">
+    <CallTarget Targets="FlyScreen_EnsureSignedApkCore" />
+  </Target>
+  <Target Name="FlyScreen_EnsureSignedApkCore"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PropertyGroup>
+      <!-- 末尾不要加 \，否则 powershell -OutDir "....\" 会把引号转义掉 -->
+      <_FsApkDir>$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)</_FsApkDir>
+      <_FsInterApkDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\android\bin</_FsInterApkDir>
+      <_FsPkgId Condition="'$(_AndroidPackage)' != ''">$(_AndroidPackage)</_FsPkgId>
+      <_FsPkgId Condition="'$(_FsPkgId)' == ''">$(ApplicationId)</_FsPkgId>
+      <_FsEnsureScript>$(MSBuildThisFileDirectory)..\..\build\Ensure-MauiSignedApk.ps1</_FsEnsureScript>
+      <_FsKeyStore>$(MSBuildThisFileDirectory)..\..\build\android\flyscreen-sideload.keystore</_FsKeyStore>
+      <_FsIdeRestoreArgs> -RestoreAfterVisualStudio</_FsIdeRestoreArgs>
+    </PropertyGroup>
+    <!-- 只跑一次。OutDir 用绝对路径，避免和相对 OutDir 再执行一遍。 -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsApkDir)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;$(_FsIdeRestoreArgs)"
+          Condition="Exists('$(_FsEnsureScript)')"
+          IgnoreExitCode="true" />
+    <ItemGroup>
+      <FileWrites Include="$(_FsApkDir)\$(_FsPkgId).apk" />
+      <FileWrites Include="$(_FsApkDir)\$(_FsPkgId)-Signed.apk" />
+      <FileWrites Include="$(_FsApkDir)\$(_FsPkgId)-Signed.apk.idsig" />
+      <FileWrites Include="$(_FsApkDir)\FlyScreen.apk" />
+    </ItemGroup>
+    <Message Importance="High" Text="FlyScreen APK → $(_FsApkDir)\FlyScreen.apk"
+             Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
+  </Target>
+
+</Project>

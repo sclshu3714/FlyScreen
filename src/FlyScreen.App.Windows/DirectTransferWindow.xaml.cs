@@ -2,10 +2,12 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
+using FlyScreen.Win32Clipboard;
 
 namespace FlyScreen;
 
@@ -16,17 +18,29 @@ public partial class DirectTransferWindow : Window
     private readonly ObservableCollection<PeerOption> _peers = [];
     private readonly ObservableCollection<FolderPreset> _presets = [];
     private int _loadingFolders;
+    private ExplorerFileDropTarget? _explorerDrop;
+    private HwndSource? _hwndSource;
+    private readonly HwndSourceHook _dropHook;
 
     public DirectTransferWindow(AppHost host)
     {
         InitializeComponent();
         _host = host;
+        _dropHook = DropWndProc;
         ThemeService.ApplyToChildWindow(this);
         ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerCombo.ItemsSource = _peers;
         FolderPresetCombo.ItemsSource = _presets;
+        _paths.CollectionChanged += (_, _) =>
+        {
+            if (PathDropHint != null)
+                PathDropHint.Visibility = _paths.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        };
+        // SourceInitialized：句柄已有，早于 Loaded，避免 WPF 先 RegisterDragDrop
+        SourceInitialized += (_, _) => AttachExplorerDrop();
         Loaded += OnLoaded;
+        Closed += (_, _) => DetachExplorerDrop();
     }
 
     private void ApplyLocalizedUi()
@@ -37,6 +51,7 @@ public partial class DirectTransferWindow : Window
         RemoveSelectedBtn.Content = Loc.T("DT.Remove");
         ClearPathsBtn.Content = Loc.T("DT.Clear");
         ContentHintText.Text = Loc.T("DT.ContentHint");
+        PathDropHint.Text = Loc.T("DT.DropHint");
         TargetHintText.Text = Loc.T("DT.TargetHint");
         PeerLabel.Text = Loc.T("DT.Peer");
         PresetLabel.Text = Loc.T("DT.Preset");
@@ -49,6 +64,8 @@ public partial class DirectTransferWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         ThemeService.ApplyToChildWindow(this);
+        // 再挂一次：防止 Loaded 后其它逻辑重新 RegisterDragDrop
+        AttachExplorerDrop();
         RefreshPeers();
         if (_peers.Count == 0)
         {
@@ -59,6 +76,52 @@ public partial class DirectTransferWindow : Window
         {
             PeerCombo.SelectedIndex = 0;
         }
+    }
+
+    private void AttachExplorerDrop()
+    {
+        DetachExplorerDrop();
+        // 禁止 WPF OLE 投放（提权下只会显示禁止光标）
+        AllowDrop = false;
+        PathDropBorder.AllowDrop = false;
+        PathList.AllowDrop = false;
+
+        var hwnd = new WindowInteropHelper(this).EnsureHandle();
+        _explorerDrop = ExplorerFileDropTarget.TryAttachWpf(hwnd, paths =>
+        {
+            foreach (var p in paths)
+            {
+                if (File.Exists(p) || Directory.Exists(p))
+                    AddPath(p);
+            }
+        });
+        if (_explorerDrop is null) return;
+
+        _hwndSource = HwndSource.FromHwnd(hwnd);
+        _hwndSource?.AddHook(_dropHook);
+
+        // 布局完成后再 Revoke + DragAccept，防止 WPF 延迟 RegisterDragDrop
+        Dispatcher.BeginInvoke(
+            () => _explorerDrop?.Reaffirm(),
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void DetachExplorerDrop()
+    {
+        if (_hwndSource != null)
+        {
+            try { _hwndSource.RemoveHook(_dropHook); } catch { /* ignore */ }
+            _hwndSource = null;
+        }
+
+        _explorerDrop?.Dispose();
+        _explorerDrop = null;
+    }
+
+    private IntPtr DropWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        _explorerDrop?.TryHandle(hwnd, msg, wParam, lParam, ref handled);
+        return IntPtr.Zero;
     }
 
     private void RefreshPeers()

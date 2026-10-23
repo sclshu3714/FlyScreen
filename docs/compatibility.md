@@ -18,14 +18,23 @@
 |----------|----------|------|
 | Win 1.0.x (PV1) | Win 1.1.x (PV1/2 扩展可选) | 互通，行为与 1.0 一致 |
 | Win PV1 | Mac PV2 | 互通；Mac 特有 Caps 在 Win 忽略未知字段 |
-| PV2 Desktop | PV2 Phone | 按 Caps 交集；无 EdgeMouse |
+| PV2 Desktop | PV2 Phone | 按 Caps 交集；MAUI Android 可含 EdgeMouse+InjectInput（须无障碍）；Kotlin 旧包通常无 EdgeMouse |
 | PV1 | PV3（破坏性） | 可拒绝并提示升级（实现时明确） |
 
 ## 3. 平台包与自动更新
 
-- 更新器只下载**本平台**资源（按 OS / RID 匹配文件名）。  
-- Win stable 用户不得被导向未签名的实验包。  
-- 新平台初期可仅提供手动下载，不强制接入自动更新。
+Release 资源命名：`FlyScreen-{version}-{rid}{后缀}`（见 ROADMAP §4.2），发版时各端**各上传一个单文件**。
+
+| 端 | rid 示例 | 检查更新 | 自动安装 |
+|----|----------|----------|----------|
+| WPF Windows stable | `win-x64`（`.exe`） | ✅ 排除 maui | ✅ 下载后自替换 exe 并重启 |
+| MAUI Windows | `maui-win-x64` | ✅ | ✅ 同左（`SelfReplaceInstaller`） |
+| MAUI Android | `maui-android` | ✅ | ✅ 下载 APK → 系统安装界面（需允许未知来源） |
+| Avalonia Mac/Linux | `osx-*` / `linux-*` | ✅ | ✅ 下载后 bash 自替换并重启 |
+| MAUI Mac | `maui-osx-*` | ✅ | ✅ 自替换 |
+
+实现：`FlyScreen.Core/Services/Update/`（`GitHubReleaseClient` + `SelfReplaceInstaller` + 通道匹配）；Android 另见 `AndroidApkUpdater`。  
+同一 Release 挂多端单文件；各端只下载自己的 rid。产物：`artifacts/release/`。
 
 ## 4. 支持矩阵（发版维护）
 
@@ -51,3 +60,4 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-10-13 | 首版 |
+| 2026-10-16 | Phone Caps：MAUI 可宣告 EdgeMouse/InjectInput；与旧「无 EdgeMouse」表述区分 |
