@@ -92,7 +92,7 @@ public partial class DirectTransferWindow : Window
         e.Handled = true;
     }
 
-    private void PathList_Drop(object? sender, DragEventArgs e)
+    private async void PathList_Drop(object? sender, DragEventArgs e)
     {
         if (!e.Data.Contains(DataFormats.Files))
         {
@@ -107,18 +107,24 @@ public partial class DirectTransferWindow : Window
             return;
         }
 
-        var added = 0;
+        StatusText.Text = Loc.T("DT.Preparing");
+        var before = _paths.Count;
         foreach (var item in items)
         {
-            var path = item.TryGetLocalPath();
-            if (string.IsNullOrWhiteSpace(path)) continue;
-            if (!File.Exists(path) && !Directory.Exists(path)) continue;
-            var before = _paths.Count;
-            AddPath(path);
-            if (_paths.Count > before) added++;
+            if (item is IStorageFolder folder)
+                await TryAddStorageFolderAsync(folder).ConfigureAwait(true);
+            else if (item is IStorageFile file)
+                await TryAddStorageFileAsync(file).ConfigureAwait(true);
+            else
+            {
+                var path = item.TryGetLocalPath();
+                if (!string.IsNullOrWhiteSpace(path)
+                    && (File.Exists(path) || Directory.Exists(path)))
+                    AddPath(path);
+            }
         }
 
-        if (added > 0)
+        if (_paths.Count > before)
             StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
         e.Handled = true;
     }
@@ -185,31 +191,106 @@ public partial class DirectTransferWindow : Window
 
     private async void AddFiles_Click(object? sender, RoutedEventArgs e)
     {
+        StatusText.Text = Loc.T("DT.Preparing");
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = Loc.T("DT.PickFiles"),
             AllowMultiple = true
         }).ConfigureAwait(true);
         foreach (var f in files)
-        {
-            var path = f.TryGetLocalPath();
-            if (!string.IsNullOrEmpty(path))
-                AddPath(path);
-        }
+            await TryAddStorageFileAsync(f).ConfigureAwait(true);
+        StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
     }
 
     private async void AddFolder_Click(object? sender, RoutedEventArgs e)
     {
+        StatusText.Text = Loc.T("DT.Preparing");
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             Title = Loc.T("DT.PickFolder"),
             AllowMultiple = true
         }).ConfigureAwait(true);
         foreach (var folder in folders)
+            await TryAddStorageFolderAsync(folder).ConfigureAwait(true);
+        StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
+    }
+
+    /// <summary>Mac/Linux 门户选择可能无本地路径，需拷到临时目录再传。</summary>
+    private async Task TryAddStorageFileAsync(IStorageFile file)
+    {
+        var local = file.TryGetLocalPath();
+        if (!string.IsNullOrEmpty(local) && File.Exists(local))
         {
-            var path = folder.TryGetLocalPath();
-            if (!string.IsNullOrEmpty(path))
-                AddPath(path);
+            AddPath(local);
+            return;
+        }
+
+        try
+        {
+            var name = string.IsNullOrWhiteSpace(file.Name) ? "file.bin" : Path.GetFileName(file.Name);
+            foreach (var c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            var dir = Path.Combine(Path.GetTempPath(), "FlyScreenDt", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            var dest = Path.Combine(dir, name);
+            await using (var src = await file.OpenReadAsync().ConfigureAwait(true))
+            await using (var dst = File.Create(dest))
+                await src.CopyToAsync(dst).ConfigureAwait(true);
+            AddPath(dest);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+    }
+
+    private async Task TryAddStorageFolderAsync(IStorageFolder folder)
+    {
+        var local = folder.TryGetLocalPath();
+        if (!string.IsNullOrEmpty(local) && Directory.Exists(local))
+        {
+            AddPath(local);
+            return;
+        }
+
+        try
+        {
+            var name = string.IsNullOrWhiteSpace(folder.Name) ? "folder" : Path.GetFileName(folder.Name);
+            foreach (var c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            var destRoot = Path.Combine(Path.GetTempPath(), "FlyScreenDt", Guid.NewGuid().ToString("N"), name);
+            await CopyStorageFolderAsync(folder, destRoot).ConfigureAwait(true);
+            if (Directory.Exists(destRoot))
+                AddPath(destRoot);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+    }
+
+    private static async Task CopyStorageFolderAsync(IStorageFolder folder, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        await foreach (var item in folder.GetItemsAsync().ConfigureAwait(false))
+        {
+            if (item is IStorageFile file)
+            {
+                var name = string.IsNullOrWhiteSpace(file.Name) ? Guid.NewGuid().ToString("N") : Path.GetFileName(file.Name);
+                foreach (var c in Path.GetInvalidFileNameChars())
+                    name = name.Replace(c, '_');
+                var dest = Path.Combine(destDir, name);
+                await using var src = await file.OpenReadAsync().ConfigureAwait(false);
+                await using var dst = File.Create(dest);
+                await src.CopyToAsync(dst).ConfigureAwait(false);
+            }
+            else if (item is IStorageFolder sub)
+            {
+                var name = string.IsNullOrWhiteSpace(sub.Name) ? Guid.NewGuid().ToString("N") : Path.GetFileName(sub.Name);
+                foreach (var c in Path.GetInvalidFileNameChars())
+                    name = name.Replace(c, '_');
+                await CopyStorageFolderAsync(sub, Path.Combine(destDir, name)).ConfigureAwait(false);
+            }
         }
     }
 

@@ -250,7 +250,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         if (!_settings.ShareClipboard) return;
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
-        // 与 Win 对齐：宣告时不拉取；打开收件箱时再接收
+        // 与 Win 对齐：宣告时不拉取；由「接收剪贴板文件」显式拉取
     }
 
 

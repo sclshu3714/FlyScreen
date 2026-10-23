@@ -469,6 +469,7 @@ public partial class MainWindow : Window
         if (XferHintText != null) XferHintText.Text = Loc.T("Xfer.Hint");
         if (DirectTransferBtn != null) DirectTransferBtn.Content = Loc.T("Xfer.Direct");
         if (OpenInboxBtn != null) OpenInboxBtn.Content = Loc.T("Xfer.OpenInbox");
+        if (ReceiveClipboardBtn != null) ReceiveClipboardBtn.Content = Loc.T("Xfer.ReceiveClipboard");
         if (ClearTransfersBtn != null) ClearTransfersBtn.Content = Loc.T("Xfer.ClearDone");
         if (XferColDir != null) XferColDir.Text = Loc.T("Xfer.Col.Dir");
         if (XferColName != null) XferColName.Text = Loc.T("Xfer.Col.Name");
@@ -2199,15 +2200,8 @@ public partial class MainWindow : Window
         TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
     }
 
-    private async void OpenInbox_Click(object? sender, RoutedEventArgs e)
+    private void OpenInbox_Click(object? sender, RoutedEventArgs e)
     {
-        if (_host.Transfers.HasRemotePendingFiles)
-        {
-            StatusText.Text = "正在接收对端文件…";
-            try { await _host.Transfers.PullRemoteFilesForPasteAsync(); }
-            catch { /* ignore */ }
-        }
-
         var inbox = _host.Transfers.InboxDirectory;
         if (DesktopFolderOpen.TryOpen(inbox, out var error))
         {
@@ -2218,6 +2212,28 @@ public partial class MainWindow : Window
         StatusText.Text = string.IsNullOrWhiteSpace(error)
             ? $"无法打开收件箱: {inbox}"
             : $"无法打开收件箱: {error}（{inbox}）";
+    }
+
+    private async void ReceiveClipboardFiles_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!_host.Transfers.HasRemotePendingFiles)
+        {
+            StatusText.Text = Loc.T("Xfer.NoPendingClipboard");
+            return;
+        }
+
+        StatusText.Text = Loc.T("Xfer.ReceivingClipboard");
+        try
+        {
+            var files = await _host.Transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(true);
+            StatusText.Text = files is { Count: > 0 }
+                ? string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count)
+                : Loc.T("Xfer.ReceiveClipboardFail");
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
     }
 
     private void TransferFileName_PointerPressed(object? sender, PointerPressedEventArgs e)

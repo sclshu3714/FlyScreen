@@ -110,6 +110,7 @@
   <!-- Fly.Ocr：局部截屏 + 中英 OCR（仅 Android；捆绑模型）
        与 ML Kit 对齐 AndroidX，避免 Fragment/Lifecycle 主包与 Ktx 版本错位导致 R8 duplicate class。 -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PackageReference Include="Xamarin.AndroidX.DocumentFile" Version="1.1.0.1" />
     <PackageReference Include="Xamarin.Google.MLKit.TextRecognition.Chinese" Version="116.0.1.9" />
     <PackageReference Include="Xamarin.AndroidX.Fragment" Version="1.9.0" />
     <PackageReference Include="Xamarin.AndroidX.Fragment.Ktx" Version="1.9.0" />

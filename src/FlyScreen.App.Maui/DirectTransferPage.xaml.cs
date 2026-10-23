@@ -1,8 +1,12 @@
 using System.Collections.ObjectModel;
+using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
 #if WINDOWS
 using FlyScreen.Win32Clipboard;
+#endif
+#if ANDROID
+using FlyScreen.AppMaui.Platforms.Android;
 #endif
 
 namespace FlyScreen.AppMaui;
@@ -41,8 +45,6 @@ public partial class DirectTransferPage : ContentPage
         AddFolderBtn.Text = Loc.T("DT.AddFolder");
         RemoveSelectedBtn.Text = Loc.T("DT.Remove");
         ClearPathsBtn.Text = Loc.T("DT.Clear");
-        ContentHintText.Text = Loc.T("DT.ContentHint");
-        PathDropHint.Text = Loc.T("DT.DropHint");
         TargetHintText.Text = Loc.T("DT.TargetHint");
         PeerLabel.Text = Loc.T("DT.Peer");
         PresetLabel.Text = Loc.T("DT.Preset");
@@ -50,6 +52,30 @@ public partial class DirectTransferPage : ContentPage
         TargetPathBox.Placeholder = Loc.T("DT.PathTip");
         CancelBtn.Text = Loc.T("DT.Cancel");
         StartBtn.Text = Loc.T("DT.Start");
+
+        // 手机/平板无桌面拖放；文案与按钮按平台调整
+        var idiom = DeviceInfo.Idiom;
+        var mobile = (idiom == DeviceIdiom.Phone || idiom == DeviceIdiom.Tablet)
+                     && DeviceInfo.Platform != DevicePlatform.WinUI;
+        if (mobile)
+        {
+#if ANDROID
+            ContentHintText.Text = Loc.T("DT.MobileContentHintAndroid");
+            PathDropHint.Text = Loc.T("DT.MobileDropHintAndroid");
+#elif IOS || MACCATALYST
+            ContentHintText.Text = Loc.T("DT.MobileContentHint");
+            PathDropHint.Text = Loc.T("DT.MobileDropHint");
+            AddFolderBtn.IsVisible = false;
+#else
+            ContentHintText.Text = Loc.T("DT.MobileContentHint");
+            PathDropHint.Text = Loc.T("DT.MobileDropHint");
+#endif
+        }
+        else
+        {
+            ContentHintText.Text = Loc.T("DT.ContentHint");
+            PathDropHint.Text = Loc.T("DT.DropHint");
+        }
     }
 
     private void OnLoaded(object? sender, EventArgs e)
@@ -181,6 +207,7 @@ public partial class DirectTransferPage : ContentPage
     {
         try
         {
+            StatusText.Text = Loc.T("DT.Preparing");
             List<string> files;
 #if WINDOWS
             files = await MainThread.InvokeOnMainThreadAsync(() =>
@@ -190,14 +217,13 @@ public partial class DirectTransferPage : ContentPage
 #else
             var picked = await FilePicker.Default.PickMultipleAsync(
                 new PickOptions { PickerTitle = Loc.T("DT.PickFiles") }).ConfigureAwait(true);
-            files = (picked ?? [])
-                .Select(f => f?.FullPath)
-                .Where(p => !string.IsNullOrEmpty(p) && File.Exists(p!))
-                .Cast<string>()
-                .ToList();
+            files = (await MauiPickedFileStore.MaterializeManyAsync(picked ?? [])
+                .ConfigureAwait(true)).ToList();
 #endif
             foreach (var f in files)
                 AddPath(f);
+            if (files.Count == 0 && _paths.Count == 0)
+                StatusText.Text = Loc.T("DT.NeedPaths");
         }
         catch (Exception ex)
         {
@@ -214,8 +240,14 @@ public partial class DirectTransferPage : ContentPage
                 Platforms.Windows.Win32PathPicker.PickFolder());
             if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
                 AddPath(folder);
+#elif ANDROID
+            StatusText.Text = Loc.T("DT.Preparing");
+            var local = await AndroidFolderMaterializer.PickAndMaterializeAsync().ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(local) && Directory.Exists(local))
+                AddPath(local);
+            else if (_paths.Count == 0)
+                StatusText.Text = Loc.T("DT.NeedPaths");
 #else
-            // 未引入 CommunityToolkit FolderPicker；手机端请用「添加文件」
             await DisplayAlertAsync(Loc.T("DT.Title"), Loc.T("DT.FolderUnsupported"), "OK");
 #endif
         }
