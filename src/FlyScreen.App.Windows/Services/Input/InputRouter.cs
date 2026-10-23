@@ -61,6 +61,12 @@ public sealed class InputRouter : IDisposable
 
     public event Action<string?>? ControlTargetChanged;
 
+    /// <summary>本机 Ctrl+V / Shift+Insert：返回 true 表示已处理（吞键）。</summary>
+    public Func<bool>? TryHandleLocalFilePasteHotkey { get; set; }
+
+    /// <summary>本机右键：可能打开粘贴菜单，可提前拉取远程文件。</summary>
+    public Action? PrefetchRemoteFilesForLikelyPaste { get; set; }
+
     public InputRouter(AppSettings settings, ConnectionManager connections)
     {
         _settings = settings;
@@ -349,6 +355,13 @@ public sealed class InputRouter : IDisposable
         {
             TryClaimPhysicalInput();
         }
+
+        // 本机右键：可能粘贴，提前拉取远程文件填入占位路径
+        if (msg == NativeMethods.WM_RBUTTONDOWN && !_controllingRemote && _focusOnLocal)
+        {
+            try { PrefetchRemoteFilesForLikelyPaste?.Invoke(); }
+            catch { /* ignore */ }
+        }
         else if (msg == NativeMethods.WM_MOUSEMOVE && !_controllingRemote)
         {
             TryClaimPhysicalInput();
@@ -466,6 +479,16 @@ public sealed class InputRouter : IDisposable
                 return (IntPtr)1;
         }
 
+        // 本机懒粘贴：Ctrl+V / Shift+Insert 先拉取再重放
+        if (down && !_controllingRemote && _focusOnLocal)
+        {
+            var vk = (int)info.vkCode;
+            var isPaste = (vk == 0x56 && IsCtrlDown() && !IsAltDown() && !IsWinDown())
+                          || (vk == 0x2D && IsShiftDown() && !IsCtrlDown() && !IsAltDown());
+            if (isPaste && TryHandleLocalFilePasteHotkey?.Invoke() == true)
+                return (IntPtr)1;
+        }
+
         if (_controllingRemote && !string.IsNullOrEmpty(_activePeer))
         {
             var extended = (info.flags & 1) != 0;
@@ -558,6 +581,11 @@ public sealed class InputRouter : IDisposable
         => (NativeMethods.GetAsyncKeyState(0x11) & 0x8000) != 0
            || (NativeMethods.GetAsyncKeyState(0xA2) & 0x8000) != 0
            || (NativeMethods.GetAsyncKeyState(0xA3) & 0x8000) != 0;
+
+    private static bool IsShiftDown()
+        => (NativeMethods.GetAsyncKeyState(0x10) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA0) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA1) & 0x8000) != 0;
 
     private static bool IsAltDown()
         => (NativeMethods.GetAsyncKeyState(0x12) & 0x8000) != 0

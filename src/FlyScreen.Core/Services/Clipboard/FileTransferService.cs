@@ -28,6 +28,13 @@ public sealed class FileTransferService
     private long _lastAppliedRemoteSequence;
     private readonly Dictionary<Guid, ReceiveState> _receiving = new();
     private readonly Dictionary<long, BatchReceive> _batches = new();
+    /// <summary>文件夹批量在列表中的合并行：(sequence, groupKey) → UI 项。</summary>
+    private readonly Dictionary<(long Seq, string Key), TransferItem> _folderUiItems = new();
+    private readonly Dictionary<(long Seq, string Key), int> _folderUiCompleted = new();
+    /// <summary>按列表项中止发送：TransferItem.Id → CTS。</summary>
+    private readonly Dictionary<Guid, CancellationTokenSource> _itemAbort = new();
+    /// <summary>当前正在发送的块：TransferItem.Id → (peer, transferId)。</summary>
+    private readonly Dictionary<Guid, (string Peer, Guid TransferId)> _activeSends = new();
     private readonly string _inboxDir;
     private readonly string _pasteDir;
     private readonly string _historyPath;
@@ -48,6 +55,12 @@ public sealed class FileTransferService
     private readonly Dictionary<long, InlineReceiveBuffer> _inlineReceiving = new();
     private TaskCompletionSource<RemoteFoldersPayload?>? _foldersQueryTcs;
     private string? _foldersQueryPeer;
+    /// <summary>粘贴占位顶层路径；拉取落盘时直接写入这些路径（含文件夹内容）。</summary>
+    private string[]? _pasteMergeRoots;
+    /// <summary>最近一次拉取并准备好的粘贴路径（供剪贴板挂载失败时重试）。</summary>
+    private string[]? _lastPasteReadyPaths;
+    /// <summary>最近一次粘贴批次的全部文件/目录（虚拟剪贴板 FileContents）。</summary>
+    private ClipboardPasteEntry[]? _lastPasteEntries;
 
     /// <summary>文件块写盘队列：避免在 TCP 收包回调里同步写盘堵死键鼠消息。</summary>
     private readonly Channel<ChunkDiskJob> _chunkDiskChannel = Channel.CreateUnbounded<ChunkDiskJob>(
@@ -75,34 +88,64 @@ public sealed class FileTransferService
 
     /// <summary>对端宣告的文件名列表（用于剪贴板占位，启用“粘贴”菜单）。</summary>
     public IReadOnlyList<string> GetRemotePendingFileNames()
+        => GetRemotePendingEntries().Select(e => e.Name).ToList();
+
+    /// <summary>对端宣告项（含是否文件夹）。</summary>
+    public IReadOnlyList<(string Name, bool IsDirectory)> GetRemotePendingEntries()
     {
         lock (_gate)
         {
             if (_remotePending == null) return [];
             return _remotePending.Files
-                .Select(f => Sanitize(string.IsNullOrWhiteSpace(f.FileName) ? "file.bin" : f.FileName))
+                .Select(f => (
+                    Sanitize(string.IsNullOrWhiteSpace(f.FileName) ? (f.IsDirectory ? "folder" : "file.bin") : f.FileName),
+                    f.IsDirectory))
                 .ToList();
         }
     }
 
-    /// <summary>在粘贴目录创建原名空文件占位，供资源管理器启用粘贴。</summary>
-    public IReadOnlyList<string> CreatePastePlaceholders(IReadOnlyList<string> fileNames)
+    /// <summary>当前远程文件宣告序号；无 pending 时为 0。</summary>
+    public long GetRemotePendingSequence()
+    {
+        lock (_gate) return _remotePending?.Sequence ?? 0;
+    }
+
+    /// <summary>最近一次已准备好的粘贴路径（内容已落盘，可挂 CF_HDROP）。</summary>
+    public IReadOnlyList<string>? GetLastPasteReadyPaths()
+    {
+        lock (_gate) return _lastPasteReadyPaths;
+    }
+
+    /// <summary>最近一次粘贴批次明细（虚拟文件剪贴板）。</summary>
+    public IReadOnlyList<ClipboardPasteEntry>? GetLastPasteEntries()
+    {
+        lock (_gate) return _lastPasteEntries;
+    }
+
+    /// <summary>按当前远程宣告创建文件/文件夹占位，供资源管理器启用粘贴。</summary>
+    public IReadOnlyList<string> CreatePastePlaceholdersFromPending()
+        => CreatePastePlaceholders(GetRemotePendingEntries());
+
+    /// <summary>在粘贴目录创建原名空文件/空文件夹占位。</summary>
+    public IReadOnlyList<string> CreatePastePlaceholders(IReadOnlyList<(string Name, bool IsDirectory)> entries)
     {
         try
         {
-            if (Directory.Exists(_pasteDir))
-            {
-                try { Directory.Delete(_pasteDir, recursive: true); } catch { /* ignore */ }
-            }
             Directory.CreateDirectory(_pasteDir);
+
+            var batchDir = Path.Combine(_pasteDir, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(batchDir);
 
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var paths = new List<string>();
-            foreach (var raw in fileNames)
+            foreach (var (raw, isDir) in entries)
             {
                 var name = MakeUniqueFileName(Sanitize(raw), used);
-                var path = Path.Combine(_pasteDir, name);
-                using (File.Create(path)) { /* 0 字节占位 */ }
+                var path = Path.Combine(batchDir, name);
+                if (isDir)
+                    Directory.CreateDirectory(path);
+                else
+                    using (File.Create(path)) { /* 0 字节占位 */ }
                 paths.Add(path);
             }
 
@@ -113,6 +156,10 @@ public sealed class FileTransferService
             return [];
         }
     }
+
+    /// <summary>兼容旧调用：全部按文件占位。</summary>
+    public IReadOnlyList<string> CreatePastePlaceholders(IReadOnlyList<string> fileNames)
+        => CreatePastePlaceholders(fileNames.Select(n => (n, false)).ToList());
 
     public bool IsInboxPath(string path) => IsUnderDirectory(path, _inboxDir) || IsUnderDirectory(path, _pasteDir);
 
@@ -164,54 +211,104 @@ public sealed class FileTransferService
 
     /// <summary>
     /// 本机复制文件：仅向已连接对端宣告元数据，不立即传文件内容。
+    /// 返回 true 表示已接受并尝试宣告（调用方据此更新去重 key）。
     /// </summary>
-    public async Task AnnounceLocalFilesAsync(IReadOnlyList<string> paths)
+    public async Task<bool> AnnounceLocalFilesAsync(IReadOnlyList<string> paths)
     {
         if (!_settings.TransferFile || !_settings.ShareClipboard)
-            return;
+        {
+            NotifyStatus("未启用共享剪贴板或文件传输，无法宣告");
+            return false;
+        }
 
-        var files = paths
-            .Where(File.Exists)
-            .Where(p => !IsInboxPath(p))
-            .Select(p =>
+        if (paths.Count == 0) return false;
+
+        var items = new List<LocalPendingFile>();
+        foreach (var raw in paths)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var path = raw.Trim();
+            if (IsInboxPath(path)) continue;
+
+            try
             {
-                var fi = new FileInfo(p);
-                return new LocalPendingFile(fi.FullName, fi.Name, fi.Length);
-            })
-            .ToList();
-        if (files.Count == 0) return;
+                if (File.Exists(path))
+                {
+                    var fi = new FileInfo(path);
+                    items.Add(new LocalPendingFile(fi.FullName, fi.Name, fi.Length, isDirectory: false));
+                }
+                else if (Directory.Exists(path))
+                {
+                    var di = new DirectoryInfo(path);
+                    long bytes = 0;
+                    try
+                    {
+                        foreach (var f in di.EnumerateFiles("*", SearchOption.AllDirectories))
+                            bytes += f.Length;
+                    }
+                    catch { /* 部分子项不可读仍宣告文件夹 */ }
+
+                    items.Add(new LocalPendingFile(di.FullName, di.Name, bytes, isDirectory: true));
+                }
+            }
+            catch
+            {
+                // skip
+            }
+        }
+
+        if (items.Count == 0)
+        {
+            NotifyStatus($"剪贴板有 {paths.Count} 个路径但无法读取（可能已移动或无权访问）");
+            return false;
+        }
 
         var seq = NextSequence();
         lock (_gate)
         {
-            _localPending = new LocalPendingOffer(seq, files);
+            _localPending = new LocalPendingOffer(seq, items);
             _localPendingInlineBlob = null;
             _localPendingInlineSeq = 0;
             _localPendingInlineSummary = "";
         }
 
-        var peers = _connections.ConfiguredPeers().Where(_connections.IsPeerReachable).ToList();
-        if (peers.Count == 0)
-        {
-            NotifyStatus($"已复制 {files.Count} 个文件（等待对端粘贴时传输）");
-            return;
-        }
-
+        var peers = _connections.ConfiguredPeers().ToList();
         var announce = MessageCodec.JsonBytes(new ClipboardFilesAnnouncePayload
         {
             Sequence = seq,
-            SourceMachine = Environment.MachineName,
-            Files = files.Select(f => new ClipboardFileAnnounceItem
+            SourceMachine = LocalPeerIdentity.MachineName,
+            Files = items.Select(f => new ClipboardFileAnnounceItem
             {
                 FileName = f.FileName,
-                TotalBytes = f.TotalBytes
+                TotalBytes = f.TotalBytes,
+                IsDirectory = f.IsDirectory
             }).ToList()
         });
 
+        var sent = 0;
         foreach (var peer in peers)
-            await _connections.SendToAsync(peer, MessageType.ClipboardFilesAnnounce, announce).ConfigureAwait(false);
+        {
+            if (await _connections.SendToAsync(peer, MessageType.ClipboardFilesAnnounce, announce)
+                    .ConfigureAwait(false))
+                sent++;
+        }
 
-        NotifyStatus($"已宣告 {files.Count} 个文件，对端粘贴时再传输");
+        var fileCount = items.Count(i => !i.IsDirectory);
+        var dirCount = items.Count(i => i.IsDirectory);
+        var summary = dirCount == 0
+            ? $"{fileCount} 个文件"
+            : fileCount == 0
+                ? $"{dirCount} 个文件夹"
+                : $"{fileCount} 个文件+{dirCount} 个文件夹";
+
+        if (peers.Count == 0)
+            NotifyStatus($"已复制 {summary}（布局中无对端）");
+        else if (sent == 0)
+            NotifyStatus($"已复制 {summary}（对端未连接，连上后需重新复制）");
+        else
+            NotifyStatus($"已复制 {summary} → {sent} 台，对端粘贴时传输");
+
+        return true;
     }
 
     /// <summary>
@@ -224,7 +321,17 @@ public sealed class FileTransferService
 
         RemotePendingOffer? remote;
         lock (_gate) remote = _remotePending;
-        if (remote == null) return null;
+        if (remote == null)
+        {
+            // 已拉完但剪贴板尚未挂上：返回上次准备好的路径
+            lock (_gate)
+            {
+                if (_lastPasteReadyPaths is { Length: > 0 })
+                    return _lastPasteReadyPaths;
+            }
+
+            return null;
+        }
 
         if (!_connections.IsPeerReachable(remote.SourceMachine))
         {
@@ -249,17 +356,17 @@ public sealed class FileTransferService
             RequesterMachine = Environment.MachineName
         });
 
-        NotifyStatus($"正在从 {remote.SourceMachine} 接收 {remote.Files.Count} 个文件（可继续操作，完成后粘贴）…");
-        if (!await _connections.SendToAsync(remote.SourceMachine, MessageType.ClipboardFilesPull, payload)
-                .ConfigureAwait(false))
-        {
-            CompletePullWaiter(null);
-            NotifyStatus("拉取请求发送失败");
-            return null;
-        }
-
+        NotifyStatus($"正在从 {remote.SourceMachine} 接收 {remote.Files.Count} 个文件…");
         try
         {
+            if (!await _connections.SendToAsync(remote.SourceMachine, MessageType.ClipboardFilesPull, payload)
+                    .ConfigureAwait(false))
+            {
+                CompletePullWaiter(null);
+                NotifyStatus("拉取请求发送失败");
+                return null;
+            }
+
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromMinutes(30));
             using (timeoutCts.Token.Register(() => tcs.TrySetResult(null)))
@@ -284,6 +391,16 @@ public sealed class FileTransferService
     public void MarkDelayedClipboardOwned(bool owned)
         => Volatile.Write(ref _ownsDelayedClipboard, owned ? 1 : 0);
 
+    /// <summary>
+    /// 登记粘贴占位根路径。随后 <see cref="PullRemoteFilesForPasteAsync"/> 会把文件/文件夹内容
+    /// 直接写入这些路径（避免先出空文件夹再合并失败）。
+    /// </summary>
+    public void SetPasteMergeRoots(IReadOnlyList<string>? roots)
+    {
+        lock (_gate)
+            _pasteMergeRoots = roots is { Count: > 0 } ? roots.ToArray() : null;
+    }
+
     public void NotifyLocalClipboardOverride()
     {
         if (Volatile.Read(ref _pullInProgress) != 0) return;
@@ -292,6 +409,8 @@ public sealed class FileTransferService
         {
             _remotePending = null;
             _remoteInlinePending = null;
+            _lastPasteReadyPaths = null;
+            _lastPasteEntries = null;
         }
         MarkDelayedClipboardOwned(false);
     }
@@ -477,103 +596,381 @@ public sealed class FileTransferService
 
     private async Task SendPendingToPeerAsync(string peer, LocalPendingOffer pending)
     {
-        for (var i = 0; i < pending.Files.Count; i++)
+        var expanded = ExpandTransferEntries(pending.Files.Select(f => f.FullPath).ToList());
+        if (expanded.Count == 0)
         {
-            var file = pending.Files[i];
-            if (!File.Exists(file.FullPath)) continue;
+            NotifyStatus($"向 {peer} 发送失败：没有可传的文件");
+            return;
+        }
 
-            var item = new TransferItem
+        NotifyStatus($"向 {peer} 发送 {expanded.Count} 个文件（含文件夹展开）");
+        await SendExpandedGroupsAsync(
+            peer, pending.Sequence, expanded,
+            targetDirectory: null, directToPath: false).ConfigureAwait(false);
+    }
+
+    /// <summary>按顶层文件/文件夹分组发送；文件夹在列表中只占一行。</summary>
+    private async Task SendExpandedGroupsAsync(
+        string peer,
+        long seq,
+        List<DirectEntry> expanded,
+        string? targetDirectory,
+        bool directToPath,
+        CancellationToken ct = default)
+    {
+        var groups = GroupSendEntries(expanded);
+        var globalIndex = 0;
+        foreach (var g in groups)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (g.IsFolder)
             {
-                Id = Guid.NewGuid(),
-                Direction = TransferDirection.Send,
-                FileName = file.FileName,
-                FullPath = file.FullPath,
-                TotalBytes = file.TotalBytes,
-                PeerName = peer,
-                State = TransferState.Queued
-            };
-            AddItem(item);
-            await SendFileAsync(item, peer, pending.Sequence, i, pending.Files.Count,
-                targetDirectory: null, relativePath: null, directToPath: false).ConfigureAwait(false);
+                var ui = new TransferItem
+                {
+                    Id = Guid.NewGuid(),
+                    Direction = TransferDirection.Send,
+                    FileName = g.Key,
+                    FullPath = g.RootPath,
+                    PeerName = peer,
+                    Sequence = seq,
+                    GroupKey = g.Key,
+                    State = TransferState.Queued,
+                    BatchCount = g.Files.Count,
+                    BatchIndex = 0,
+                    BatchTotalBytes = g.Files.Sum(f => f.TotalBytes),
+                    TotalBytes = g.Files.Count > 0 ? g.Files[0].TotalBytes : 0
+                };
+                AddItem(ui);
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, GetItemAbortToken(ui));
+                var itemCt = linked.Token;
+
+                for (var i = 0; i < g.Files.Count; i++)
+                {
+                    itemCt.ThrowIfCancellationRequested();
+                    var entry = g.Files[i];
+                    if (!File.Exists(entry.FullPath)) continue;
+
+                    ui.BatchIndex = i + 1;
+                    ui.TotalBytes = entry.TotalBytes;
+                    ui.BytesTransferred = 0;
+                    ui.State = TransferState.Transferring;
+
+                    var transferId = Guid.NewGuid();
+                    var ok = await SendFileCoreAsync(
+                        ui, transferId, entry.FullPath, entry.TotalBytes,
+                        peer, seq, globalIndex++, expanded.Count,
+                        targetDirectory, entry.RelativePath, directToPath,
+                        groupKey: g.Key, groupIndex: i, groupCount: g.Files.Count,
+                        itemCt).ConfigureAwait(false);
+                    if (!ok)
+                    {
+                        ClearItemAbort(ui.Id);
+                        return;
+                    }
+                }
+
+                if (itemCt.IsCancellationRequested)
+                {
+                    ClearItemAbort(ui.Id);
+                    return;
+                }
+
+                ui.BytesTransferred = ui.TotalBytes = ui.BatchTotalBytes > 0 ? ui.BatchTotalBytes : ui.TotalBytes;
+                ui.State = TransferState.Completed;
+                ClearItemAbort(ui.Id);
+                NotifyStatus($"已发送文件夹: {g.Key} → {peer}");
+                QueueSaveHistory();
+            }
+            else
+            {
+                var entry = g.Files[0];
+                if (!File.Exists(entry.FullPath)) continue;
+                var item = new TransferItem
+                {
+                    Id = Guid.NewGuid(),
+                    Direction = TransferDirection.Send,
+                    FileName = entry.RelativePath.Replace('\\', '/'),
+                    FullPath = entry.FullPath,
+                    TotalBytes = entry.TotalBytes,
+                    PeerName = peer,
+                    Sequence = seq,
+                    GroupKey = null,
+                    State = TransferState.Queued
+                };
+                AddItem(item);
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, GetItemAbortToken(item));
+                await SendFileCoreAsync(
+                    item, item.Id, entry.FullPath, entry.TotalBytes,
+                    peer, seq, globalIndex++, expanded.Count,
+                    targetDirectory, entry.RelativePath, directToPath,
+                    groupKey: null, groupIndex: 0, groupCount: 1,
+                    linked.Token).ConfigureAwait(false);
+                ClearItemAbort(item.Id);
+            }
         }
     }
 
-    private async Task SendFileAsync(
-        TransferItem item,
+    private static List<SendGroup> GroupSendEntries(List<DirectEntry> expanded)
+    {
+        var result = new List<SendGroup>();
+        var folderMap = new Dictionary<string, SendGroup>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var e in expanded)
+        {
+            var rel = e.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+            var parts = rel.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                var key = parts[0];
+                if (!folderMap.TryGetValue(key, out var g))
+                {
+                    var rootPath = e.FullPath;
+                    try
+                    {
+                        // .../Folder/sub/file → Folder 目录
+                        var idx = e.FullPath.LastIndexOf(Path.DirectorySeparatorChar + key + Path.DirectorySeparatorChar,
+                            StringComparison.OrdinalIgnoreCase);
+                        if (idx < 0)
+                            idx = e.FullPath.LastIndexOf(Path.AltDirectorySeparatorChar + key + Path.AltDirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase);
+                        if (idx >= 0)
+                            rootPath = e.FullPath[..(idx + 1 + key.Length)];
+                        else
+                            rootPath = Path.GetDirectoryName(e.FullPath) ?? e.FullPath;
+                    }
+                    catch { /* keep */ }
+
+                    g = new SendGroup(key, isFolder: true, rootPath);
+                    folderMap[key] = g;
+                    result.Add(g);
+                }
+
+                g.Files.Add(e);
+            }
+            else
+            {
+                result.Add(new SendGroup(parts.Length > 0 ? parts[0] : e.RelativePath, isFolder: false, e.FullPath)
+                {
+                    Files = { e }
+                });
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<bool> SendFileCoreAsync(
+        TransferItem uiItem,
+        Guid transferId,
+        string fullPath,
+        long totalBytes,
         string peer,
         long seq,
         int index,
         int count,
         string? targetDirectory,
         string? relativePath,
-        bool directToPath)
+        bool directToPath,
+        string? groupKey,
+        int groupIndex,
+        int groupCount,
+        CancellationToken ct = default)
     {
+        lock (_gate) _activeSends[uiItem.Id] = (peer, transferId);
         try
         {
-            item.State = TransferState.Transferring;
+            ct.ThrowIfCancellationRequested();
+            if (!uiItem.IsFolderBatch)
+                uiItem.State = TransferState.Transferring;
+
             var offer = MessageCodec.JsonBytes(new FileOfferPayload
             {
-                TransferId = item.Id,
-                FileName = Path.GetFileName(item.FullPath),
-                TotalBytes = item.TotalBytes,
+                TransferId = transferId,
+                FileName = Path.GetFileName(fullPath),
+                TotalBytes = totalBytes,
                 Sequence = seq,
                 FileIndex = index,
                 FileCount = count,
                 TargetDirectory = targetDirectory,
-                RelativePath = relativePath ?? Path.GetFileName(item.FullPath),
-                DirectToPath = directToPath
+                RelativePath = relativePath ?? Path.GetFileName(fullPath),
+                DirectToPath = directToPath,
+                GroupKey = groupKey,
+                GroupIndex = groupIndex,
+                GroupCount = groupCount
             });
             if (!await _connections.SendToAsync(peer, MessageType.FileOffer, offer).ConfigureAwait(false))
                 throw new IOException($"对端未连接: {peer}");
 
-            await using var fs = new FileStream(item.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            await using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
                 ChunkSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
             var buffer = new byte[ChunkSize];
             long offset = 0;
             var lastUi = DateTime.UtcNow;
             while (true)
             {
-                var n = await fs.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                var n = await fs.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
                 if (n <= 0) break;
 
                 var payload = new byte[24 + n];
-                item.Id.ToByteArray().CopyTo(payload, 0);
+                transferId.ToByteArray().CopyTo(payload, 0);
                 BitConverter.TryWriteBytes(payload.AsSpan(16, 8), offset);
                 Buffer.BlockCopy(buffer, 0, payload, 24, n);
                 if (!await _connections.SendToAsync(peer, MessageType.FileChunk, payload).ConfigureAwait(false))
                     throw new IOException("传输中断：连接已断开");
                 offset += n;
-                if ((DateTime.UtcNow - lastUi).TotalMilliseconds >= 80 || offset >= item.TotalBytes)
+                if ((DateTime.UtcNow - lastUi).TotalMilliseconds >= 80 || offset >= totalBytes)
                 {
-                    item.BytesTransferred = offset;
+                    uiItem.BytesTransferred = offset;
                     lastUi = DateTime.UtcNow;
                 }
             }
 
-            var done = MessageCodec.JsonBytes(new FileControlPayload { TransferId = item.Id });
+            ct.ThrowIfCancellationRequested();
+            var done = MessageCodec.JsonBytes(new FileControlPayload { TransferId = transferId });
             await _connections.SendToAsync(peer, MessageType.FileComplete, done).ConfigureAwait(false);
-            item.BytesTransferred = item.TotalBytes;
-            item.State = TransferState.Completed;
-            NotifyStatus($"已发送: {item.FileName} → {peer}");
-            QueueSaveHistory();
+            uiItem.BytesTransferred = totalBytes;
+            if (!uiItem.IsFolderBatch)
+            {
+                uiItem.State = TransferState.Completed;
+                NotifyStatus($"已发送: {uiItem.FileName} → {peer}");
+                QueueSaveHistory();
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                var abort = MessageCodec.JsonBytes(new FileControlPayload
+                {
+                    TransferId = transferId,
+                    Reason = "用户取消"
+                });
+                await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
+            }
+            catch { /* ignore */ }
+            return false;
         }
         catch (Exception ex)
         {
-            item.State = TransferState.Failed;
-            item.Status = ex.Message;
+            uiItem.State = TransferState.Failed;
+            uiItem.Status = ex.Message;
             CompletePullWaiter(null);
             QueueSaveHistory();
             try
             {
                 var abort = MessageCodec.JsonBytes(new FileControlPayload
                 {
-                    TransferId = item.Id,
+                    TransferId = transferId,
                     Reason = ex.Message
                 });
                 await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
             }
             catch { /* ignore */ }
+            return false;
         }
+        finally
+        {
+            lock (_gate) _activeSends.Remove(uiItem.Id);
+        }
+    }
+
+    private CancellationToken GetItemAbortToken(TransferItem item)
+    {
+        lock (_gate)
+        {
+            if (_itemAbort.TryGetValue(item.Id, out var existing))
+            {
+                try { existing.Cancel(); } catch { /* ignore */ }
+                try { existing.Dispose(); } catch { /* ignore */ }
+            }
+
+            var cts = new CancellationTokenSource();
+            _itemAbort[item.Id] = cts;
+            return cts.Token;
+        }
+    }
+
+    private void ClearItemAbort(Guid itemId)
+    {
+        CancellationTokenSource? cts;
+        lock (_gate)
+        {
+            if (!_itemAbort.Remove(itemId, out cts)) return;
+        }
+
+        try { cts.Dispose(); } catch { /* ignore */ }
+    }
+
+    /// <summary>中止该项进行中的收发，并通知对端。</summary>
+    private void AbortItemTransfers(TransferItem item)
+    {
+        CancellationTokenSource? cts;
+        (string Peer, Guid TransferId)? activeSend = null;
+        List<ReceiveState> receives;
+        lock (_gate)
+        {
+            _itemAbort.Remove(item.Id, out cts);
+            if (_activeSends.TryGetValue(item.Id, out var send))
+                activeSend = send;
+
+            receives = _receiving.Values.Where(r => ReferenceEquals(r.Item, item)).ToList();
+            foreach (var r in receives)
+                _receiving.Remove(r.TransferId);
+
+            var folderKeys = _folderUiItems.Where(kv => ReferenceEquals(kv.Value, item)).Select(kv => kv.Key).ToList();
+            foreach (var k in folderKeys)
+            {
+                _folderUiItems.Remove(k);
+                _folderUiCompleted.Remove(k);
+            }
+        }
+
+        try { cts?.Cancel(); } catch { /* ignore */ }
+        try { cts?.Dispose(); } catch { /* ignore */ }
+
+        if (activeSend is { } sendInfo)
+        {
+            try
+            {
+                var abort = MessageCodec.JsonBytes(new FileControlPayload
+                {
+                    TransferId = sendInfo.TransferId,
+                    Reason = "用户取消"
+                });
+                _ = _connections.SendToAsync(sendInfo.Peer, MessageType.FileAbort, abort);
+            }
+            catch { /* ignore */ }
+        }
+
+        foreach (var state in receives)
+        {
+            try { state.Stream.Dispose(); } catch { /* ignore */ }
+            try
+            {
+                if (File.Exists(state.DestPath))
+                    File.Delete(state.DestPath);
+            }
+            catch { /* ignore */ }
+
+            var peer = state.Item.PeerName;
+            if (string.IsNullOrWhiteSpace(peer)) continue;
+            try
+            {
+                var abort = MessageCodec.JsonBytes(new FileControlPayload
+                {
+                    TransferId = state.TransferId,
+                    Reason = "用户取消"
+                });
+                _ = _connections.SendToAsync(peer, MessageType.FileAbort, abort);
+            }
+            catch { /* ignore */ }
+        }
+
+        CompletePullWaiter(null);
     }
 
     private void NotifyStatus(string message) => UiMarshal.Post(() => StatusMessage?.Invoke(message));
@@ -623,6 +1020,9 @@ public sealed class FileTransferService
                 break;
             case MessageType.FileAbort:
                 EnqueueFileAbort(msg.Payload);
+                break;
+            case MessageType.FileTransferRemove:
+                HandleTransferRemove(peer, msg.Payload);
                 break;
             case MessageType.ClipboardText:
                 HandleClipboardText(msg.Payload);
@@ -718,28 +1118,8 @@ public sealed class FileTransferService
 
         var seq = NextSequence();
         NotifyStatus($"直接传输 {entries.Count} 个文件 → {peer}:{targetDirectory}");
-
-        for (var i = 0; i < entries.Count; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var entry = entries[i];
-            if (!File.Exists(entry.FullPath)) continue;
-
-            var item = new TransferItem
-            {
-                Id = Guid.NewGuid(),
-                Direction = TransferDirection.Send,
-                FileName = entry.RelativePath.Replace('\\', '/'),
-                FullPath = entry.FullPath,
-                TotalBytes = entry.TotalBytes,
-                PeerName = peer,
-                State = TransferState.Queued
-            };
-            AddItem(item);
-            await SendFileAsync(
-                item, peer, seq, i, entries.Count,
-                targetDirectory, entry.RelativePath, directToPath: true).ConfigureAwait(false);
-        }
+        await SendExpandedGroupsAsync(peer, seq, entries, targetDirectory, directToPath: true, ct)
+            .ConfigureAwait(false);
     }
 
     private static List<DirectEntry> ExpandTransferEntries(IReadOnlyList<string> paths)
@@ -763,13 +1143,40 @@ public sealed class FileTransferService
                 var root = new DirectoryInfo(path);
                 var rootPrefix = root.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                                  + Path.DirectorySeparatorChar;
-                foreach (var file in root.EnumerateFiles("*", SearchOption.AllDirectories))
+                var added = 0;
+                try
                 {
-                    if (!seen.Add(file.FullName)) continue;
-                    var rel = file.FullName.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
-                        ? Path.Combine(root.Name, file.FullName[rootPrefix.Length..])
-                        : Path.Combine(root.Name, file.Name);
-                    result.Add(new DirectEntry(file.FullName, rel, file.Length));
+                    foreach (var file in root.EnumerateFiles("*", SearchOption.AllDirectories))
+                    {
+                        if (!seen.Add(file.FullName)) continue;
+                        var rel = file.FullName.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                            ? Path.Combine(root.Name, file.FullName[rootPrefix.Length..])
+                            : Path.Combine(root.Name, file.Name);
+                        result.Add(new DirectEntry(file.FullName, rel, file.Length));
+                        added++;
+                    }
+                }
+                catch
+                {
+                    // 部分子项不可枚举时仍尽量发送已枚举部分
+                }
+
+                // 空文件夹：用临时哨兵文件传结构，勿写入用户源目录
+                if (added == 0)
+                {
+                    var markerRel = Path.Combine(root.Name, ".flyscreen_dir");
+                    try
+                    {
+                        var markerFull = Path.Combine(Path.GetTempPath(),
+                            "flyscreen_dir_" + Guid.NewGuid().ToString("N"));
+                        File.WriteAllBytes(markerFull, []);
+                        if (seen.Add(markerFull))
+                            result.Add(new DirectEntry(markerFull, markerRel, 0));
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
                 }
             }
         }
@@ -827,18 +1234,30 @@ public sealed class FileTransferService
     private void HandleAnnounce(string peer, byte[] payload)
     {
         var announce = MessageCodec.DecodeJson<ClipboardFilesAnnouncePayload>(payload);
-        if (announce == null || !_settings.TransferFile || !_settings.ShareClipboard) return;
-        if (announce.Files.Count == 0) return;
+        if (announce == null || !_settings.TransferFile || !_settings.ShareClipboard)
+        {
+            NotifyStatus(announce == null
+                ? "收到文件宣告但无法解析"
+                : "收到文件宣告但未启用剪贴板/文件传输");
+            return;
+        }
+
+        var list = announce.Files;
+        if (list == null || list.Count == 0) return;
 
         var source = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine;
         lock (_gate)
         {
-            _remotePending = new RemotePendingOffer(announce.Sequence, source, announce.Files.ToList());
+            _remotePending = new RemotePendingOffer(announce.Sequence, source, list.ToList());
             _remoteInlinePending = null; // 文件宣告覆盖未粘贴的内联内容
         }
 
-        // 仅记录元数据；鼠标进入本机后后台拉取，完成后才可粘贴
-        NotifyStatus($"对端 {source} 已复制 {announce.Files.Count} 个文件（移到本机后后台接收，完成后可粘贴）");
+        var dirs = list.Count(f => f.IsDirectory);
+        var filesOnly = list.Count - dirs;
+        var summary = dirs == 0 ? $"{filesOnly} 个文件"
+            : filesOnly == 0 ? $"{dirs} 个文件夹"
+            : $"{filesOnly} 文件+{dirs} 文件夹";
+        NotifyStatus($"对端 {source} 已复制 {summary}，粘贴时传输");
         try { RemoteFilesAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
@@ -1049,7 +1468,6 @@ public sealed class FileTransferService
         if (!string.Equals(target, peer, StringComparison.OrdinalIgnoreCase))
             target = peer;
 
-        NotifyStatus($"向 {target} 发送 {pending.Files.Count} 个文件（粘贴请求）");
         await SendPendingToPeerAsync(target, pending).ConfigureAwait(false);
     }
 
@@ -1073,7 +1491,15 @@ public sealed class FileTransferService
             }
             else
             {
-                dest = Path.Combine(_inboxDir, $"{offer.TransferId:N}_{Sanitize(offer.FileName)}");
+                // 剪贴板拉取：按相对路径落盘，保留文件夹结构
+                var rel = string.IsNullOrWhiteSpace(offer.RelativePath) ? offer.FileName : offer.RelativePath;
+                displayName = rel.Replace('\\', '/');
+                dest = ResolveDirectDestination(
+                    Path.Combine(_inboxDir, $"seq_{offer.Sequence}"),
+                    rel);
+                var parent = Path.GetDirectoryName(dest);
+                if (!string.IsNullOrEmpty(parent))
+                    Directory.CreateDirectory(parent);
             }
         }
         catch (Exception ex)
@@ -1092,23 +1518,68 @@ public sealed class FileTransferService
             return;
         }
 
-        var item = new TransferItem
+        // 空目录哨兵不进传输列表
+        var isDirMarker = string.Equals(Path.GetFileName(displayName), ".flyscreen_dir",
+            StringComparison.OrdinalIgnoreCase);
+
+        TransferItem item;
+        var groupKey = offer.GroupKey;
+        var groupCount = offer.GroupCount;
+        // 兼容旧对端：无 Group 字段时，从相对路径推断文件夹
+        if (string.IsNullOrWhiteSpace(groupKey) && groupCount <= 1)
         {
-            Id = offer.TransferId,
-            Direction = TransferDirection.Receive,
-            FileName = displayName,
-            FullPath = dest,
-            TotalBytes = offer.TotalBytes,
-            PeerName = peer,
-            State = TransferState.Transferring,
-            BytesTransferred = 0
-        };
-        AddItem(item);
+            var rel = (offer.RelativePath ?? displayName).Replace('\\', '/');
+            var slash = rel.IndexOf('/');
+            if (slash > 0)
+            {
+                groupKey = rel[..slash];
+                groupCount = Math.Max(1, offer.FileCount);
+            }
+        }
+
+        var isFolderBatch = !string.IsNullOrWhiteSpace(groupKey) && groupCount > 1;
+        if (isFolderBatch)
+        {
+            item = GetOrCreateFolderUiItem(
+                offer.Sequence, groupKey!, peer, dest, groupCount, offer.GroupIndex, offer.TotalBytes);
+            if (isDirMarker)
+            {
+                // 仍接收落盘，但不刷新为“当前文件”
+            }
+            else
+            {
+                item.BatchIndex = offer.GroupIndex + 1;
+                item.BatchCount = Math.Max(item.BatchCount, groupCount);
+                item.TotalBytes = offer.TotalBytes;
+                item.BytesTransferred = 0;
+                item.State = TransferState.Transferring;
+                item.BatchTotalBytes += offer.TotalBytes;
+            }
+        }
+        else
+        {
+            item = new TransferItem
+            {
+                Id = offer.TransferId,
+                Direction = TransferDirection.Receive,
+                FileName = displayName,
+                FullPath = dest,
+                TotalBytes = offer.TotalBytes,
+                PeerName = peer,
+                Sequence = offer.Sequence,
+                GroupKey = null,
+                State = TransferState.Transferring,
+                BytesTransferred = 0
+            };
+            if (!isDirMarker)
+                AddItem(item);
+        }
 
         var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read, ChunkSize, useAsync: true);
         lock (_gate)
         {
-            _receiving[offer.TransferId] = new ReceiveState(item, fs, offer.Sequence, offer.DirectToPath);
+            _receiving[offer.TransferId] = new ReceiveState(
+                offer.TransferId, item, fs, offer.Sequence, offer.DirectToPath, dest, isFolderBatch);
             if (!_batches.TryGetValue(offer.Sequence, out var batch))
             {
                 batch = new BatchReceive(offer.Sequence, Math.Max(1, offer.FileCount));
@@ -1129,7 +1600,65 @@ public sealed class FileTransferService
 
         NotifyStatus(offer.DirectToPath
             ? $"直接接收: {displayName} → {dest}"
-            : $"接收中: {offer.FileName} ← {peer}");
+            : isFolderBatch
+                ? $"接收文件夹: {groupKey} ({offer.GroupIndex + 1}/{groupCount}) ← {peer}"
+                : $"接收中: {offer.FileName} ← {peer}");
+    }
+
+    private TransferItem GetOrCreateFolderUiItem(
+        long sequence,
+        string groupKey,
+        string peer,
+        string sampleDest,
+        int groupCount,
+        int groupIndex,
+        long fileBytes)
+    {
+        var key = (sequence, groupKey);
+        lock (_gate)
+        {
+            if (_folderUiItems.TryGetValue(key, out var existing))
+                return existing;
+        }
+
+        string folderPath;
+        try
+        {
+            var parent = Path.GetDirectoryName(sampleDest);
+            folderPath = parent != null && Path.GetFileName(parent)
+                .Equals(groupKey, StringComparison.OrdinalIgnoreCase)
+                ? parent
+                : sampleDest;
+        }
+        catch
+        {
+            folderPath = sampleDest;
+        }
+
+        var item = new TransferItem
+        {
+            Id = Guid.NewGuid(),
+            Direction = TransferDirection.Receive,
+            FileName = groupKey,
+            FullPath = folderPath,
+            PeerName = peer,
+            Sequence = sequence,
+            GroupKey = groupKey,
+            State = TransferState.Transferring,
+            BatchCount = Math.Max(1, groupCount),
+            BatchIndex = groupIndex + 1,
+            BatchTotalBytes = 0,
+            TotalBytes = fileBytes,
+            BytesTransferred = 0
+        };
+        AddItem(item);
+        lock (_gate)
+        {
+            _folderUiItems[key] = item;
+            _folderUiCompleted[key] = 0;
+        }
+
+        return item;
     }
 
     /// <summary>将对端目标目录与相对路径安全合成为本地绝对路径。</summary>
@@ -1246,7 +1775,42 @@ public sealed class FileTransferService
             await state.Stream.FlushAsync().ConfigureAwait(false);
             await state.Stream.DisposeAsync().ConfigureAwait(false);
             state.Item.BytesTransferred = state.Item.TotalBytes;
-            state.Item.State = TransferState.Completed;
+
+            if (state.IsFolderBatch)
+            {
+                var gKey = state.Item.FileName;
+                var fk = (state.Sequence, gKey);
+                int done;
+                lock (_gate)
+                {
+                    _folderUiCompleted.TryGetValue(fk, out done);
+                    done++;
+                    _folderUiCompleted[fk] = done;
+                }
+
+                if (done >= state.Item.BatchCount)
+                {
+                    state.Item.BytesTransferred = state.Item.BatchTotalBytes > 0
+                        ? state.Item.BatchTotalBytes
+                        : state.Item.TotalBytes;
+                    state.Item.TotalBytes = state.Item.BytesTransferred;
+                    state.Item.State = TransferState.Completed;
+                    lock (_gate)
+                    {
+                        _folderUiItems.Remove(fk);
+                        _folderUiCompleted.Remove(fk);
+                    }
+                }
+                else
+                {
+                    // 保持 Transferring，Status 仍为 n/N
+                    state.Item.BatchIndex = Math.Min(done + 1, state.Item.BatchCount);
+                }
+            }
+            else
+            {
+                state.Item.State = TransferState.Completed;
+            }
 
             bool ready;
             List<string> files;
@@ -1258,11 +1822,21 @@ public sealed class FileTransferService
                     _batches[state.Sequence] = batch;
                 }
 
-                batch.CompletedPaths.Add(state.Item.FullPath);
+                batch.CompletedPaths.Add(state.DestPath);
                 ready = batch.CompletedPaths.Count >= batch.ExpectedCount
                         && !_receiving.Values.Any(r => r.Sequence == state.Sequence);
                 files = ready ? batch.CompletedPaths.ToList() : [];
-                if (ready) _batches.Remove(state.Sequence);
+                if (ready)
+                {
+                    _batches.Remove(state.Sequence);
+                    // 清理本序列残留的文件夹 UI 索引
+                    var stale = _folderUiItems.Keys.Where(k => k.Seq == state.Sequence).ToList();
+                    foreach (var k in stale)
+                    {
+                        _folderUiItems.Remove(k);
+                        _folderUiCompleted.Remove(k);
+                    }
+                }
             }
 
             QueueSaveHistory();
@@ -1275,7 +1849,9 @@ public sealed class FileTransferService
                     FinishPulledBatch(state.Sequence, files);
             }
 
-            NotifyStatus($"已接收: {state.Item.FileName}");
+            NotifyStatus(state.IsFolderBatch
+                ? $"已接收: {state.Item.FileName}（文件）"
+                : $"已接收: {state.Item.FileName}");
         }
         catch (Exception ex)
         {
@@ -1290,13 +1866,36 @@ public sealed class FileTransferService
     {
         var ctrl = MessageCodec.DecodeJson<FileControlPayload>(payload);
         if (ctrl == null) return;
+
+        // 对端中止时，若本机正在发送同一 TransferId，取消发送循环
+        List<CancellationTokenSource> cancelSends = [];
+        lock (_gate)
+        {
+            foreach (var kv in _activeSends)
+            {
+                if (kv.Value.TransferId != ctrl.TransferId) continue;
+                if (_itemAbort.TryGetValue(kv.Key, out var cts))
+                    cancelSends.Add(cts);
+            }
+        }
+
+        foreach (var cts in cancelSends)
+        {
+            try { cts.Cancel(); } catch { /* ignore */ }
+        }
+
         ReceiveState? state;
         lock (_gate) _receiving.Remove(ctrl.TransferId, out state);
         if (state == null) return;
         try { state.Stream.Dispose(); } catch { /* ignore */ }
-        try { if (File.Exists(state.Item.FullPath)) File.Delete(state.Item.FullPath); } catch { /* ignore */ }
-        state.Item.State = TransferState.Failed;
-        state.Item.Status = ctrl.Reason ?? "对端中止";
+        try { if (File.Exists(state.DestPath)) File.Delete(state.DestPath); } catch { /* ignore */ }
+        // 本地已点删除移出列表时不再改状态
+        if (Items.Contains(state.Item))
+        {
+            state.Item.State = TransferState.Failed;
+            state.Item.Status = ctrl.Reason ?? "对端中止";
+        }
+
         CompletePullWaiter(null);
         QueueSaveHistory();
     }
@@ -1335,13 +1934,18 @@ public sealed class FileTransferService
 
         // 粘贴用原名路径，触发资源管理器覆盖/重命名对话框
         var pastePaths = PreparePastePaths(inboxFiles);
-        NotifyStatus($"文件已就绪，可以粘贴（{pastePaths.Count} 个）");
+        lock (_gate)
+        {
+            _lastPasteReadyPaths = pastePaths.Count > 0 ? pastePaths.ToArray() : null;
+            // _lastPasteEntries 由 PreparePastePaths 写入
+        }
+        NotifyStatus($"文件接收完成（{pastePaths.Count} 个）");
         CompletePullWaiter(pastePaths.Count > 0 ? pastePaths : null);
     }
 
     /// <summary>
-    /// 将收件箱 guid 缓存映射为原文件名硬链接/副本，供 CF_HDROP 粘贴。
-    /// 若已有同名占位文件则就地覆盖，避免打断资源管理器已拿到的路径。
+    /// 将收件箱缓存映射为原相对路径结构，供 CF_HDROP 粘贴（含文件夹）。
+    /// 若已 <see cref="SetPasteMergeRoots"/>，则直接写入占位路径（文件夹内容填满后再粘贴）。
     /// </summary>
     private List<string> PreparePastePaths(IReadOnlyList<string> inboxPaths)
     {
@@ -1349,21 +1953,157 @@ public sealed class FileTransferService
         {
             Directory.CreateDirectory(_pasteDir);
 
-            var result = new List<string>();
-            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string[]? mergeRoots;
+            lock (_gate) mergeRoots = _pasteMergeRoots;
+
+            var rootByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string batchDir;
+            if (mergeRoots is { Length: > 0 })
+            {
+                foreach (var r in mergeRoots)
+                {
+                    var name = Path.GetFileName(
+                        r.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    if (!string.IsNullOrEmpty(name))
+                        rootByName[name] = r;
+                }
+
+                batchDir = Path.GetDirectoryName(mergeRoots[0]) ?? _pasteDir;
+            }
+            else
+            {
+                batchDir = Path.Combine(_pasteDir, Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(batchDir);
+            }
+
+            var topLevels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pasteEntries = new List<ClipboardPasteEntry>();
+            var dirEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void NoteDir(string relDir, string fullDir)
+            {
+                var key = relDir.Replace('/', '\\').TrimEnd('\\');
+                if (string.IsNullOrEmpty(key) || !dirEntries.Add(key)) return;
+                pasteEntries.Add(new ClipboardPasteEntry(key, fullDir, isDirectory: true, size: 0));
+            }
 
             foreach (var inboxPath in inboxPaths)
             {
                 if (!File.Exists(inboxPath)) continue;
 
-                var originalName = Sanitize(ResolveOriginalFileName(inboxPath));
-                var uniqueName = MakeUniqueFileName(originalName, used);
+                var relative = ResolveRelativePasteName(inboxPath);
+                // 接收端不保留目录占位哨兵文件
+                if (relative.EndsWith("/.flyscreen_dir", StringComparison.OrdinalIgnoreCase)
+                    || relative.Equals(".flyscreen_dir", StringComparison.OrdinalIgnoreCase)
+                    || relative.EndsWith("\\.flyscreen_dir", StringComparison.OrdinalIgnoreCase))
+                {
+                    var dirRel = relative.Replace('\\', '/');
+                    var slash = dirRel.LastIndexOf('/');
+                    var folderName = slash > 0 ? dirRel[..slash] : "";
+                    if (!string.IsNullOrEmpty(folderName)
+                        && rootByName.TryGetValue(folderName.Split('/')[0], out var folderRoot))
+                    {
+                        var segs = folderName.Split('/');
+                        var dirPath = segs.Length == 1
+                            ? folderRoot
+                            : Path.Combine(folderRoot, Path.Combine(segs.Skip(1).ToArray()));
+                        Directory.CreateDirectory(dirPath);
+                        topLevels.Add(folderRoot);
+                        NoteAncestorDirs(segs, folderRoot, isMergeRoot: true);
+                    }
+                    else if (!string.IsNullOrEmpty(folderName))
+                    {
+                        var segs = folderName.Split('/');
+                        var dirPath = Path.Combine(batchDir, Path.Combine(segs));
+                        Directory.CreateDirectory(dirPath);
+                        topLevels.Add(Path.Combine(batchDir, segs[0]));
+                        NoteAncestorDirs(segs, batchDir, isMergeRoot: false);
+                    }
 
-                var pastePath = Path.Combine(_pasteDir, uniqueName);
-                if (!LinkOrCopy(inboxPath, pastePath))
                     continue;
-                result.Add(pastePath);
+                }
+
+                var segments = relative.Replace('/', Path.DirectorySeparatorChar)
+                    .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                        StringSplitOptions.RemoveEmptyEntries);
+                if (segments.Length == 0 || segments.Any(s => s is "." or ".."))
+                    continue;
+
+                string dest;
+                string top;
+                if (rootByName.TryGetValue(segments[0], out var root))
+                {
+                    top = root;
+                    dest = segments.Length == 1
+                        ? root
+                        : Path.Combine(root, Path.Combine(segments.Skip(1).ToArray()));
+                    // 虚拟剪贴板需要中间目录条目，否则 Explorer 会丢层级
+                    if (segments.Length > 1)
+                        NoteAncestorDirs(segments[..^1], root, isMergeRoot: true);
+                }
+                else
+                {
+                    top = Path.Combine(batchDir, segments[0]);
+                    dest = Path.Combine(batchDir, Path.Combine(segments));
+                    // 仅登记祖先目录；单文件本身不是目录
+                    if (segments.Length > 1)
+                        NoteAncestorDirs(segments[..^1], batchDir, isMergeRoot: false);
+                }
+
+                var parent = Path.GetDirectoryName(dest);
+                if (!string.IsNullOrEmpty(parent))
+                    Directory.CreateDirectory(parent);
+                if (!LinkOrCopy(inboxPath, dest))
+                {
+                    NotifyStatus($"写入粘贴文件失败: {relative}");
+                    continue;
+                }
+
+                RelocateTransferItemPath(inboxPath, dest);
+                topLevels.Add(top);
+
+                var relWin = string.Join("\\", segments);
+                long size = 0;
+                try { size = new FileInfo(dest).Length; } catch { /* ignore */ }
+                pasteEntries.Add(new ClipboardPasteEntry(relWin, dest, isDirectory: false, size));
             }
+
+            // 局部：为 FileGroupDescriptor 登记目录祖先（保留文件夹层级）
+            void NoteAncestorDirs(string[] dirSegments, string basePath, bool isMergeRoot)
+            {
+                if (dirSegments.Length == 0) return;
+                for (var i = 1; i <= dirSegments.Length; i++)
+                {
+                    var segs = dirSegments.Take(i).ToArray();
+                    var rel = string.Join("\\", segs);
+                    string full;
+                    if (isMergeRoot)
+                    {
+                        full = segs.Length == 1
+                            ? basePath
+                            : Path.Combine(basePath, Path.Combine(segs.Skip(1).ToArray()));
+                    }
+                    else
+                    {
+                        full = Path.Combine(basePath, Path.Combine(segs));
+                    }
+
+                    try { Directory.CreateDirectory(full); } catch { /* ignore */ }
+                    NoteDir(rel, full);
+                }
+            }
+
+            List<string> result;
+            if (mergeRoots is { Length: > 0 })
+                result = mergeRoots.Where(p => File.Exists(p) || Directory.Exists(p)).ToList();
+            else
+                result = topLevels.Where(p => File.Exists(p) || Directory.Exists(p)).ToList();
+
+            lock (_gate)
+                _lastPasteEntries = pasteEntries.Count > 0 ? pasteEntries.ToArray() : null;
+
+            if (result.Count == 0)
+                NotifyStatus("准备粘贴路径为空（内容可能未写入）");
 
             return result;
         }
@@ -1372,27 +2112,73 @@ public sealed class FileTransferService
             NotifyStatus("准备粘贴文件失败: " + ex.Message);
             return inboxPaths.Where(File.Exists).ToList();
         }
+        finally
+        {
+            lock (_gate) _pasteMergeRoots = null;
+        }
     }
 
-    private string ResolveOriginalFileName(string inboxPath)
+    /// <summary>粘贴就绪后把列表项路径改到实际可打开的文件（PasteStaging）。</summary>
+    private void RelocateTransferItemPath(string fromPath, string toPath)
     {
-        // 优先从 guid_原名 解析，避免回 UI 线程（粘贴等待时会死锁）
-        var name = Path.GetFileName(inboxPath);
-        var m = InboxNameRegex.Match(name);
-        if (m.Success)
-            return m.Groups["name"].Value;
+        if (string.IsNullOrWhiteSpace(fromPath) || string.IsNullOrWhiteSpace(toPath)) return;
+        if (string.Equals(fromPath, toPath, StringComparison.OrdinalIgnoreCase)) return;
 
+        UiMarshal.Post(() =>
+        {
+            var item = Items.FirstOrDefault(i =>
+                string.Equals(i.FullPath, fromPath, StringComparison.OrdinalIgnoreCase));
+            if (item == null) return;
+            item.FullPath = toPath;
+            QueueSaveHistory();
+        });
+    }
+
+    /// <summary>
+    /// 从收件箱绝对路径还原相对路径（含文件夹层级）。
+    /// 文件夹批量时列表项 FileName 只有根名，不可用来还原子路径。
+    /// </summary>
+    private string ResolveRelativePasteName(string inboxPath)
+    {
+        try
+        {
+            var full = Path.GetFullPath(inboxPath);
+            var inboxRoot = Path.GetFullPath(_inboxDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (full.StartsWith(inboxRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                var rest = full[inboxRoot.Length..]
+                    .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                var parts = rest.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+                // Inbox/seq_{n}/Folder/sub/file.txt → Folder/sub/file.txt
+                if (parts.Length >= 2
+                    && parts[0].StartsWith("seq_", StringComparison.OrdinalIgnoreCase))
+                    return string.Join('/', parts.Skip(1));
+                if (parts.Length >= 1)
+                    return string.Join('/', parts);
+            }
+        }
+        catch { /* ignore */ }
+
+        // 单文件：列表项 FileName 可能带相对路径
         try
         {
             var snapshot = Items.ToArray();
             var item = snapshot.FirstOrDefault(i =>
                 string.Equals(i.FullPath, inboxPath, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(item?.FileName))
-                return item!.FileName;
+            if (!string.IsNullOrWhiteSpace(item?.FileName)
+                && (item.FileName.Contains('/') || item.FileName.Contains('\\')))
+                return item.FileName.Replace('\\', '/');
+            // 仅当不是文件夹批量行时，才用 FileName 作为单文件名
+            if (!string.IsNullOrWhiteSpace(item?.FileName) && !item.IsFolderBatch)
+                return item.FileName.Replace('\\', '/');
         }
-        catch { /* ignore collection race */ }
+        catch { /* ignore */ }
 
-        return name;
+        var name = Path.GetFileName(inboxPath);
+        var m = InboxNameRegex.Match(name);
+        return m.Success ? m.Groups["name"].Value : name;
     }
 
     private static string MakeUniqueFileName(string fileName, HashSet<string> used)
@@ -1410,17 +2196,34 @@ public sealed class FileTransferService
 
     private static bool LinkOrCopy(string source, string dest)
     {
-        try
+        for (var attempt = 0; attempt < 5; attempt++)
         {
-            if (File.Exists(dest)) File.Delete(dest);
-            // 跨平台：优先复制；Windows 上硬链接由 App 层可选优化，Core 不依赖 Win32
-            File.Copy(source, dest, overwrite: true);
-            return File.Exists(dest);
+            try
+            {
+                if (Directory.Exists(dest))
+                {
+                    // 不应把文件写到目录路径上
+                    return false;
+                }
+
+                if (File.Exists(dest))
+                    File.Delete(dest);
+
+                File.Copy(source, dest, overwrite: true);
+                if (!File.Exists(dest)) return false;
+
+                var srcLen = new FileInfo(source).Length;
+                var dstLen = new FileInfo(dest).Length;
+                if (srcLen == dstLen) return true;
+            }
+            catch
+            {
+                // 剪贴板占用占位文件时短暂重试
+                Thread.Sleep(40 + attempt * 30);
+            }
         }
-        catch
-        {
-            return false;
-        }
+
+        return false;
     }
 
     public async Task BroadcastTextAsync(string text)
@@ -1432,36 +2235,59 @@ public sealed class FileTransferService
     }
 
     /// <summary>
-    /// 清除已完成/失败/取消记录。
-    /// 仅删除「接收」项的收件箱缓存；发送历史只删列表记录，绝不删除本机源文件。
+    /// 清除已完成/失败/取消记录（仅本机，不同步对端）。
+    /// <paramref name="deleteReceiveFiles"/> 为 true 时删除本机接收文件；发送项永不删源文件。
     /// </summary>
-    public void ClearCompleted()
+    public void ClearCompleted(bool deleteReceiveFiles = true)
     {
-        var removedReceiveCache = 0;
+        List<TransferItem> done = [];
         UiMarshal.Send(() =>
         {
-            for (var i = Items.Count - 1; i >= 0; i--)
-            {
-                var item = Items[i];
-                if (item.State is not (TransferState.Completed or TransferState.Cancelled or TransferState.Failed))
-                    continue;
-                if (TryDeleteReceiveCache(item))
-                    removedReceiveCache++;
-                Items.RemoveAt(i);
-            }
+            done = Items
+                .Where(i => i.State is TransferState.Completed or TransferState.Cancelled or TransferState.Failed)
+                .ToList();
         });
-        CleanupPasteDir();
+
+        var removedReceiveCache = 0;
+        foreach (var item in done)
+        {
+            var delFiles = deleteReceiveFiles && item.Direction == TransferDirection.Receive;
+            if (delFiles && TryDeleteReceiveCache(item))
+                removedReceiveCache++;
+            UiMarshal.Send(() => Items.Remove(item));
+        }
+
+        if (deleteReceiveFiles)
+            CleanupPasteDir();
         SaveHistoryNow();
         NotifyStatus(removedReceiveCache > 0
-            ? $"已清除记录，并删除 {removedReceiveCache} 个接收缓存"
-            : "已清除记录（发送项未改动本地文件）");
+            ? $"已清除记录，并删除 {removedReceiveCache} 个接收文件"
+            : "已清除记录（未删除本地接收文件 / 发送项未改动源文件）");
     }
 
     /// <summary>
-    /// 删除单条历史。接收项可删收件箱缓存；发送项只删记录，不删本机源文件。
+    /// 删除单条记录。传输中会中断并同步对端删除；已完成仅删本机记录（可选删接收文件），不同步对端。
     /// </summary>
     public void RemoveItem(TransferItem item, bool deleteCache = true)
     {
+        var active = item.State is TransferState.Queued or TransferState.Transferring;
+        // 仅传输中同步对端；已完成各自删自己的记录
+        RemoveItemCore(item, deleteCache, notifyPeer: active, statusPrefix: null);
+    }
+
+    private void RemoveItemCore(
+        TransferItem item,
+        bool deleteCache,
+        bool notifyPeer,
+        string? statusPrefix)
+    {
+        var wasActive = item.State is TransferState.Queued or TransferState.Transferring;
+        if (notifyPeer && wasActive)
+            NotifyPeerRemove(item);
+
+        if (wasActive)
+            AbortItemTransfers(item);
+
         var deletedCache = false;
         UiMarshal.Send(() =>
         {
@@ -1470,12 +2296,132 @@ public sealed class FileTransferService
             Items.Remove(item);
         });
         SaveHistoryNow();
-        NotifyStatus(deletedCache
-            ? $"已删除记录及接收缓存: {item.FileName}"
-            : $"已删除记录: {item.FileName}");
+
+        var name = item.FileName;
+        var prefix = string.IsNullOrEmpty(statusPrefix) ? "" : statusPrefix;
+        if (wasActive)
+            NotifyStatus(deletedCache
+                ? $"{prefix}已中断传输并删除接收文件: {name}"
+                : $"{prefix}已中断传输并删除记录: {name}");
+        else
+            NotifyStatus(deletedCache
+                ? $"{prefix}已删除记录及接收文件: {name}"
+                : $"{prefix}已删除记录: {name}");
     }
 
-    /// <summary>仅删除接收方向且位于 Inbox 的缓存；发送路径一律不动。</summary>
+    private void NotifyPeerRemove(TransferItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.PeerName)) return;
+        try
+        {
+            var groupKey = item.GroupKey;
+            if (string.IsNullOrWhiteSpace(groupKey) && item.IsFolderBatch)
+                groupKey = item.FileName;
+
+            var payload = MessageCodec.JsonBytes(new FileTransferRemovePayload
+            {
+                Sequence = item.Sequence,
+                GroupKey = groupKey,
+                TransferId = item.IsFolderBatch || !string.IsNullOrWhiteSpace(groupKey)
+                    ? Guid.Empty
+                    : item.Id,
+                FileName = item.FileName
+            });
+            _ = _connections.SendToAsync(item.PeerName, MessageType.FileTransferRemove, payload);
+        }
+        catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// 对端在「传输中」删除：本机同步中断并删记录/未完成文件。
+    /// 已完成项忽略（完成态不同步删除）。
+    /// </summary>
+    private void HandleTransferRemove(string peer, byte[] payload)
+    {
+        var p = MessageCodec.DecodeJson<FileTransferRemovePayload>(payload);
+        if (p == null) return;
+
+        TransferItem? item = null;
+        UiMarshal.Send(() => item = FindLinkedTransferItem(peer, p));
+        if (item != null)
+        {
+            // 仅同步删除仍在传输中的项
+            if (item.State is not (TransferState.Queued or TransferState.Transferring))
+                return;
+
+            RemoveItemCore(item, deleteCache: true, notifyPeer: false, statusPrefix: "对端同步：");
+            return;
+        }
+
+        // 列表项已不在，仍清理进行中的接收落盘
+        CleanupOrphanReceivesForRemove(peer, p);
+    }
+
+    private TransferItem? FindLinkedTransferItem(string peer, FileTransferRemovePayload p)
+    {
+        bool PeerMatch(TransferItem i) =>
+            string.Equals(i.PeerName, peer, StringComparison.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(p.GroupKey))
+        {
+            var hit = Items.FirstOrDefault(i =>
+                PeerMatch(i)
+                && (p.Sequence == 0 || i.Sequence == p.Sequence)
+                && (string.Equals(i.GroupKey, p.GroupKey, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(i.FileName, p.GroupKey, StringComparison.OrdinalIgnoreCase)));
+            if (hit != null) return hit;
+        }
+
+        if (p.TransferId != Guid.Empty)
+        {
+            var byId = Items.FirstOrDefault(i => PeerMatch(i) && i.Id == p.TransferId);
+            if (byId != null) return byId;
+        }
+
+        if (p.Sequence != 0 && !string.IsNullOrWhiteSpace(p.FileName))
+        {
+            return Items.FirstOrDefault(i =>
+                PeerMatch(i)
+                && i.Sequence == p.Sequence
+                && string.Equals(i.FileName, p.FileName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return null;
+    }
+
+    private void CleanupOrphanReceivesForRemove(string peer, FileTransferRemovePayload p)
+    {
+        List<ReceiveState> receives;
+        lock (_gate)
+        {
+            receives = _receiving.Values
+                .Where(r => string.Equals(r.Item.PeerName, peer, StringComparison.OrdinalIgnoreCase)
+                    && (p.Sequence == 0 || r.Sequence == p.Sequence)
+                    && (string.IsNullOrWhiteSpace(p.GroupKey)
+                        || string.Equals(r.Item.GroupKey ?? r.Item.FileName, p.GroupKey,
+                            StringComparison.OrdinalIgnoreCase)
+                        || r.TransferId == p.TransferId))
+                .ToList();
+            foreach (var r in receives)
+                _receiving.Remove(r.TransferId);
+        }
+
+        foreach (var state in receives)
+        {
+            try { state.Stream.Dispose(); } catch { /* ignore */ }
+            try
+            {
+                if (File.Exists(state.DestPath))
+                    File.Delete(state.DestPath);
+            }
+            catch { /* ignore */ }
+        }
+
+        if (receives.Count > 0)
+            CompletePullWaiter(null);
+    }
+
+    /// <summary>仅删除接收方向的已收文件/文件夹；发送路径一律不动。</summary>
     private bool TryDeleteReceiveCache(TransferItem item)
     {
         // 传出历史：FullPath 是用户本机源文件，禁止删除
@@ -1485,39 +2431,51 @@ public sealed class FileTransferService
             return false;
 
         string full;
-        string inboxRoot;
-        string pasteRoot;
         try
         {
             full = Path.GetFullPath(item.FullPath);
-            inboxRoot = Path.GetFullPath(_inboxDir)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            pasteRoot = Path.GetFullPath(_pasteDir)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
         }
         catch
         {
             return false;
         }
 
-        // 必须在收件箱内，且不是粘贴暂存（暂存由 CleanupPasteDir 统一清理）
-        if (!full.StartsWith(inboxRoot, StringComparison.OrdinalIgnoreCase))
+        // 拒绝盘符根等危险路径
+        try
+        {
+            var root = Path.GetPathRoot(full);
+            if (!string.IsNullOrEmpty(root)
+                && string.Equals(
+                    full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        catch
+        {
             return false;
-        if (full.StartsWith(pasteRoot, StringComparison.OrdinalIgnoreCase))
-            return false;
+        }
 
         try
         {
-            if (!File.Exists(full)) return false;
-            File.Delete(full);
-            return true;
+            if (Directory.Exists(full))
+            {
+                Directory.Delete(full, recursive: true);
+                return true;
+            }
+
+            if (File.Exists(full))
+            {
+                File.Delete(full);
+                return true;
+            }
         }
         catch
         {
             return false;
         }
+
+        return false;
     }
 
     private void CleanupPasteDir()
@@ -1573,8 +2531,11 @@ public sealed class FileTransferService
                     FullPath = e.FullPath ?? "",
                     TotalBytes = e.TotalBytes,
                     PeerName = e.PeerName ?? "",
+                    Sequence = e.Sequence,
+                    GroupKey = e.GroupKey,
                     CreatedAt = e.CreatedAt == default ? DateTime.Now : e.CreatedAt,
                     State = e.State,
+                    BatchCount = e.BatchCount,
                     BytesTransferred = e.State == TransferState.Completed ? e.TotalBytes : 0
                 };
 
@@ -1631,6 +2592,9 @@ public sealed class FileTransferService
                         FullPath = i.FullPath,
                         TotalBytes = i.TotalBytes,
                         PeerName = i.PeerName,
+                        Sequence = i.Sequence,
+                        GroupKey = i.GroupKey,
+                        BatchCount = i.BatchCount,
                         CreatedAt = i.CreatedAt,
                         State = i.State is TransferState.Transferring or TransferState.Queued
                             ? TransferState.Cancelled
@@ -1668,15 +2632,19 @@ public sealed class FileTransferService
         public string? FullPath { get; set; }
         public long TotalBytes { get; set; }
         public string? PeerName { get; set; }
+        public long Sequence { get; set; }
+        public string? GroupKey { get; set; }
+        public int BatchCount { get; set; }
         public DateTime CreatedAt { get; set; }
         public TransferState State { get; set; }
     }
 
-    private sealed class LocalPendingFile(string fullPath, string fileName, long totalBytes)
+    private sealed class LocalPendingFile(string fullPath, string fileName, long totalBytes, bool isDirectory)
     {
         public string FullPath { get; } = fullPath;
         public string FileName { get; } = fileName;
         public long TotalBytes { get; } = totalBytes;
+        public bool IsDirectory { get; } = isDirectory;
     }
 
     private sealed class LocalPendingOffer(long sequence, List<LocalPendingFile> files)
@@ -1712,12 +2680,22 @@ public sealed class FileTransferService
         public long Received { get; set; }
     }
 
-    private sealed class ReceiveState(TransferItem item, FileStream stream, long sequence, bool isDirect = false)
+    private sealed class ReceiveState(
+        Guid transferId,
+        TransferItem item,
+        FileStream stream,
+        long sequence,
+        bool isDirect,
+        string destPath,
+        bool isFolderBatch)
     {
+        public Guid TransferId { get; } = transferId;
         public TransferItem Item { get; } = item;
         public FileStream Stream { get; } = stream;
         public long Sequence { get; } = sequence;
         public bool IsDirect { get; } = isDirect;
+        public string DestPath { get; } = destPath;
+        public bool IsFolderBatch { get; } = isFolderBatch;
         public DateTime LastUiUtc { get; set; } = DateTime.UtcNow;
     }
 
@@ -1726,6 +2704,14 @@ public sealed class FileTransferService
         public string FullPath { get; } = fullPath;
         public string RelativePath { get; } = relativePath;
         public long TotalBytes { get; } = totalBytes;
+    }
+
+    private sealed class SendGroup(string key, bool isFolder, string rootPath)
+    {
+        public string Key { get; } = key;
+        public bool IsFolder { get; } = isFolder;
+        public string RootPath { get; } = rootPath;
+        public List<DirectEntry> Files { get; } = [];
     }
 
     private sealed class BatchReceive(long sequence, int expectedCount)

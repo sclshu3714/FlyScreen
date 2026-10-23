@@ -20,6 +20,8 @@ public enum MessageType : byte
     FileChunk = 42,
     FileComplete = 43,
     FileAbort = 44,
+    /// <summary>删除传输列表项：对端同步删记录；接收侧同时删已收文件。</summary>
+    FileTransferRemove = 59,
     /// <summary>复制时仅广播文件元数据，不传内容。</summary>
     ClipboardFilesAnnounce = 45,
     /// <summary>粘贴机请求拉取；源端只向请求方发送。</summary>
@@ -335,6 +337,8 @@ public sealed class ClipboardFileAnnounceItem
 {
     public string FileName { get; set; } = "";
     public long TotalBytes { get; set; }
+    /// <summary>是否为文件夹（旧端忽略未知字段；新端占位/展开传输用）。</summary>
+    public bool IsDirectory { get; set; }
 }
 
 public sealed class ClipboardFilesAnnouncePayload
@@ -409,6 +413,12 @@ public sealed class FileOfferPayload
     public string? RelativePath { get; set; }
     /// <summary>是否直接落到指定目录（不进粘贴批处理）。</summary>
     public bool DirectToPath { get; set; }
+    /// <summary>传输列表分组键（文件夹名）；空=独立文件一行。</summary>
+    public string? GroupKey { get; set; }
+    /// <summary>组内序号（0 起）。</summary>
+    public int GroupIndex { get; set; }
+    /// <summary>组内文件总数；&gt;1 时列表合并为一行并显示 1/N。</summary>
+    public int GroupCount { get; set; }
 }
 
 public sealed class RemoteFoldersPayload
@@ -431,6 +441,17 @@ public sealed class FileControlPayload
 {
     public Guid TransferId { get; set; }
     public string? Reason { get; set; }
+}
+
+/// <summary>任一侧删除传输列表项时通知对端同步清理。</summary>
+public sealed class FileTransferRemovePayload
+{
+    public long Sequence { get; set; }
+    /// <summary>文件夹批量键；空表示单文件。</summary>
+    public string? GroupKey { get; set; }
+    /// <summary>单文件 TransferId（与双方列表项 Id 一致）；文件夹批量为 Empty。</summary>
+    public Guid TransferId { get; set; }
+    public string? FileName { get; set; }
 }
 
 public sealed class SwitchFocusPayload

@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using FlyScreen.DesktopUi.Shell;
@@ -28,10 +30,13 @@ public partial class DirectTransferWindow : Window
         InitializeComponent();
         if (Design.IsDesignMode) return;
 
-        Title = Loc.T("DT.Title");
+        ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerCombo.ItemsSource = _peers;
         FolderPresetCombo.ItemsSource = _presets;
+        _paths.CollectionChanged += (_, _) => UpdateDropHint();
+        PathDropBorder.AddHandler(DragDrop.DragOverEvent, PathList_DragOver, RoutingStrategies.Tunnel);
+        PathDropBorder.AddHandler(DragDrop.DropEvent, PathList_Drop, RoutingStrategies.Tunnel);
         Opened += (_, _) =>
         {
             RefreshPeers();
@@ -42,6 +47,80 @@ public partial class DirectTransferWindow : Window
             }
             else PeerCombo.SelectedIndex = 0;
         };
+    }
+
+    private void ApplyLocalizedUi()
+    {
+        Title = Loc.T("DT.Title");
+        AddFilesBtn.Content = Loc.T("DT.AddFiles");
+        AddFolderBtn.Content = Loc.T("DT.AddFolder");
+        RemoveSelectedBtn.Content = Loc.T("DT.Remove");
+        ClearPathsBtn.Content = Loc.T("DT.Clear");
+        ContentHintText.Text = Loc.T("DT.ContentHint");
+        PathDropHint.Text = Loc.T("DT.DropHint");
+        TargetHintText.Text = Loc.T("DT.TargetHint");
+        PeerLabel.Text = Loc.T("DT.Peer");
+        PresetLabel.Text = Loc.T("DT.Preset");
+        PathLabel.Text = Loc.T("DT.Path");
+        TargetPathBox.Watermark = Loc.T("DT.PathTip");
+        CancelBtn.Content = Loc.T("DT.Cancel");
+        StartBtn.Content = Loc.T("DT.Start");
+    }
+
+    private void UpdateDropHint()
+        => PathDropHint.IsVisible = _paths.Count == 0;
+
+    private void PathList_DragOver(object? sender, DragEventArgs e)
+    {
+        if (e.Data.Contains(DataFormats.Files))
+        {
+            var allow = e.DragEffects;
+            if ((allow & DragDropEffects.Copy) != 0)
+                e.DragEffects = DragDropEffects.Copy;
+            else if ((allow & DragDropEffects.Link) != 0)
+                e.DragEffects = DragDropEffects.Link;
+            else if ((allow & DragDropEffects.Move) != 0)
+                e.DragEffects = DragDropEffects.Move;
+            else
+                e.DragEffects = DragDropEffects.None;
+        }
+        else
+        {
+            e.DragEffects = DragDropEffects.None;
+        }
+
+        e.Handled = true;
+    }
+
+    private void PathList_Drop(object? sender, DragEventArgs e)
+    {
+        if (!e.Data.Contains(DataFormats.Files))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var items = e.Data.GetFiles();
+        if (items == null)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var added = 0;
+        foreach (var item in items)
+        {
+            var path = item.TryGetLocalPath();
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            if (!File.Exists(path) && !Directory.Exists(path)) continue;
+            var before = _paths.Count;
+            AddPath(path);
+            if (_paths.Count > before) added++;
+        }
+
+        if (added > 0)
+            StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
+        e.Handled = true;
     }
 
     private void RefreshPeers()
@@ -108,14 +187,14 @@ public partial class DirectTransferWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = Loc.T("DT.AddFiles"),
+            Title = Loc.T("DT.PickFiles"),
             AllowMultiple = true
         }).ConfigureAwait(true);
         foreach (var f in files)
         {
             var path = f.TryGetLocalPath();
-            if (!string.IsNullOrEmpty(path) && !_paths.Contains(path))
-                _paths.Add(path);
+            if (!string.IsNullOrEmpty(path))
+                AddPath(path);
         }
     }
 
@@ -123,41 +202,73 @@ public partial class DirectTransferWindow : Window
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = Loc.T("DT.AddFolder"),
-            AllowMultiple = false
+            Title = Loc.T("DT.PickFolder"),
+            AllowMultiple = true
         }).ConfigureAwait(true);
-        var folder = folders.FirstOrDefault();
-        var path = folder?.TryGetLocalPath();
-        if (!string.IsNullOrEmpty(path) && !_paths.Contains(path))
-            _paths.Add(path);
+        foreach (var folder in folders)
+        {
+            var path = folder.TryGetLocalPath();
+            if (!string.IsNullOrEmpty(path))
+                AddPath(path);
+        }
     }
 
-    private void ClearPaths_Click(object? sender, RoutedEventArgs e) => _paths.Clear();
+    private void AddPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        path = path.Trim();
+        if (_paths.Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)))
+            return;
+        _paths.Add(path);
+        UpdateDropHint();
+        StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
+    }
+
+    private void RemoveSelected_Click(object? sender, RoutedEventArgs e)
+    {
+        var selected = PathList.SelectedItems?.OfType<string>().ToList() ?? [];
+        foreach (var s in selected)
+            _paths.Remove(s);
+        UpdateDropHint();
+    }
+
+    private void ClearPaths_Click(object? sender, RoutedEventArgs e)
+    {
+        _paths.Clear();
+        UpdateDropHint();
+    }
 
     private void Cancel_Click(object? sender, RoutedEventArgs e) => Close();
 
     private async void Start_Click(object? sender, RoutedEventArgs e)
     {
-        if (PeerCombo.SelectedItem is not PeerOption peer)
+        if (_paths.Count == 0)
         {
-            StatusText.Text = Loc.T("DT.NoPeers");
+            StatusText.Text = Loc.T("DT.NeedPaths");
             return;
         }
 
-        if (_paths.Count == 0)
+        if (PeerCombo.SelectedItem is not PeerOption peer)
         {
-            StatusText.Text = Loc.T("DT.ContentHint");
+            StatusText.Text = Loc.T("DT.NeedPeer");
             return;
         }
 
         var dest = TargetPathBox.Text?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(dest))
         {
-            StatusText.Text = Loc.T("DT.PathTip");
+            StatusText.Text = Loc.T("DT.NeedPath");
+            return;
+        }
+
+        if (!_host.Settings.TransferFile)
+        {
+            StatusText.Text = Loc.T("DT.NeedEnable");
             return;
         }
 
         StartBtn.IsEnabled = false;
+        StatusText.Text = string.Format(Loc.T("DT.Started"), peer.Name);
         try
         {
             var snapshot = _paths.ToList();
@@ -178,6 +289,6 @@ public partial class DirectTransferWindow : Window
 
     private sealed record FolderPreset(string Label, string Path)
     {
-        public override string ToString() => string.IsNullOrEmpty(Path) ? Label : $"{Label} — {Path}";
+        public override string ToString() => Label;
     }
 }

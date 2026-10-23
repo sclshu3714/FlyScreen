@@ -37,7 +37,7 @@
                                         Margin="12,0,0,0" VerticalOptions="Center" />
                             </Grid>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                <Entry x:Name="KeyEntry" IsPassword="True" FontFamily="Consolas" FontSize="14"
+                                <Entry x:Name="KeyEntry" IsPassword="True" StyleClass="Mono" FontSize="14"
                                        HeightRequest="40" HorizontalOptions="Fill" />
                                 <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="4">
                                     <CheckBox x:Name="ShowKeyCheck" VerticalOptions="Center" CheckedChanged="ShowKey_Changed" />
@@ -315,7 +315,7 @@
                     </Border>
                     <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
                         <Grid RowDefinitions="Auto,*">
-                            <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,72,56" BackgroundColor="{DynamicResource SubtleBg}">
+                            <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,88,56" BackgroundColor="{DynamicResource SubtleBg}">
                                 <Label x:Name="ColDir" Text="方向" FontAttributes="Bold" FontSize="12" />
                                 <Label x:Name="ColName" Grid.Column="1" Text="文件名" FontAttributes="Bold" FontSize="12" />
                                 <Label x:Name="ColPeer" Grid.Column="2" Text="对端" FontAttributes="Bold" FontSize="12" />
@@ -330,23 +330,36 @@
                                 </CollectionView.EmptyView>
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate x:DataType="models:TransferItem">
-                                        <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,72,56" ColumnSpacing="4">
-                                            <Label Text="{Binding DirectionText}" FontSize="12" VerticalOptions="Center" />
-                                            <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
-                                                <Label Text="{Binding FileName}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
-                                                <ProgressBar Progress="{Binding Progress, Converter={StaticResource PercentToProgress}}" HeightRequest="6" Margin="0,4,8,0" />
-                                            </VerticalStackLayout>
-                                            <Label Grid.Column="2" Text="{Binding PeerName}" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                                            <Label Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalOptions="Center" />
-                                            <Label Grid.Column="4" Text="{Binding Status}" FontSize="12" VerticalOptions="Center" />
-                                            <Grid Grid.Column="5" WidthRequest="28" HeightRequest="28" VerticalOptions="Center">
-                                                <Button Style="{StaticResource IconActionBtn}"
-                                                        CommandParameter="{Binding}" Clicked="DeleteTransfer_Clicked"
-                                                        ToolTipProperties.Text="{DynamicResource Str.DeleteTip}" />
-                                                <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
-                                                      Fill="#EF4444" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
-                                                      HorizontalOptions="Center" VerticalOptions="Center"
-                                                      InputTransparent="True" />
+                                        <Grid>
+                                            <ProgressBar Progress="{Binding ProgressFraction, Mode=OneWay}"
+                                                         IsVisible="{Binding ShowProgressBackground}"
+                                                         HeightRequest="40" VerticalOptions="Fill"
+                                                         BackgroundColor="Transparent"
+                                                         ProgressColor="#402563EB"
+                                                         InputTransparent="True" />
+                                            <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,88,56" ColumnSpacing="4">
+                                                <Label Text="{Binding DirectionText}" FontSize="12" VerticalOptions="Center" />
+                                                <Label Grid.Column="1" Text="{Binding FileName}" FontAttributes="Bold"
+                                                       LineBreakMode="TailTruncation" VerticalOptions="Center"
+                                                       TextColor="{DynamicResource Primary}"
+                                                       TextDecorations="Underline">
+                                                    <Label.GestureRecognizers>
+                                                        <TapGestureRecognizer Tapped="TransferFileName_Tapped"
+                                                                              CommandParameter="{Binding}" />
+                                                    </Label.GestureRecognizers>
+                                                </Label>
+                                                <Label Grid.Column="2" Text="{Binding PeerName}" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                                <Label Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalOptions="Center" />
+                                                <Label Grid.Column="4" Text="{Binding Status}" FontSize="12" VerticalOptions="Center" />
+                                                <Grid Grid.Column="5" WidthRequest="28" HeightRequest="28" VerticalOptions="Center">
+                                                    <Button Style="{StaticResource IconActionBtn}"
+                                                            CommandParameter="{Binding}" Clicked="DeleteTransfer_Clicked"
+                                                            ToolTipProperties.Text="{DynamicResource Str.DeleteTip}" />
+                                                    <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                                                          Fill="#EF4444" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
+                                                          HorizontalOptions="Center" VerticalOptions="Center"
+                                                          InputTransparent="True" />
+                                                </Grid>
                                             </Grid>
                                         </Grid>
                                     </DataTemplate>

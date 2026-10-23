@@ -5,8 +5,8 @@ using FlyScreen.Services.Clipboard;
 namespace FlyScreen.DesktopUi.Services;
 
 /// <summary>
-/// Mac/Linux 桌面：轮询本机文本剪贴板并宣告；对端宣告后拉取并写入本机。
-/// 文件延迟粘贴（Win CF_HDROP）不做；文件走 Inbox / DirectTransfer。
+/// Mac/Linux 桌面：轮询本机文本/文件路径并宣告；对端文件宣告时不预拉，
+/// 打开收件箱时再接收（与 Win「粘贴才传」对齐；本端无 CF_HDROP）。
 /// </summary>
 public sealed class DesktopClipboardCoordinator : IDisposable
 {
@@ -15,6 +15,7 @@ public sealed class DesktopClipboardCoordinator : IDisposable
     private readonly AvaloniaClipboardApplySink _sink;
     private readonly DispatcherTimer _timer;
     private string? _lastLocalTextKey;
+    private string? _lastLocalFilesKey;
     private int _busy;
 
     public DesktopClipboardCoordinator(
@@ -54,23 +55,9 @@ public sealed class DesktopClipboardCoordinator : IDisposable
         }
     }
 
-    private async void OnRemoteFilesAnnounced()
+    private void OnRemoteFilesAnnounced()
     {
-        if (!_settings.ShareClipboard || !_settings.TransferFile) return;
-        if (Interlocked.Exchange(ref _busy, 1) == 1) return;
-        try
-        {
-            // 非 Win：拉取到 Inbox/PasteStaging，不注册系统文件粘贴
-            await _transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(true);
-        }
-        catch
-        {
-            // ignore
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _busy, 0);
-        }
+        // 与 Win 对齐：宣告时不拉取；用户打开收件箱或显式接收时再传
     }
 
     private async Task PollLocalAsync()
@@ -80,11 +67,27 @@ public sealed class DesktopClipboardCoordinator : IDisposable
         if (Interlocked.Exchange(ref _busy, 1) == 1) return;
         try
         {
+            if (_settings.TransferFile)
+            {
+                var files = await _sink.TryGetFilePathsAsync().ConfigureAwait(true);
+                if (files is { Count: > 0 })
+                {
+                    var key = string.Join("|", files);
+                    if (key != _lastLocalFilesKey)
+                    {
+                        if (await _transfers.AnnounceLocalFilesAsync(files).ConfigureAwait(true))
+                            _lastLocalFilesKey = key;
+                    }
+
+                    return;
+                }
+            }
+
             var text = await _sink.TryGetTextAsync().ConfigureAwait(true);
             if (string.IsNullOrEmpty(text)) return;
-            var key = $"{text.Length}:{text[..Math.Min(32, text.Length)]}";
-            if (key == _lastLocalTextKey) return;
-            _lastLocalTextKey = key;
+            var textKey = $"{text.Length}:{text[..Math.Min(32, text.Length)]}";
+            if (textKey == _lastLocalTextKey) return;
+            _lastLocalTextKey = textKey;
             await _transfers.AnnounceLocalInlineAsync(new ClipboardInlineData { Text = text })
                 .ConfigureAwait(true);
         }

@@ -631,6 +631,59 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- 传输列表行：进度铺在背景，完成后隐藏 -->
+        <Style x:Key="XferRowProgressBar" TargetType="ProgressBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#402563EB"/>
+            <Setter Property="Height" Value="Auto"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border x:Name="PART_Track" Background="Transparent"/>
+                            <Border x:Name="PART_Indicator" HorizontalAlignment="Left"
+                                    Background="{TemplateBinding Foreground}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="TransferListItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <ProgressBar Style="{StaticResource XferRowProgressBar}"
+                                             Minimum="0" Maximum="100"
+                                             Value="{Binding Progress, Mode=OneWay}"
+                                             Visibility="{Binding ShowProgressBackground, Converter={StaticResource BoolToVis}}"
+                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                                <GridViewRowPresenter VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                      SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Background" Value="{DynamicResource SubtleBg}"/>
             <Setter Property="Foreground" Value="{DynamicResource Text}"/>
@@ -1197,26 +1250,26 @@
                     </Border>
                     <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0" Background="{DynamicResource CardBg}">
                         <ListView x:Name="TransferList" BorderThickness="0"
-                      Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}">
+                      Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                      ItemContainerStyle="{StaticResource TransferListItemStyle}"
+                      MouseDoubleClick="TransferList_MouseDoubleClick"
+                      SizeChanged="TransferList_SizeChanged">
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn x:Name="ColDir" Header="方向" Width="56" DisplayMemberBinding="{Binding DirectionText}"/>
-                                    <GridViewColumn x:Name="ColName" Header="文件名" Width="200" DisplayMemberBinding="{Binding FileName}"/>
-                                    <GridViewColumn x:Name="ColPeer" Header="对端" Width="120" DisplayMemberBinding="{Binding PeerName}"/>
-                                    <GridViewColumn x:Name="ColSize" Header="大小" Width="100" DisplayMemberBinding="{Binding SizeText}"/>
-                                    <GridViewColumn x:Name="ColProgress" Header="进度" Width="110">
+                                    <GridViewColumn x:Name="ColName" Header="文件名" Width="200">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
-                                                <!-- 固定宽度，避免 GridView 无限宽度测量导致栈溢出 -->
-                                                <ProgressBar Minimum="0" Maximum="100"
-                                     Value="{Binding Progress, Mode=OneWay}"
-                                     Width="90" Height="12" Margin="0,4"
-                                     HorizontalAlignment="Left"/>
+                                                <TextBlock Text="{Binding FileName}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                                           Cursor="Hand" ToolTip="打开所在文件夹"
+                                                           MouseLeftButtonUp="TransferFileName_Click"/>
                                             </DataTemplate>
                                         </GridViewColumn.CellTemplate>
                                     </GridViewColumn>
-                                    <GridViewColumn x:Name="ColStatus" Header="状态" Width="72" DisplayMemberBinding="{Binding Status}"/>
-                                    <GridViewColumn Header="" Width="40">
+                                    <GridViewColumn x:Name="ColPeer" Header="对端" Width="120" DisplayMemberBinding="{Binding PeerName}"/>
+                                    <GridViewColumn x:Name="ColSize" Header="大小" Width="100" DisplayMemberBinding="{Binding SizeText}"/>
+                                    <GridViewColumn x:Name="ColStatus" Header="状态" Width="88" DisplayMemberBinding="{Binding Status}"/>
+                                    <GridViewColumn x:Name="ColAction" Header="" Width="40">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
                                                 <Button Style="{StaticResource IconActionBtn}"

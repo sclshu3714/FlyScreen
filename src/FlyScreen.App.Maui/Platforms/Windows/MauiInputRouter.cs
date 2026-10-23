@@ -55,6 +55,9 @@ public sealed class MauiInputRouter : IDisposable
     public event Action<string?>? ControlTargetChanged;
     public event Action? RequestShowUi;
 
+    /// <summary>本机 Ctrl+V / Shift+Insert：返回 true 表示已处理（吞键）。</summary>
+    public Func<bool>? TryHandleLocalFilePasteHotkey { get; set; }
+
     public MauiInputRouter(AppSettings settings, ConnectionManager connections)
     {
         _settings = settings;
@@ -417,6 +420,16 @@ public sealed class MauiInputRouter : IDisposable
                 return (IntPtr)1;
         }
 
+        // 本机懒粘贴：Ctrl+V / Shift+Insert 先拉取再重放
+        if (!_controllingRemote && down)
+        {
+            var vk = (int)info.vkCode;
+            var isPaste = (vk == 0x56 && IsCtrlDown() && !IsAltDown() && !IsWinDown())
+                          || (vk == 0x2D && IsShiftDown() && !IsCtrlDown() && !IsAltDown() && !IsWinDown());
+            if (isPaste && TryHandleLocalFilePasteHotkey?.Invoke() == true)
+                return (IntPtr)1;
+        }
+
         if (_controllingRemote && !string.IsNullOrEmpty(_activePeer))
         {
             var extended = (info.flags & 1) != 0;
@@ -602,6 +615,25 @@ public sealed class MauiInputRouter : IDisposable
         return (NativeMethods.GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
                && (NativeMethods.GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
     }
+
+    private static bool IsCtrlDown()
+        => (NativeMethods.GetAsyncKeyState(0x11) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA2) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA3) & 0x8000) != 0;
+
+    private static bool IsShiftDown()
+        => (NativeMethods.GetAsyncKeyState(0x10) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA0) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA1) & 0x8000) != 0;
+
+    private static bool IsAltDown()
+        => (NativeMethods.GetAsyncKeyState(0x12) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA4) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0xA5) & 0x8000) != 0;
+
+    private static bool IsWinDown()
+        => (NativeMethods.GetAsyncKeyState(0x5B) & 0x8000) != 0
+           || (NativeMethods.GetAsyncKeyState(0x5C) & 0x8000) != 0;
 
     /// <summary>
     /// 固定 4 格布局（与设置页矩阵一致）：
