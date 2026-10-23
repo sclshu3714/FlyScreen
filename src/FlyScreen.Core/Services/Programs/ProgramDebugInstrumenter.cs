@@ -29,23 +29,39 @@ public static class ProgramDebugInstrumenter
             var line = stmt.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
             if (line < 1) continue;
 
+            // else-if 整句：插在 if 前会把「else if」拆成「else + 语句 + if」→ CS8641
+            if (stmt is IfStatementSyntax && stmt.Parent is ElseClauseSyntax)
+                continue;
+
             // 插在「物理行首」，保留原语句缩进不被拆开
             var insertAt = GetLineStart(raw, stmt.SpanStart);
             var indent = GetIndentAt(raw, stmt.SpanStart);
             var locals = CollectLocalsBefore(root, stmt.SpanStart);
             var call = BuildLineCall(line, locals);
-            edits.Add((insertAt, indent + call + "\n"));
+
+            // 无大括号的 if/else/while 体：必须先包成块再注入，否则
+            //   if (x) LineAsync(); stmt; else ...  → CS8641
+            var bare = IsBareEmbeddedStatement(stmt);
+            if (bare)
+            {
+                var braceIndent = GetIndentAt(raw, GetBareOwnerSpanStart(stmt));
+                edits.Add((insertAt, "{\n" + indent + call + "\n" + indent));
+                var close = "\n" + braceIndent + "}";
+                // Delay 后的 Poll 放进块内、闭括号前
+                if (stmt is ExpressionStatementSyntax && ContainsDelayAwait(stmt))
+                    close = "\n" + indent + "await __flyDbg.PollAsync();" + close;
+                edits.Add((stmt.Span.End, close));
+            }
+            else
+            {
+                edits.Add((insertAt, indent + call + "\n"));
+                if (stmt is ExpressionStatementSyntax && ContainsDelayAwait(stmt))
+                    edits.Add((stmt.Span.End, "\n" + indent + "await __flyDbg.PollAsync();"));
+            }
 
             // while/for/foreach 循环体开头再插 Poll，便于运行中点「暂停」
             if (stmt is WhileStatementSyntax or ForStatementSyntax or ForEachStatementSyntax)
                 TryInsertPollInLoopBody(stmt, raw, edits);
-
-            // 仅在「本语句就是 await Delay」后插 Poll（不要因内含 Delay 的 if/while 整块后插）
-            if (stmt is ExpressionStatementSyntax && ContainsDelayAwait(stmt))
-            {
-                var after = stmt.Span.End; // 不含尾随 trivia，紧跟分号后
-                edits.Add((after, "\n" + indent + "await __flyDbg.PollAsync();"));
-            }
         }
 
         if (edits.Count == 0)
@@ -77,6 +93,40 @@ public static class ProgramDebugInstrumenter
             yield return stmt;
         }
     }
+
+    /// <summary>控制流下无大括号的单语句体（会与 else 绑定，不能在其前插入新语句）。</summary>
+    private static bool IsBareEmbeddedStatement(StatementSyntax stmt)
+    {
+        if (stmt is BlockSyntax) return false;
+        return stmt.Parent switch
+        {
+            IfStatementSyntax ifs => ReferenceEquals(ifs.Statement, stmt),
+            ElseClauseSyntax ec => ReferenceEquals(ec.Statement, stmt),
+            WhileStatementSyntax w => ReferenceEquals(w.Statement, stmt),
+            ForStatementSyntax f => ReferenceEquals(f.Statement, stmt),
+            ForEachStatementSyntax fe => ReferenceEquals(fe.Statement, stmt),
+            DoStatementSyntax d => ReferenceEquals(d.Statement, stmt),
+            UsingStatementSyntax u => ReferenceEquals(u.Statement, stmt),
+            LockStatementSyntax l => ReferenceEquals(l.Statement, stmt),
+            FixedStatementSyntax fx => ReferenceEquals(fx.Statement, stmt),
+            _ => false
+        };
+    }
+
+    private static int GetBareOwnerSpanStart(StatementSyntax stmt)
+        => stmt.Parent switch
+        {
+            IfStatementSyntax ifs => ifs.SpanStart,
+            ElseClauseSyntax ec => ec.ElseKeyword.SpanStart,
+            WhileStatementSyntax w => w.SpanStart,
+            ForStatementSyntax f => f.SpanStart,
+            ForEachStatementSyntax fe => fe.SpanStart,
+            DoStatementSyntax d => d.SpanStart,
+            UsingStatementSyntax u => u.SpanStart,
+            LockStatementSyntax l => l.SpanStart,
+            FixedStatementSyntax fx => fx.SpanStart,
+            _ => stmt.SpanStart
+        };
 
     private static void TryInsertPollInLoopBody(
         StatementSyntax loop, string raw, List<(int Pos, string Text)> edits)
@@ -174,7 +224,11 @@ public static class ProgramDebugInstrumenter
         if (stmt is LocalDeclarationStatementSyntax local)
         {
             foreach (var v in local.Declaration.Variables)
-                AddName(v.Identifier.ValueText, names);
+            {
+                // 无初始化的声明（如 bool ok;）在赋值前注入会触发 CS0165
+                if (v.Initializer != null)
+                    AddName(v.Identifier.ValueText, names);
+            }
         }
     }
 

@@ -273,7 +273,152 @@ public partial class MainPage : ContentPage
         ApplyOptionsPlacement(compact);
         ApplyProgToolbarLabels(iconOnly: compact || width < 560);
         ApplyLogToolbarLabels(iconOnly: compact || width < 720);
+        ApplyXferToolbarLabels(iconOnly: compact || width < 640);
         ApplyProgListColumns();
+        ApplyXferListColumns();
+    }
+
+    // 方向 / 文件名 / 状态 / 操作必显；窄屏先藏大小，再藏对端；状态与操作固定窄宽
+    private const double XferWDir = 40;
+    private const double XferWStatus = 52;
+    private const double XferWAction = 36;
+    private const double XferWPeerPref = 72;
+    private const double XferWSizePref = 56;
+    private const double XferWNameMin = 64;
+    private const double XferColSpacing = 4;
+
+    private const string XferIcDirect = "⇧";
+    private const string XferIcInbox = "📁";
+    private const string XferIcReceive = "⇩";
+    private const string XferIcClear = "✕";
+
+    private void TransferListHost_SizeChanged(object? sender, EventArgs e)
+        => ApplyXferListColumns();
+
+    private void XferToolBarHost_SizeChanged(object? sender, EventArgs e)
+    {
+        if (XferToolBarHost == null || Width <= 1) return;
+        var forceIcon = _compactLayout || Width < 640
+                        || (XferToolBarHost.Width > 1 && XferToolBarHost.Width < 420);
+        ApplyXferToolbarLabels(forceIcon);
+    }
+
+    /// <summary>传输工具栏：窄屏只留符号，避免按钮被裁切。</summary>
+    private void ApplyXferToolbarLabels(bool iconOnly)
+    {
+        if (DirectTransferBtn == null) return;
+        DirectTransferBtn.Text = iconOnly ? XferIcDirect : $"{XferIcDirect}  {Loc.T("Xfer.Direct")}";
+        OpenInboxBtn.Text = iconOnly ? XferIcInbox : $"{XferIcInbox}  {Loc.T("Xfer.OpenInbox")}";
+        ReceiveClipboardBtn.Text = iconOnly ? XferIcReceive : $"{XferIcReceive}  {Loc.T("Xfer.ReceiveClipboard")}";
+        ClearTransfersBtn.Text = iconOnly ? XferIcClear : $"{XferIcClear}  {Loc.T("Xfer.ClearDone")}";
+
+        var minW = iconOnly ? 34.0 : 0.0;
+        var maxW = iconOnly ? 34.0 : 160.0;
+        var pad = iconOnly ? new Thickness(0) : new Thickness(10, 0);
+        foreach (var b in new[] { DirectTransferBtn, OpenInboxBtn, ReceiveClipboardBtn, ClearTransfersBtn })
+        {
+            b.Padding = pad;
+            b.MinimumWidthRequest = iconOnly ? minW : 36;
+            b.MaximumWidthRequest = maxW;
+            b.WidthRequest = iconOnly ? 34 : -1;
+        }
+
+        if (XferToolSep != null)
+            XferToolSep.IsVisible = !iconOnly;
+
+        ToolTipProperties.SetText(DirectTransferBtn, Loc.T("Xfer.Direct"));
+        ToolTipProperties.SetText(OpenInboxBtn, Loc.T("Xfer.OpenInbox"));
+        ToolTipProperties.SetText(ReceiveClipboardBtn, Loc.T("Xfer.ReceiveClipboard"));
+        ToolTipProperties.SetText(ClearTransfersBtn, Loc.T("Xfer.ClearDone"));
+    }
+
+    /// <summary>列宽之和≈容器宽；文件名优先，不够时藏大小再藏对端；状态/操作固定。</summary>
+    private void ApplyXferListColumns()
+    {
+        if (TransferListHost == null || TransferListHeader == null) return;
+
+        var hostW = TransferListHost.Width;
+        if (hostW < 40)
+        {
+            var pageW = Width > 0 ? Width : 360;
+            hostW = Math.Max(240, pageW - (_compactLayout ? 48 : 168 + 48));
+        }
+
+        // 必显：方向 + 状态 + 操作 + 5 段间距；余量给文件名（+可选对端/大小）
+        var must = XferWDir + XferWStatus + XferWAction + XferColSpacing * 5;
+        var rest = hostW - must;
+
+        double peerW;
+        double sizeW;
+        double nameW;
+        if (rest < XferWNameMin)
+        {
+            peerW = 0;
+            sizeW = 0;
+            nameW = Math.Max(48, rest);
+        }
+        else if (rest < XferWNameMin + XferWPeerPref)
+        {
+            // 仅文件名（+尽量一点对端也不给，保证名称）
+            peerW = 0;
+            sizeW = 0;
+            nameW = rest;
+        }
+        else if (rest < XferWNameMin + XferWPeerPref + XferWSizePref)
+        {
+            // 有对端，藏大小
+            peerW = XferWPeerPref;
+            sizeW = 0;
+            nameW = rest - peerW;
+        }
+        else
+        {
+            peerW = XferWPeerPref;
+            sizeW = XferWSizePref;
+            nameW = rest - peerW - sizeW;
+        }
+
+        var used = XferWDir + nameW + peerW + sizeW + XferWStatus + XferWAction + XferColSpacing * 5;
+        if (used < hostW)
+            nameW += hostW - used;
+        else if (used > hostW + 0.5)
+            nameW = Math.Max(48, nameW - (used - hostW));
+
+        var widths = new[] { XferWDir, nameW, peerW, sizeW, XferWStatus, XferWAction };
+        TransferListRowView.SharedColWidths = widths;
+
+        TransferListHeader.ColumnDefinitions = new ColumnDefinitionCollection
+        {
+            new(new GridLength(widths[0])),
+            new(new GridLength(widths[1])),
+            new(new GridLength(widths[2])),
+            new(new GridLength(widths[3])),
+            new(new GridLength(widths[4])),
+            new(new GridLength(widths[5])),
+        };
+        ColPeer.IsVisible = peerW > 1;
+        ColSize.IsVisible = sizeW > 1;
+        ColStatus.IsVisible = true;
+        ColOption.IsVisible = true;
+
+        foreach (var row in FindXferRows(TransferList))
+            row.ApplySharedWidths();
+    }
+
+    private static IEnumerable<TransferListRowView> FindXferRows(IView? root)
+    {
+        if (root is TransferListRowView row)
+        {
+            yield return row;
+            yield break;
+        }
+        if (root is not IVisualTreeElement vte) yield break;
+        foreach (var child in vte.GetVisualChildren())
+        {
+            if (child is not IView v) continue;
+            foreach (var r in FindXferRows(v))
+                yield return r;
+        }
     }
 
     // 勾选 / 语言 / 状态 / 操作 必显；窄屏只可隐藏大小
@@ -896,18 +1041,17 @@ public partial class MainPage : ContentPage
 
         XferTitleText.Text = Loc.T("Xfer.Title");
         XferHintText.Text = Loc.T("Xfer.Hint");
-        DirectTransferBtn.Text = Loc.T("Xfer.Direct");
-        OpenInboxBtn.Text = Loc.T("Xfer.OpenInbox");
-        ReceiveClipboardBtn.Text = Loc.T("Xfer.ReceiveClipboard");
-        ClearTransfersBtn.Text = Loc.T("Xfer.ClearDone");
+        ApplyXferToolbarLabels(_compactLayout || Width > 0 && Width < 640);
         ColDir.Text = Loc.T("Xfer.Col.Dir");
         ColName.Text = Loc.T("Xfer.Col.Name");
         ColPeer.Text = Loc.T("Xfer.Col.Peer");
         ColSize.Text = Loc.T("Xfer.Col.Size");
         ColStatus.Text = Loc.T("Xfer.Col.Status");
+        ColOption.Text = Loc.T("Xfer.Col.Option");
         XferEmptyText.Text = Loc.Culture.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
             ? "暂无传输任务。"
             : "No transfers yet.";
+        ApplyXferListColumns();
 
         foreach (var item in _host.Transfers.Items)
             item.RefreshLocalized();
@@ -1469,6 +1613,11 @@ public partial class MainPage : ContentPage
         PageHelp.IsVisible = index == 6;
         PageLog.IsVisible = index == 7;
         PagePrograms.IsVisible = index == 8;
+        if (index == 3)
+        {
+            ApplyXferToolbarLabels(_compactLayout || Width > 0 && Width < 640);
+            Dispatcher.Dispatch(ApplyXferListColumns);
+        }
 
         try
         {
@@ -2492,7 +2641,12 @@ public partial class MainPage : ContentPage
     {
         TransferItem? item = e.Parameter as TransferItem
             ?? (sender as BindableObject)?.BindingContext as TransferItem;
-        if (item == null) return;
+        if (item != null)
+            RevealTransferPath(item);
+    }
+
+    internal void RevealTransferPath(TransferItem item)
+    {
         if (!FlyScreen.Helpers.PathReveal.TryReveal(item.FullPath, out var error))
             StatusLabel.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
     }
@@ -2500,7 +2654,11 @@ public partial class MainPage : ContentPage
     private async void DeleteTransfer_Clicked(object? sender, EventArgs e)
     {
         if (sender is not Button { CommandParameter: TransferItem item }) return;
+        await DeleteTransferAsync(item);
+    }
 
+    internal async Task DeleteTransferAsync(TransferItem item)
+    {
         if (item.State is TransferState.Queued or TransferState.Transferring)
         {
             _host.Transfers.RemoveItem(item, deleteCache: true);

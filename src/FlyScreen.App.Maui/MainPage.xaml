@@ -306,23 +306,36 @@
                      TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                     </VerticalStackLayout>
                     <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,6">
-                        <HorizontalStackLayout Spacing="8">
-                            <Button x:Name="DirectTransferBtn" Text="直接传输…" Style="{StaticResource PrimaryBtn}" Clicked="DirectTransfer_Clicked" />
-                            <BoxView WidthRequest="1" Color="{DynamicResource Line}" Margin="4,4" />
-                            <Button x:Name="OpenInboxBtn" Text="打开收件箱" Style="{StaticResource NormalBtn}" Clicked="OpenInbox_Clicked" />
-                            <Button x:Name="ReceiveClipboardBtn" Text="接收剪贴板文件" Style="{StaticResource NormalBtn}" Clicked="ReceiveClipboardFiles_Clicked" />
-                            <Button x:Name="ClearTransfersBtn" Text="清除已完成" Style="{StaticResource NormalBtn}" Clicked="ClearTransfers_Clicked" />
+                        <HorizontalStackLayout x:Name="XferToolBarHost" Spacing="8"
+                                               SizeChanged="XferToolBarHost_SizeChanged">
+                            <Button x:Name="DirectTransferBtn" Text="直接传输…" Style="{StaticResource PrimaryBtn}"
+                                    HeightRequest="34" MinimumWidthRequest="36" Clicked="DirectTransfer_Clicked" />
+                            <BoxView x:Name="XferToolSep" WidthRequest="1" Color="{DynamicResource Line}" Margin="4,4" />
+                            <Button x:Name="OpenInboxBtn" Text="打开收件箱" Style="{StaticResource NormalBtn}"
+                                    HeightRequest="34" MinimumWidthRequest="36" Clicked="OpenInbox_Clicked" />
+                            <Button x:Name="ReceiveClipboardBtn" Text="接收剪贴板文件" Style="{StaticResource NormalBtn}"
+                                    HeightRequest="34" MinimumWidthRequest="36" Clicked="ReceiveClipboardFiles_Clicked" />
+                            <Button x:Name="ClearTransfersBtn" Text="清除已完成" Style="{StaticResource NormalBtn}"
+                                    HeightRequest="34" MinimumWidthRequest="36" Clicked="ClearTransfers_Clicked" />
                         </HorizontalStackLayout>
                     </Border>
                     <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
-                        <Grid RowDefinitions="Auto,*">
-                            <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,88,56" BackgroundColor="{DynamicResource SubtleBg}">
-                                <Label x:Name="ColDir" Text="方向" FontAttributes="Bold" FontSize="12" />
-                                <Label x:Name="ColName" Grid.Column="1" Text="文件名" FontAttributes="Bold" FontSize="12" />
-                                <Label x:Name="ColPeer" Grid.Column="2" Text="对端" FontAttributes="Bold" FontSize="12" />
-                                <Label x:Name="ColSize" Grid.Column="3" Text="大小" FontAttributes="Bold" FontSize="12" />
-                                <Label x:Name="ColStatus" Grid.Column="4" Text="状态" FontAttributes="Bold" FontSize="12" />
-                                <Label x:Name="ColOption" Grid.Column="5" Text="操作" FontAttributes="Bold" FontSize="12" />
+                        <Grid x:Name="TransferListHost" RowDefinitions="Auto,*"
+                              SizeChanged="TransferListHost_SizeChanged">
+                            <Grid x:Name="TransferListHeader" Padding="10,8" ColumnSpacing="4"
+                                  BackgroundColor="{DynamicResource SubtleBg}">
+                                <Label x:Name="ColDir" Text="方向" FontAttributes="Bold" FontSize="12"
+                                       LineBreakMode="TailTruncation" VerticalOptions="Center" />
+                                <Label x:Name="ColName" Grid.Column="1" Text="文件名" FontAttributes="Bold" FontSize="12"
+                                       LineBreakMode="TailTruncation" VerticalOptions="Center" />
+                                <Label x:Name="ColPeer" Grid.Column="2" Text="对端" FontAttributes="Bold" FontSize="12"
+                                       LineBreakMode="TailTruncation" VerticalOptions="Center" />
+                                <Label x:Name="ColSize" Grid.Column="3" Text="大小" FontAttributes="Bold" FontSize="12"
+                                       LineBreakMode="TailTruncation" VerticalOptions="Center" />
+                                <Label x:Name="ColStatus" Grid.Column="4" Text="状态" FontAttributes="Bold" FontSize="12"
+                                       LineBreakMode="TailTruncation" VerticalOptions="Center" />
+                                <Label x:Name="ColOption" Grid.Column="5" Text="操作" FontAttributes="Bold" FontSize="12"
+                                       LineBreakMode="TailTruncation" VerticalOptions="Center" />
                             </Grid>
                             <CollectionView x:Name="TransferList" Grid.Row="1" BackgroundColor="{DynamicResource ListBg}">
                                 <CollectionView.EmptyView>
@@ -331,38 +344,7 @@
                                 </CollectionView.EmptyView>
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate x:DataType="models:TransferItem">
-                                        <Grid>
-                                            <ProgressBar Progress="{Binding ProgressFraction, Mode=OneWay}"
-                                                         IsVisible="{Binding ShowProgressBackground}"
-                                                         HeightRequest="40" VerticalOptions="Fill"
-                                                         BackgroundColor="Transparent"
-                                                         ProgressColor="#402563EB"
-                                                         InputTransparent="True" />
-                                            <Grid Padding="10,8" ColumnDefinitions="56,*,100,80,88,56" ColumnSpacing="4">
-                                                <Label Text="{Binding DirectionText}" FontSize="12" VerticalOptions="Center" />
-                                                <Label Grid.Column="1" Text="{Binding FileName}" FontAttributes="Bold"
-                                                       LineBreakMode="TailTruncation" VerticalOptions="Center"
-                                                       TextColor="{DynamicResource Primary}"
-                                                       TextDecorations="Underline">
-                                                    <Label.GestureRecognizers>
-                                                        <TapGestureRecognizer Tapped="TransferFileName_Tapped"
-                                                                              CommandParameter="{Binding}" />
-                                                    </Label.GestureRecognizers>
-                                                </Label>
-                                                <Label Grid.Column="2" Text="{Binding PeerName}" FontSize="12" VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                                                <Label Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalOptions="Center" />
-                                                <Label Grid.Column="4" Text="{Binding Status}" FontSize="12" VerticalOptions="Center" />
-                                                <Grid Grid.Column="5" WidthRequest="28" HeightRequest="28" VerticalOptions="Center">
-                                                    <Button Style="{StaticResource IconActionBtn}"
-                                                            CommandParameter="{Binding}" Clicked="DeleteTransfer_Clicked"
-                                                            ToolTipProperties.Text="{DynamicResource Str.DeleteTip}" />
-                                                    <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
-                                                          Fill="#EF4444" Aspect="Uniform" WidthRequest="14" HeightRequest="14"
-                                                          HorizontalOptions="Center" VerticalOptions="Center"
-                                                          InputTransparent="True" />
-                                                </Grid>
-                                            </Grid>
-                                        </Grid>
+                                        <local:TransferListRowView />
                                     </DataTemplate>
                                 </CollectionView.ItemTemplate>
                             </CollectionView>
