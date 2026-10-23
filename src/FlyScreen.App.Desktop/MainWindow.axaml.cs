@@ -473,7 +473,6 @@ public partial class MainWindow : Window
         if (XferColName != null) XferColName.Text = Loc.T("Xfer.Col.Name");
         if (XferColPeer != null) XferColPeer.Text = Loc.T("Xfer.Col.Peer");
         if (XferColSize != null) XferColSize.Text = Loc.T("Xfer.Col.Size");
-        if (XferColProgress != null) XferColProgress.Text = Loc.T("Xfer.Col.Progress");
         if (XferColStatus != null) XferColStatus.Text = Loc.T("Xfer.Col.Status");
         if (TransferPlaceholder != null) TransferPlaceholder.Text = Loc.T("Xfer.Empty");
         Title = Loc.T("App.Name");
@@ -2150,23 +2149,107 @@ public partial class MainWindow : Window
         win.Show(this);
     }
 
-    private void ClearTransfers_Click(object? sender, RoutedEventArgs e)
+    private async void ClearTransfers_Click(object? sender, RoutedEventArgs e)
     {
-        _host.Transfers.ClearCompleted();
+        var hasReceive = _host.Transfers.Items.Any(i =>
+            i.Direction == TransferDirection.Receive
+            && i.State is TransferState.Completed or TransferState.Failed or TransferState.Cancelled);
+        if (hasReceive)
+        {
+            var choice = await AskYesNoCancelAsync(
+                Loc.T("Xfer.ConfirmClearTitle"),
+                Loc.T("Xfer.ConfirmClearReceive")).ConfigureAwait(true);
+            if (choice is null) return;
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: choice == true);
+        }
+        else
+        {
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: false);
+        }
+
         TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
     }
 
-    private void DeleteTransfer_Click(object? sender, RoutedEventArgs e)
+    private async void DeleteTransfer_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is Control { Tag: TransferItem item })
+        if (sender is not Control { Tag: TransferItem item }) return;
+
+        if (item.State is TransferState.Queued or TransferState.Transferring)
         {
             _host.Transfers.RemoveItem(item, deleteCache: true);
             TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
+            return;
         }
+
+        if (item.Direction != TransferDirection.Receive)
+        {
+            _host.Transfers.RemoveItem(item, deleteCache: false);
+            TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
+            return;
+        }
+
+        var choice = await AskYesNoCancelAsync(
+            Loc.T("Xfer.ConfirmDeleteTitle"),
+            Loc.T("Xfer.ConfirmDeleteReceive")).ConfigureAwait(true);
+        if (choice is null) return;
+        _host.Transfers.RemoveItem(item, deleteCache: choice == true);
+        TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
     }
 
-    private void OpenInbox_Click(object? sender, RoutedEventArgs e)
+    /// <summary>true=删除文件，false=仅记录，null=取消。</summary>
+    private async Task<bool?> AskYesNoCancelAsync(string title, string message)
     {
+        bool? result = null;
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Background = Background
+        };
+
+        var yes = new Button { Content = Loc.T("Xfer.DeleteFiles"), MinWidth = 96, Classes = { "primary" } };
+        var no = new Button { Content = Loc.T("Xfer.KeepFiles"), MinWidth = 96, Classes = { "normal" } };
+        var cancel = new Button { Content = Loc.T("DT.Cancel"), MinWidth = 88, Classes = { "normal" } };
+        yes.Click += (_, _) => { result = true; dlg.Close(); };
+        no.Click += (_, _) => { result = false; dlg.Close(); };
+        cancel.Click += (_, _) => { result = null; dlg.Close(); };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(no);
+        buttons.Children.Add(yes);
+
+        var root = new StackPanel { Margin = new Thickness(16), Spacing = 8 };
+        root.Children.Add(new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap
+        });
+        root.Children.Add(buttons);
+        dlg.Content = root;
+
+        await dlg.ShowDialog(this).ConfigureAwait(true);
+        return result;
+    }
+
+    private async void OpenInbox_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_host.Transfers.HasRemotePendingFiles)
+        {
+            StatusText.Text = "正在接收对端文件…";
+            try { await _host.Transfers.PullRemoteFilesForPasteAsync(); }
+            catch { /* ignore */ }
+        }
+
         var inbox = _host.Transfers.InboxDirectory;
         if (DesktopFolderOpen.TryOpen(inbox, out var error))
         {
@@ -2177,5 +2260,24 @@ public partial class MainWindow : Window
         StatusText.Text = string.IsNullOrWhiteSpace(error)
             ? $"无法打开收件箱: {inbox}"
             : $"无法打开收件箱: {error}（{inbox}）";
+    }
+
+    private void TransferFileName_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.ClickCount < 1) return;
+        if (sender is Control { DataContext: TransferItem item })
+            RevealTransferPath(item);
+    }
+
+    private void TransferFileName_DoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: TransferItem item })
+            RevealTransferPath(item);
+    }
+
+    private void RevealTransferPath(TransferItem item)
+    {
+        if (!FlyScreen.Helpers.PathReveal.TryReveal(item.FullPath, out var error))
+            StatusText.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
     }
 }

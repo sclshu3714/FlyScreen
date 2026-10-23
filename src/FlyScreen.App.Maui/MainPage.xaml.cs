@@ -2410,26 +2410,21 @@ public partial class MainPage : ContentPage
 
     private async void DirectTransfer_Clicked(object? sender, EventArgs e)
     {
-        var peer = _host.Connections.GetConfiguredPeerStatuses().FirstOrDefault(s => s.AnyAlive)?.Name;
-        if (string.IsNullOrEmpty(peer))
-        {
-            StatusLabel.Text = "没有已连接的对端";
-            return;
-        }
-
-        var picked = await FilePicker.Default.PickMultipleAsync();
-        var files = picked?.ToList() ?? [];
-        if (files.Count == 0) return;
-        var paths = files.Select(f => f?.FullPath).Where(p => !string.IsNullOrEmpty(p) && File.Exists(p!)).Cast<string>().ToList();
-        if (paths.Count == 0) return;
-
-        await _host.Transfers.StartDirectTransferAsync(peer, _host.Transfers.InboxDirectory, paths);
-        StatusLabel.Text = $"正在传输 {paths.Count} 个文件 → {peer}";
-        ShowPage(3);
+        var page = new DirectTransferPage(_host);
+        await PushModalAsync(page);
+        if (await page.Result)
+            ShowPage(3);
     }
 
     private async void OpenInbox_Clicked(object? sender, EventArgs e)
     {
+        if (_host.Transfers.HasRemotePendingFiles)
+        {
+            StatusLabel.Text = "正在接收对端文件…";
+            try { await _host.Transfers.PullRemoteFilesForPasteAsync(); }
+            catch { /* ignore */ }
+        }
+
         var dir = _host.Transfers.InboxDirectory;
         try
         {
@@ -2450,13 +2445,64 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void ClearTransfers_Clicked(object? sender, EventArgs e)
-        => _host.Transfers.ClearCompleted();
-
-    private void DeleteTransfer_Clicked(object? sender, EventArgs e)
+    private async void ClearTransfers_Clicked(object? sender, EventArgs e)
     {
-        if (sender is Button { CommandParameter: TransferItem item })
-            _host.Transfers.RemoveItem(item);
+        var hasReceive = _host.Transfers.Items.Any(i =>
+            i.Direction == TransferDirection.Receive
+            && i.State is TransferState.Completed or TransferState.Failed or TransferState.Cancelled);
+        if (!hasReceive)
+        {
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: false);
+            return;
+        }
+
+        var choice = await DisplayActionSheetAsync(
+            Loc.T("Xfer.ConfirmClearTitle"),
+            Loc.T("DT.Cancel"),
+            null,
+            Loc.T("Xfer.DeleteFiles"),
+            Loc.T("Xfer.KeepFiles"));
+        if (choice == Loc.T("Xfer.DeleteFiles"))
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: true);
+        else if (choice == Loc.T("Xfer.KeepFiles"))
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: false);
+    }
+
+    private void TransferFileName_Tapped(object? sender, TappedEventArgs e)
+    {
+        TransferItem? item = e.Parameter as TransferItem
+            ?? (sender as BindableObject)?.BindingContext as TransferItem;
+        if (item == null) return;
+        if (!FlyScreen.Helpers.PathReveal.TryReveal(item.FullPath, out var error))
+            StatusLabel.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
+    }
+
+    private async void DeleteTransfer_Clicked(object? sender, EventArgs e)
+    {
+        if (sender is not Button { CommandParameter: TransferItem item }) return;
+
+        if (item.State is TransferState.Queued or TransferState.Transferring)
+        {
+            _host.Transfers.RemoveItem(item, deleteCache: true);
+            return;
+        }
+
+        if (item.Direction != TransferDirection.Receive)
+        {
+            _host.Transfers.RemoveItem(item, deleteCache: false);
+            return;
+        }
+
+        var choice = await DisplayActionSheetAsync(
+            Loc.T("Xfer.ConfirmDeleteTitle"),
+            Loc.T("DT.Cancel"),
+            null,
+            Loc.T("Xfer.DeleteFiles"),
+            Loc.T("Xfer.KeepFiles"));
+        if (choice == Loc.T("Xfer.DeleteFiles"))
+            _host.Transfers.RemoveItem(item, deleteCache: true);
+        else if (choice == Loc.T("Xfer.KeepFiles"))
+            _host.Transfers.RemoveItem(item, deleteCache: false);
     }
 
     private void Tray_Clicked(object? sender, EventArgs e)
@@ -2711,7 +2757,8 @@ public partial class MainPage : ContentPage
     {
         Text = t,
         FontSize = 13,
-        FontFamily = "Consolas",
+        // 勿设 FontFamily=Consolas：Maui-Win 未打包会探测 Assets/Fonts/*.ttf 并刷 relative URI 错
+        StyleClass = new List<string> { "Mono" },
         LineBreakMode = LineBreakMode.WordWrap
     };
 

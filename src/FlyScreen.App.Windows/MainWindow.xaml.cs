@@ -453,7 +453,6 @@ public partial class MainWindow : Window
         ColName.Header = Loc.T("Xfer.Col.Name");
         ColPeer.Header = Loc.T("Xfer.Col.Peer");
         ColSize.Header = Loc.T("Xfer.Col.Size");
-        ColProgress.Header = Loc.T("Xfer.Col.Progress");
         ColStatus.Header = Loc.T("Xfer.Col.Status");
 
         FeatTitleText.Text = Loc.T("Feat.Title");
@@ -1094,21 +1093,87 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
     }
 
-    private void OpenInbox_Click(object sender, RoutedEventArgs e)
+    private async void OpenInbox_Click(object sender, RoutedEventArgs e)
     {
-        var dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "FlyScreen", "Inbox");
+        if (_host.Transfers.HasRemotePendingFiles)
+        {
+            StatusText.Text = "正在接收对端文件…";
+            try { await _host.Transfers.PullRemoteFilesForPasteAsync(); }
+            catch { /* ignore */ }
+        }
+
+        var dir = _host.Transfers.InboxDirectory;
         Directory.CreateDirectory(dir);
         Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
     }
 
-    private void ClearTransfers_Click(object sender, RoutedEventArgs e) => _host.Transfers.ClearCompleted();
+    private void ClearTransfers_Click(object sender, RoutedEventArgs e)
+    {
+        var hasReceive = _host.Transfers.Items.Any(i =>
+            i.Direction == TransferDirection.Receive
+            && i.State is TransferState.Completed or TransferState.Failed or TransferState.Cancelled);
+        if (!hasReceive)
+        {
+            _host.Transfers.ClearCompleted(deleteReceiveFiles: false);
+            return;
+        }
+
+        var r = MessageBox.Show(
+            this,
+            Loc.T("Xfer.ConfirmClearReceive"),
+            Loc.T("Xfer.ConfirmClearTitle"),
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+        if (r == MessageBoxResult.Cancel) return;
+        _host.Transfers.ClearCompleted(deleteReceiveFiles: r == MessageBoxResult.Yes);
+    }
 
     private void DeleteTransfer_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (sender is FrameworkElement { Tag: TransferItem item })
+        if (sender is not FrameworkElement { Tag: TransferItem item }) return;
+
+        // 传输中：未完成文件无意义，直接删记录+文件
+        if (item.State is TransferState.Queued or TransferState.Transferring)
+        {
             _host.Transfers.RemoveItem(item, deleteCache: true);
+            return;
+        }
+
+        // 发送项：不删本机源文件
+        if (item.Direction != TransferDirection.Receive)
+        {
+            _host.Transfers.RemoveItem(item, deleteCache: false);
+            return;
+        }
+
+        var r = MessageBox.Show(
+            this,
+            Loc.T("Xfer.ConfirmDeleteReceive"),
+            Loc.T("Xfer.ConfirmDeleteTitle"),
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+        if (r == MessageBoxResult.Cancel) return;
+        _host.Transfers.RemoveItem(item, deleteCache: r == MessageBoxResult.Yes);
+    }
+
+    private void TransferFileName_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TransferItem item })
+            RevealTransferPath(item);
+        e.Handled = true;
+    }
+
+    private void TransferList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (TransferList.SelectedItem is TransferItem item)
+            RevealTransferPath(item);
+    }
+
+    private void RevealTransferPath(TransferItem item)
+    {
+        if (!PathReveal.TryReveal(item.FullPath, out var error))
+            StatusText.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
     }
 
     private void Matrix_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1270,6 +1335,8 @@ public partial class MainWindow : Window
 
         if (index == 0)
             Dispatcher.BeginInvoke(RedrawArrows, System.Windows.Threading.DispatcherPriority.Loaded);
+        else if (index == 3)
+            Dispatcher.BeginInvoke(FitTransferListColumns, System.Windows.Threading.DispatcherPriority.Loaded);
         else if (index == 5)
             RefreshAboutPage();
         else if (index == 6)
@@ -1297,6 +1364,23 @@ public partial class MainWindow : Window
 
     private void ProgList_SizeChanged(object sender, SizeChangedEventArgs e)
         => FitProgListColumns();
+
+    private void TransferList_SizeChanged(object sender, SizeChangedEventArgs e)
+        => FitTransferListColumns();
+
+    /// <summary>传输列表：固定列定宽，文件名列吃满剩余空间，避免操作列后空白。</summary>
+    private void FitTransferListColumns()
+    {
+        if (TransferList == null || ColName == null) return;
+        var avail = TransferList.ActualWidth;
+        if (avail <= 1) return;
+        // 预留纵向滚动条与边距，避免出现横向滚动条抖动
+        var scroll = SystemParameters.VerticalScrollBarWidth + 8;
+        const double fixedCols = 56 + 120 + 100 + 88 + 40; // 方向/对端/大小/状态/操作
+        var nameW = Math.Max(120, avail - scroll - fixedCols);
+        if (Math.Abs(ColName.Width - nameW) > 0.5)
+            ColName.Width = nameW;
+    }
 
     /// <summary>程序列表：固定列按内容宽度，名称列吃满剩余空间，避免右侧留白。</summary>
     private void FitProgListColumns()

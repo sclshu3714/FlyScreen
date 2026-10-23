@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace FlyScreen.Native;
 
@@ -160,8 +161,21 @@ public static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr GetClipboardData(uint uFormat);
+
     [DllImport("user32.dll")]
     public static extern IntPtr GetClipboardOwner();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetClipboardSequenceNumber();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsClipboardFormatAvailable(uint format);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder? lpszFile, uint cch);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
@@ -186,6 +200,39 @@ public static class NativeMethods
     public const uint CF_HDROP = 15;
     public const uint GMEM_MOVEABLE = 0x0002;
     public const uint GMEM_ZEROINIT = 0x0040;
+    public const uint PM_REMOVE = 0x0001;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+    /// <summary>粘贴线程等待网络时泵消息，避免卡死。</summary>
+    public static void PumpWaitingMessages()
+    {
+        while (PeekMessage(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+        {
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
+        }
+    }
     public const int WM_RENDERFORMAT = 0x0305;
     public const int WM_RENDERALLFORMATS = 0x0306;
     public const int WM_DESTROYCLIPBOARD = 0x0307;

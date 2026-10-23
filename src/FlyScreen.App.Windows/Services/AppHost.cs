@@ -34,6 +34,8 @@ public sealed class AppHost : IAsyncDisposable
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         Clipboard = new ClipboardMonitor(Settings, Transfers);
+        Input.TryHandleLocalFilePasteHotkey = () => Clipboard.TryHandlePasteHotkey();
+        Input.PrefetchRemoteFilesForLikelyPaste = () => Clipboard.PrefetchForLikelyPaste();
         _behaviorSync = new BehaviorSyncHelper(Settings, Connections);
         _behaviorSync.StatusMessage += PublishStatus;
         _behaviorSync.BehaviorSyncedFromPeer += from =>
@@ -61,14 +63,14 @@ public sealed class AppHost : IAsyncDisposable
         Transfers.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
 
-        // 鼠标回到本机：后台异步预取远程剪贴板（文件收完后再可粘贴，不堵键鼠）
+        // 鼠标回到本机：文件挂占位启用粘贴（粘贴时再传）；内联仍后台拉取
         Input.ControlTargetChanged += peer =>
         {
             if (peer == null)
                 Clipboard.ArmRemoteClipboardForPaste();
         };
 
-        // 焦点已在本机时对端才复制：立即开始预取
+        // 焦点已在本机时对端才复制：立即挂占位 / 拉内联
         Transfers.RemoteFilesAnnounced += () =>
         {
             if (Input.IsFocusOnLocalMachine)
@@ -151,7 +153,7 @@ public sealed class AppHost : IAsyncDisposable
                 if (p == null) return;
                 if (IsLocalMachineName(p.TargetMachine))
                 {
-                    // 对端鼠标进入本机：显示光标；剪贴板预取由 ControlTargetChanged 异步触发
+                    // 对端鼠标进入本机：显示光标；剪贴板占位由 ControlTargetChanged 触发
                     Input.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
                 }
                 break;

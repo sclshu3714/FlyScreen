@@ -1,14 +1,19 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Interop;
+using FlyScreen.Helpers;
 using FlyScreen.Models;
 using FlyScreen.Native;
+using FlyScreen.Services.Input;
+using FlyScreen.Services.Network;
 
 namespace FlyScreen.Services.Clipboard;
 
 /// <summary>
 /// 统一剪贴板：
-/// 文件 → 宣告元数据，进入本机后后台异步拉取，完成后写入剪贴板再可粘贴；
-/// 内联（文本/HTML/RTF/CSV/图片）→ 宣告，进入本机后再拉取并写入。
+/// 文件 → 虚拟文件剪贴板（FileGroupDescriptor）；粘贴 GetData 时才接收；
+/// 内联 → 进入本机后拉取并写入。
+/// 另有轮询备份，避免窗口隐藏/句柄变化时漏掉 WM_CLIPBOARDUPDATE。
 /// </summary>
 public sealed class ClipboardMonitor : IDisposable
 {
@@ -18,10 +23,17 @@ public sealed class ClipboardMonitor : IDisposable
     private IntPtr _hwnd;
     private string? _lastFilesKey;
     private string? _lastInlineKey;
+    private long _armedFileSequence;
+    private string[] _armedPlaceholders = [];
+    private int _materialized;
     private int _busy;
     private int _rendering;
     private int _arming;
     private int _inlineArming;
+    private int _prefetchStarted;
+    private CancellationTokenSource? _pollCts;
+    private Window? _window;
+    private uint _lastClipboardSeq;
 
     public ClipboardMonitor(AppSettings settings, FileTransferService transfers)
     {
@@ -31,38 +43,118 @@ public sealed class ClipboardMonitor : IDisposable
 
     public void Start(Window window)
     {
-        var helper = new WindowInteropHelper(window);
-        helper.EnsureHandle();
-        _hwnd = helper.Handle;
-        _source = HwndSource.FromHwnd(_hwnd);
-        _source?.AddHook(WndProc);
-        NativeMethods.AddClipboardFormatListener(_hwnd);
+        Stop();
+
+        _window = window;
+        AttachClipboardHwnd(window);
+        window.SourceInitialized += OnWindowSourceInitialized;
+
+        _pollCts = new CancellationTokenSource();
+        _ = PollLoopAsync(_pollCts.Token);
+    }
+
+    private void OnWindowSourceInitialized(object? sender, EventArgs e)
+    {
+        if (sender is Window window)
+            AttachClipboardHwnd(window);
+    }
+
+    private void AttachClipboardHwnd(Window window)
+    {
+        try
+        {
+            if (_hwnd != IntPtr.Zero)
+                NativeMethods.RemoveClipboardFormatListener(_hwnd);
+            _source?.RemoveHook(WndProc);
+
+            var helper = new WindowInteropHelper(window);
+            helper.EnsureHandle();
+            _hwnd = helper.Handle;
+            _source = HwndSource.FromHwnd(_hwnd);
+            _source?.AddHook(WndProc);
+            NativeMethods.AddClipboardFormatListener(_hwnd);
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     public void Stop()
     {
+        try { _pollCts?.Cancel(); } catch { /* ignore */ }
+        _pollCts?.Dispose();
+        _pollCts = null;
+
+        if (_window != null)
+        {
+            _window.SourceInitialized -= OnWindowSourceInitialized;
+            _window = null;
+        }
+
         if (_hwnd != IntPtr.Zero)
             NativeMethods.RemoveClipboardFormatListener(_hwnd);
         _source?.RemoveHook(WndProc);
         _source = null;
+        _hwnd = IntPtr.Zero;
         ClipboardBridge.ClearPendingDataObject();
+        _armedPlaceholders = [];
     }
 
     /// <summary>
-    /// 鼠标已进入本机：异步预取远程文件/内联内容；文件收完前不改剪贴板，不阻塞键鼠。
+    /// 鼠标已进入本机 / 本机收到宣告：只挂占位剪贴板点亮「粘贴」，不开始网络接收。
     /// </summary>
     public void ArmRemoteClipboardForPaste()
     {
         if (!_settings.ShareClipboard) return;
 
         if (_settings.TransferFile && _transfers.HasRemotePendingFiles)
-            _ = ArmFilesAsync();
+            ArmFilesForLazyPaste();
 
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
     }
 
-    private async Task ArmFilesAsync()
+    /// <summary>不再预取：接收必须由真正粘贴触发。</summary>
+    public void PrefetchForLikelyPaste()
+    {
+        // intentionally empty
+    }
+
+    /// <summary>
+    /// 虚拟文件剪贴板由资源管理器 GetData 触发拉取，无需拦截 Ctrl+V。
+    /// </summary>
+    public bool TryHandlePasteHotkey() => false;
+
+    private async Task PollLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(500, ct).ConfigureAwait(false);
+                if (!_settings.ShareClipboard) continue;
+                if (ClipboardBridge.IsSuppressed || ClipboardBridge.IsOfferingPending) continue;
+
+                // 用剪贴板序号检测变化，避免漏掉 WM_CLIPBOARDUPDATE（托盘/无焦点）
+                var seq = ClipboardBridge.GetClipboardSequenceNumber();
+                if (seq == 0 || seq == _lastClipboardSeq) continue;
+
+                await ProcessClipboardChangeAsync(force: true).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+    }
+
+    /// <summary>挂虚拟文件剪贴板；粘贴 GetData 时才 Pull。</summary>
+    private void ArmFilesForLazyPaste()
     {
         if (Interlocked.CompareExchange(ref _arming, 1, 0) != 0) return;
 
@@ -71,35 +163,94 @@ public sealed class ClipboardMonitor : IDisposable
             if (!_settings.TransferFile || !_settings.ShareClipboard) return;
             if (!_transfers.HasRemotePendingFiles) return;
 
-            // 后台拉取：不占位、不写剪贴板，键鼠与本机可正常使用
-            var files = await _transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(false);
-            if (files == null || files.Count == 0) return;
+            var seq = _transfers.GetRemotePendingSequence();
+            if (seq != 0 && seq == _armedFileSequence
+                && ClipboardBridge.HasVirtualFilePaste
+                && _transfers.OwnsDelayedClipboard
+                && Volatile.Read(ref _materialized) == 0)
+                return;
 
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null) return;
+            if (_transfers.GetRemotePendingEntries().Count == 0) return;
 
-            await dispatcher.InvokeAsync(() =>
+            void Offer()
             {
                 try
                 {
-                    ClipboardBridge.SetFilesSuppressing(files);
-                    _transfers.MarkDelayedClipboardOwned(false);
-                    ClipboardBridge.ClearPendingDataObject();
+                    var ok = ClipboardBridge.OfferVirtualFilePaste(MaterializePasteEntriesAsync);
+                    if (!ok)
+                    {
+                        _armedFileSequence = 0;
+                        _ = RetryArmFilesAsync();
+                        return;
+                    }
+
+                    _armedFileSequence = seq;
+                    _armedPlaceholders = [];
+                    Interlocked.Exchange(ref _materialized, 0);
+                    Interlocked.Exchange(ref _prefetchStarted, 0);
+                    _transfers.MarkDelayedClipboardOwned(true);
                 }
                 catch
                 {
-                    // ignore clipboard contention
+                    _armedFileSequence = 0;
+                    _ = RetryArmFilesAsync();
                 }
-            });
-        }
-        catch
-        {
-            // ignore
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            if (dispatcher.CheckAccess())
+                Offer();
+            else
+                dispatcher.Invoke(Offer);
         }
         finally
         {
             Interlocked.Exchange(ref _arming, 0);
         }
+    }
+
+    private async Task RetryArmFilesAsync()
+    {
+        try
+        {
+            await Task.Delay(300).ConfigureAwait(false);
+            if (!_transfers.HasRemotePendingFiles) return;
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            await dispatcher.InvokeAsync(ArmFilesForLazyPaste);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>虚拟剪贴板 GetData：此时才网络接收，返回 FileGroupDescriptor 明细。</summary>
+    private async Task<IReadOnlyList<ClipboardPasteEntry>?> MaterializePasteEntriesAsync()
+    {
+        _transfers.SetPasteMergeRoots(null);
+        var files = await _transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(false);
+        if (files is { Count: > 0 })
+            Interlocked.Exchange(ref _materialized, 1);
+
+        var entries = _transfers.GetLastPasteEntries();
+        if (entries is { Count: > 0 })
+            return entries;
+
+        // 回退：仅有顶层路径时也构造成条目
+        if (files is not { Count: > 0 }) return null;
+        return files.Select(p =>
+        {
+            var isDir = Directory.Exists(p);
+            long size = 0;
+            if (!isDir && File.Exists(p))
+            {
+                try { size = new FileInfo(p).Length; } catch { /* ignore */ }
+            }
+
+            return new ClipboardPasteEntry(Path.GetFileName(p), p, isDir, size);
+        }).ToList();
     }
 
     private async Task ArmInlineAsync()
@@ -136,16 +287,21 @@ public sealed class ClipboardMonitor : IDisposable
         switch (msg)
         {
             case NativeMethods.WM_CLIPBOARDUPDATE:
-                _ = OnClipboardChangedAsync();
+                _ = ProcessClipboardChangeAsync(force: false);
                 break;
 
             case NativeMethods.WM_DESTROYCLIPBOARD:
+                if (ClipboardBridge.IsSuppressed || ClipboardBridge.IsOfferingPending)
+                    break;
                 _transfers.NotifyLocalClipboardOverride();
                 ClipboardBridge.ClearPendingDataObject();
+                _armedFileSequence = 0;
+                _armedPlaceholders = [];
+                Interlocked.Exchange(ref _materialized, 0);
+                Interlocked.Exchange(ref _prefetchStarted, 0);
                 break;
 
             case NativeMethods.WM_RENDERFORMAT:
-                // 旧版延迟 CF_HDROP 回退；新路径已在预取完成后写入真实文件列表
                 if ((uint)wParam.ToInt32() == NativeMethods.CF_HDROP)
                 {
                     handled = true;
@@ -170,15 +326,16 @@ public sealed class ClipboardMonitor : IDisposable
             if (!_transfers.HasRemotePendingFiles && !_transfers.OwnsDelayedClipboard)
                 return;
 
-            // 若已有预取在进行，仅短等；避免在 OLE 回调里长时间堵死
             var task = _transfers.PullRemoteFilesForPasteAsync();
             if (!task.IsCompleted)
-                return;
+                UiThread.WaitWithPumping(task, TimeSpan.FromMinutes(30));
 
             var files = task.GetAwaiter().GetResult();
             if (files is { Count: > 0 })
             {
                 ClipboardBridge.SetHDropWhileClipboardOpen(files);
+                _armedPlaceholders = files.ToArray();
+                Interlocked.Exchange(ref _materialized, 1);
                 _transfers.MarkDelayedClipboardOwned(false);
             }
         }
@@ -202,10 +359,15 @@ public sealed class ClipboardMonitor : IDisposable
             try
             {
                 var task = _transfers.PullRemoteFilesForPasteAsync();
-                if (!task.IsCompleted) return;
+                if (!task.IsCompleted)
+                    UiThread.WaitWithPumping(task, TimeSpan.FromMinutes(30));
                 var files = task.GetAwaiter().GetResult();
                 if (files is { Count: > 0 })
+                {
                     ClipboardBridge.SetHDropWhileClipboardOpen(files);
+                    _armedPlaceholders = files.ToArray();
+                    Interlocked.Exchange(ref _materialized, 1);
+                }
             }
             finally
             {
@@ -219,53 +381,90 @@ public sealed class ClipboardMonitor : IDisposable
         }
     }
 
-    private async Task OnClipboardChangedAsync()
+    private async Task ProcessClipboardChangeAsync(bool force)
     {
-        if (ClipboardBridge.IsSuppressed) return;
+        if (ClipboardBridge.IsSuppressed || ClipboardBridge.IsOfferingPending) return;
         if (!_settings.ShareClipboard) return;
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
 
         try
         {
-            await Task.Delay(120).ConfigureAwait(false);
-            if (ClipboardBridge.IsSuppressed) return;
+            // Explorer 延迟 HDROP 需稍等再读
+            await Task.Delay(force ? 200 : 150).ConfigureAwait(false);
+            if (ClipboardBridge.IsSuppressed || ClipboardBridge.IsOfferingPending) return;
 
-            await Application.Current.Dispatcher.InvokeAsync(async () =>
+            var seqNow = ClipboardBridge.GetClipboardSequenceNumber();
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+
+            string[]? files = null;
+            ClipboardInlineData? inline = null;
+            await dispatcher.InvokeAsync(() =>
             {
-                if (ClipboardBridge.IsSuppressed) return;
-                if (_transfers.OwnsDelayedClipboard) return;
+                if (ClipboardBridge.IsSuppressed || ClipboardBridge.IsOfferingPending) return;
 
-                // 1) 文件优先
                 if (_settings.TransferFile)
                 {
-                    var files = ClipboardBridge.TryGetFiles();
+                    files = ClipboardBridge.TryGetFiles();
                     if (files is { Length: > 0 })
                     {
-                        if (files.All(_transfers.IsInboxPath))
-                            return;
-                        if (ClipboardBridge.IsSameAsLastAppliedFiles(files))
-                            return;
+                        if (!files.All(_transfers.IsInboxPath))
+                        {
+                            // 本机真实复制：清掉远程占位状态，允许宣告
+                            if (_transfers.OwnsDelayedClipboard)
+                            {
+                                _transfers.NotifyLocalClipboardOverride();
+                                ClipboardBridge.ClearPendingDataObject();
+                                ClipboardBridge.ClearLastAppliedFilesKey();
+                                _armedFileSequence = 0;
+                                _armedPlaceholders = [];
+                                Interlocked.Exchange(ref _materialized, 0);
+                            }
 
-                        var key = ClipboardBridge.BuildFilesKey(files);
-                        if (key == _lastFilesKey) return;
-                        _lastFilesKey = key;
+                            return;
+                        }
 
-                        await _transfers.AnnounceLocalFilesAsync(files).ConfigureAwait(true);
-                        return;
+                        files = null; // 占位路径，不宣告
                     }
                 }
 
-                // 2) 内联：文本 + HTML + RTF + CSV + 图片（可组合）
-                var inline = ClipboardBridge.TryCaptureInline();
-                if (inline == null || inline.IsEmpty) return;
-                if (ClipboardBridge.IsSameAsLastAppliedInline(inline)) return;
+                inline = ClipboardBridge.TryCaptureInline();
+            }).Task.ConfigureAwait(false);
 
-                var inlineKey = inline.BuildKey();
-                if (inlineKey == _lastInlineKey) return;
-                _lastInlineKey = inlineKey;
+            if (ClipboardBridge.IsSuppressed) return;
 
-                await _transfers.AnnounceLocalInlineAsync(inline).ConfigureAwait(true);
-            });
+            if (files is { Length: > 0 })
+            {
+                var key = ClipboardBridge.BuildFilesKey(files);
+                // 同一剪贴板序号且同 key 才跳过；用户再次「复制」会换序号
+                if (!force && key == _lastFilesKey) return;
+                if (force && key == _lastFilesKey && seqNow == _lastClipboardSeq) return;
+
+                ClipboardBridge.ClearLastAppliedFilesKey();
+                if (await _transfers.AnnounceLocalFilesAsync(files).ConfigureAwait(false))
+                {
+                    _lastFilesKey = key;
+                    _lastClipboardSeq = seqNow;
+                }
+
+                return;
+            }
+
+            if (inline == null || inline.IsEmpty)
+            {
+                if (seqNow != 0)
+                    _lastClipboardSeq = seqNow;
+                return;
+            }
+
+            if (ClipboardBridge.IsSameAsLastAppliedInline(inline)) return;
+
+            var inlineKey = inline.BuildKey();
+            if (inlineKey == _lastInlineKey && seqNow == _lastClipboardSeq) return;
+
+            await _transfers.AnnounceLocalInlineAsync(inline).ConfigureAwait(false);
+            _lastInlineKey = inlineKey;
+            _lastClipboardSeq = seqNow;
         }
         finally
         {

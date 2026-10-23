@@ -250,7 +250,9 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         if (!_settings.ShareClipboard) return;
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
+        // 与 Win 对齐：宣告时不拉取；打开收件箱时再接收
     }
+
 
     public bool GetAutoStartEnabled() => false;
     public void SetAutoStartEnabled(bool enabled) { }

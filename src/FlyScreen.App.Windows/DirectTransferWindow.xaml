@@ -206,9 +206,24 @@
     <TextBlock x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
                Foreground="{DynamicResource Muted}" Margin="0,0,0,6"/>
 
-    <Border Grid.Row="2" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-            CornerRadius="8" Padding="12">
-      <ListBox x:Name="PathList" SelectionMode="Extended"/>
+    <!-- Preview 隧道事件：避免空 ListBox 吞掉拖放、无法显示「可放下」光标 -->
+    <Border x:Name="PathDropBorder" Grid.Row="2" Background="{DynamicResource CardBg}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="1"
+            CornerRadius="8" Padding="12"
+            AllowDrop="True"
+            PreviewDragEnter="PathList_PreviewDragOver"
+            PreviewDragOver="PathList_PreviewDragOver"
+            PreviewDrop="PathList_PreviewDrop">
+      <Grid>
+        <TextBlock x:Name="PathDropHint" Text="将文件或文件夹拖到此处"
+                   Foreground="{DynamicResource Muted}" FontSize="12"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   IsHitTestVisible="False"
+                   Visibility="Visible"/>
+        <ListBox x:Name="PathList" SelectionMode="Extended"
+                 Background="Transparent" BorderThickness="0"
+                 AllowDrop="False"/>
+      </Grid>
     </Border>
 
     <TextBlock x:Name="TargetHintText" Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"

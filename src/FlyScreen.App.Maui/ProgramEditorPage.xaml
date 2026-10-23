@@ -93,7 +93,7 @@
           <!-- ScrollView+Label：Editor.Text+= 会把滚动条打回顶部；这里追加后 ScrollToAsync 到底 -->
           <ScrollView x:Name="OutputScroll" BackgroundColor="{DynamicResource ListBg}"
                       VerticalOptions="Fill" HorizontalScrollBarVisibility="Never">
-            <Label x:Name="OutputLabel" FontFamily="Consolas" FontSize="12"
+            <Label x:Name="OutputLabel" StyleClass="Mono" FontSize="12"
                    TextColor="{DynamicResource Text}"
                    LineBreakMode="WordWrap" Margin="8,4"
                    HorizontalOptions="Fill" />

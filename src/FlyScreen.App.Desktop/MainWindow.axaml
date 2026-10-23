@@ -128,6 +128,14 @@
       <Setter Property="Padding" Value="0"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     </Style>
+    <!-- 传输行背景进度：半透明蓝条，完成后 IsVisible=false -->
+    <Style Selector="ProgressBar.xferRowProgress">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#402563EB"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Height" Value="NaN"/>
+    </Style>
     <Style Selector="ListBox.progList ListBoxItem">
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
@@ -730,16 +738,15 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="100"/>
                     <ColumnDefinition Width="90"/>
-                    <ColumnDefinition Width="100"/>
-                    <ColumnDefinition Width="72"/>
+                    <ColumnDefinition Width="88"/>
                     <ColumnDefinition Width="40"/>
                   </Grid.ColumnDefinitions>
                   <TextBlock x:Name="XferColDir" Text="方向" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
                   <TextBlock x:Name="XferColName" Grid.Column="1" Text="文件名" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
                   <TextBlock x:Name="XferColPeer" Grid.Column="2" Text="对端" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
                   <TextBlock x:Name="XferColSize" Grid.Column="3" Text="大小" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
-                  <TextBlock x:Name="XferColProgress" Grid.Column="4" Text="进度" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
-                  <TextBlock x:Name="XferColStatus" Grid.Column="5" Text="状态" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColStatus" Grid.Column="4" Text="状态" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="XferColAction" Grid.Column="5" Text="操作" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
                 </Grid>
                 <Panel>
                   <ListBox x:Name="TransferList" Classes="xferList" BorderThickness="0"
@@ -747,33 +754,40 @@
                     <ListBox.ItemTemplate>
                       <!-- 关闭编译绑定，避免 VS 设计器把 Progress/Tag 误解析成 MC3104 -->
                       <DataTemplate x:DataType="models:TransferItem" x:CompileBindings="False">
-                        <Grid Margin="10,6">
-                          <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="56"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="100"/>
-                            <ColumnDefinition Width="90"/>
-                            <ColumnDefinition Width="100"/>
-                            <ColumnDefinition Width="72"/>
-                            <ColumnDefinition Width="40"/>
-                          </Grid.ColumnDefinitions>
-                          <TextBlock Text="{Binding DirectionText}" FontSize="12" VerticalAlignment="Center"/>
-                          <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold"
-                                     TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                          <TextBlock Grid.Column="2" Text="{Binding PeerName}" FontSize="12"
-                                     TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                          <TextBlock Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalAlignment="Center"/>
-                          <ProgressBar Grid.Column="4" Minimum="0" Maximum="100" Height="10"
-                                       Value="{Binding Progress}" Margin="0,0,8,0"
-                                       VerticalAlignment="Center" MinWidth="70"/>
-                          <TextBlock Grid.Column="5" Text="{Binding Status}" FontSize="12" VerticalAlignment="Center"/>
-                          <Button Grid.Column="6" Classes="icon-action" Tag="{Binding}"
-                                  Click="DeleteTransfer_Click" ToolTip.Tip="删除"
-                                  VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <Viewbox Width="14" Height="14">
-                              <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
-                            </Viewbox>
-                          </Button>
+                        <Grid>
+                          <ProgressBar Classes="xferRowProgress" Minimum="0" Maximum="100"
+                                       Value="{Binding Progress, Mode=OneWay}"
+                                       IsVisible="{Binding ShowProgressBackground}"
+                                       IsHitTestVisible="False"
+                                       VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
+                          <Grid Margin="10,6">
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="56"/>
+                              <ColumnDefinition Width="*"/>
+                              <ColumnDefinition Width="100"/>
+                              <ColumnDefinition Width="90"/>
+                              <ColumnDefinition Width="88"/>
+                              <ColumnDefinition Width="40"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding DirectionText}" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Cursor="Hand" TextDecorations="Underline"
+                                       PointerPressed="TransferFileName_PointerPressed"
+                                       DoubleTapped="TransferFileName_DoubleTapped"
+                                       ToolTip.Tip="打开所在文件夹"/>
+                            <TextBlock Grid.Column="2" Text="{Binding PeerName}" FontSize="12"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="3" Text="{Binding SizeText}" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="4" Text="{Binding Status}" FontSize="12" VerticalAlignment="Center"/>
+                            <Button Grid.Column="5" Classes="icon-action" Tag="{Binding}"
+                                    Click="DeleteTransfer_Click" ToolTip.Tip="删除"
+                                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
+                              </Viewbox>
+                            </Button>
+                          </Grid>
                         </Grid>
                       </DataTemplate>
                     </ListBox.ItemTemplate>

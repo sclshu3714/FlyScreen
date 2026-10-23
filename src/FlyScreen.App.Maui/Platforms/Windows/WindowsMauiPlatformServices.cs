@@ -43,6 +43,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _router?.Dispose();
         _router = new MauiInputRouter(_settings, _connections);
         _router.EasyMouseEnabled = _settings.EasyMouse;
+        _router.TryHandleLocalFilePasteHotkey = () =>
+            _clipMonitor?.TryHandlePasteHotkey() == true;
         _router.ControlTargetChanged += peer =>
         {
             ControlTargetChanged?.Invoke(peer);

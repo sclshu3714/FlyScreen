@@ -26,6 +26,11 @@ public partial class DirectTransferWindow : Window
         PathList.ItemsSource = _paths;
         PeerCombo.ItemsSource = _peers;
         FolderPresetCombo.ItemsSource = _presets;
+        _paths.CollectionChanged += (_, _) =>
+        {
+            if (PathDropHint != null)
+                PathDropHint.Visibility = _paths.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        };
         Loaded += OnLoaded;
     }
 
@@ -37,6 +42,7 @@ public partial class DirectTransferWindow : Window
         RemoveSelectedBtn.Content = Loc.T("DT.Remove");
         ClearPathsBtn.Content = Loc.T("DT.Clear");
         ContentHintText.Text = Loc.T("DT.ContentHint");
+        PathDropHint.Text = Loc.T("DT.DropHint");
         TargetHintText.Text = Loc.T("DT.TargetHint");
         PeerLabel.Text = Loc.T("DT.Peer");
         PresetLabel.Text = Loc.T("DT.Preset");
@@ -158,6 +164,101 @@ public partial class DirectTransferWindow : Window
             return;
         _paths.Add(path);
         StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
+    }
+
+    private static bool HasFileDrop(System.Windows.IDataObject data)
+    {
+        try
+        {
+            return data.GetDataPresent(System.Windows.DataFormats.FileDrop, true)
+                   || data.GetDataPresent("FileDrop")
+                   || data.GetDataPresent("FileNameW")
+                   || data.GetDataPresent("FileName");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string[]? ReadDroppedPaths(System.Windows.IDataObject data)
+    {
+        try
+        {
+            if (data.GetData(System.Windows.DataFormats.FileDrop, true) is string[] arr && arr.Length > 0)
+                return arr;
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            if (data.GetData("FileNameW") is string[] w && w.Length > 0)
+                return w;
+            if (data.GetData("FileNameW") is string oneW && !string.IsNullOrWhiteSpace(oneW))
+                return [oneW];
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            if (data.GetData("FileName") is string[] a && a.Length > 0)
+                return a;
+            if (data.GetData("FileName") is string one && !string.IsNullOrWhiteSpace(one))
+                return [one];
+        }
+        catch { /* ignore */ }
+
+        return null;
+    }
+
+    private void PathList_PreviewDragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (HasFileDrop(e.Data))
+        {
+            // Effects 必须落在 AllowedEffects 内，否则资源管理器会显示禁止光标
+            var allow = e.AllowedEffects;
+            if ((allow & System.Windows.DragDropEffects.Copy) != 0)
+                e.Effects = System.Windows.DragDropEffects.Copy;
+            else if ((allow & System.Windows.DragDropEffects.Link) != 0)
+                e.Effects = System.Windows.DragDropEffects.Link;
+            else if ((allow & System.Windows.DragDropEffects.Move) != 0)
+                e.Effects = System.Windows.DragDropEffects.Move;
+            else
+                e.Effects = System.Windows.DragDropEffects.None;
+        }
+        else
+        {
+            e.Effects = System.Windows.DragDropEffects.None;
+        }
+
+        e.Handled = true;
+    }
+
+    private void PathList_PreviewDrop(object sender, System.Windows.DragEventArgs e)
+    {
+        var dropped = ReadDroppedPaths(e.Data);
+        if (dropped is not { Length: > 0 })
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var added = 0;
+        foreach (var raw in dropped)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            // 保留顶层路径：文件夹整夹添加，由传输端展开层级
+            if (!File.Exists(raw) && !Directory.Exists(raw)) continue;
+            var before = _paths.Count;
+            AddPath(raw);
+            if (_paths.Count > before) added++;
+        }
+
+        if (PathDropHint != null)
+            PathDropHint.Visibility = _paths.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (added > 0)
+            StatusText.Text = string.Format(Loc.T("DT.Selected"), _paths.Count);
+        e.Handled = true;
     }
 
     private void RemoveSelected_Click(object sender, RoutedEventArgs e)

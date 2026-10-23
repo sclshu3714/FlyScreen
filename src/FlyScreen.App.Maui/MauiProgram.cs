@@ -38,6 +38,20 @@ public static class MauiProgram
                     rb.TextColor = text;
             }
         });
+
+        // StyleClass=Mono → 系统等宽；勿用 FontFamily=Consolas（Win 未打包会炸 FontManager）
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenMono", (handler, view) =>
+        {
+            if (view is not Entry { StyleClass: { } sc } || !sc.Contains("Mono")) return;
+            if (handler.PlatformView is Android.Widget.EditText edit)
+                edit.Typeface = Android.Graphics.Typeface.Monospace;
+        });
+        Microsoft.Maui.Handlers.LabelHandler.Mapper.AppendToMapping("FlyScreenMono", (handler, view) =>
+        {
+            if (view is not Label { StyleClass: { } sc } || !sc.Contains("Mono")) return;
+            if (handler.PlatformView is Android.Widget.TextView tv)
+                tv.Typeface = Android.Graphics.Typeface.Monospace;
+        });
 #endif
 
 #if WINDOWS
@@ -69,6 +83,20 @@ public static class MauiProgram
             native.BorderThickness = new Microsoft.UI.Xaml.Thickness(0);
             native.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
             native.Padding = new Microsoft.UI.Xaml.Thickness(0, 4, 0, 4);
+        });
+
+        // StyleClass=Mono → WinUI 系统 Consolas；绕过 Maui FontManager 对 Assets/Fonts 相对 URI 的探测
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenMono", (handler, view) =>
+        {
+            if (view is not Entry { StyleClass: { } sc } || !sc.Contains("Mono")) return;
+            if (handler.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)
+                tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas");
+        });
+        Microsoft.Maui.Handlers.LabelHandler.Mapper.AppendToMapping("FlyScreenMono", (handler, view) =>
+        {
+            if (view is not Label { StyleClass: { } sc } || !sc.Contains("Mono")) return;
+            if (handler.PlatformView is Microsoft.UI.Xaml.Controls.TextBlock tb)
+                tb.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas");
         });
 #endif
 

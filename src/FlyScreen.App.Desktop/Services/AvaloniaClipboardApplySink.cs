@@ -1,11 +1,13 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
 using FlyScreen.Services.Clipboard;
 
 namespace FlyScreen.DesktopUi.Services;
 
-/// <summary>Avalonia 剪贴板写入（Mac/Linux 桌面）。</summary>
+/// <summary>Avalonia 剪贴板读写（Mac/Linux 桌面）。</summary>
 public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
 {
     private long _suppressUntilMs;
@@ -44,6 +46,43 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
             var clip = GetClipboard();
             if (clip == null) return null;
             return await clip.GetTextAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>读取剪贴板中的本地文件/文件夹路径（宣告用）。</summary>
+    public async Task<IReadOnlyList<string>?> TryGetFilePathsAsync()
+    {
+        try
+        {
+            var clip = GetClipboard();
+            if (clip == null) return null;
+
+            // Avalonia 11：DataFormats.Files → IEnumerable&lt;IStorageItem&gt;
+            var data = await clip.GetDataAsync(DataFormats.Files).ConfigureAwait(true);
+            if (data is null) return null;
+
+            var paths = new List<string>();
+            if (data is IEnumerable<IStorageItem> items)
+            {
+                foreach (var item in items)
+                {
+                    var path = item.TryGetLocalPath();
+                    if (!string.IsNullOrWhiteSpace(path))
+                        paths.Add(path);
+                }
+            }
+            else if (data is IStorageItem one)
+            {
+                var path = one.TryGetLocalPath();
+                if (!string.IsNullOrWhiteSpace(path))
+                    paths.Add(path);
+            }
+
+            return paths.Count > 0 ? paths : null;
         }
         catch
         {
