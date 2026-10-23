@@ -416,22 +416,37 @@
 
                 <!-- ===== 日志 ===== -->
                 <Grid x:Name="PageLog" IsVisible="False">
-                    <Border Style="{StaticResource Card}" Padding="16">
-                        <Grid RowDefinitions="Auto,Auto,*">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                                <Label x:Name="LogTitleText" Text="日志" FontSize="15" FontAttributes="Bold" VerticalOptions="Center" />
-                                <HorizontalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center" Margin="12,0,0,0">
-                                    <CheckBox x:Name="LogErrorsOnlyCheck" VerticalOptions="Center" CheckedChanged="LogFilter_Changed" />
-                                    <Label x:Name="LogErrorsOnlyLabel" Text="仅错误" VerticalOptions="Center" />
-                                </HorizontalStackLayout>
-                                <Button x:Name="LogDownloadBtn" Grid.Column="2" Text="下载" Margin="12,0,0,0"
-                                        Style="{StaticResource NormalBtn}" Clicked="LogDownload_Clicked" />
-                                <Button x:Name="LogClearBtn" Grid.Column="3" Text="清除" Margin="8,0,0,0"
-                                        Style="{StaticResource NormalBtn}" Clicked="LogClear_Clicked" />
-                            </Grid>
-                            <Label x:Name="LogHintText" Grid.Row="1" Text="收录运行中的状态与错误。新记录在底部。"
-                                   TextColor="{DynamicResource Muted}" FontSize="12" Margin="0,8,0,8" />
-                            <CollectionView x:Name="LogList" Grid.Row="2" SelectionMode="None">
+                    <Border Style="{StaticResource Card}" Padding="12">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <Label x:Name="LogTitleText" Text="日志" FontSize="15" FontAttributes="Bold"
+                                   VerticalOptions="Center" Margin="0,0,0,4" />
+                            <HorizontalStackLayout x:Name="LogToolBarHost" Grid.Row="1" Spacing="3"
+                                                   Margin="0,0,0,6" SizeChanged="LogToolBarHost_SizeChanged">
+                                <Picker x:Name="LogLevelFilter" WidthRequest="72" VerticalOptions="Center"
+                                        SelectedIndexChanged="LogFilter_Changed" />
+                                <Button x:Name="LogPrevBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogPrev_Clicked" />
+                                <Button x:Name="LogNextBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogNext_Clicked" />
+                                <Button x:Name="LogLatestBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogLatest_Clicked" />
+                                <Button x:Name="LogDownloadBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogDownload_Clicked" />
+                                <Button x:Name="LogClearBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogClear_Clicked" />
+                            </HorizontalStackLayout>
+                            <VerticalStackLayout Grid.Row="2" Spacing="2" Margin="0,0,0,8">
+                                <Label x:Name="LogPageText" TextColor="{DynamicResource Muted}" FontSize="12"
+                                       LineBreakMode="WordWrap" />
+                                <Label x:Name="LogHintText" Text="收录运行中的状态与错误。新记录在底部。"
+                                       TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                            </VerticalStackLayout>
+                            <CollectionView x:Name="LogList" Grid.Row="3" SelectionMode="None" Scrolled="LogList_Scrolled">
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate>
                                         <Label Text="{Binding Display}" FontSize="12" Margin="0,3" LineBreakMode="WordWrap" />

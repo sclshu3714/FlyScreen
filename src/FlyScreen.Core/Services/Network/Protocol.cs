@@ -116,6 +116,12 @@ public sealed class HandshakePayload
     /// <summary>拒绝原因：key=安全密钥不一致，full=对端布局已满。空表示接受。</summary>
     public string? RejectReason { get; set; }
 
+    /// <summary>
+    /// 连接通道：0=<see cref="PeerChannel.Control"/> 键鼠/信令；
+    /// 1=<see cref="PeerChannel.Bulk"/> 文件与剪贴板分块。旧端忽略则按控制面处理。
+    /// </summary>
+    public int Channel { get; set; }
+
     // --- ProtocolVersion ≥ 2 可选扩展（旧端忽略未知 JSON 字段）---
     public string? Platform { get; set; }
     public string? DeviceClass { get; set; }
@@ -134,61 +140,85 @@ public static class PeerCaps
     public const string LayoutSync = "LayoutSync";
     public const string InjectInput = "InjectInput";
     public const string CaptureInput = "CaptureInput";
+    /// <summary>支持独立大块传输连接（文件/剪贴板分块），与键鼠控制面分离。</summary>
+    public const string BulkTransfer = "BulkTransfer";
 
     public static readonly string[] DesktopFull =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
     ];
 
     /// <summary>macOS 桌面：与 Win 对齐（键鼠 + 剪贴板文本/文件 + 直传 + 布局）。</summary>
     public static readonly string[] MacDesktopW1 =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
     ];
 
     /// <summary>Linux X11 桌面：与 Win 对齐。</summary>
     public static readonly string[] LinuxDesktopX11 =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
     ];
 
     /// <summary>Linux Wayland：无 EdgeMouse/捕获；剪贴板文本/文件 + 直传 + 有限注入。</summary>
     public static readonly string[] LinuxDesktopWayland =
     [
-        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput
+        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput, BulkTransfer
     ];
 
     /// <summary>无图形会话：直传落盘 + 文本通道（无系统粘贴体验）；ClipboardFiles 表示可收文件到 Inbox。</summary>
     public static readonly string[] LinuxHeadless =
     [
-        ClipboardText, ClipboardFiles, DirectTransfer
+        ClipboardText, ClipboardFiles, DirectTransfer, BulkTransfer
     ];
 
     /// <summary>
     /// Android 手机/平板：触控板控桌面 + 文本剪贴板 + 收文件；
     /// 另宣告 EdgeMouse/InjectInput，便于桌面边缘切入并由无障碍服务注入键鼠（须用户授权）。
     /// 不含 LayoutSync（不参与桌面布局同步主路径）。
+    /// 功能/行为同步（BehaviorSync）不依赖 LayoutSync，手机仍会收到穿边模式等设置。
     /// </summary>
     public static readonly string[] AndroidMobile =
     [
-        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer
     ];
 
     /// <summary>鸿蒙手机/平板（W5a）：对标 AndroidMobile。</summary>
     public static readonly string[] HarmonyMobile =
     [
-        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer
     ];
 
     /// <summary>鸿蒙电脑（W5b）：对标桌面；API 不足时由宿主降级去掉 EdgeMouse/Capture。</summary>
     public static readonly string[] HarmonyDesktop =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
     ];
+}
+
+/// <summary>握手通道类型：控制面 / 大块传输面。</summary>
+public static class PeerChannel
+{
+    public const int Control = 0;
+    public const int Bulk = 1;
+}
+
+/// <summary>应走 bulk 连接的消息（大块数据）；宣告/拉取信令仍走控制面。</summary>
+public static class BulkMessageTypes
+{
+    public static bool IsBulk(MessageType type) => type switch
+    {
+        MessageType.FileOffer or MessageType.FileAccept or MessageType.FileChunk
+            or MessageType.FileComplete or MessageType.FileAbort
+            or MessageType.ClipboardInlineChunk or MessageType.ClipboardInlineComplete
+            or MessageType.ClipboardImageChunk or MessageType.ClipboardImageComplete
+            => true,
+        _ => false
+    };
 }
 
 public static class PeerPlatform

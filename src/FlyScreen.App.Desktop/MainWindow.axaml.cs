@@ -54,6 +54,15 @@ public partial class MainWindow : Window
     private bool _optionsFeatStacked;
     private string? _logProgramId;
     private string? _logProgramName;
+    private int _logPageFromLatest;
+    private int _logTotalPages;
+    private readonly ObservableCollection<AppLogEntry> _logItems = new();
+    private bool _logStickToBottom = true;
+    private bool _logFilterReady;
+    private int _logKnownTotal;
+    private AppLogEntry? _logWatermark;
+    private bool _logToolModeUpdating;
+    private bool _logToolsCompact;
     private bool _openProgramLog;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
@@ -270,9 +279,11 @@ public partial class MainWindow : Window
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
         AppLog.Changed += () => Dispatcher.UIThread.Post(() =>
         {
-            if (PageLog.IsVisible)
-                RefreshLogPage();
+            if (PageLog.IsVisible && _logPageFromLatest == 0)
+                RefreshLogPageLive();
         });
+        LogList.ItemsSource = _logItems;
+        LogList.AddHandler(InputElement.PointerWheelChangedEvent, (_, _) => _logStickToBottom = false, RoutingStrategies.Tunnel);
         _host.LayoutSyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
         {
             ApplyLayoutFromSettings();
@@ -412,9 +423,18 @@ public partial class MainWindow : Window
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
         LogHintText.Text = Loc.T("Log.Hint");
-        LogErrorsOnlyCheck.Content = Loc.T("Log.ErrorsOnly");
-        LogDownloadBtn.Content = Loc.T("Log.Download");
-        LogClearBtn.Content = Loc.T("Log.Clear");
+        LogDownloadBtnText.Text = Loc.T("Log.Download");
+        LogClearBtnText.Text = Loc.T("Log.Clear");
+        LogPrevBtnText.Text = Loc.T("Log.Prev");
+        LogNextBtnText.Text = Loc.T("Log.Next");
+        LogLatestBtnText.Text = Loc.T("Log.Latest");
+        ToolTip.SetTip(LogDownloadBtn, Loc.T("Log.Download"));
+        ToolTip.SetTip(LogClearBtn, Loc.T("Log.Clear"));
+        ToolTip.SetTip(LogPrevBtn, Loc.T("Log.Prev"));
+        ToolTip.SetTip(LogNextBtn, Loc.T("Log.Next"));
+        ToolTip.SetTip(LogLatestBtn, Loc.T("Log.Latest"));
+        EnsureLogLevelFilterItems();
+        Dispatcher.UIThread.Post(UpdateLogToolMode, DispatcherPriority.Loaded);
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T("Prog.Hint");
         ProgAddBtnText.Text = Loc.T("Prog.Add");
@@ -898,6 +918,7 @@ public partial class MainWindow : Window
         if ((sender as Control)?.Tag is not UserProgram prog) return;
         _logProgramId = prog.Id;
         _logProgramName = prog.Name;
+        _logPageFromLatest = 0;
         _openProgramLog = true;
         if (NavLog.IsChecked == true)
             ShowPage(7);
@@ -935,29 +956,233 @@ public partial class MainWindow : Window
             : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
     }
 
-    private void RefreshLogPage()
+    private AppLogLevelFilter CurrentLogLevelFilter()
     {
-        var items = AppLog.Snapshot(
-            LogErrorsOnlyCheck.IsChecked == true,
-            _logProgramId,
-            _logProgramName);
-        LogList.ItemsSource = items;
-        if (items.Count > 0)
-            LogList.ScrollIntoView(items[^1]);
+        if (LogLevelFilter.SelectedItem is ComboBoxItem { Tag: AppLogLevelFilter f })
+            return f;
+        return AppLogLevelFilter.All;
     }
 
-    private void LogFilter_Changed(object? sender, RoutedEventArgs e)
+    private void EnsureLogLevelFilterItems()
     {
+        var selected = CurrentLogLevelFilter();
+        _logFilterReady = false;
+        LogLevelFilter.Items.Clear();
+        void Add(AppLogLevelFilter f, string key)
+            => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
+        Add(AppLogLevelFilter.All, "Log.LevelAll");
+        Add(AppLogLevelFilter.Info, "Log.LevelInfo");
+        Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
+        Add(AppLogLevelFilter.Error, "Log.LevelError");
+        var idx = 0;
+        for (var i = 0; i < LogLevelFilter.Items.Count; i++)
+        {
+            if (LogLevelFilter.Items[i] is ComboBoxItem { Tag: AppLogLevelFilter f } && f == selected)
+            {
+                idx = i;
+                break;
+            }
+        }
+        LogLevelFilter.SelectedIndex = idx;
+        _logFilterReady = true;
+    }
+
+    private void ApplyLogPageChrome(AppLogPage page)
+    {
+        _logPageFromLatest = page.PageFromLatest;
+        _logTotalPages = page.TotalPages;
+        _logKnownTotal = page.TotalCount;
+        LogPageText.Text = page.TotalCount == 0
+            ? Loc.T("Log.Empty")
+            : page.PageFromLatest == 0
+                ? string.Format(Loc.T("Log.PageLatest"), page.TotalCount)
+                : string.Format(Loc.T("Log.Page"), page.PageFromLatest + 1, page.TotalPages, page.TotalCount);
+        LogPrevBtn.IsEnabled = page.HasOlder;
+        LogNextBtn.IsEnabled = page.HasNewer;
+        LogLatestBtn.IsEnabled = page.HasNewer;
+    }
+
+    private void ReplaceLogItems(IReadOnlyList<AppLogEntry> items)
+    {
+        _logItems.Clear();
+        foreach (var e in items)
+            _logItems.Add(e);
+    }
+
+    private void LogToolBarHost_SizeChanged(object? sender, SizeChangedEventArgs e)
+        => UpdateLogToolMode();
+
+    private void UpdateLogToolMode()
+    {
+        if (!IsLoaded || _logToolModeUpdating || LogToolBarHost.Bounds.Width <= 1)
+            return;
+        _logToolModeUpdating = true;
+        try
+        {
+            var available = LogToolBarHost.Bounds.Width;
+            SetLogToolCompact(false);
+            LogToolBar.Measure(new Size(double.PositiveInfinity, 48));
+            SetLogToolCompact(LogToolBar.DesiredSize.Width > available + 0.5);
+        }
+        finally
+        {
+            _logToolModeUpdating = false;
+        }
+    }
+
+    private void SetLogToolCompact(bool compact)
+    {
+        if (_logToolsCompact == compact && LogPrevBtnText.IsVisible == !compact)
+            return;
+        _logToolsCompact = compact;
+        LogPrevBtnText.IsVisible = !compact;
+        LogNextBtnText.IsVisible = !compact;
+        LogLatestBtnText.IsVisible = !compact;
+        LogDownloadBtnText.IsVisible = !compact;
+        LogClearBtnText.IsVisible = !compact;
+        var pad = compact ? new Thickness(0) : new Thickness(8, 0);
+        var w = compact ? 30.0 : double.NaN;
+        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogClearBtn })
+        {
+            b.Padding = pad;
+            b.MinWidth = 30;
+            b.Width = w;
+        }
+        var avail = LogToolBarHost.Bounds.Width;
+        LogLevelFilter.Width = compact ? (avail < 240 ? 52 : 64) : 72;
+    }
+
+    private void ScrollLogToEndQuiet()
+    {
+        var sv = LogList.FindDescendantOfType<ScrollViewer>();
+        sv?.ScrollToEnd();
+    }
+
+    private bool LogItemsSameTail(IReadOnlyList<AppLogEntry> items)
+    {
+        if (_logItems.Count != items.Count) return false;
+        if (items.Count == 0) return true;
+        return ReferenceEquals(_logItems[0], items[0])
+               && ReferenceEquals(_logItems[^1], items[^1]);
+    }
+
+    private void RefreshLogPageLive()
+    {
+        var level = CurrentLogLevelFilter();
+        var stick = _logStickToBottom;
+        var delta = AppLog.DeltaSince(
+            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+        var uiChanged = false;
+
+        if (delta.Reset)
+        {
+            uiChanged = !LogItemsSameTail(delta.Items);
+            if (uiChanged)
+                ReplaceLogItems(delta.Items);
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1] : null;
+            if (uiChanged)
+                _logKnownTotal = Math.Max(_logKnownTotal, _logItems.Count);
+        }
+        else if (delta.Items.Count > 0)
+        {
+            foreach (var e in delta.Items)
+                _logItems.Add(e);
+            _logWatermark = _logItems[^1];
+            _logKnownTotal = Math.Max(_logKnownTotal + delta.Items.Count, _logItems.Count);
+            uiChanged = true;
+        }
+        else
+            return;
+
+        if (!uiChanged)
+            return;
+
+        LogPageText.Text = _logKnownTotal == 0
+            ? Loc.T("Log.Empty")
+            : string.Format(Loc.T("Log.PageLatest"), _logKnownTotal);
+        LogPrevBtn.IsEnabled = _logKnownTotal > AppLog.DefaultPageSize || _logTotalPages > 1;
+        LogNextBtn.IsEnabled = false;
+        LogLatestBtn.IsEnabled = false;
+
+        _logStickToBottom = stick;
+        if (stick)
+            Dispatcher.UIThread.Post(ScrollLogToEndQuiet, DispatcherPriority.Background);
+    }
+
+    private void RefreshLogPage()
+    {
+        var level = CurrentLogLevelFilter();
+        var page = AppLog.GetPage(
+            _logPageFromLatest,
+            AppLog.DefaultPageSize,
+            level,
+            _logProgramId,
+            _logProgramName);
+        ApplyLogPageChrome(page);
+        if (page.PageFromLatest == 0)
+        {
+            var delta = AppLog.DeltaSince(null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            if (delta.Items.Count > 0)
+                ReplaceLogItems(delta.Items);
+            else
+                ReplaceLogItems(page.Items);
+            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1] : null;
+            _logStickToBottom = true;
+            Dispatcher.UIThread.Post(ScrollLogToEndQuiet, DispatcherPriority.Loaded);
+        }
+        else
+        {
+            ReplaceLogItems(page.Items);
+            _logWatermark = null;
+            _logStickToBottom = false;
+        }
+    }
+
+    private void LogFilter_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_logFilterReady) return;
+        _logPageFromLatest = 0;
         if (PageLog.IsVisible)
             RefreshLogPage();
     }
 
-    private void LogClear_Click(object? sender, RoutedEventArgs e) => AppLog.Clear();
+    private void LogPrev_Click(object? sender, RoutedEventArgs e)
+    {
+        _logPageFromLatest++;
+        RefreshLogPage();
+    }
+
+    private void LogNext_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_logPageFromLatest > 0)
+            _logPageFromLatest--;
+        RefreshLogPage();
+    }
+
+    private void LogLatest_Click(object? sender, RoutedEventArgs e)
+    {
+        _logPageFromLatest = 0;
+        RefreshLogPage();
+    }
+
+    private void LogClear_Click(object? sender, RoutedEventArgs e)
+    {
+        AppLog.Clear();
+        _logPageFromLatest = 0;
+        _logTotalPages = 0;
+        _logKnownTotal = 0;
+        _logWatermark = null;
+        _logItems.Clear();
+        LogPageText.Text = Loc.T("Log.Empty");
+        LogPrevBtn.IsEnabled = false;
+        LogNextBtn.IsEnabled = false;
+        LogLatestBtn.IsEnabled = false;
+    }
 
     private async void LogDownload_Click(object? sender, RoutedEventArgs e)
     {
         var text = AppLog.FormatExport(
-            LogErrorsOnlyCheck.IsChecked == true,
+            CurrentLogLevelFilter(),
             _logProgramId,
             _logProgramName);
         if (string.IsNullOrEmpty(text))

@@ -774,6 +774,9 @@ public sealed class MauiInputRouter : IDisposable
         return false;
     }
 
+    /// <summary>应用/对端同步后立即刷新穿边门控。</summary>
+    public void RefreshEdgeCrossFromSettings() => SyncEdgeCrossMode();
+
     private void SyncEdgeCrossMode()
     {
         var mode = _settings.EdgeCrossMode switch
@@ -783,6 +786,8 @@ public sealed class MauiInputRouter : IDisposable
             _ => EdgeCrossMode.BarrierFree
         };
         _edgeGate.Mode = mode;
+        if (_controllingRemote)
+            _remoteCursor.EntryStickyEnabled = _edgeGate.UseEntrySticky;
     }
 
     /// <summary>

@@ -37,10 +37,10 @@ public sealed class BehaviorSyncHelper
         _settings.Save();
 
         var payload = MessageCodec.JsonBytes(BuildPayload());
-        // 与布局同一批桌面能力对端
-        await _connections.BroadcastAsync(MessageType.BehaviorSync, payload, PeerCaps.LayoutSync)
+        // 功能/行为（含穿边模式）对手机也生效；勿要求 LayoutSync（Android 未宣告该能力）
+        await _connections.BroadcastAsync(MessageType.BehaviorSync, payload, requiredCap: null)
             .ConfigureAwait(false);
-        StatusMessage?.Invoke("功能与行为已同步到其他电脑");
+        StatusMessage?.Invoke("功能与行为已同步到已连接设备");
     }
 
     public async Task SendToPeerAsync(string peer)
@@ -48,7 +48,6 @@ public sealed class BehaviorSyncHelper
         if (Volatile.Read(ref _applyingRemote) != 0) return;
         if (_settings.BehaviorRevision <= 0) return;
         if (!_connections.IsPeerReachable(peer)) return;
-        if (!_connections.PeerSupports(peer, PeerCaps.LayoutSync)) return;
 
         var payload = MessageCodec.JsonBytes(BuildPayload());
         await _connections.SendToAsync(peer, MessageType.BehaviorSync, payload).ConfigureAwait(false);
