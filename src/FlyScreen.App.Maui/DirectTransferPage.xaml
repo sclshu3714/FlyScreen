@@ -2,7 +2,9 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="FlyScreen.AppMaui.DirectTransferPage"
-             Title="直接传输"
+             Title=""
+             NavigationPage.HasNavigationBar="False"
+             Shell.NavBarIsVisible="False"
              BackgroundColor="{DynamicResource WinBg}">
   <Grid Padding="20" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto"
         MaximumWidthRequest="720" HorizontalOptions="Center">
@@ -25,25 +27,31 @@
     <Label x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择或拖入本机文件/文件夹"
            TextColor="{DynamicResource Muted}" Margin="0,0,0,6" />
 
+    <!-- Win：拖放走 WM_DROPFILES；列表自绘 CheckBox，避免平台多选勾与文字不齐 -->
     <Border x:Name="PathDropBorder" Grid.Row="2" BackgroundColor="{DynamicResource CardBg}"
             Stroke="{DynamicResource Line}" StrokeThickness="1" Padding="12" MinimumHeightRequest="140"
             StrokeShape="RoundRectangle 8">
-      <Border.GestureRecognizers>
-        <DropGestureRecognizer AllowDrop="True"
-                               DragOver="PathList_DragOver"
-                               Drop="PathList_Drop" />
-      </Border.GestureRecognizers>
       <Grid>
         <Label x:Name="PathDropHint" Text="将文件或文件夹拖到此处"
                TextColor="{DynamicResource Muted}" FontSize="12"
                HorizontalOptions="Center" VerticalOptions="Center"
                InputTransparent="True" />
-        <CollectionView x:Name="PathList" SelectionMode="Multiple"
+        <CollectionView x:Name="PathList" SelectionMode="None"
                         BackgroundColor="Transparent">
           <CollectionView.ItemTemplate>
             <DataTemplate>
-              <Label Text="{Binding .}" TextColor="{DynamicResource Text}" FontSize="13"
-                     LineBreakMode="MiddleTruncation" Margin="4,6" />
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Padding="2,4" MinimumHeightRequest="32">
+                <CheckBox IsChecked="{Binding IsSelected}"
+                          VerticalOptions="Center"
+                          Color="{DynamicResource Blue}" />
+                <Label Grid.Column="1"
+                       Text="{Binding Path}"
+                       TextColor="{DynamicResource Text}"
+                       FontSize="13"
+                       LineBreakMode="MiddleTruncation"
+                       VerticalOptions="Center"
+                       VerticalTextAlignment="Center" />
+              </Grid>
             </DataTemplate>
           </CollectionView.ItemTemplate>
         </CollectionView>

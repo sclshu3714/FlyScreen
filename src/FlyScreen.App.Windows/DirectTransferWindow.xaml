@@ -206,14 +206,10 @@
     <TextBlock x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
                Foreground="{DynamicResource Muted}" Margin="0,0,0,6"/>
 
-    <!-- Preview 隧道事件：避免空 ListBox 吞掉拖放、无法显示「可放下」光标 -->
+    <!-- 拖放走 WM_DROPFILES（见 code-behind）：管理员进程下 OLE AllowDrop 会被 UIPI 禁止 -->
     <Border x:Name="PathDropBorder" Grid.Row="2" Background="{DynamicResource CardBg}"
             BorderBrush="{DynamicResource Line}" BorderThickness="1"
-            CornerRadius="8" Padding="12"
-            AllowDrop="True"
-            PreviewDragEnter="PathList_PreviewDragOver"
-            PreviewDragOver="PathList_PreviewDragOver"
-            PreviewDrop="PathList_PreviewDrop">
+            CornerRadius="8" Padding="12">
       <Grid>
         <TextBlock x:Name="PathDropHint" Text="将文件或文件夹拖到此处"
                    Foreground="{DynamicResource Muted}" FontSize="12"
@@ -221,8 +217,7 @@
                    IsHitTestVisible="False"
                    Visibility="Visible"/>
         <ListBox x:Name="PathList" SelectionMode="Extended"
-                 Background="Transparent" BorderThickness="0"
-                 AllowDrop="False"/>
+                 Background="Transparent" BorderThickness="0"/>
       </Grid>
     </Border>
 
