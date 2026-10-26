@@ -11,7 +11,7 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
     private static FlyScreenInputAccessibilityService? Svc
         => FlyScreenInputAccessibilityService.Instance;
 
-    public bool IsReady => FlyScreenInputAccessibilityService.IsEnabled;
+    public bool IsReady => FlyScreenInputAccessibilityService.IsReady;
 
     public string? ForegroundPackage
         => Svc?.TryGetForegroundPackage();
@@ -78,11 +78,13 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
         var d = Math.Clamp(distance, 0.1, 0.9);
         var (w, h) = ScreenSize;
         var landscape = w > h && h > 0;
-        var mid = landscape ? 0.42 : 0.5;
+        // 偏左中轴，避开短剧/漫剧右下「查看详情」广告热区
+        var mid = landscape ? 0.30 : 0.34;
         if (landscape)
             d = Math.Clamp(Math.Max(d, 0.58), 0.1, 0.85);
-        var y1 = Math.Clamp(0.5 + d / 2, 0.08, 0.92);
-        var y2 = Math.Clamp(0.5 - d / 2, 0.08, 0.92);
+        // 起点略偏上，减少擦到底部广告条
+        var y1 = Math.Clamp(0.48 + d / 2, 0.08, 0.78);
+        var y2 = Math.Clamp(0.48 - d / 2, 0.08, 0.92);
         return Swipe(mid, y1, mid, y2, durationMs);
     }
 

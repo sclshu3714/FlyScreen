@@ -53,17 +53,38 @@ public sealed partial class FlyScreenInputAccessibilityService
     {
         var list = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var limit = Math.Clamp(max, 1, 200);
         try
         {
-            var root = RootInActiveWindow;
-            if (root == null) return list;
             try
             {
-                WalkTexts(root, list, seen, Math.Clamp(max, 1, 200));
+                var windows = Windows;
+                if (windows != null)
+                {
+                    foreach (var window in windows)
+                    {
+                        var root = window?.Root;
+                        if (root == null) continue;
+                        try { WalkTexts(root, list, seen, limit); }
+                        finally
+                        {
+                            try { root.Recycle(); } catch { /* ignore */ }
+                        }
+                        if (list.Count >= limit) return list;
+                    }
+                }
             }
-            finally
+            catch { /* ignore */ }
+
+            if (list.Count == 0)
             {
-                root.Recycle();
+                var root = RootInActiveWindow;
+                if (root == null) return list;
+                try { WalkTexts(root, list, seen, limit); }
+                finally
+                {
+                    try { root.Recycle(); } catch { /* ignore */ }
+                }
             }
         }
         catch { /* ignore */ }
@@ -591,32 +612,39 @@ public sealed partial class FlyScreenInputAccessibilityService
         if (string.IsNullOrWhiteSpace(text)) return false;
         try
         {
-            var root = RootInActiveWindow;
-            if (root == null) return false;
+            // 遍历全部交互窗口（浮层/广告条常不在 ActiveWindow）
             try
             {
-                // 先精确 API
-                var hits = root.FindAccessibilityNodeInfosByText(text);
-                if (hits != null)
+                var windows = Windows;
+                if (windows != null)
                 {
-                    foreach (var n in hits)
+                    foreach (var window in windows)
                     {
-                        if (n == null) continue;
-                        if (found == null)
-                            found = n;
-                        else
-                            try { n.Recycle(); } catch { /* ignore */ }
+                        var root = window?.Root;
+                        if (root == null) continue;
+                        try
+                        {
+                            if (TryFindTextInRoot(root, text, out found) && found != null)
+                                return true;
+                        }
+                        finally
+                        {
+                            try { root.Recycle(); } catch { /* ignore */ }
+                        }
                     }
-                    if (found != null) return true;
                 }
+            }
+            catch { /* 部分系统读窗口列表会抛 */ }
 
-                // 再子串遍历（部分机型 FindByText 不准）
-                found = FindNodeContains(root, text);
-                return found != null;
+            var active = RootInActiveWindow;
+            if (active == null) return false;
+            try
+            {
+                return TryFindTextInRoot(active, text, out found) && found != null;
             }
             finally
             {
-                root.Recycle();
+                try { active.Recycle(); } catch { /* ignore */ }
             }
         }
         catch
@@ -624,6 +652,27 @@ public sealed partial class FlyScreenInputAccessibilityService
             found = null;
             return false;
         }
+    }
+
+    private static bool TryFindTextInRoot(AccessibilityNodeInfo root, string text, out AccessibilityNodeInfo? found)
+    {
+        found = null;
+        var hits = root.FindAccessibilityNodeInfosByText(text);
+        if (hits != null)
+        {
+            foreach (var n in hits)
+            {
+                if (n == null) continue;
+                if (found == null)
+                    found = n;
+                else
+                    try { n.Recycle(); } catch { /* ignore */ }
+            }
+            if (found != null) return true;
+        }
+
+        found = FindNodeContains(root, text);
+        return found != null;
     }
 
     private static AccessibilityNodeInfo? FindNodeContains(AccessibilityNodeInfo node, string text)

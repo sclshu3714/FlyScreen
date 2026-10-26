@@ -2242,6 +2242,7 @@ public partial class MainPage : ContentPage
         _a11yInjectUpdating = true;
         try
         {
+            // 设置已开或实例已连都显示勾选（避免刚开启时 Instance 未到导致勾选弹回）
             A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsEnabled;
         }
         finally
@@ -2260,12 +2261,13 @@ public partial class MainPage : ContentPage
         if (_a11yInjectUpdating) return;
 
         var wantOn = e.Value;
-        var enabled = Platforms.Android.FlyScreenInputAccessibilityService.IsEnabled;
+        var connected = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
+        var listed = Platforms.Android.FlyScreenInputAccessibilityService.IsListedInSecureSettings();
 
         if (wantOn)
         {
-            if (enabled) return;
-            // 不能静默开启：跳转系统设置（与电脑穿入提示同一入口）
+            if (connected) return;
+            // 设置里已开但未连上：仍引导去设置重新开关
             var go = await DisplayAlertAsync(
                 Loc.T("Opt.A11yInjectOpenTitle"),
                 Loc.T("Opt.A11yInjectOpenBody"),
@@ -2273,14 +2275,16 @@ public partial class MainPage : ContentPage
                 Loc.T("Opt.A11yInjectLater"));
             if (go)
                 Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
-            // 未真正开启前保持未勾选，避免假状态
+            // 未真正连上前：设置已开则保持勾选，否则弹回
             SyncA11yInjectCheck();
             return;
         }
 
-        // 关闭：直接停用本服务
-        if (enabled)
+        // 关闭：能 DisableSelf 则直接停；否则去设置关
+        if (connected)
             Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf();
+        else if (listed)
+            Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
         SyncA11yInjectCheck();
 #else
         await Task.CompletedTask;
