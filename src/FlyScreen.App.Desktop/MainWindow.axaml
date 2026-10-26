@@ -36,6 +36,7 @@
     <StreamGeometry x:Key="GeoRefresh">M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z</StreamGeometry>
     <StreamGeometry x:Key="GeoToEnd">M4,6H20V8H4V6M4,18H20V16H4V18M4,11H20V13H4V11Z</StreamGeometry>
     <StreamGeometry x:Key="GeoDownload">M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoCopy">M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -973,6 +974,15 @@
                         <TextBlock x:Name="LogDownloadBtnText" Text="下载" VerticalAlignment="Center" FontSize="13"/>
                       </StackPanel>
                     </Button>
+                    <Button x:Name="LogCopyBtn" Classes="progTool" MinWidth="30" Click="LogCopy_Click"
+                            ToolTip.Tip="复制选中">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoCopy}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogCopyBtnText" Text="复制" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
                     <Button x:Name="LogClearBtn" Classes="progTool" MinWidth="30" Click="LogClear_Click"
                             ToolTip.Tip="清除">
                       <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -990,7 +1000,8 @@
                   <TextBlock x:Name="LogHintText" Text="收录运行中的状态与错误。新记录在底部。"
                              FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
                 </StackPanel>
-                <ListBox x:Name="LogList" Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}">
+                <ListBox x:Name="LogList" Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                         SelectionMode="Multiple" KeyDown="LogList_KeyDown">
                   <ListBox.ItemTemplate>
                     <DataTemplate DataType="diag:AppLogEntry">
                       <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,2"/>

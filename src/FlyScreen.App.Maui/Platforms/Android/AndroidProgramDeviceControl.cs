@@ -8,45 +8,75 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
 {
     public static AndroidProgramDeviceControl Instance { get; } = new();
 
+    private static FlyScreenInputAccessibilityService? Svc
+        => FlyScreenInputAccessibilityService.Instance;
+
     public bool IsReady => FlyScreenInputAccessibilityService.IsEnabled;
 
     public string? ForegroundPackage
-        => FlyScreenInputAccessibilityService.Instance?.TryGetForegroundPackage();
+        => Svc?.TryGetForegroundPackage();
 
     public (int Width, int Height) ScreenSize
     {
         get
         {
-            var svc = FlyScreenInputAccessibilityService.Instance;
-            if (svc == null) return (0, 0);
-            return svc.GetScreenPixels();
+            if (Svc == null) return (0, 0);
+            return Svc.GetScreenPixels();
         }
     }
 
     public bool ContainsText(string text)
-        => FlyScreenInputAccessibilityService.Instance?.ContainsVisibleText(text) == true;
+        => Svc?.ContainsVisibleText(text) == true;
+
+    public bool ContainsViewId(string viewId)
+        => Svc?.ContainsViewId(viewId) == true;
+
+    public bool ContainsDesc(string desc)
+        => Svc?.ContainsDesc(desc) == true;
 
     public IReadOnlyList<string> CollectTexts(int max = 80)
-        => FlyScreenInputAccessibilityService.Instance?.CollectVisibleTexts(max)
-           ?? (IReadOnlyList<string>)Array.Empty<string>();
+        => Svc?.CollectVisibleTexts(max) ?? (IReadOnlyList<string>)Array.Empty<string>();
+
+    public int[]? FindTextBounds(string text)
+        => Svc?.FindTextBounds(text);
 
     public string OcrRegion(int left, int top, int right, int bottom)
-        => FlyScreenInputAccessibilityService.Instance?.TryOcrRegion(left, top, right, bottom) ?? "";
+        => Svc?.TryOcrRegion(left, top, right, bottom) ?? "";
+
+    public bool DrawRect(int left, int top, int right, int bottom, uint argb, int durationMs)
+        => Svc?.TryDrawRect(left, top, right, bottom, argb, durationMs) == true;
 
     public bool TapText(string text)
-        => FlyScreenInputAccessibilityService.Instance?.TryTapText(text) == true;
+        => Svc?.TryTapText(text) == true;
+
+    public bool LongPressText(string text, int durationMs = 700)
+        => Svc?.TryLongPressText(text, durationMs) == true;
+
+    public bool TapViewId(string viewId)
+        => Svc?.TryTapViewId(viewId) == true;
+
+    public bool TapDesc(string desc)
+        => Svc?.TryTapDesc(desc) == true;
 
     public bool Tap(double nx, double ny)
-        => FlyScreenInputAccessibilityService.Instance?.TryTapNormalized(nx, ny) == true;
+        => Svc?.TryTapNormalized(nx, ny) == true;
+
+    public bool TapPx(int x, int y)
+        => Svc?.TryTapPx(x, y) == true;
+
+    public bool DoubleTap(double nx, double ny)
+        => Svc?.TryDoubleTapNormalized(nx, ny) == true;
+
+    public bool LongPress(double nx, double ny, int durationMs = 700)
+        => Svc?.TryLongPressNormalized(nx, ny, durationMs) == true;
 
     public bool Swipe(double x1, double y1, double x2, double y2, int durationMs = 320)
-        => FlyScreenInputAccessibilityService.Instance?.TrySwipeNormalized(x1, y1, x2, y2, durationMs) == true;
+        => Svc?.TrySwipeNormalized(x1, y1, x2, y2, durationMs) == true;
 
     public bool SwipeUp(double distance = 0.45, int durationMs = 320)
     {
         var d = Math.Clamp(distance, 0.1, 0.9);
         var (w, h) = ScreenSize;
-        // 横屏竖直行程短，加大相对距离并略偏左，避开右侧系统手势区
         var landscape = w > h && h > 0;
         var mid = landscape ? 0.42 : 0.5;
         if (landscape)
@@ -59,17 +89,68 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
     public bool SwipeDown(double distance = 0.45, int durationMs = 320)
     {
         var d = Math.Clamp(distance, 0.1, 0.9);
-        var mid = 0.5;
         var y1 = Math.Clamp(0.5 - d / 2, 0.05, 0.95);
         var y2 = Math.Clamp(0.5 + d / 2, 0.05, 0.95);
-        return Swipe(mid, y1, mid, y2, durationMs);
+        return Swipe(0.5, y1, 0.5, y2, durationMs);
     }
 
+    public bool SwipeLeft(double distance = 0.45, int durationMs = 320)
+    {
+        var d = Math.Clamp(distance, 0.1, 0.9);
+        var x1 = Math.Clamp(0.5 + d / 2, 0.05, 0.95);
+        var x2 = Math.Clamp(0.5 - d / 2, 0.05, 0.95);
+        return Swipe(x1, 0.5, x2, 0.5, durationMs);
+    }
+
+    public bool SwipeRight(double distance = 0.45, int durationMs = 320)
+    {
+        var d = Math.Clamp(distance, 0.1, 0.9);
+        var x1 = Math.Clamp(0.5 - d / 2, 0.05, 0.95);
+        var x2 = Math.Clamp(0.5 + d / 2, 0.05, 0.95);
+        return Swipe(x1, 0.5, x2, 0.5, durationMs);
+    }
+
+    public bool ScrollForward()
+        => Svc?.TryScrollForward() == true;
+
+    public bool ScrollBackward()
+        => Svc?.TryScrollBackward() == true;
+
+    public bool WaitText(string text, int timeoutMs = 8000, int pollMs = 250)
+        => Svc?.WaitForText(text, timeoutMs, pollMs) == true;
+
+    public bool WaitGone(string text, int timeoutMs = 8000, int pollMs = 250)
+        => Svc?.WaitTextGone(text, timeoutMs, pollMs) == true;
+
+    public bool Input(string text)
+        => Svc?.TryInputText(text) == true;
+
+    public bool ClearInput()
+        => Svc?.TryClearInput() == true;
+
+    public bool Enter()
+        => Svc?.TryEnter() == true;
+
     public bool Back()
-        => FlyScreenInputAccessibilityService.Instance?.TryGlobalBack() == true;
+        => Svc?.TryGlobalBack() == true;
 
     public bool Home()
-        => FlyScreenInputAccessibilityService.Instance?.TryGlobalHome() == true;
+        => Svc?.TryGlobalHome() == true;
+
+    public bool Recents()
+        => Svc?.TryGlobalRecents() == true;
+
+    public bool Notifications()
+        => Svc?.TryGlobalNotifications() == true;
+
+    public bool QuickSettings()
+        => Svc?.TryGlobalQuickSettings() == true;
+
+    public bool LockScreen()
+        => Svc?.TryGlobalLockScreen() == true;
+
+    public bool TakeScreenshot()
+        => Svc?.TryGlobalTakeScreenshot() == true;
 
     public void OpenAccessibilitySettings()
         => FlyScreenInputAccessibilityService.OpenAccessibilitySettings();

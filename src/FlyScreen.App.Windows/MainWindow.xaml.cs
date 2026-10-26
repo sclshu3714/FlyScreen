@@ -389,11 +389,13 @@ public partial class MainWindow : Window
         LogTitleText.Text = Loc.T("Log.Title");
         RefreshLogHint();
         LogDownloadBtnText.Text = Loc.T("Log.Download");
+        LogCopyBtnText.Text = Loc.T("Log.Copy");
         LogClearBtnText.Text = Loc.T("Log.Clear");
         LogPrevBtnText.Text = Loc.T("Log.Prev");
         LogNextBtnText.Text = Loc.T("Log.Next");
         LogLatestBtnText.Text = Loc.T("Log.Latest");
         LogDownloadBtn.ToolTip = LogDownloadBtnText.Text;
+        LogCopyBtn.ToolTip = Loc.T("Log.SelectTip");
         LogClearBtn.ToolTip = LogClearBtnText.Text;
         LogPrevBtn.ToolTip = LogPrevBtnText.Text;
         LogNextBtn.ToolTip = LogNextBtnText.Text;
@@ -1588,9 +1590,10 @@ public partial class MainWindow : Window
 
     private void RefreshLogHint()
     {
-        LogHintText.Text = string.IsNullOrEmpty(_logProgramName)
+        var baseHint = string.IsNullOrEmpty(_logProgramName)
             ? Loc.T("Log.Hint")
             : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
+        LogHintText.Text = baseHint + " " + Loc.T("Log.SelectTip");
     }
 
     private AppLogLevelFilter CurrentLogLevelFilter()
@@ -1854,6 +1857,35 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = string.Format(Loc.T("Log.DownloadFail"), ex.Message);
+        }
+    }
+
+    private void LogCopy_Click(object sender, RoutedEventArgs e)
+        => CopySelectedLogEntries();
+
+    private void LogCopy_Executed(object sender, ExecutedRoutedEventArgs e)
+        => CopySelectedLogEntries();
+
+    private void CopySelectedLogEntries()
+    {
+        var selected = LogList.SelectedItems.OfType<AppLogEntry>().ToList();
+        if (selected.Count == 0)
+        {
+            StatusText.Text = Loc.T("Log.CopyEmpty");
+            return;
+        }
+
+        // 按列表顺序（选中集合无序）
+        var ordered = _logItems.Where(selected.Contains).Select(e => e.Display);
+        var text = string.Join(Environment.NewLine, ordered);
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+            StatusText.Text = string.Format(Loc.T("Log.CopyOk"), selected.Count);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
         }
     }
 
