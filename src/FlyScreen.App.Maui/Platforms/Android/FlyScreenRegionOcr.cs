@@ -5,6 +5,7 @@ using Android.Graphics;
 using Android.Hardware;
 using Android.OS;
 using Android.Util;
+using FlyScreen.Services;
 using Java.Util.Concurrent;
 using Xamarin.Google.MLKit.Vision.Common;
 using Xamarin.Google.MLKit.Vision.Text;
@@ -19,10 +20,19 @@ public sealed partial class FlyScreenInputAccessibilityService
 {
     private static readonly object OcrGate = new();
     private static ITextRecognizer? s_recognizer;
+    private static long _lastOcrGeomLogMs;
+    private static long _lastShotFailLogMs;
+
+    // 短时复用截屏：脚本连调多次 Ocr 时避免触发 TakeScreenshot 间隔限制（否则横屏恒空）
+    private readonly object _shotCacheGate = new();
+    private Bitmap? _shotCache;
+    private long _shotCacheAtMs;
+    private const int ShotCacheTtlMs = 900;
 
     /// <summary>
     /// 截取屏幕矩形并 OCR；失败 / 无文字 / API&lt;30 返回 <c>""</c>。
-    /// 坐标为屏幕像素，对角顺序可颠倒。
+    /// 坐标为屏幕像素（与 Fly.ScreenWidth / ScreenHeight 同源），对角顺序可颠倒。
+    /// 若截图像素尺寸与当前旋转不一致，会先旋转/缩放再裁切，避免横屏 OCR 恒为空。
     /// </summary>
     public string TryOcrRegion(int left, int top, int right, int bottom)
     {
@@ -37,25 +47,96 @@ public sealed partial class FlyScreenInputAccessibilityService
             return "";
 
         Bitmap? full = null;
+        Bitmap? aligned = null;
         Bitmap? crop = null;
+        Bitmap? scaled = null;
+        var ownFull = false;
         try
         {
-            full = CaptureScreenBitmap(TimeSpan.FromSeconds(4));
+            full = AcquireScreenshot(TimeSpan.FromSeconds(4), out ownFull);
             if (full == null || full.Width <= 0 || full.Height <= 0)
+            {
+                LogOcrGeomOnce($"OCR 截屏为空 screen={_screenW}x{_screenH} rect=({l},{t})-({r},{b})（可能安全层/限流）");
                 return "";
+            }
 
-            var cl = Math.Clamp(l, 0, full.Width);
-            var ct = Math.Clamp(t, 0, full.Height);
-            var cr = Math.Clamp(r, 0, full.Width);
-            var cb = Math.Clamp(b, 0, full.Height);
-            if (cr <= cl || cb <= ct)
+            RefreshScreenSize();
+            aligned = AlignScreenshotToScreen(full, _screenW, _screenH, out var geomNote);
+            var src = aligned ?? full;
+
+            var swappedBuffer = aligned == null
+                && Near(full.Width, _screenH) && Near(full.Height, _screenW)
+                && (_screenW > _screenH) != (full.Width > full.Height);
+
+            bool mapped;
+            int cl, ct, cr, cb;
+            if (swappedBuffer)
+            {
+                // 旋转失败时：先试 CCW 角点映射，识别为空再试 CW（部分机型缓冲方向相反）
+                mapped = MapSwappedScreenRectToBitmap(l, t, r, b, _screenW, _screenH, full.Width, full.Height,
+                    out cl, out ct, out cr, out cb, clockwise: false);
+                if (mapped && string.IsNullOrEmpty(geomNote))
+                    geomNote = "corner-map-ccw";
+            }
+            else
+            {
+                mapped = MapScreenRectToBitmap(l, t, r, b, _screenW, _screenH, src.Width, src.Height,
+                    out cl, out ct, out cr, out cb);
+            }
+
+            if (!mapped)
+            {
+                LogOcrGeomOnce($"OCR 裁切无效 screen={_screenW}x{_screenH} shot={full.Width}x{full.Height} aligned={src.Width}x{src.Height} rect=({l},{t})-({r},{b}) {geomNote}");
                 return "";
+            }
 
-            crop = Bitmap.CreateBitmap(full, cl, ct, cr - cl, cb - ct);
+            if (!string.IsNullOrEmpty(geomNote))
+                LogOcrGeomOnce($"OCR 几何适配 screen={_screenW}x{_screenH} shot={full.Width}x{full.Height} → {src.Width}x{src.Height} {geomNote}");
+
+            crop = Bitmap.CreateBitmap(src, cl, ct, cr - cl, cb - ct);
             if (crop == null)
                 return "";
 
-            return RecognizeText(crop) ?? "";
+            // 小字号顶栏胶囊：放大 2 倍再识别
+            var recognizeBmp = crop;
+            if (crop.Width < 720 || crop.Height < 160)
+            {
+                scaled = UpscaleBitmap(crop, 2f);
+                if (scaled != null)
+                    recognizeBmp = scaled;
+            }
+
+            var text = RecognizeText(recognizeBmp) ?? "";
+            if (string.IsNullOrWhiteSpace(text) && swappedBuffer)
+            {
+                try { scaled?.Recycle(); } catch { /* ignore */ }
+                scaled = null;
+                try { crop.Recycle(); } catch { /* ignore */ }
+                crop = null;
+                if (MapSwappedScreenRectToBitmap(l, t, r, b, _screenW, _screenH, full.Width, full.Height,
+                        out cl, out ct, out cr, out cb, clockwise: true)
+                    && cr > cl && cb > ct)
+                {
+                    LogOcrGeomOnce($"OCR 空结果，改用 CW 角点映射 screen={_screenW}x{_screenH} shot={full.Width}x{full.Height}");
+                    crop = Bitmap.CreateBitmap(full, cl, ct, cr - cl, cb - ct);
+                    if (crop != null)
+                    {
+                        recognizeBmp = crop;
+                        if (crop.Width < 720 || crop.Height < 160)
+                        {
+                            scaled = UpscaleBitmap(crop, 2f);
+                            if (scaled != null)
+                                recognizeBmp = scaled;
+                        }
+                        text = RecognizeText(recognizeBmp) ?? "";
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+                LogOcrGeomOnce($"OCR 无文字 screen={_screenW}x{_screenH} shot={full.Width}x{full.Height} crop={cl},{ct}-{cr},{cb} {geomNote}");
+
+            return text;
         }
         catch (Exception ex)
         {
@@ -64,15 +145,217 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
         finally
         {
-            if (crop != null && !ReferenceEquals(crop, full))
+            if (scaled != null && !ReferenceEquals(scaled, crop))
+            {
+                try { scaled.Recycle(); } catch { /* ignore */ }
+            }
+            if (crop != null && !ReferenceEquals(crop, aligned) && !ReferenceEquals(crop, full))
             {
                 try { crop.Recycle(); } catch { /* ignore */ }
             }
-            if (full != null)
+            if (aligned != null && !ReferenceEquals(aligned, full))
+            {
+                try { aligned.Recycle(); } catch { /* ignore */ }
+            }
+            if (ownFull && full != null)
             {
                 try { full.Recycle(); } catch { /* ignore */ }
             }
         }
+    }
+
+    private Bitmap? AcquireScreenshot(TimeSpan timeout, out bool callerOwns)
+    {
+        callerOwns = false;
+        lock (_shotCacheGate)
+        {
+            var now = System.Environment.TickCount64;
+            if (_shotCache != null && !_shotCache.IsRecycled
+                && now - _shotCacheAtMs <= ShotCacheTtlMs
+                && _shotCache.Width > 0 && _shotCache.Height > 0)
+            {
+                return _shotCache;
+            }
+
+            try { _shotCache?.Recycle(); } catch { /* ignore */ }
+            _shotCache = null;
+        }
+
+        var shot = CaptureScreenBitmap(timeout);
+        if (shot == null)
+            return null;
+
+        lock (_shotCacheGate)
+        {
+            try { _shotCache?.Recycle(); } catch { /* ignore */ }
+            _shotCache = shot;
+            _shotCacheAtMs = System.Environment.TickCount64;
+            callerOwns = false; // 由缓存持有，OCR 结束不回收
+            return _shotCache;
+        }
+    }
+
+    private static Bitmap? UpscaleBitmap(Bitmap src, float scale)
+    {
+        try
+        {
+            var w = Math.Max(1, (int)(src.Width * scale));
+            var h = Math.Max(1, (int)(src.Height * scale));
+            return Bitmap.CreateScaledBitmap(src, w, h, true);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 把截图对齐到当前屏幕宽高方向：尺寸一致则原样；宽高对调则旋转 90°；否则按比例缩放。
+    /// </summary>
+    private static Bitmap? AlignScreenshotToScreen(Bitmap shot, int screenW, int screenH, out string note)
+    {
+        note = "";
+        if (screenW <= 0 || screenH <= 0)
+            return null;
+
+        var bw = shot.Width;
+        var bh = shot.Height;
+        if (Near(bw, screenW) && Near(bh, screenH))
+            return null; // 已对齐，调用方用原图
+
+        // 宽高对调：常见于横屏时截图仍按自然竖屏缓冲
+        if (Near(bw, screenH) && Near(bh, screenW))
+        {
+            // 先试逆时针 90°（竖→横常见映射），尺寸对不上再试顺时针
+            var ccw = RotateBitmap90(shot, clockwise: false);
+            if (ccw != null && Near(ccw.Width, screenW) && Near(ccw.Height, screenH))
+            {
+                note = "rotate=-90";
+                return ccw;
+            }
+            try { ccw?.Recycle(); } catch { /* ignore */ }
+
+            var cw = RotateBitmap90(shot, clockwise: true);
+            if (cw != null && Near(cw.Width, screenW) && Near(cw.Height, screenH))
+            {
+                note = "rotate=+90";
+                return cw;
+            }
+            try { cw?.Recycle(); } catch { /* ignore */ }
+            note = "swap-unresolved";
+            return null;
+        }
+
+        // 同比缩放（含小幅分辨率差异）
+        if (bw > 0 && bh > 0)
+        {
+            var sx = screenW / (double)bw;
+            var sy = screenH / (double)bh;
+            if (Math.Abs(sx - sy) < 0.08)
+            {
+                note = $"scale≈{sx:0.###}";
+                // 不预先缩放整图，交给 MapScreenRectToBitmap 按比例映射即可
+                return null;
+            }
+        }
+
+        note = "size-mismatch";
+        return null;
+    }
+
+    private static bool MapScreenRectToBitmap(
+        int l, int t, int r, int b,
+        int screenW, int screenH,
+        int bmpW, int bmpH,
+        out int cl, out int ct, out int cr, out int cb)
+    {
+        cl = ct = cr = cb = 0;
+        if (screenW <= 0 || screenH <= 0 || bmpW <= 0 || bmpH <= 0)
+            return false;
+
+        double sx = bmpW / (double)screenW;
+        double sy = bmpH / (double)screenH;
+        cl = (int)Math.Floor(l * sx);
+        ct = (int)Math.Floor(t * sy);
+        cr = (int)Math.Ceiling(r * sx);
+        cb = (int)Math.Ceiling(b * sy);
+
+        cl = Math.Clamp(cl, 0, bmpW);
+        ct = Math.Clamp(ct, 0, bmpH);
+        cr = Math.Clamp(cr, 0, bmpW);
+        cb = Math.Clamp(cb, 0, bmpH);
+        return cr > cl && cb > ct;
+    }
+
+    /// <summary>
+    /// 屏幕横屏、截图竖屏（宽高对调）时映射四角后取包围盒。
+    /// CCW：屏幕 (x,y) → 图 (y, screenW-1-x)；CW：屏幕 (x,y) → 图 (screenH-1-y, x)。
+    /// </summary>
+    private static bool MapSwappedScreenRectToBitmap(
+        int l, int t, int r, int b,
+        int screenW, int screenH,
+        int bmpW, int bmpH,
+        out int cl, out int ct, out int cr, out int cb,
+        bool clockwise = false)
+    {
+        cl = ct = cr = cb = 0;
+        if (screenW <= 0 || screenH <= 0 || bmpW <= 0 || bmpH <= 0)
+            return false;
+
+        void Map(int x, int y, out int bx, out int by)
+        {
+            int nx, ny;
+            if (clockwise)
+            {
+                nx = screenH - 1 - y;
+                ny = x;
+            }
+            else
+            {
+                nx = y;
+                ny = screenW - 1 - x;
+            }
+            bx = (int)Math.Round(nx * (bmpW / (double)screenH));
+            by = (int)Math.Round(ny * (bmpH / (double)screenW));
+        }
+
+        Map(l, t, out var x0, out var y0);
+        Map(r, t, out var x1, out var y1);
+        Map(l, b, out var x2, out var y2);
+        Map(r, b, out var x3, out var y3);
+        cl = Math.Clamp(Math.Min(Math.Min(x0, x1), Math.Min(x2, x3)), 0, bmpW);
+        ct = Math.Clamp(Math.Min(Math.Min(y0, y1), Math.Min(y2, y3)), 0, bmpH);
+        cr = Math.Clamp(Math.Max(Math.Max(x0, x1), Math.Max(x2, x3)), 0, bmpW);
+        cb = Math.Clamp(Math.Max(Math.Max(y0, y1), Math.Max(y2, y3)), 0, bmpH);
+        return cr > cl && cb > ct;
+    }
+
+    private static Bitmap? RotateBitmap90(Bitmap src, bool clockwise)
+    {
+        try
+        {
+            var m = new Matrix();
+            m.PostRotate(clockwise ? 90f : -90f);
+            return Bitmap.CreateBitmap(src, 0, 0, src.Width, src.Height, m, true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyOcr", "RotateBitmap90: " + ex.Message);
+            return null;
+        }
+    }
+
+    private static bool Near(int a, int b, int tol = 8)
+        => Math.Abs(a - b) <= tol;
+
+    private static void LogOcrGeomOnce(string msg)
+    {
+        var now = System.Environment.TickCount64;
+        if (now - _lastOcrGeomLogMs < 3000)
+            return;
+        _lastOcrGeomLogMs = now;
+        Log.Warn("FlyOcr", msg);
+        try { AppLog.Warn(msg); } catch { /* ignore */ }
     }
 
     private Bitmap? CaptureScreenBitmap(TimeSpan timeout)
@@ -203,7 +486,23 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
 
         public void OnFailure(int errorCode)
-            => _tcs.TrySetResult(null);
+        {
+            var now = System.Environment.TickCount64;
+            if (now - _lastShotFailLogMs > 2000)
+            {
+                _lastShotFailLogMs = now;
+                // 3=间隔过短 6=安全窗口(FLAG_SECURE) 等
+                var hint = errorCode switch
+                {
+                    3 => "间隔过短",
+                    6 => "安全窗口(无法截屏)",
+                    _ => "见系统码"
+                };
+                Log.Warn("FlyOcr", $"TakeScreenshot OnFailure code={errorCode} ({hint})");
+                try { AppLog.Warn($"OCR截屏失败 code={errorCode} ({hint})"); } catch { /* ignore */ }
+            }
+            _tcs.TrySetResult(null);
+        }
     }
 
     private sealed class SuccessListener : Java.Lang.Object, global::Android.Gms.Tasks.IOnSuccessListener

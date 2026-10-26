@@ -9,6 +9,7 @@ using Android.Util;
 using Android.Views;
 using Android.Views.Accessibility;
 using Android.Widget;
+using FlyScreen.Services;
 using FlyScreen.Services.Programs;
 using Path = Android.Graphics.Path;
 using View = Android.Views.View;
@@ -19,11 +20,13 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// 系统手势接口，并在服务已开启时画指针。
 /// 小米会裁掉带 LayoutNoLimits 的小块无障碍窗，所以用全屏透明层自己画箭头。
 /// </summary>
+// 稳定组件名：避免 crc 类名变更后系统里「已开启」指向旧服务，导致 Instance 永为 null。
+// 勿声明 foregroundServiceType：无障碍由系统绑定保活；specialUse 缺 PROPERTY 时 Android 14+ 易异常。
 [Service(
+    Name = "com.xuanniao.flyscreen.InputAccessibilityService",
     Label = "@string/flyscreen_accessibility_label",
     Permission = "android.permission.BIND_ACCESSIBILITY_SERVICE",
-    Exported = false,
-    ForegroundServiceType = global::Android.Content.PM.ForegroundService.TypeSpecialUse)]
+    Exported = false)]
 [IntentFilter(["android.accessibilityservice.AccessibilityService"])]
 [MetaData("android.accessibilityservice", Resource = "@xml/flyscreen_accessibility_config")]
 public sealed partial class FlyScreenInputAccessibilityService : AccessibilityService
@@ -75,6 +78,8 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         RefreshScreenSize();
         EnsureCursorOverlay();
         ProgramDevice.Current = AndroidProgramDeviceControl.Instance;
+        Log.Info("FlyScreen", "a11y OnServiceConnected");
+        AppLog.Info("无障碍「玄鸟键鼠注入」已连接");
         RaiseEnabledChanged();
     }
 
@@ -99,10 +104,74 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         if (ReferenceEquals(Instance, this))
             Instance = null;
         base.OnDestroy();
+        Log.Info("FlyScreen", "a11y OnDestroy");
         RaiseEnabledChanged();
     }
 
-    public static bool IsEnabled => Instance != null;
+    /// <summary>服务实例已连接（可注入手势 / Fly API）。</summary>
+    public static bool IsConnected => Instance != null;
+
+    /// <summary>
+    /// 对用户/UI：实例已连接，或系统设置里已打开本服务。
+    /// 脚本就绪请用 <see cref="IsReady"/>（需真正连上实例）。
+    /// </summary>
+    public static bool IsEnabled => IsConnected || IsListedInSecureSettings();
+
+    /// <summary>
+    /// Fly / 键鼠注入是否可用。设置已开但实例未到时短暂等待系统绑定，避免刚开启就误判。
+    /// </summary>
+    public static bool IsReady
+    {
+        get
+        {
+            if (Instance != null) return true;
+            if (!IsListedInSecureSettings()) return false;
+
+            // 从设置返回或进程刚起来时，OnServiceConnected 可能略晚于 UI/脚本
+            for (var i = 0; i < 40 && Instance == null; i++)
+                Thread.Sleep(50);
+
+            if (Instance == null)
+            {
+                AppLog.Warn(
+                    "无障碍「玄鸟键鼠注入」在系统设置中已开启，但服务未连接。请关掉后再打开一次，或强行停止后重开玄鸟。");
+            }
+
+            return Instance != null;
+        }
+    }
+
+    /// <summary>读取 Settings.Secure 中是否包含本包无障碍服务。</summary>
+    public static bool IsListedInSecureSettings()
+    {
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            if (ctx?.ContentResolver == null) return false;
+            var enabled = Settings.Secure.GetString(
+                ctx.ContentResolver, Settings.Secure.EnabledAccessibilityServices);
+            if (string.IsNullOrEmpty(enabled)) return false;
+
+            var pkg = ctx.PackageName ?? "";
+            // 稳定名 + 历史 crc 类名（升级前已开启的用户）
+            foreach (var part in enabled.Split(':'))
+            {
+                if (part.Length == 0) continue;
+                if (part.Contains("com.xuanniao.flyscreen.InputAccessibilityService", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (pkg.Length > 0
+                    && part.Contains(pkg, StringComparison.OrdinalIgnoreCase)
+                    && part.Contains("FlyScreenInputAccessibilityService", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyScreen", "a11y settings read: " + ex.Message);
+        }
+
+        return false;
+    }
 
     /// <summary>无障碍启停变化（高级设置复选框与提示入口共用）。</summary>
     public static event System.Action? EnabledChanged;
@@ -670,29 +739,9 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
 
     private void EnsureForeground()
     {
-        try
-        {
-            const string channelId = "flyscreen.remote";
-            if (OperatingSystem.IsAndroidVersionAtLeast(26))
-            {
-                var manager = GetSystemService(NotificationService) as NotificationManager;
-                manager?.CreateNotificationChannel(new NotificationChannel(channelId, "键鼠", NotificationImportance.Min));
-            }
-            var notification = new Notification.Builder(this, channelId)
-                .SetContentTitle("玄鸟")
-                .SetContentText("正在接收电脑键鼠")
-                .SetSmallIcon(global::Android.Resource.Drawable.IcDialogInfo)
-                .SetOngoing(true)
-                .Build();
-            if (OperatingSystem.IsAndroidVersionAtLeast(34))
-                StartForeground(41, notification, global::Android.Content.PM.ForegroundService.TypeSpecialUse);
-            else
-                StartForeground(41, notification);
-        }
-        catch (System.Exception ex)
-        {
-            Log.Warn("FlyScreen", "foreground " + ex.Message);
-        }
+        // 无障碍服务由系统保活，不在此 StartForeground。
+        // 远程指针通知见 FlyScreenCursorOverlayService（specialUse + PROPERTY）。
+        // 旧版曾对本服务声明 specialUse 且缺 PROPERTY，部分机型上会导致绑定异常 / Ready 一直为 false。
     }
 
     private static int VkToAndroidKeyCode(ushort vk) => RemoteVkMap.ToAndroidKeyCode(vk);

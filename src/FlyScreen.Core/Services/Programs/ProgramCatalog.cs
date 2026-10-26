@@ -339,8 +339,10 @@ public sealed class ProgramCatalog
                 return;
             }
 
+            // v4.1：仅「上滑/继续观看剧集」；禁左滑；横屏单次大区域 OCR（避免截屏限流）
+            Console.WriteLine("=== 短剧上滑模板 v4.1 ===");
             string[] apps = { "com.kylin.read", "kylin", "hongguo" };
-            string[] tips = { "上滑继续观看漫剧", "上滑继续观看短剧", "上滑继续观看", "继续观看漫剧" };
+            string[] tips = { "上滑继续观看漫剧", "上滑继续观看短剧", "上滑继续观看剧集", "上滑继续观看", "上滑继续", "继续观看剧集" };
             var tipArmed = true;
             long coolUntil = 0;
             while (!ct.IsCancellationRequested)
@@ -352,13 +354,30 @@ public sealed class ProgramCatalog
                     await Delay(1200);
                     continue;
                 }
+
                 var hit = tips.FirstOrDefault(t => Fly.HasText(t));
+                var w = Fly.ScreenWidth;
+                var h = Fly.ScreenHeight;
+                var landscape = w > h && h > 0;
+                if (hit == null && w > 0 && h > 0)
+                {
+                    var l = landscape ? (int)(w * 0.28) : (int)(w * 0.10);
+                    var t0 = landscape ? (int)(h * 0.00) : (int)(h * 0.32);
+                    var r = landscape ? (int)(w * 0.99) : (int)(w * 0.90);
+                    var b = landscape ? (int)(h * 0.32) : (int)(h * 0.62);
+                    var ocr = (Fly.Ocr(l, t0, r, b) ?? "").Trim();
+                    Console.WriteLine("OCR len=" + ocr.Length + " [" + (ocr.Length <= 60 ? ocr : ocr.Substring(0, 60)) + "]");
+                    hit = tips.FirstOrDefault(k => ocr.Contains(k, StringComparison.OrdinalIgnoreCase));
+                    if (hit == null && ocr.Contains("上滑", StringComparison.Ordinal) && ocr.Contains("继续", StringComparison.Ordinal))
+                        hit = "上滑继续";
+                }
                 if (hit == null)
                 {
                     tipArmed = true;
-                    await Delay(700);
+                    await Delay(landscape ? 900 : 700);
                     continue;
                 }
+
                 var now = Environment.TickCount64;
                 if (!tipArmed || now < coolUntil)
                 {
@@ -366,34 +385,27 @@ public sealed class ProgramCatalog
                     continue;
                 }
                 tipArmed = false;
-                coolUntil = now + 8000;
-                var w = Fly.ScreenWidth;
-                var h = Fly.ScreenHeight;
-                var landscape = w > h && h > 0;
-                var dist = landscape ? 0.62 : 0.50;
-                var dur = landscape ? 450 : 380;
-                Console.WriteLine("已识别「" + hit + "」→ SwipeUp " + (landscape ? "横屏" : "竖屏") + " " + w + "x" + h);
-                var ok = Fly.SwipeUp(dist, dur);
+                coolUntil = now + 10000;
+                var adCta = Fly.HasText("查看详情");
+                var cx = adCta ? (landscape ? 0.22 : 0.28) : (landscape ? 0.30 : 0.34);
+                var y0 = adCta ? (landscape ? 0.62 : 0.60) : (landscape ? 0.70 : 0.68);
+                var y1 = landscape ? 0.12 : 0.20;
+                Console.WriteLine("已识别「" + hit + "」→ 安全上滑 " + (landscape ? "横屏" : "竖屏") + " " + w + "x" + h);
+                var ok = Fly.Swipe(cx, y0, cx, y1, landscape ? 580 : 440);
                 if (!ok)
                 {
-                    Console.WriteLine("上滑失败：手势取消（识别成功）");
+                    Console.WriteLine("上滑失败：手势取消");
                     tipArmed = true;
-                    coolUntil = now + 1500;
-                    await Delay(600);
+                    coolUntil = now + 2500;
+                    await Delay(500);
                     continue;
                 }
-                var cleared = false;
-                for (var i = 0; i < 10 && !ct.IsCancellationRequested; i++)
+                for (var i = 0; i < 8 && !ct.IsCancellationRequested; i++)
                 {
                     await Delay(400);
-                    if (!Fly.HasText(hit)) { cleared = true; break; }
+                    if (!Fly.HasText(hit)) break;
                 }
-                if (!cleared)
-                {
-                    Console.WriteLine("上滑完成但提示仍在 → 左滑补救");
-                    Fly.Swipe(0.78, 0.50, 0.22, 0.50, 420);
-                    await Delay(800);
-                }
+                tipArmed = true;
             }
             """
             : $$"""

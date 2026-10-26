@@ -15,7 +15,7 @@ public sealed class ProgramSharePayload
     public string? ProjectFile { get; set; }
 }
 
-/// <summary>把程序发给已连接电脑。对端按 Id 或名称判重，已有则跳过。</summary>
+/// <summary>把程序发给已连接对端。同 Id 覆盖源码；仅同名不同 Id 才跳过。</summary>
 public sealed class ProgramShareService
 {
     private static readonly object Gate = new();
@@ -124,6 +124,26 @@ public sealed class ProgramShareService
         {
             try
             {
+                // 同 Id：覆盖源码（修复「电脑改了脚本、手机仍跑旧版」）
+                var byId = !string.IsNullOrWhiteSpace(payload.Id)
+                    ? _catalog.Find(payload.Id)
+                    : null;
+                if (byId != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(payload.FileName))
+                        byId.FileName = Path.GetFileName(payload.FileName.Trim());
+                    if (!string.IsNullOrWhiteSpace(payload.Namespace))
+                        byId.Namespace = payload.Namespace.Trim();
+                    _catalog.WriteSource(byId, payload.Source ?? "");
+                    if (byId.Language == ProgramLanguage.CSharp && !string.IsNullOrWhiteSpace(payload.ProjectFile))
+                    {
+                        var csproj = Path.Combine(_catalog.GetFolder(byId), "program.csproj");
+                        File.WriteAllText(csproj, payload.ProjectFile, new System.Text.UTF8Encoding(false));
+                    }
+                    AppLog.Info($"已更新共享程序「{byId.Name}」源码（来自 {peer}）", byId.Id, byId.Name);
+                    return;
+                }
+
                 var existing = _catalog.FindDuplicate(payload.Id, payload.Name);
                 if (existing != null)
                 {

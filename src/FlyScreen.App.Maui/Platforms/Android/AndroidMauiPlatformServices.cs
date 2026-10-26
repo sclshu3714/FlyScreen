@@ -88,7 +88,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         if (_remotePointerSuppressed || !_receiving) return;
 
         // 无障碍只更新点击坐标，不画（画交给系统悬浮窗）
-        if (FlyScreenInputAccessibilityService.IsEnabled)
+        if (FlyScreenInputAccessibilityService.IsConnected)
             FlyScreenInputAccessibilityService.Instance?.MoveAbsolute(nx, ny);
 
         UpdateCursorVisual(nx, ny, relative: false, 0, 0);
@@ -98,7 +98,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         if (_remotePointerSuppressed || !_receiving) return;
 
-        if (FlyScreenInputAccessibilityService.IsEnabled)
+        if (FlyScreenInputAccessibilityService.IsConnected)
             FlyScreenInputAccessibilityService.Instance?.MoveRelative(dx, dy);
 
         UpdateCursorVisual(0, 0, relative: true, dx, dy);
@@ -128,7 +128,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         SoftKeyboardGuard.Hide();
 
         // 无障碍已开：完整 IME + 手势路径（跨屏字母由电脑组字，此处多为功能键）
-        if (FlyScreenInputAccessibilityService.IsEnabled)
+        if (FlyScreenInputAccessibilityService.IsConnected)
         {
             FlyScreenInputAccessibilityService.Instance?.Key(vk, down);
             return;
@@ -154,7 +154,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
         if (_remotePointerSuppressed || !_receiving) return;
 
-        if (FlyScreenInputAccessibilityService.IsEnabled)
+        if (FlyScreenInputAccessibilityService.IsConnected)
         {
             FlyScreenInputAccessibilityService.Instance?.InsertCommittedText(text);
             return;
@@ -194,12 +194,14 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         VirtualCursorOverlay.Hide();
 
         var canOverlay = FlyScreenCursorOverlay.CanDraw();
-        if (FlyScreenInputAccessibilityService.IsEnabled)
+        if (FlyScreenInputAccessibilityService.IsReady)
         {
             // 有悬浮窗权限时不画无障碍箭头，避免双指针乱跳
             SetA11yDrawCursor(!canOverlay);
             FlyScreenInputAccessibilityService.Instance!.BeginSession(entryX, entryY);
         }
+        else
+            PromptTouchInjectionOnce();
 
         if (canOverlay)
             FlyScreenCursorOverlay.ShowAt(entryX, entryY);
@@ -212,7 +214,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         SoftKeyboardGuard.Hide();
 
         ControlTargetChanged?.Invoke(null);
-        AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} showing={FlyScreenCursorOverlay.IsShowing} a11y={FlyScreenInputAccessibilityService.IsEnabled}");
+        AppLog.Info($"开始接收电脑键鼠 @ ({entryX:0.##},{entryY:0.##}) overlay={FlyScreenCursorOverlay.CanDraw()} showing={FlyScreenCursorOverlay.IsShowing} a11y={FlyScreenInputAccessibilityService.IsConnected}");
     }
 
     public void OnCursorOwnerChanged(string ownerMachine)
@@ -331,7 +333,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     private void InjectTouch(Action inject)
     {
-        if (FlyScreenInputAccessibilityService.IsEnabled)
+        if (FlyScreenInputAccessibilityService.IsReady)
         {
             inject();
             return;

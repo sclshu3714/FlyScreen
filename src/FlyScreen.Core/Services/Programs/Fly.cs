@@ -86,7 +86,7 @@ public static class Fly
     /// <param name="bottom">下（像素）。</param>
     /// <param name="argb">颜色 0xAARRGGBB，默认不透明红 <c>0xFFFF0000</c>。</param>
     /// <param name="durationMs">显示时长毫秒，默认 1200。</param>
-    /// <returns>是否成功加入浮层。</returns>
+    /// <returns>是否成功加上浮层（失败时见日志；全屏视频可能仍看不见）。</returns>
     public static bool DrawRect(int left, int top, int right, int bottom, uint argb = 0xFFFF0000u, int durationMs = 1200)
         => Require()?.DrawRect(left, top, right, bottom, argb, durationMs) == true;
 
@@ -136,8 +136,8 @@ public static class Fly
         => Require()?.Swipe(x1, y1, x2, y2, durationMs) == true;
 
     /// <summary>
-    /// 屏幕中部向上滑。<paramref name="distance"/> 为相对屏高的行程（约 0.1..0.9）。
-    /// 横屏时实现侧会自动加大行程并略偏左，避开右侧系统手势区。
+    /// 屏幕偏左向上滑。<paramref name="distance"/> 为相对屏高的行程（约 0.1..0.9）。
+    /// 实现侧会偏左并抬高起点，避开右下广告「查看详情」热区。
     /// </summary>
     public static bool SwipeUp(double distance = 0.45, int durationMs = 320)
         => Require()?.SwipeUp(distance, durationMs) == true;
