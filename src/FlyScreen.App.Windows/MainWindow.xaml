@@ -151,6 +151,7 @@
         <Geometry x:Key="GeoRefresh">M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z</Geometry>
         <Geometry x:Key="GeoToEnd">M4,6H20V8H4V6M4,18H20V16H4V18M4,11H20V13H4V11Z</Geometry>
         <Geometry x:Key="GeoDownload">M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z</Geometry>
+        <Geometry x:Key="GeoCopy">M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z</Geometry>
         <Style x:Key="IconActionBtn" TargetType="Button">
             <Setter Property="Width" Value="28"/>
             <Setter Property="Height" Value="28"/>
@@ -1504,6 +1505,16 @@
                                             <TextBlock x:Name="LogDownloadBtnText" Text="下载" Style="{StaticResource LogToolLabel}"/>
                                         </StackPanel>
                                     </Button>
+                                    <Button x:Name="LogCopyBtn" Style="{StaticResource LogToolBtn}"
+                                            Click="LogCopy_Click" ToolTip="复制选中">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Viewbox Style="{StaticResource LogToolIcon}">
+                                                <Path Data="{StaticResource GeoCopy}"
+                                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                            </Viewbox>
+                                            <TextBlock x:Name="LogCopyBtnText" Text="复制" Style="{StaticResource LogToolLabel}"/>
+                                        </StackPanel>
+                                    </Button>
                                     <Button x:Name="LogClearBtn" Style="{StaticResource LogToolBtn}" Margin="0"
                                             Click="LogClear_Click" ToolTip="清除">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -1524,9 +1535,17 @@
                             </StackPanel>
                             <ListBox x:Name="LogList" Grid.Row="3" BorderThickness="0"
                                      Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                                     SelectionMode="Extended"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                      ScrollViewer.ScrollChanged="LogList_ScrollChanged"
                                      VirtualizingPanel.IsVirtualizing="False">
+                                <ListBox.InputBindings>
+                                    <KeyBinding Key="C" Modifiers="Control" Command="{x:Static ApplicationCommands.Copy}"/>
+                                </ListBox.InputBindings>
+                                <ListBox.CommandBindings>
+                                    <CommandBinding Command="{x:Static ApplicationCommands.Copy}"
+                                                    Executed="LogCopy_Executed"/>
+                                </ListBox.CommandBindings>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,2"/>

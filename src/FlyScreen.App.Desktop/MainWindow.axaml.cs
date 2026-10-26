@@ -423,18 +423,20 @@ public partial class MainWindow : Window
         NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
-        LogHintText.Text = Loc.T("Log.Hint");
         LogDownloadBtnText.Text = Loc.T("Log.Download");
+        LogCopyBtnText.Text = Loc.T("Log.Copy");
         LogClearBtnText.Text = Loc.T("Log.Clear");
         LogPrevBtnText.Text = Loc.T("Log.Prev");
         LogNextBtnText.Text = Loc.T("Log.Next");
         LogLatestBtnText.Text = Loc.T("Log.Latest");
         ToolTip.SetTip(LogDownloadBtn, Loc.T("Log.Download"));
+        ToolTip.SetTip(LogCopyBtn, Loc.T("Log.SelectTip"));
         ToolTip.SetTip(LogClearBtn, Loc.T("Log.Clear"));
         ToolTip.SetTip(LogPrevBtn, Loc.T("Log.Prev"));
         ToolTip.SetTip(LogNextBtn, Loc.T("Log.Next"));
         ToolTip.SetTip(LogLatestBtn, Loc.T("Log.Latest"));
         EnsureLogLevelFilterItems();
+        RefreshLogHint();
         Dispatcher.UIThread.Post(UpdateLogToolMode, DispatcherPriority.Loaded);
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T("Prog.Hint");
@@ -952,9 +954,10 @@ public partial class MainWindow : Window
 
     private void RefreshLogHint()
     {
-        LogHintText.Text = string.IsNullOrEmpty(_logProgramName)
+        var baseHint = string.IsNullOrEmpty(_logProgramName)
             ? Loc.T("Log.Hint")
             : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
+        LogHintText.Text = baseHint + " " + Loc.T("Log.SelectTip");
     }
 
     private AppLogLevelFilter CurrentLogLevelFilter()
@@ -1040,10 +1043,11 @@ public partial class MainWindow : Window
         LogNextBtnText.IsVisible = !compact;
         LogLatestBtnText.IsVisible = !compact;
         LogDownloadBtnText.IsVisible = !compact;
+        LogCopyBtnText.IsVisible = !compact;
         LogClearBtnText.IsVisible = !compact;
         var pad = compact ? new Thickness(0) : new Thickness(8, 0);
         var w = compact ? 30.0 : double.NaN;
-        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogClearBtn })
+        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogCopyBtn, LogClearBtn })
         {
             b.Padding = pad;
             b.MinWidth = 30;
@@ -1218,6 +1222,50 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = string.Format(Loc.T("Log.DownloadFail"), ex.Message);
+        }
+    }
+
+    private void LogCopy_Click(object? sender, RoutedEventArgs e)
+        => _ = CopySelectedLogEntriesAsync();
+
+    private void LogList_KeyDown(object? sender, KeyEventArgs e)
+    {
+        var mod = e.KeyModifiers;
+        if (e.Key == Key.C && (mod.HasFlag(KeyModifiers.Control) || mod.HasFlag(KeyModifiers.Meta)))
+        {
+            e.Handled = true;
+            _ = CopySelectedLogEntriesAsync();
+        }
+    }
+
+    private async Task CopySelectedLogEntriesAsync()
+    {
+        var selected = LogList.SelectedItems?
+            .OfType<AppLogEntry>()
+            .ToList() ?? [];
+        if (selected.Count == 0)
+        {
+            StatusText.Text = Loc.T("Log.CopyEmpty");
+            return;
+        }
+
+        var ordered = _logItems.Where(selected.Contains).Select(entry => entry.Display);
+        var text = string.Join(Environment.NewLine, ordered);
+        try
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard == null)
+            {
+                StatusText.Text = Loc.T("Log.CopyEmpty");
+                return;
+            }
+
+            await clipboard.SetTextAsync(text).ConfigureAwait(true);
+            StatusText.Text = string.Format(Loc.T("Log.CopyOk"), selected.Count);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
         }
     }
 

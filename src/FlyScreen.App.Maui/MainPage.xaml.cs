@@ -35,7 +35,7 @@ public partial class MainPage : ContentPage
     private string? _logProgramName;
     private int _logPageFromLatest;
     private int _logTotalPages;
-    private readonly ObservableCollection<AppLogEntry> _logItems = new();
+    private readonly ObservableCollection<LogListItem> _logItems = new();
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
     private int _logKnownTotal;
@@ -852,6 +852,7 @@ public partial class MainPage : ContentPage
     private const string LogIcNext = "↻";
     private const string LogIcLatest = "≡";
     private const string LogIcDownload = "⇩";
+    private const string LogIcCopy = "⎘";
     private const string LogIcClear = "✕";
     private bool _logToolsIconOnly;
 
@@ -893,9 +894,9 @@ public partial class MainPage : ContentPage
         NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
-        LogHintText.Text = Loc.T("Log.Hint");
         EnsureLogLevelFilterItems();
         ApplyLogToolbarLabels(_logToolsIconOnly);
+        RefreshLogHint();
         ProgTitleText.Text = Loc.T("Prog.Title");
         ProgHintText.Text = Loc.T(
             InProcessProgramExecutor.IsMobileHost ? "Prog.HintMobile" : "Prog.Hint");
@@ -1888,9 +1889,10 @@ public partial class MainPage : ContentPage
 
     private void RefreshLogHint()
     {
-        LogHintText.Text = string.IsNullOrEmpty(_logProgramName)
+        var baseHint = string.IsNullOrEmpty(_logProgramName)
             ? Loc.T("Log.Hint")
             : string.Format(Loc.T("Prog.LogFilter"), _logProgramName);
+        LogHintText.Text = baseHint + " " + Loc.T("Log.SelectTip");
     }
 
     private AppLogLevelFilter CurrentLogLevelFilter()
@@ -1944,7 +1946,7 @@ public partial class MainPage : ContentPage
     {
         _logItems.Clear();
         foreach (var e in items)
-            _logItems.Add(e);
+            _logItems.Add(new LogListItem(e));
     }
 
     private void ApplyLogToolbarLabels(bool iconOnly)
@@ -1955,12 +1957,13 @@ public partial class MainPage : ContentPage
         LogNextBtn.Text = iconOnly ? LogIcNext : $"{LogIcNext}  {Loc.T("Log.Next")}";
         LogLatestBtn.Text = iconOnly ? LogIcLatest : $"{LogIcLatest}  {Loc.T("Log.Latest")}";
         LogDownloadBtn.Text = iconOnly ? LogIcDownload : $"{LogIcDownload}  {Loc.T("Log.Download")}";
+        LogCopyBtn.Text = iconOnly ? LogIcCopy : $"{LogIcCopy}  {Loc.T("Log.Copy")}";
         LogClearBtn.Text = iconOnly ? LogIcClear : $"{LogIcClear}  {Loc.T("Log.Clear")}";
         // 覆盖 NormalBtn 默认 MinimumWidthRequest=88，窄屏图标钮约 30px
         var minW = iconOnly ? 30.0 : 0.0;
         var maxW = iconOnly ? 30.0 : 120.0;
         var pad = iconOnly ? new Thickness(0) : new Thickness(8, 0);
-        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogClearBtn })
+        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogCopyBtn, LogClearBtn })
         {
             b.Padding = pad;
             b.MinimumWidthRequest = minW;
@@ -1975,6 +1978,7 @@ public partial class MainPage : ContentPage
         ToolTipProperties.SetText(LogNextBtn, Loc.T("Log.Next"));
         ToolTipProperties.SetText(LogLatestBtn, Loc.T("Log.Latest"));
         ToolTipProperties.SetText(LogDownloadBtn, Loc.T("Log.Download"));
+        ToolTipProperties.SetText(LogCopyBtn, Loc.T("Log.SelectTip"));
         ToolTipProperties.SetText(LogClearBtn, Loc.T("Log.Clear"));
     }
 
@@ -2004,8 +2008,8 @@ public partial class MainPage : ContentPage
     {
         if (_logItems.Count != items.Count) return false;
         if (items.Count == 0) return true;
-        return ReferenceEquals(_logItems[0], items[0])
-               && ReferenceEquals(_logItems[^1], items[^1]);
+        return ReferenceEquals(_logItems[0].Entry, items[0])
+               && ReferenceEquals(_logItems[^1].Entry, items[^1]);
     }
 
     private void RefreshLogPageLive()
@@ -2021,15 +2025,15 @@ public partial class MainPage : ContentPage
             uiChanged = !LogItemsSameTail(delta.Items);
             if (uiChanged)
                 ReplaceLogItems(delta.Items);
-            _logWatermark = _logItems.Count > 0 ? _logItems[^1] : null;
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1].Entry : null;
             if (uiChanged)
                 _logKnownTotal = Math.Max(_logKnownTotal, _logItems.Count);
         }
         else if (delta.Items.Count > 0)
         {
             foreach (var e in delta.Items)
-                _logItems.Add(e);
-            _logWatermark = _logItems[^1];
+                _logItems.Add(new LogListItem(e));
+            _logWatermark = _logItems[^1].Entry;
             _logKnownTotal = Math.Max(_logKnownTotal + delta.Items.Count, _logItems.Count);
             uiChanged = true;
         }
@@ -2068,7 +2072,7 @@ public partial class MainPage : ContentPage
                 ReplaceLogItems(delta.Items);
             else
                 ReplaceLogItems(page.Items);
-            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1] : null;
+            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1].Entry : null;
             _logStickToBottom = true;
             ScrollLogToEnd();
         }
@@ -2124,6 +2128,27 @@ public partial class MainPage : ContentPage
         LogPrevBtn.IsEnabled = false;
         LogNextBtn.IsEnabled = false;
         LogLatestBtn.IsEnabled = false;
+    }
+
+    private async void LogCopy_Clicked(object? sender, EventArgs e)
+    {
+        var selected = _logItems.Where(i => i.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            StatusLabel.Text = Loc.T("Log.CopyEmpty");
+            return;
+        }
+
+        var text = string.Join(Environment.NewLine, selected.Select(i => i.Display));
+        try
+        {
+            await Clipboard.Default.SetTextAsync(text).ConfigureAwait(true);
+            StatusLabel.Text = string.Format(Loc.T("Log.CopyOk"), selected.Count);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = ex.Message;
+        }
     }
 
     private async void LogDownload_Clicked(object? sender, EventArgs e)
@@ -2949,4 +2974,26 @@ public partial class MainPage : ContentPage
 
     private void Exit_Clicked(object? sender, EventArgs e)
         => Application.Current?.Quit();
+
+    /// <summary>日志列表行：自绘勾选，避免 Win CollectionView Multiple 平台勾与文字不齐。</summary>
+    private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
+    {
+        private bool _isSelected;
+
+        public AppLogEntry Entry { get; } = entry;
+        public string Display => Entry.Display;
+
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                if (_isSelected == value) return;
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+    }
 }

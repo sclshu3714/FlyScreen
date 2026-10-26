@@ -432,6 +432,9 @@
                                 <Button x:Name="LogDownloadBtn" Style="{StaticResource NormalBtn}"
                                         HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
                                         Padding="6,0" Clicked="LogDownload_Clicked" />
+                                <Button x:Name="LogCopyBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogCopy_Clicked" />
                                 <Button x:Name="LogClearBtn" Style="{StaticResource NormalBtn}"
                                         HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
                                         Padding="6,0" Clicked="LogClear_Clicked" />
@@ -442,10 +445,23 @@
                                 <Label x:Name="LogHintText" Text="收录运行中的状态与错误。新记录在底部。"
                                        TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                             </VerticalStackLayout>
-                            <CollectionView x:Name="LogList" Grid.Row="3" SelectionMode="None" Scrolled="LogList_Scrolled">
+                            <!-- 自绘勾选，避免 Win 平台 Multiple 勾与文字顶对齐、贴死 -->
+                            <CollectionView x:Name="LogList" Grid.Row="3" SelectionMode="None"
+                                            Scrolled="LogList_Scrolled">
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate>
-                                        <Label Text="{Binding Display}" FontSize="12" Margin="0,3" LineBreakMode="WordWrap" />
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4"
+                                              Padding="0,3" MinimumHeightRequest="28">
+                                            <CheckBox IsChecked="{Binding IsSelected}"
+                                                      VerticalOptions="Center"
+                                                      Color="{DynamicResource Blue}" />
+                                            <Label Grid.Column="1"
+                                                   Text="{Binding Display}"
+                                                   FontSize="12"
+                                                   LineBreakMode="WordWrap"
+                                                   VerticalOptions="Center"
+                                                   VerticalTextAlignment="Center" />
+                                        </Grid>
                                     </DataTemplate>
                                 </CollectionView.ItemTemplate>
                             </CollectionView>
