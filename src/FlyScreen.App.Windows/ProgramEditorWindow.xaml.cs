@@ -8,6 +8,7 @@ using FlyScreen.Helpers.Localization;
 using FlyScreen.Services;
 using FlyScreen.Services.Programs;
 using ICSharpCode.AvalonEdit.Highlighting;
+using ICSharpCode.AvalonEdit.Search;
 
 namespace FlyScreen;
 
@@ -18,6 +19,7 @@ public partial class ProgramEditorWindow : Window
     private readonly ProgramRunner _runner;
     private readonly BreakpointMargin _bpMargin;
     private readonly DebugCurrentLineRenderer _debugLineRenderer = new();
+    private SearchPanel? _searchPanel;
     private int _caretLine = 1;
     private bool _toolModeUpdating;
     private bool _outputExpanded;
@@ -63,6 +65,7 @@ public partial class ProgramEditorWindow : Window
 
         Title = BaseTitle;
         SetToolButton(BtnSave, BtnSaveText, "Prog.Save");
+        SetToolButton(BtnFind, BtnFindText, "Prog.Find");
         SetToolButton(BtnBuild, BtnBuildText, "Prog.Build");
         SetToolButton(BtnDebug, BtnDebugText, "Prog.Debug");
         SetToolButton(BtnRun, BtnRunText, "Prog.Run");
@@ -77,6 +80,8 @@ public partial class ProgramEditorWindow : Window
         CodeEditor.Options.ConvertTabsToSpaces = true;
         CodeEditor.Text = _catalog.ReadSource(program);
         ApplyHighlighting();
+        // Ctrl+F / Ctrl+H：内置查找/替换面板（对齐 MAUI Monaco）
+        _searchPanel = SearchPanel.Install(CodeEditor);
         _ = new EditorCompletion(CodeEditor, () => _program.Language);
         _bpMargin = new BreakpointMargin(() => _program.Breakpoints, ToggleBreakpoint);
         CodeEditor.TextArea.LeftMargins.Insert(0, _bpMargin);
@@ -268,6 +273,15 @@ public partial class ProgramEditorWindow : Window
 
     private void Save_Executed(object sender, ExecutedRoutedEventArgs e)
         => Save_Click(sender, e);
+
+    private void Find_Executed(object sender, ExecutedRoutedEventArgs e)
+        => Find_Click(sender, e);
+
+    private void Find_Click(object sender, RoutedEventArgs e)
+    {
+        CodeEditor.Focus();
+        _searchPanel?.Open();
+    }
 
     private void ToggleBreakpoint_Executed(object sender, ExecutedRoutedEventArgs e)
         => ToggleBreakpoint(_caretLine);
