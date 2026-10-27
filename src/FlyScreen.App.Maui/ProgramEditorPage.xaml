@@ -24,6 +24,10 @@
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
                 FontSize="18"
                 Clicked="Save_Clicked" ToolTipProperties.Text="保存" />
+        <Button x:Name="BtnFind" Style="{StaticResource SoftBlueBtn}"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
+                FontSize="16"
+                Clicked="Find_Clicked" ToolTipProperties.Text="查找 (Ctrl+F)" />
         <Button x:Name="BtnBuild" Style="{StaticResource SoftBlueBtn}"
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
                 FontSize="18"

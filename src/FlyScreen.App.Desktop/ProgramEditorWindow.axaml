@@ -11,6 +11,7 @@
         Foreground="{DynamicResource Text}">
   <Window.Resources>
     <StreamGeometry x:Key="GeoSave">M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoFind">M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z</StreamGeometry>
     <StreamGeometry x:Key="GeoBuild">M2,20L20,2L22,4L4,22L2,20M16.5,6.5L17.5,7.5L7.5,17.5L6.5,16.5L16.5,6.5M15,1L13,3L21,11L23,9L15,1Z</StreamGeometry>
     <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
     <StreamGeometry x:Key="GeoPause">M8,5H11V19H8V5M13,5H16V19H13V5Z</StreamGeometry>
@@ -86,6 +87,14 @@
                       <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoSave}"/>
                     </Viewbox>
                     <TextBlock x:Name="BtnSaveText" Text="保存" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnFind" Classes="editorTool" Click="Find_Click" ToolTip.Tip="查找 (Ctrl+F)">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoFind}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnFindText" Text="查找" VerticalAlignment="Center" FontSize="13"/>
                   </StackPanel>
                 </Button>
                 <Button x:Name="BtnBuild" Classes="editorTool" Click="Build_Click" ToolTip.Tip="生成">

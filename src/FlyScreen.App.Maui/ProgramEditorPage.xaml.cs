@@ -30,6 +30,7 @@ public partial class ProgramEditorPage : ContentPage
     private string? _pendingSource;
     private string _closeLabel = "关闭";
     private string _saveLabel = "保存";
+    private string _findLabel = "查找";
     private string _buildLabel = "生成";
     private string _debugLabel = "调试";
     private string _runLabel = "运行";
@@ -46,6 +47,7 @@ public partial class ProgramEditorPage : ContentPage
 
     // 通用字形：软盘、生成、运行、停止；调试钮用 Path（见 BtnDebugIcon）
     private const string IcSave = "💾";
+    private const string IcFind = "🔍";
     private const string IcBuild = "🔨";
     private const string IcRun = "▷";
     private const string IcStop = "■";
@@ -61,6 +63,7 @@ public partial class ProgramEditorPage : ContentPage
         Title = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
         _closeLabel = Loc.T("Prog.DlgCancel") == "取消" ? "关闭" : "Close";
         _saveLabel = Loc.T("Prog.Save");
+        _findLabel = Loc.T("Prog.Find");
         _buildLabel = Loc.T("Prog.Build");
         _debugLabel = Loc.T("Prog.Debug");
         _runLabel = Loc.T("Prog.Run");
@@ -68,6 +71,7 @@ public partial class ProgramEditorPage : ContentPage
         ApplyToolLabels(compact: false);
         ToolTipProperties.SetText(BtnClose, "关闭并返回");
         ToolTipProperties.SetText(BtnSave, _saveLabel);
+        ToolTipProperties.SetText(BtnFind, _findLabel + " (Ctrl+F)");
         ToolTipProperties.SetText(BtnBuild, _buildLabel);
         ToolTipProperties.SetText(BtnDebug, _debugLabel);
         ToolTipProperties.SetText(BtnRun, _runLabel);
@@ -460,12 +464,13 @@ public partial class ProgramEditorPage : ContentPage
         _toolsCompact = compact;
         BtnClose.Text = " ";
         BtnSave.Text = IcSave;
+        BtnFind.Text = IcFind;
         BtnBuild.Text = IcBuild;
         BtnDebug.Text = " ";
         BtnRun.Text = IcRun;
         BtnStop.Text = IcStop;
         BtnStop.TextColor = Color.FromArgb("#DC2626");
-        foreach (var b in new[] { BtnClose, BtnSave, BtnBuild, BtnDebug, BtnRun, BtnStop })
+        foreach (var b in new[] { BtnClose, BtnSave, BtnFind, BtnBuild, BtnDebug, BtnRun, BtnStop })
         {
             b.Padding = new Thickness(0);
             b.WidthRequest = 36;
@@ -537,6 +542,9 @@ public partial class ProgramEditorPage : ContentPage
         _catalog.SaveMeta(_program);
         AppLog.Info($"已保存程序「{_program.Name}」");
     }
+
+    private void Find_Clicked(object? sender, EventArgs e)
+        => MonacoAction("find");
 
     private async void Save_Clicked(object? sender, EventArgs e)
         => await SaveFromEditorAsync();
@@ -886,6 +894,7 @@ public partial class ProgramEditorPage : ContentPage
         MonacoAction(action);
         return true;
     }
+#endif
 
     private void MonacoType(string text)
     {
@@ -899,7 +908,6 @@ public partial class ProgramEditorPage : ContentPage
         var name = JsonSerializer.Serialize(action);
         EvalEditorJs($"window.flyEditorAction && window.flyEditorAction({name})");
     }
-#endif
 
     /// <summary>向 Monaco 注入脚本（Android 走原生 EvaluateJavascript，其它端走 HybridWebView）。</summary>
     private void EvalEditorJs(string script)

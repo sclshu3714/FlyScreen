@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit.Highlighting;
+using AvaloniaEdit.Search;
 using FlyScreen.DesktopUi.Editor;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
@@ -23,6 +24,7 @@ public partial class ProgramEditorWindow : Window
     private readonly ProgramRunner _runner;
     private readonly BreakpointMargin _bpMargin;
     private readonly DebugCurrentLineRenderer _debugLineRenderer = new();
+    private SearchPanel? _searchPanel;
     private LinuxClientChrome? _chrome;
     private int _caretLine = 1;
     private bool _toolModeUpdating;
@@ -57,6 +59,7 @@ public partial class ProgramEditorWindow : Window
             FontFamily = ff;
 
         SetTool(BtnSave, BtnSaveText, "Prog.Save");
+        SetTool(BtnFind, BtnFindText, "Prog.Find");
         SetTool(BtnBuild, BtnBuildText, "Prog.Build");
         SetTool(BtnDebug, BtnDebugText, "Prog.Debug");
         SetTool(BtnRun, BtnRunText, "Prog.Run");
@@ -71,6 +74,8 @@ public partial class ProgramEditorWindow : Window
         CodeEditor.Options.ConvertTabsToSpaces = true;
         CodeEditor.Text = _catalog.ReadSource(program);
         ApplyHighlighting();
+        // Ctrl+F / Ctrl+H：内置查找/替换面板（对齐 MAUI Monaco）
+        _searchPanel = SearchPanel.Install(CodeEditor);
         _ = new EditorCompletion(CodeEditor, () => _program.Language);
         _bpMargin = new BreakpointMargin(() => _program.Breakpoints, ToggleBreakpoint);
         CodeEditor.TextArea.LeftMargins.Insert(0, _bpMargin);
@@ -227,16 +232,24 @@ public partial class ProgramEditorWindow : Window
             return;
         _toolsCompact = compact;
         BtnSaveText.IsVisible = !compact;
+        BtnFindText.IsVisible = !compact;
         BtnBuildText.IsVisible = !compact;
         BtnDebugText.IsVisible = !compact;
         BtnRunText.IsVisible = !compact;
         BtnStopText.IsVisible = !compact;
         var pad = compact ? new Thickness(8, 0) : new Thickness(10, 0);
         BtnSave.Padding = pad;
+        BtnFind.Padding = pad;
         BtnBuild.Padding = pad;
         BtnDebug.Padding = pad;
         BtnRun.Padding = pad;
         BtnStop.Padding = pad;
+    }
+
+    private void Find_Click(object? sender, RoutedEventArgs e)
+    {
+        CodeEditor.Focus();
+        _searchPanel?.Open();
     }
 
     private void RefreshBpHint()
@@ -328,6 +341,14 @@ public partial class ProgramEditorWindow : Window
         if (e.Key == Key.S && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             Save_Click(sender, new RoutedEventArgs());
+            e.Handled = true;
+            return;
+        }
+        // Ctrl+F：打开查找
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            Find_Click(sender, new RoutedEventArgs());
             e.Handled = true;
             return;
         }

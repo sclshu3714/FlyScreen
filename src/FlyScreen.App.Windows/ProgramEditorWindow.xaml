@@ -30,6 +30,7 @@
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     </Style>
     <Geometry x:Key="GeoSave">M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z</Geometry>
+    <Geometry x:Key="GeoFind">M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z</Geometry>
     <!-- 生成：锤子 -->
     <Geometry x:Key="GeoBuild">M2,20L20,2L22,4L4,22L2,20M16.5,6.5L17.5,7.5L7.5,17.5L6.5,16.5L16.5,6.5M15,1L13,3L21,11L23,9L15,1Z</Geometry>
     <!-- 调试：实心三角 -->
@@ -126,6 +127,7 @@
   </Window.Resources>
   <Window.InputBindings>
     <KeyBinding Key="S" Modifiers="Control" Command="{x:Static ApplicationCommands.Save}"/>
+    <KeyBinding Key="F" Modifiers="Control" Command="{x:Static ApplicationCommands.Find}"/>
     <KeyBinding Key="F" Modifiers="Shift+Alt" Command="{x:Static local:ProgramEditorWindow.FormatCommand}"/>
     <KeyBinding Key="F9" Command="{x:Static local:ProgramEditorWindow.ToggleBreakpointCommand}"/>
     <KeyBinding Key="F10" Command="{x:Static local:ProgramEditorWindow.StepOverCommand}"/>
@@ -133,6 +135,7 @@
   </Window.InputBindings>
   <Window.CommandBindings>
     <CommandBinding Command="{x:Static ApplicationCommands.Save}" Executed="Save_Executed"/>
+    <CommandBinding Command="{x:Static ApplicationCommands.Find}" Executed="Find_Executed"/>
     <CommandBinding Command="{x:Static local:ProgramEditorWindow.FormatCommand}" Executed="Format_Executed"/>
     <CommandBinding Command="{x:Static local:ProgramEditorWindow.ToggleBreakpointCommand}" Executed="ToggleBreakpoint_Executed"/>
     <CommandBinding Command="{x:Static local:ProgramEditorWindow.StepOverCommand}" Executed="StepOver_Executed"/>
@@ -152,6 +155,14 @@
                   <Path Data="{StaticResource GeoSave}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                 </Viewbox>
                 <TextBlock x:Name="BtnSaveText" Text="保存" Style="{StaticResource EditorToolLabel}"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="BtnFind" Style="{StaticResource EditorToolBtn}" Click="Find_Click" ToolTip="查找 (Ctrl+F)">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Viewbox Style="{StaticResource EditorToolIcon}">
+                  <Path Data="{StaticResource GeoFind}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                </Viewbox>
+                <TextBlock x:Name="BtnFindText" Text="查找" Style="{StaticResource EditorToolLabel}"/>
               </StackPanel>
             </Button>
             <Button x:Name="BtnBuild" Style="{StaticResource EditorToolBtn}" Click="Build_Click" ToolTip="生成">

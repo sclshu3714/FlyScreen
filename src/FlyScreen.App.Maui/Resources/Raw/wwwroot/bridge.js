@@ -114,6 +114,13 @@
           if (isSuggestVisible())
             editor.trigger('keyboard', 'hideSuggestWidget', {});
           break;
+        case 'find':
+          // Ctrl+F / 工具栏「查找」：打开 Monaco 查找控件
+          editor.getAction('actions.find')?.run();
+          break;
+        case 'findReplace':
+          editor.getAction('editor.action.startFindReplaceAction')?.run();
+          break;
         default: return false;
       }
       reportCaret();
