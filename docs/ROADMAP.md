@@ -379,7 +379,8 @@ src/
 4. ~~Android：触控板 AbsPointer + 文本剪贴板 + 直传；Phone 启动分流。~~ ✅
 5. ~~侧栏 Path 彩标、安全/关于/帮助页、窄屏抽屉与 Android 侧栏可点。~~ ✅
 6. ~~触控板左键/中键、键盘直发；AbsPointer 门控对齐 Win/MAUI/Linux/Mac；无障碍被控；Signed APK 兜底。~~ ✅（2026-10-16）
-7. ⏳ Windows / Android 与 WPF 真机交叉联调打磨；文件剪贴板 OLE；无障碍键码完整度  
+7. ~~用户程序：三端编辑器 + Android `Fly`（无障碍/OCR/手势）+ `ProgramShare` 同 Id 覆盖。~~ ✅（2026-10）；细节 [programs-android.md](runbooks/programs-android.md)
+8. ⏳ Windows / Android 与 WPF 真机交叉联调打磨；文件剪贴板 OLE；无障碍键码完整度；OCR 安全层场景  
 
 
 #### 不做
@@ -462,3 +463,4 @@ src/
 | 2026-10-14 | 1.1 | 增补 W7：.NET MAUI 跨平台 UI（`FlyScreen.App.Maui`） |
 | 2026-10-14 | 1.1.1 | W7 TFM 对齐 net10 + 补装 macos workload，消除 MSB4019 AutoImport |
 | 2026-10-15 | 1.2 | 三端 UI 同构：七页导航、安全页密钥、关于/帮助页内化、Path 侧栏；W6/W7 进度与验收更新 |
+| 2026-10-27 | 1.2.1 | W7：用户程序 Fly/OCR 文档化；Publish.MauiWin 仅 Windows TFM 说明 |

@@ -10,7 +10,7 @@
 | 项目 | rid | 最终包形态 |
 |------|-----|------------|
 | `FlyScreen.Publish.Win` | `win-x64` | `.exe`（WPF stable） |
-| `FlyScreen.Publish.MauiWin` | `maui-win-x64` | `.exe` |
+| `FlyScreen.Publish.MauiWin` | `maui-win-x64` | `.exe`（内部 `-p:FlyScreenMauiTfms=windows`，不要求本机装齐 android workload） |
 | `FlyScreen.Publish.MauiAndroid` | `maui-android` | `.apk` |
 | `FlyScreen.Publish.Linux` | `linux-x64` | 无扩展名可执行文件 |
 | `FlyScreen.Publish.Mac` | `osx-arm64` | 无扩展名可执行（**仅 macOS**） |

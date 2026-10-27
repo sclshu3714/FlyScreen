@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |----|------|
 | 基准 | **Windows Desktop**（`FlyScreen.App.Windows`，stable 唯一交付） |
-| 统计日 | 2026-10-19 |
+| 统计日 | 2026-10-27 |
 | 图例 | **完整** = 与 Win 对标可用 · **骨架** = 工程/协议已通、主路径未齐 · **占位** = API/UI 有入口未落地 · **—** = 非本阶段目标 · **❌** = 明确不做 |
 
 相对完成度按「对标 Win 的必达能力」粗算，仅供排期，非精确工时。
@@ -19,12 +19,12 @@
 | Linux X11 | W2 | `Linux` + `App.Linux` | **~45%** | GUI + 文本剪贴板/直传/Inbox；CLI `send`/`inbox`/`clip`；无边缘捕获 |
 | Linux Wayland | W2 | 同上 | **~35%** | 同 X11 传输路径；无 EdgeMouse；注入占位 |
 | Linux 无头 | W2 | 同上 | **~35%** | CLI/Daemon：直传落盘 + 文本宣告；无系统粘贴、无键鼠 |
-| Android Phone/Tablet | W3 / W7 | `App.Maui`（主）+ `mobile/android` | **~55%** | MAUI：触控板/键盘直发、剪贴板文本、直传；可选无障碍被桌面控；Kotlin 工程仍骨架 |
+| Android Phone/Tablet | W3 / W7 | `App.Maui`（主）+ `mobile/android` | **~65%** | MAUI：触控板/键盘/剪贴板/直传；无障碍被控 + **用户程序 Fly/OCR**；Kotlin 工程仍骨架 |
 | Android TV | W4 | — | **0%** | 未开工 |
 | 鸿蒙手机/平板 | W5a | `mobile/harmony/phone` | **~30%** | ArkTS 触控板壳 + 共享连接层；剪贴板/文件未做 |
 | 鸿蒙电脑 | W5b | `mobile/harmony/desktop` | **~20%** | 设置/槽位壳 + Caps；无注入/捕获/布局同步 |
 | 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~65%** | Mac/Linux 共用壳；七页/高级三列/安全工具栏/传输列表/程序编辑器与 Win 对齐；Linux 自绘标题栏 + 收件箱打开 |
-| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~80%** | Win DesktopFull + Android 触控板/键盘/剪贴板/直传 + 无障碍被控；UI 与 Win 对齐 |
+| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~85%** | Win DesktopFull + Android 触控板/剪贴板/直传/无障碍被控 + **用户程序**；UI 与 Win 对齐 |
 
 ---
 
@@ -69,6 +69,9 @@
 | 文件接收（DirectTransfer） | 完整 | ✅ | — |
 | Desktop → Phone（Easy Mouse） | 桌面发送 | ⚠️ 须开「玄鸟键鼠注入」无障碍；点击/滑动为主 | ❌ |
 | LayoutSync | 桌面能力 | ❌ 不宣告 | ❌ |
+| 用户程序（本机自动化） | 编辑/共享 ✅；设备控制 ❌ | ✅ `Fly.*`（HasText/OCR/手势）；须无障碍 | — |
+
+详见 [runbooks/programs-android.md](runbooks/programs-android.md)。
 
 ---
 
@@ -84,8 +87,9 @@
 | Mac/Linux/Android/鸿蒙/MAUI 构建 runbook | ✅ |
 | Android TV（W4） | ❌ 未开始 |
 | Avalonia 统一桌面（W6） | 推进中（`App.Desktop`：七页 + 高级/安全/共享/程序 UI 对齐；Linux 标题栏与 Inbox；键鼠主路径仍骨架） |
-| MAUI 跨平台 UI（W7） | 推进中（`App.Maui` + `MauiAppHost`；UI 与 Win 同构，能力接线见上表） |
-| 三端 UI 信息架构 | ✅ Win / Desktop / MAUI：基础·网络·共享·安全·高级·关于·帮助；密钥在安全页；关于/帮助为页非对话框 |
+| MAUI 跨平台 UI（W7） | 推进中（`App.Maui` + `MauiAppHost`；UI 与 Win 同构；Android 用户程序已接线） |
+| 用户程序 / Fly | ✅ 三端编辑+共享；设备控制仅 Android（见 [programs-android.md](runbooks/programs-android.md)） |
+| 三端 UI 信息架构 | ✅ Win / Desktop / MAUI：基础·网络·共享·安全·高级·关于·帮助 + 程序；密钥在安全页；关于/帮助为页非对话框 |
 
 ---
 
@@ -96,12 +100,12 @@
 | W0 | Core 拆分 + Caps 地基 | **100%** | 拆分 + 握手 Caps 协商门控 + 单测；Adapter 深迁非阻塞 |
 | W1 | macOS | **~45%** | 剪贴板文本 + 直传/Inbox；键鼠主路径未齐 |
 | W2 | Linux | **~45%** | GUI/CLI 传输路径；键鼠主路径未齐 |
-| W3 | Android 手机/平板 | **~55%** | MAUI 主路径可用；Kotlin 独立工程仍骨架 |
+| W3 | Android 手机/平板 | **~65%** | MAUI 主路径 + 用户程序；Kotlin 独立工程仍骨架 |
 | W4 | Android TV | **0%** | — |
 | W5a | 鸿蒙手机/平板 | **~30%** | 对标 W3 骨架级 |
 | W5b | 鸿蒙电脑 | **~20%** | 壳 + 降级 Caps；无桌面键鼠 |
 | W6 | Avalonia 统一桌面 UI | **~65%** | 共用壳 + 直传；高级三列/安全工具栏/传输列/程序编辑与 Win 对齐；键鼠主路径未齐 |
-| W7 | MAUI 跨平台 UI | **~80%** | AbsPointer 四端对齐；Android 无障碍被控 + 签名 APK 兜底；OLE/真机打磨仍待 |
+| W7 | MAUI 跨平台 UI | **~85%** | AbsPointer + 无障碍被控 + 用户程序 Fly/OCR；签名 APK；OLE/真机打磨仍待 |
 
 ---
 
@@ -120,6 +124,7 @@
 
 | 日期 | 说明 |
 |------|------|
+| 2026-10-27 | 用户程序：Android Fly/OCR/DrawRect、程序共享同 Id 覆盖；文档 [programs-android.md](runbooks/programs-android.md)；Publish.MauiWin 仅 Windows TFM |
 | 2026-10-19 | 三端：高级功能/行为/穿边三列（窄屏堆叠）；安全「生成密钥」上工具栏；共享传输列对齐；Desktop Linux 自绘标题栏、WSL/sudo 打开收件箱、程序断点/关窗停进程 |
 | 2026-10-14 | 首版：以 Win 为基准汇总 W0–W5 骨架进度 |
 | 2026-10-14 | W0 收口 100%：Caps 协商门控 + Core.Tests |

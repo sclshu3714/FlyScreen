@@ -74,6 +74,11 @@
 - [ ] 手机触控板：滑动移光标；轻点=左键；中区轻点=中键；系统键盘输入出现在本机（AbsPointer / SwitchFocus）
 - [ ] `dotnet test tests/FlyScreen.Core.Tests` 通过（握手 / Caps 交集；`AndroidMobile` 含 EdgeMouse/Inject、无 LayoutSync）
 
+## I. 用户程序（抽样，非 Win stable 硬门禁）
+
+- [ ] Win / MAUI：可添加 C# 程序、运行看到日志；「共享」到已连接 Android 后，同 Id 源码被覆盖
+- [ ] Android：无障碍开启后 `Fly.Ready`；简单 `HasText`/`Swipe` 脚本可跑（细节 [programs-android.md](programs-android.md)）
+
 ## 结论
 
 - [ ✔ ] **通过** — 允许打 tag / 发 stable  
