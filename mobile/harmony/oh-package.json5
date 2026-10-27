@@ -1,0 +1,12 @@
+{
+  "name": "flyscreen-harmony",
+  "version": "1.6.0",
+  "description": "玄鸟 FlyScreen — 鸿蒙手机/平板/电脑（W5）",
+  "main": "",
+  "author": "sclshu3714",
+  "license": "UNLICENSED",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.16"
+  }
+}

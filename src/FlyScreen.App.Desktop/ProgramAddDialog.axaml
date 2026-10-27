@@ -1,0 +1,71 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ProgramAddDialog"
+        Title="添加程序"
+        Width="440" Height="440"
+        MinWidth="360" MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        SizeToContent="Height"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}">
+  <Window.Styles>
+    <Style Selector="Button.titleBtn">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Width" Value="40"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+  </Window.Styles>
+
+  <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
+    <DockPanel>
+      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
+              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
+        <Grid ColumnDefinitions="*,Auto" Margin="12,0,4,0">
+          <TextBlock x:Name="ClientTitleText" Text="添加程序" FontSize="13" FontWeight="SemiBold"
+                     VerticalAlignment="Center" IsHitTestVisible="False"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+            <Button x:Name="TitleCloseBtn" Classes="titleBtn" Content="×"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="100,*">
+        <TextBlock x:Name="LblName" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBox x:Name="NameBox" Grid.Column="1" Margin="0,0,0,10" Height="28" TextChanged="NameBox_TextChanged"/>
+
+        <TextBlock x:Name="LblLang" Grid.Row="1" Text="开发语言" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,10" LastChildFill="True">
+          <Button x:Name="DetectBtn" DockPanel.Dock="Right" Content="环境检测" MinWidth="88" Height="32"
+                  Margin="8,0,0,0" VerticalAlignment="Center" Click="Detect_Click"/>
+          <ComboBox x:Name="LangCombo" Height="28" VerticalAlignment="Center"
+                    SelectionChanged="LangCombo_SelectionChanged"/>
+        </DockPanel>
+
+        <TextBlock x:Name="LblNs" Grid.Row="2" Text="命名空间" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBox x:Name="NamespaceBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
+
+        <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
+
+        <!-- 检查结果：文件名称下方，不弹窗 -->
+        <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,12" Spacing="6">
+          <TextBlock x:Name="DetectStatus" FontSize="12" TextWrapping="Wrap"
+                     Foreground="{DynamicResource Muted}"/>
+          <StackPanel x:Name="DetectActions" Orientation="Horizontal" Spacing="8" IsVisible="False">
+            <Button x:Name="DetectAutoBtn" Content="自动修复" MinWidth="88" Height="28" Click="DetectAuto_Click"/>
+            <Button x:Name="DetectOpenBtn" Content="打开安装页" MinWidth="88" Height="28" Click="DetectOpen_Click"/>
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button x:Name="CancelBtn" Content="取消" MinWidth="88" Height="32" Click="Cancel_Click"/>
+          <Button x:Name="SaveBtn" Content="保存" MinWidth="88" Height="32" Classes="accent" Click="Save_Click"/>
+        </StackPanel>
+      </Grid>
+    </DockPanel>
+  </Border>
+</Window>
