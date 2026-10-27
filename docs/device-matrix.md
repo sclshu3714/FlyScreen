@@ -62,7 +62,8 @@
 1. **Desktop ↔ Desktop**：完整键鼠 + 布局（Wayland 除外）。  
 2. **Phone/Tablet → Desktop**：触控板控键鼠 + 文本剪贴板 + 文件接收（MAUI：系统输入法直发对端）。  
 3. **Tv → Desktop**：方向键 / 简易指针遥控。  
-4. **Desktop → Phone**：MAUI Android 在开启无障碍后支持 Easy Mouse 切入与点击/滑动；完整键盘注入仍为降级。
+4. **Desktop → Phone**：MAUI Android 在开启无障碍后支持 Easy Mouse 切入与点击/滑动；完整键盘注入仍为降级。  
+5. **本机用户程序（非 Caps）**：MAUI Android 可在无障碍就绪后运行脚本（`Fly.HasText` / `Ocr` / 手势等）；不参与握手能力位。见 [programs-android.md](runbooks/programs-android.md)。
 
 ## 4. 布局与槽位
 
@@ -97,3 +98,4 @@
 | 2026-10-13 | 首版 |
 | 2026-10-14 | Mac/Linux 桌面 ClipboardFiles+DirectTransfer 落地；无头仅直传+文本通道 |
 | 2026-10-16 | MAUI Android：`AndroidMobile` 含 EdgeMouse/InjectInput；无障碍注入；触控板 AbsPointer 主路径完善 |
+| 2026-10-27 | 补充本机用户程序（Fly/OCR）说明；非 Caps |

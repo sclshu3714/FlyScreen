@@ -24,6 +24,10 @@
 | 文件直传 / 收件箱 | ✅ | ✅ | ⏳ |
 | 托盘 / 开机自启 | ✅ | ❌ | ❌ |
 | 触控板控桌面 | — | ✅ `PhoneTouchpadPage` | — |
+| 用户程序编辑 / 共享 | ✅ | ✅ | ✅ UI |
+| 用户程序设备控制（`Fly.*`） | ❌（无注入实现） | ✅ 无障碍 + OCR + 手势 | ❌ |
+
+用户程序 / Fly / OCR 细节见 [programs-android.md](programs-android.md)。
 
 ### Android 触控板（`PhoneTouchpadPage`）
 
@@ -60,12 +64,16 @@
 dotnet build ... -p:FlyScreenMauiTfms=windows
 ```
 
+> **`FlyScreen.Publish.MauiWin`** 已在内部传入 `-p:FlyScreenMauiTfms=windows`，避免评估 `net10.0-android` 时因工作负载不全出现 `NETSDK1147`。手工 `dotnet publish` Windows 包时请同样带上该属性。
+
 ## 前置
 
 ```powershell
 dotnet workload install maui
 dotnet workload list
 ```
+
+若出现 `MSB4019` 找不到 `Microsoft.macOS.Sdk.*.AutoImport.props`，多为本机 macos 工作负载清单与包不一致，可执行 `dotnet workload install macos` 或 `dotnet workload update` 后**重启 Visual Studio**（与是否编 Mac 无关，损坏的 AutoImport 会影响任意 `Microsoft.NET.Sdk` 项目）。
 
 - **Android**：本机 MSVC + Android SDK  
 - **iOS / Mac Catalyst**：真机或模拟器调试需配对 Mac；Windows 上仍可出现调试项，部署到设备须 Mac
@@ -134,9 +142,10 @@ CLI 仍可用：`Publish-FlyScreenMaui.ps1 -Platforms Windows` 等。
 脚本内部等价命令：
 
 ```powershell
-# Windows 自包含单文件（RuntimeIdentifierOverride 为官方推荐）
+# Windows 自包含单文件（须 FlyScreenMauiTfms=windows，与 Publish.MauiWin 一致）
 dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
   -f net10.0-windows10.0.19041.0 `
+  -p:FlyScreenMauiTfms=windows `
   -p:RuntimeIdentifierOverride=win-x64 `
   -p:WindowsPackageType=None `
   -p:WindowsAppSDKSelfContained=true `
@@ -200,15 +209,23 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 | 关于 | 版本与说明（页内，非对话框） |
 | 帮助 | 工具栏：帮助文本 / 检查更新 / 问题检查；日志区 |
 
+另有 **程序** 列表 / 编辑器（与 Win、Desktop 对齐）：运行、调试、共享；Android 上可调用 `Fly.*`。见 [programs-android.md](programs-android.md)。
+
 **窄屏 / 手机（非触控板专用 Phone 入口）：** 顶栏汉堡 + 抽屉侧栏；主区全宽，避免挤压。侧栏用底层 `Button` 命中 + 上层 Path/Label 展示，保证 Android 可点。
 
 ## 架构要点
 
-- `MauiAppHost`：连接、布局同步、`FileTransferService`、对端键鼠消息分发。
+- `MauiAppHost`：连接、布局同步、`FileTransferService`、对端键鼠消息分发、程序目录。
 - `IMauiPlatformServices`：Windows / Android 分别实现；Mac Catalyst 暂用 `NullMauiPlatformServices`。
-- Windows 适配位于 `Platforms/Windows/`；Android 位于 `Platforms/Android/`；Mac Catalyst 入口位于 `Platforms/MacCatalyst/`。
+- Windows 适配位于 `Platforms/Windows/`；Android 位于 `Platforms/Android/`（含无障碍自动化、OCR、DrawRect、`AndroidProgramDeviceControl`）；Mac Catalyst 入口位于 `Platforms/MacCatalyst/`。
 - Phone：`App` 启动 `PhoneTouchpadPage`；桌面 / 平板启动 `AppShell`→`MainPage`。
 
 ## CI
 
 `build-maui` 失败**不得** fail `build-win`。
+
+## 修订记录
+
+| 日期 | 说明 |
+|------|------|
+| 2026-10-27 | 用户程序 / Fly；Publish.MauiWin 的 `FlyScreenMauiTfms=windows`；macos AutoImport 损坏提示 |

@@ -18,7 +18,7 @@
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
 当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
-MAUI Android：触控板/键盘控桌面；桌面控手机需开启「玄鸟键鼠注入」无障碍服务（详见 [docs/status.md](docs/status.md)）。
+MAUI Android：触控板/键盘控桌面；桌面控手机与**用户程序（Fly API / OCR）**均需开启「玄鸟键鼠注入」无障碍（详见 [docs/status.md](docs/status.md)、[docs/runbooks/programs-android.md](docs/runbooks/programs-android.md)）。
 
 ## 相对 Mouse without Borders 的改进
 
