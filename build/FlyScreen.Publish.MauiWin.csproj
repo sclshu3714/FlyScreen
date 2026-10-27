@@ -89,7 +89,8 @@ $manifestDir = 'src\FlyScreen.App.Maui\obj\Release\net10.0-windows10.0.19041.0\w
 if (Test-Path -LiteralPath $manifestDir) {
     Remove-Item -LiteralPath (Join-Path $manifestDir 'app.manifest'), (Join-Path $manifestDir 'WindowsAppSDK.manifest') -Force -ErrorAction SilentlyContinue
 }
-& dotnet publish 'src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj' -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true "-p:CustomAfterMicrosoftCommonTargets=$TargetsPath" "-p:FlyScreenMauiWinDedupeScript=$DedupeScript" -o 'src\FlyScreen.App.Maui\bin\publish\maui-win-x64'
+# -p:FlyScreenMauiTfms=windows：只用 Windows TFM，避免评估 android 触发 NETSDK1147
+& dotnet publish 'src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj' -c Release -f net10.0-windows10.0.19041.0 -p:FlyScreenMauiTfms=windows -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=false -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true "-p:CustomAfterMicrosoftCommonTargets=$TargetsPath" "-p:FlyScreenMauiWinDedupeScript=$DedupeScript" -o 'src\FlyScreen.App.Maui\bin\publish\maui-win-x64'
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ]]></_FsMauiWinScriptBody>
   </PropertyGroup>
