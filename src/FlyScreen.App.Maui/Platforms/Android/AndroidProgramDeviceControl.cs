@@ -28,6 +28,9 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
     public int DisplayRotationDegrees
         => Svc?.GetDisplayRotationDegrees() ?? 0;
 
+    public bool? UiIsLandscape
+        => Svc?.GetUiIsLandscape();
+
     public bool ContainsText(string text)
         => Svc?.ContainsVisibleText(text) == true;
 

@@ -28,7 +28,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 标注示例见嵌入源码 `Services/Programs/Builtin/generic_swipe_main.cs`。
 
-运行流水线：**HasText（swipeHints）→（当前朝向已标定识别区才）OCR → 若文案含倒计时（如 `7s后可继续上滑观看` / `N秒`）则先等待 N 秒 → 操作区执行**（未标定操作区则竖/横屏均用屏幕中央）。宽&gt;高为横屏用 `*Landscape`，否则 `*Portrait`；横/竖互不借用对方标定。
+运行流水线：**HasText（swipeHints）→（当前朝向已标定识别区才）OCR → 若文案含倒计时（如 `7s后可继续上滑观看` / `N秒`）则先等待 N 秒 → 操作区执行**（未标定操作区则竖/横屏均用屏幕中央）。宽&gt;高为横屏用 `*Landscape`，否则 `*Portrait`；横/竖互不借用对方标定。竖屏或横屏未标定识别区时该朝向不做 OCR；两侧都未标定等价于未启用 OCR（仅 HasText）。
 
 **触发后再识别：** 执行成功后 `coolUntil` **2.5s** + `Delay(800ms)`≈**3.3s** 内不会再次执行；且须提示文案先消失（`tipArmed`）后再次出现才会再滑。未命中时约每 **1s** 轮询一次 OCR/HasText。
 
@@ -89,6 +89,9 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 | 日期 | 说明 |
 |------|------|
+| 2026-10-28 | 内置源 v8：横/竖各自未标定则该朝向不做 OCR；两侧都未标定 ≈ 关闭 OCR；`HasAnyOcrRegionConfigured` |
+| 2026-10-28 | 内置源 v7：竖屏未标定绝不跑 OCR；朝向优先 Configuration，纠正 GetRealSize 误判横屏 |
+| 2026-10-28 | 内置源 v6：倒计时改手写解析（脚本无 Regex 程序集会 CS1069）；编译器补 `System.Text.RegularExpressions` 引用 |
 | 2026-10-28 | 内置源 v5：OCR/文案含 `Ns`/`N秒` 时等满再操作；说明触发后再识别间隔 |
 | 2026-10-27 | 调试框按归一化存储，旋转后 Relayout；内置源 v6 |
 | 2026-10-27 | 四向放置说明：竖反/横反共用竖/横两套键；日志带 DisplayRotation；内置源 v5 |

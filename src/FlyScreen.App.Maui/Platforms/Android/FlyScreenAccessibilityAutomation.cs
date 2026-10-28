@@ -4,7 +4,9 @@ using Android.Graphics;
 using Android.OS;
 using Android.Views;
 using Android.Views.Accessibility;
+using FlyScreen.Services.Programs;
 using Path = Android.Graphics.Path;
+using ResOrientation = Android.Content.Res.Orientation;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
 
@@ -63,6 +65,26 @@ public sealed partial class FlyScreenInputAccessibilityService
         {
             return 0;
         }
+    }
+
+    /// <summary>
+    /// 系统 UI 朝向是否横屏。优先 <see cref="Android.Content.Res.Orientation"/>，
+    /// 避免 GetRealSize 滞后时把竖屏误判成横屏（从而误用横屏 OCR 区）。
+    /// </summary>
+    public bool? GetUiIsLandscape()
+    {
+        try
+        {
+            var orient = Resources?.Configuration?.Orientation;
+            if (orient == ResOrientation.Landscape) return true;
+            if (orient == ResOrientation.Portrait) return false;
+        }
+        catch { /* ignore */ }
+
+        RefreshScreenSize();
+        if (_screenW > 0 && _screenH > 0)
+            return ProgramRegionKeys.IsLandscape(_screenW, _screenH);
+        return null;
     }
 
     public bool ContainsVisibleText(string text)

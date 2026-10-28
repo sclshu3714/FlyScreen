@@ -12,9 +12,9 @@
 // rect actionRegionLandscape | 横屏操作区 |
 // @fly-settings-end
 //
-// 内置通用识别操作 v5：HasText →（当前朝向已标定识别区才）OCR → 若文案含「7s / 7秒」则等满秒数 → 操作区执行。
-// 横/竖识别区、操作区互不回退。debugOcr：非目标红 / 目标蓝 / 命中绿；操作中操作区绿。
-// 触发成功后 coolUntil≈2.5s + Delay(800ms)，提示消失后 tipArmed 再开，才会再次识别执行。
+// 内置通用识别操作 v8：HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满再操作。
+// 横/竖识别区互不回退；当前朝向未标定则不做 OCR。两侧都未标定 ≈ 未启用 OCR。
+// debugOcr：非目标红 / 目标蓝 / 命中绿。触发成功后 coolUntil≈2.5s + Delay(800ms)。
 
 Console.WriteLine("=== 通用识别操作（内置） ===");
 Console.WriteLine($"时间 {DateTime.Now:HH:mm:ss}  Ready={Fly.Ready}  App={Fly.App}");
@@ -27,6 +27,12 @@ if (!Fly.Ready)
 }
 
 var enableOcr = Fly.GetBool("enableOcr", true);
+// 竖屏+横屏识别区都未标定：没有可 OCR 的区域，等同关闭 OCR
+if (enableOcr && !Fly.HasAnyOcrRegionConfigured())
+{
+    enableOcr = false;
+    Console.WriteLine("竖屏/横屏识别区均未标定 → 等价未启用 OCR（仅 HasText）");
+}
 var debugOcr = enableOcr && Fly.GetBool("debugOcr", false);
 var debugLog = Fly.GetBool("debugLog", false);
 var appHints = Fly.GetStringList("appHints");
@@ -50,6 +56,7 @@ const uint ColorGreen = 0xFF4CAF50u;
 Console.WriteLine($"设置 enableOcr={enableOcr} debugOcr={debugOcr} debugLog={debugLog} action={action} longPressSec={longPressSec}");
 Console.WriteLine($"竖屏识别={Fly.GetString("ocrRegionPortrait")} 竖屏操作={Fly.GetString("actionRegionPortrait")}");
 Console.WriteLine($"横屏识别={Fly.GetString("ocrRegionLandscape")} 横屏操作={Fly.GetString("actionRegionLandscape")}");
+Console.WriteLine($"当前朝向={(Fly.IsLandscape ? "横屏" : "竖屏")} {Fly.ScreenWidth}x{Fly.ScreenHeight} Rotation={Fly.DisplayRotation} 本朝向识别区已标定={Fly.HasOcrRegionConfigured()} 任一识别区={Fly.HasAnyOcrRegionConfigured()} key={Fly.CurrentOcrRegionKey()}");
 
 static string Compact(string? s)
 {
@@ -90,38 +97,63 @@ string? FindHitA11y()
     return null;
 }
 
-/// <summary>从 OCR/无障碍文案解析倒计时秒数。「7s后可继续上滑观看」「3秒后…」；无则 0。上限 30。</summary>
+/// <summary>从 OCR/无障碍文案解析倒计时秒数。「7s后可继续上滑观看」「3秒后…」；无则 0。上限 30。
+/// 不用 Regex：手机 Roslyn 脚本默认未引用 System.Text.RegularExpressions。</summary>
 static int TryParseCountdownSec(string? raw)
 {
     if (string.IsNullOrWhiteSpace(raw)) return 0;
     var c = Compact(raw);
-    // 优先拉丁 s：7s后可继续上滑观看
-    var m = System.Text.RegularExpressions.Regex.Match(c, @"(\d{1,2})\s*[sS](?![a-zA-Z])");
-    if (!m.Success)
-        m = System.Text.RegularExpressions.Regex.Match(c, @"(\d{1,2})\s*秒");
-    if (!m.Success) return 0;
-    if (!int.TryParse(m.Groups[1].Value, out var sec)) return 0;
-    return Math.Clamp(sec, 0, 30);
+    static bool IsDigit(char ch) => ch >= '0' && ch <= '9';
+    static bool IsLetter(char ch) => (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+    for (var i = 0; i < c.Length; i++)
+    {
+        if (!IsDigit(c[i])) continue;
+        var j = i;
+        while (j < c.Length && IsDigit(c[j])) j++;
+        var len = j - i;
+        if (len is < 1 or > 2)
+        {
+            i = j - 1;
+            continue;
+        }
+        if (!int.TryParse(c.Substring(i, len), out var sec))
+        {
+            i = j - 1;
+            continue;
+        }
+        // 「7s」「7S」后不可再跟英文字母（避免误伤）
+        if (j < c.Length && (c[j] is 's' or 'S')
+            && (j + 1 >= c.Length || !IsLetter(c[j + 1])))
+            return Math.Clamp(sec, 0, 30);
+        // 「7秒」
+        if (j < c.Length && c[j] == '秒')
+            return Math.Clamp(sec, 0, 30);
+        i = j - 1;
+    }
+    return 0;
 }
+
+var skipOcrLog = 0;
 
 /// <returns>hit=匹配到的提示；raw=OCR 原文（供解析倒计时）。</returns>
 (string? hit, string raw) FindHitOcr()
 {
+    // enableOcr 已在启动时按「是否有任一识别区」收紧；此处再按当前朝向把关
     if (!enableOcr) return (null, "");
-    // 当前朝向未标定识别区：不做 OCR，只靠 HasText
     if (!Fly.HasOcrRegionConfigured())
     {
-        if (debugOcr || debugLog)
+        skipOcrLog++;
+        if (skipOcrLog == 1 || skipOcrLog % 15 == 0)
         {
             var orient = Fly.IsLandscape ? "横屏" : "竖屏";
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {orient}识别区未标定，跳过OCR（仅 HasText）");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {orient}识别区未标定，跳过OCR（仅 HasText）{Fly.ScreenWidth}x{Fly.ScreenHeight} rot={Fly.DisplayRotation}");
         }
         return (null, "");
     }
 
     var ocrKey = Fly.CurrentOcrRegionKey();
     var ocr = (Fly.OcrSettingRegion(ocrKey) ?? "").Trim();
-    if (debugOcr)
+    if (debugOcr || debugLog)
     {
         var orient = Fly.IsLandscape ? "横屏" : "竖屏";
         var preview = ocr.Length == 0 ? "" : (ocr.Length <= 80 ? ocr : ocr.Substring(0, 80) + "…");

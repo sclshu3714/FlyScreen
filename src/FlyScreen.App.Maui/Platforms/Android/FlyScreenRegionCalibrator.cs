@@ -549,6 +549,7 @@ public static class FlyScreenRegionCalibrator
                 {
                     _screenW = size.X;
                     _screenH = size.Y;
+                    AlignWithConfiguration();
                     return;
                 }
             }
@@ -560,6 +561,21 @@ public static class FlyScreenRegionCalibrator
                 _screenW = dm.WidthPixels;
                 _screenH = dm.HeightPixels;
             }
+            AlignWithConfiguration();
+        }
+
+        private void AlignWithConfiguration()
+        {
+            try
+            {
+                var orient = _appCtx.Resources?.Configuration?.Orientation
+                             ?? global::Android.Content.Res.Orientation.Undefined;
+                if (orient == global::Android.Content.Res.Orientation.Portrait && _screenW > _screenH)
+                    (_screenW, _screenH) = (_screenH, _screenW);
+                else if (orient == global::Android.Content.Res.Orientation.Landscape && _screenW < _screenH)
+                    (_screenW, _screenH) = (_screenH, _screenW);
+            }
+            catch { /* ignore */ }
         }
 
         private Context? TryOverlayContext(int overlayType)
