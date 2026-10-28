@@ -13,6 +13,9 @@ public static class MauiProgram
         builder.UseMauiApp<App>();
 
 #if ANDROID
+        // 日志/程序/收件箱 → Android/data/com.xuanniao.flyscreen/files（无需所有文件访问）
+        Platforms.Android.AndroidPublicDataRoot.TryBootstrap();
+
         // 触控板「键盘」条：允许系统拼音候选（勿用 NoSuggestions）
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenPhoneIme", (handler, view) =>
         {
@@ -109,6 +112,7 @@ public static class MauiProgram
             host.Settings, host.Transfers));
         // 用户程序 Fly.* 控机：无障碍服务连上后也会再设一次
         ProgramDevice.Current = Platforms.Android.AndroidProgramDeviceControl.Instance;
+        Platforms.Android.FlyScreenDebugLogHud.Register();
 #elif MACCATALYST || IOS
         // Mac / iOS：壳可跑；键鼠注入等仍走 Null（正式桌面 Mac 见 Avalonia）
         host.AttachPlatform(NullMauiPlatformServices.Instance);

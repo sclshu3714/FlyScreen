@@ -12,6 +12,7 @@ using Xamarin.Google.MLKit.Vision.Text;
 using Xamarin.Google.MLKit.Vision.Text.Chinese;
 using GmsTask = global::Android.Gms.Tasks.Task;
 using MlText = Xamarin.Google.MLKit.Vision.Text.Text;
+using CompressFormat = Android.Graphics.Bitmap.CompressFormat;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
 
@@ -29,12 +30,173 @@ public sealed partial class FlyScreenInputAccessibilityService
     private long _shotCacheAtMs;
     private const int ShotCacheTtlMs = 900;
 
+    /// <summary>最近一次 TakeScreenshot 失败说明（供抽样 txt / Toast）。</summary>
+    private string _lastShotFailDetail = "";
+    // 防止 Java 回调被 GC 提前回收导致一直等不到 OnSuccess/OnFailure
+    private ShotCallback? _pinnedShotCallback;
+
     /// <summary>
     /// 截取屏幕矩形并 OCR；失败 / 无文字 / API&lt;30 返回 <c>""</c>。
     /// 坐标为屏幕像素（与 Fly.ScreenWidth / ScreenHeight 同源），对角顺序可颠倒。
     /// 若截图像素尺寸与当前旋转不一致，会先旋转/缩放再裁切，避免横屏 OCR 恒为空。
     /// </summary>
     public string TryOcrRegion(int left, int top, int right, int bottom)
+        => TryOcrRegionCore(left, top, right, bottom, savePngPath: null);
+
+    /// <summary>公共目录：文件管理 → 下载 → XuanNiao → ocr_samples。</summary>
+    public const string OcrSamplePublicRelativeDir = AndroidXuanniaoDownloads.MediaRelativeRoot + "/ocr_samples";
+
+    /// <summary>
+    /// 标定抽样：截取识别区 → OCR → 保存到 <c>下载/XuanNiao/ocr_samples</c>（PNG + 识别 TXT）。
+    /// </summary>
+    public string? TrySampleOcrRegion(int left, int top, int right, int bottom, string? fileStem, out string ocrText)
+    {
+        ocrText = "";
+        var stem = string.IsNullOrWhiteSpace(fileStem) ? "ocr_sample" : SanitizeFileStem(fileStem);
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        // 文件名避免过长；明确 ocr_ 前缀，勿与占位文件混淆
+        if (stem.Length > 40) stem = stem[..40];
+        var pngName = $"ocr_{stem}_{stamp}.png";
+        var txtName = $"ocr_{stem}_{stamp}.txt";
+
+        var ctx = global::Android.App.Application.Context;
+        var cacheDir = ctx?.CacheDir?.AbsolutePath;
+        if (string.IsNullOrEmpty(cacheDir))
+        {
+            AppLog.Warn("抽样失败：无 CacheDir");
+            return null;
+        }
+
+        var tempPng = System.IO.Path.Combine(cacheDir, pngName);
+        try
+        {
+            if (File.Exists(tempPng))
+                File.Delete(tempPng);
+        }
+        catch { /* ignore */ }
+
+        _lastShotFailDetail = "";
+        AppLog.Info($"抽样开始 rect=({left},{top})-({right},{bottom}) → {pngName}");
+        ocrText = TryOcrRegionCore(left, top, right, bottom, tempPng);
+
+        if (!File.Exists(tempPng) || new FileInfo(tempPng).Length <= 0)
+        {
+            var failHint = string.IsNullOrWhiteSpace(_lastShotFailDetail)
+                ? "未能截取识别区图片（检查无障碍已开、Android 11+、目标页未禁止截屏）"
+                : _lastShotFailDetail;
+            var failBody = string.IsNullOrWhiteSpace(ocrText)
+                ? "抽样失败：" + failHint
+                : ocrText;
+            try
+            {
+                AndroidXuanniaoDownloads.PublishText(failBody, "ocr_samples", txtName);
+            }
+            catch { /* ignore */ }
+
+            AppLog.Warn("抽样失败：未生成临时 PNG — " + failHint);
+            ocrText = failBody;
+            return null;
+        }
+
+        var publicPng = AndroidXuanniaoDownloads.PublishFile(tempPng, "ocr_samples", pngName, "image/png");
+        // PNG 失败再试 JPEG
+        if (string.IsNullOrEmpty(publicPng))
+        {
+            var jpgName = $"ocr_{stem}_{stamp}.jpg";
+            var tempJpg = System.IO.Path.Combine(cacheDir, jpgName);
+            try
+            {
+                if (TryConvertPngFileToJpeg(tempPng, tempJpg)
+                    && File.Exists(tempJpg))
+                {
+                    publicPng = AndroidXuanniaoDownloads.PublishFile(tempJpg, "ocr_samples", jpgName, "image/jpeg");
+                    try { File.Delete(tempJpg); } catch { /* ignore */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("FlyOcr", "jpeg fallback: " + ex.Message);
+            }
+        }
+
+        try { File.Delete(tempPng); } catch { /* ignore */ }
+
+        var ocrBody = string.IsNullOrWhiteSpace(ocrText) ? "(无文字)" : ocrText;
+        try
+        {
+            AndroidXuanniaoDownloads.PublishText(ocrBody, "ocr_samples", txtName);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyOcr", "sample txt: " + ex.Message);
+        }
+
+        if (string.IsNullOrEmpty(publicPng))
+        {
+            // 图没写出去时，仍把识别文案落盘到 txt，避免只剩旧版 keep 占位被误认
+            AppLog.Warn("抽样图未能写入「下载/XuanNiao/ocr_samples」（OCR 文案已尽量写入同名 txt）");
+            return string.IsNullOrWhiteSpace(ocrText) ? null : $"{OcrSamplePublicRelativeDir}/{txtName}";
+        }
+
+        AppLog.Info($"抽样完成 PNG={publicPng} OCR={ocrBody}");
+        return publicPng;
+    }
+
+    private static bool TryConvertPngFileToJpeg(string pngPath, string jpgPath)
+    {
+        Bitmap? bmp = null;
+        try
+        {
+            bmp = BitmapFactory.DecodeFile(pngPath);
+            if (bmp == null) return false;
+            using var fs = new FileStream(jpgPath, FileMode.Create, FileAccess.Write);
+            return bmp.Compress(CompressFormat.Jpeg!, 92, fs);
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            try { bmp?.Recycle(); } catch { /* ignore */ }
+        }
+    }
+
+    private static string SanitizeFileStem(string stem)
+    {
+        var sb = new StringBuilder(stem.Length);
+        foreach (var ch in stem.Trim())
+        {
+            if (char.IsLetterOrDigit(ch) || ch is '_' or '-' or '.')
+                sb.Append(ch);
+            else
+                sb.Append('_');
+        }
+        var s = sb.ToString().Trim('_');
+        return string.IsNullOrEmpty(s) ? "ocr_sample" : s;
+    }
+
+    private static bool TrySavePng(Bitmap bmp, string path)
+    {
+        try
+        {
+            var parent = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent))
+                Directory.CreateDirectory(parent);
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            if (!bmp.Compress(CompressFormat.Png!, 100, fs))
+                return false;
+            fs.Flush();
+            return File.Exists(path) && new FileInfo(path).Length > 0;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyOcr", "save png: " + ex.Message);
+            return false;
+        }
+    }
+
+    private string TryOcrRegionCore(int left, int top, int right, int bottom, string? savePngPath)
     {
         if (Build.VERSION.SdkInt < BuildVersionCodes.R)
             return "";
@@ -53,10 +215,15 @@ public sealed partial class FlyScreenInputAccessibilityService
         var ownFull = false;
         try
         {
-            full = AcquireScreenshot(TimeSpan.FromSeconds(4), out ownFull);
+            // DrawRect 是 ApplicationOverlay，会被 TakeScreenshot 一并截入；半透明红罩盖住白字会导致 ML Kit 空结果
+            HideDebugRectBeforeOcr();
+
+            full = AcquireScreenshot(TimeSpan.FromSeconds(5), out ownFull);
             if (full == null || full.Width <= 0 || full.Height <= 0)
             {
-                LogOcrGeomOnce($"OCR 截屏为空 screen={_screenW}x{_screenH} rect=({l},{t})-({r},{b})（可能安全层/限流）");
+                if (string.IsNullOrWhiteSpace(_lastShotFailDetail))
+                    _lastShotFailDetail = "截屏为空（可能限流/安全窗口/显示 ID 无效）";
+                LogOcrGeomOnce($"OCR 截屏为空 screen={_screenW}x{_screenH} rect=({l},{t})-({r},{b}) {_lastShotFailDetail}");
                 return "";
             }
 
@@ -97,16 +264,10 @@ public sealed partial class FlyScreenInputAccessibilityService
             if (crop == null)
                 return "";
 
-            // 小字号顶栏胶囊：放大 2 倍再识别
-            var recognizeBmp = crop;
-            if (crop.Width < 720 || crop.Height < 160)
-            {
-                scaled = UpscaleBitmap(crop, 2f);
-                if (scaled != null)
-                    recognizeBmp = scaled;
-            }
+            if (!string.IsNullOrEmpty(savePngPath))
+                TrySavePng(crop, savePngPath);
 
-            var text = RecognizeText(recognizeBmp) ?? "";
+            var text = RecognizeCropWithRetries(crop, ref scaled);
             if (string.IsNullOrWhiteSpace(text) && swappedBuffer)
             {
                 try { scaled?.Recycle(); } catch { /* ignore */ }
@@ -121,20 +282,27 @@ public sealed partial class FlyScreenInputAccessibilityService
                     crop = Bitmap.CreateBitmap(full, cl, ct, cr - cl, cb - ct);
                     if (crop != null)
                     {
-                        recognizeBmp = crop;
-                        if (crop.Width < 720 || crop.Height < 160)
-                        {
-                            scaled = UpscaleBitmap(crop, 2f);
-                            if (scaled != null)
-                                recognizeBmp = scaled;
-                        }
-                        text = RecognizeText(recognizeBmp) ?? "";
+                        if (!string.IsNullOrEmpty(savePngPath))
+                            TrySavePng(crop, savePngPath);
+                        text = RecognizeCropWithRetries(crop, ref scaled);
                     }
                 }
             }
 
             if (string.IsNullOrWhiteSpace(text))
-                LogOcrGeomOnce($"OCR 无文字 screen={_screenW}x{_screenH} shot={full.Width}x{full.Height} crop={cl},{ct}-{cr},{cb} {geomNote}");
+            {
+                LogOcrGeomOnce(
+                    $"OCR 无文字 screen={_screenW}x{_screenH} shot={full.Width}x{full.Height} crop={cl},{ct}-{cr},{cb} size={cr - cl}x{cb - ct} {geomNote}");
+            }
+            else
+            {
+                try
+                {
+                    Console.WriteLine(
+                        $"OCR hit screen={_screenW}x{_screenH} shot={full.Width}x{full.Height} crop={cl},{ct}-{cr},{cb} len={text.Length}");
+                }
+                catch { /* ignore */ }
+            }
 
             return text;
         }
@@ -161,6 +329,42 @@ public sealed partial class FlyScreenInputAccessibilityService
             {
                 try { full.Recycle(); } catch { /* ignore */ }
             }
+        }
+    }
+
+    /// <summary>OCR 前撤掉调试红框并清截屏缓存，避免红罩进图 / 脏缓存。</summary>
+    private void HideDebugRectBeforeOcr()
+    {
+        void Hide()
+        {
+            try { RemoveDebugRectView_NoPost(); } catch { /* ignore */ }
+            InvalidateShotCache();
+        }
+
+        if (Looper.MainLooper != null && Looper.MyLooper() == Looper.MainLooper)
+        {
+            Hide();
+            return;
+        }
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ui.Post(() =>
+        {
+            try { Hide(); }
+            finally { tcs.TrySetResult(true); }
+        });
+        tcs.Task.Wait(TimeSpan.FromMilliseconds(800));
+        // 等一帧合成，避免撤窗后立刻截仍带旧层
+        try { System.Threading.Thread.Sleep(50); } catch { /* ignore */ }
+    }
+
+    private void InvalidateShotCache()
+    {
+        lock (_shotCacheGate)
+        {
+            try { _shotCache?.Recycle(); } catch { /* ignore */ }
+            _shotCache = null;
+            _shotCacheAtMs = 0;
         }
     }
 
@@ -205,6 +409,89 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
         catch
         {
+            return null;
+        }
+    }
+
+    /// <summary>顶栏小字：放大后再认；空则试 90°/270°（缓冲方向偶发反了）。</summary>
+    private static string RecognizeCropWithRetries(Bitmap crop, ref Bitmap? scaled)
+    {
+        var recognizeBmp = crop;
+        var minW = 960;
+        var minH = 220;
+        if (crop.Width < minW || crop.Height < minH)
+        {
+            var sx = Math.Max(2f, minW / (float)Math.Max(crop.Width, 1));
+            var sy = Math.Max(2f, minH / (float)Math.Max(crop.Height, 1));
+            var scale = Math.Min(3.5f, Math.Max(sx, sy));
+            scaled = UpscaleBitmap(crop, scale);
+            if (scaled != null)
+                recognizeBmp = scaled;
+        }
+
+        // 非水平文字：先正交角，再轻量倾斜（±15/±30）
+        foreach (var deg in new[] { 0, 90, 270, 180 })
+        {
+            var text = RecognizeText(recognizeBmp, rotationDegrees: deg) ?? "";
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                if (deg != 0)
+                {
+                    try { Console.WriteLine($"OCR hit rotation={deg} len={text.Length}"); } catch { /* ignore */ }
+                }
+                return PreferHintish(text);
+            }
+        }
+
+        foreach (var tilt in new[] { 15f, -15f, 30f, -30f })
+        {
+            Bitmap? tilted = null;
+            try
+            {
+                tilted = RotateBitmapDegrees(recognizeBmp, tilt);
+                if (tilted == null) continue;
+                var text = RecognizeText(tilted, rotationDegrees: 0) ?? "";
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    try { Console.WriteLine($"OCR hit tilt={tilt:0} len={text.Length}"); } catch { /* ignore */ }
+                    return PreferHintish(text);
+                }
+            }
+            finally
+            {
+                if (tilted != null && !ReferenceEquals(tilted, recognizeBmp))
+                {
+                    try { tilted.Recycle(); } catch { /* ignore */ }
+                }
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>多段 OCR 结果时优先保留含「上滑/继续观看」的行。</summary>
+    private static string PreferHintish(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length <= 1) return text;
+        var hit = lines.FirstOrDefault(l =>
+            l.Contains("上滑", StringComparison.Ordinal)
+            || l.Contains("继续观看", StringComparison.Ordinal));
+        return string.IsNullOrEmpty(hit) ? text : hit;
+    }
+
+    private static Bitmap? RotateBitmapDegrees(Bitmap src, float degrees)
+    {
+        try
+        {
+            var m = new Matrix();
+            m.PostRotate(degrees);
+            return Bitmap.CreateBitmap(src, 0, 0, src.Width, src.Height, m, true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyOcr", "RotateBitmapDegrees: " + ex.Message);
             return null;
         }
     }
@@ -356,39 +643,112 @@ public sealed partial class FlyScreenInputAccessibilityService
         _lastOcrGeomLogMs = now;
         Log.Warn("FlyOcr", msg);
         try { AppLog.Warn(msg); } catch { /* ignore */ }
+        try { Console.WriteLine(msg); } catch { /* ignore */ }
     }
 
     private Bitmap? CaptureScreenBitmap(TimeSpan timeout)
     {
+        // 优先当前 Display，失败再试默认屏 0（部分横屏机型 DisplayId 异常）
+        var ids = new List<int>();
+        try
+        {
+            var id = Display?.DisplayId ?? 0;
+            ids.Add(id);
+            if (id != 0) ids.Add(0);
+        }
+        catch
+        {
+            ids.Add(0);
+        }
+
+        foreach (var displayId in ids)
+        {
+            // 间隔过短时最多再试 2 次
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                if (attempt > 0)
+                {
+                    try { System.Threading.Thread.Sleep(350 * attempt); } catch { /* ignore */ }
+                }
+
+                var bmp = CaptureScreenBitmapOnce(displayId, timeout);
+                if (bmp != null && bmp.Width > 0 && bmp.Height > 0)
+                {
+                    _lastShotFailDetail = "";
+                    return bmp;
+                }
+
+                // 非「间隔过短」不必空转重试
+                if (!_lastShotFailDetail.Contains("间隔过短", StringComparison.Ordinal))
+                    break;
+            }
+        }
+
+        return null;
+    }
+
+    private Bitmap? CaptureScreenBitmapOnce(int displayId, TimeSpan timeout)
+    {
         var tcs = new TaskCompletionSource<Bitmap?>(TaskCreationOptions.RunContinuationsAsynchronously);
         IExecutorService? executor = null;
+        ShotCallback? callback = null;
         try
         {
             executor = Executors.NewSingleThreadExecutor();
-            var displayId = Display?.DisplayId ?? 0;
-            TakeScreenshot(displayId, executor!, new ShotCallback(tcs));
+            callback = new ShotCallback(tcs, detail => _lastShotFailDetail = detail);
+            _pinnedShotCallback = callback; // 钉住 JNI 回调，避免 GC
+
+            // 部分 OEM 要求在主线程发起 TakeScreenshot
+            void Start()
+            {
+                try
+                {
+                    TakeScreenshot(displayId, executor!, callback);
+                }
+                catch (Exception ex)
+                {
+                    _lastShotFailDetail = "TakeScreenshot 异常: " + ex.Message;
+                    tcs.TrySetResult(null);
+                }
+            }
+
+            if (Looper.MainLooper != null && Looper.MyLooper() != Looper.MainLooper)
+                _ui.Post(Start);
+            else
+                Start();
+
             if (!tcs.Task.Wait(timeout))
+            {
+                _lastShotFailDetail = $"截屏超时 display={displayId}";
+                AppLog.Warn(_lastShotFailDetail);
                 return null;
+            }
+
             return tcs.Task.Result;
         }
         catch (Exception ex)
         {
-            Log.Warn("FlyOcr", "TakeScreenshot failed: " + ex.Message);
+            _lastShotFailDetail = "TakeScreenshot 异常: " + ex.Message;
+            Log.Warn("FlyOcr", _lastShotFailDetail);
             return null;
         }
         finally
         {
+            if (ReferenceEquals(_pinnedShotCallback, callback))
+                _pinnedShotCallback = null;
             try { executor?.Shutdown(); } catch { /* ignore */ }
         }
     }
 
-    private static string? RecognizeText(Bitmap bitmap)
+    private static string? RecognizeText(Bitmap bitmap, int rotationDegrees = 0)
     {
         InputImage? image = null;
         try
         {
             var recognizer = GetRecognizer();
-            image = InputImage.FromBitmap(bitmap, 0);
+            var rot = rotationDegrees % 360;
+            if (rot < 0) rot += 360;
+            image = InputImage.FromBitmap(bitmap, rot);
             var text = AwaitGmsResult(recognizer.Process(image), TimeSpan.FromSeconds(12));
             if (text == null)
                 return null;
@@ -400,6 +760,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         catch (Exception ex)
         {
             Log.Warn("FlyOcr", "ML Kit failed: " + ex.Message);
+            try { Console.WriteLine("OCR ML Kit failed: " + ex.Message); } catch { /* ignore */ }
             return null;
         }
         finally
@@ -450,13 +811,19 @@ public sealed partial class FlyScreenInputAccessibilityService
     private sealed class ShotCallback : Java.Lang.Object, ITakeScreenshotCallback
     {
         private readonly TaskCompletionSource<Bitmap?> _tcs;
+        private readonly Action<string> _onFailDetail;
 
-        public ShotCallback(TaskCompletionSource<Bitmap?> tcs) => _tcs = tcs;
+        public ShotCallback(TaskCompletionSource<Bitmap?> tcs, Action<string> onFailDetail)
+        {
+            _tcs = tcs;
+            _onFailDetail = onFailDetail;
+        }
 
         public void OnSuccess(AccessibilityService.ScreenshotResult? screenshot)
         {
             if (screenshot == null)
             {
+                _onFailDetail("截屏结果为空");
                 _tcs.TrySetResult(null);
                 return;
             }
@@ -467,16 +834,34 @@ public sealed partial class FlyScreenInputAccessibilityService
                 buffer = screenshot.HardwareBuffer;
                 if (buffer == null)
                 {
+                    _onFailDetail("HardwareBuffer 为空");
                     _tcs.TrySetResult(null);
                     return;
                 }
 
                 using var hwBmp = Bitmap.WrapHardwareBuffer(buffer, screenshot.ColorSpace);
-                var soft = hwBmp?.Copy(Bitmap.Config.Argb8888!, false);
+                if (hwBmp == null)
+                {
+                    _onFailDetail("WrapHardwareBuffer 失败");
+                    _tcs.TrySetResult(null);
+                    return;
+                }
+
+                // 部分机型 Copy(Argb8888) 失败，再试硬件配置直接用 / RGB_565
+                var soft = hwBmp.Copy(Bitmap.Config.Argb8888!, false)
+                           ?? hwBmp.Copy(Bitmap.Config.Rgb565!, false);
+                if (soft == null)
+                {
+                    _onFailDetail("Bitmap.Copy 失败");
+                    _tcs.TrySetResult(null);
+                    return;
+                }
+
                 _tcs.TrySetResult(soft);
             }
-            catch
+            catch (Exception ex)
             {
+                _onFailDetail("截屏位图转换失败: " + ex.Message);
                 _tcs.TrySetResult(null);
             }
             finally
@@ -487,19 +872,26 @@ public sealed partial class FlyScreenInputAccessibilityService
 
         public void OnFailure(int errorCode)
         {
+            // 1=内部 2=无权限 3=间隔过短 4=无效显示 5=无效窗口 6=安全窗口
+            var hint = errorCode switch
+            {
+                1 => "内部错误",
+                2 => "无障碍无截屏权限（请关掉再开无障碍）",
+                3 => "间隔过短",
+                4 => "无效显示 ID",
+                5 => "无效窗口",
+                6 => "目标应用禁止截屏(FLAG_SECURE)",
+                _ => "系统码 " + errorCode
+            };
+            var detail = $"截屏失败 code={errorCode}（{hint}）";
+            _onFailDetail(detail);
+
             var now = System.Environment.TickCount64;
-            if (now - _lastShotFailLogMs > 2000)
+            if (now - _lastShotFailLogMs > 1000)
             {
                 _lastShotFailLogMs = now;
-                // 3=间隔过短 6=安全窗口(FLAG_SECURE) 等
-                var hint = errorCode switch
-                {
-                    3 => "间隔过短",
-                    6 => "安全窗口(无法截屏)",
-                    _ => "见系统码"
-                };
-                Log.Warn("FlyOcr", $"TakeScreenshot OnFailure code={errorCode} ({hint})");
-                try { AppLog.Warn($"OCR截屏失败 code={errorCode} ({hint})"); } catch { /* ignore */ }
+                Log.Warn("FlyOcr", "TakeScreenshot OnFailure " + detail);
+                try { AppLog.Warn("OCR" + detail); } catch { /* ignore */ }
             }
             _tcs.TrySetResult(null);
         }

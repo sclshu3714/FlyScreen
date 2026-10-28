@@ -36,6 +36,7 @@
   window.flyType = function (text) {
     if (!editor || text == null || text === '') return false;
     try {
+      if (isEditorReadOnly()) return false;
       editor.focus();
       var s = String(text);
       editor.trigger('keyboard', 'type', { text: s });
@@ -45,6 +46,56 @@
         triggerSuggestSoon();
       return true;
     } catch (e) { return false; }
+  };
+
+  function isEditorReadOnly() {
+    try {
+      return !!(editor && editor.getOption
+        && editor.getOption(monaco.editor.EditorOption.readOnly));
+    } catch (e) {
+      try {
+        var n = editor && editor.getDomNode && editor.getDomNode();
+        return !!(n && n.getAttribute('data-fly-readonly') === '1');
+      } catch (e2) { return false; }
+    }
+  }
+
+  /** Android WebView 粘贴时常 clipboardData 为空 → 向宿主取系统剪贴板 */
+  async function pasteFromHostOrEvent(e) {
+    if (!editor || isEditorReadOnly()) return;
+    // 必须同步 preventDefault，否则 await 之后已来不及拦截
+    try {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    } catch (err) { /* ignore */ }
+
+    var text = '';
+    try {
+      if (e && e.clipboardData)
+        text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text') || '';
+    } catch (err) { /* ignore */ }
+
+    if (!text) {
+      try {
+        if (window.HybridWebView && typeof HybridWebView.InvokeDotNet === 'function') {
+          var raw = await HybridWebView.InvokeDotNet('GetClipboardText');
+          if (raw != null) {
+            if (typeof raw === 'string') text = raw;
+            else if (typeof raw === 'object')
+              text = raw.text || raw.Text || raw.value || raw.Value || '';
+          }
+        }
+      } catch (err) { /* ignore */ }
+    }
+
+    if (text)
+      window.flyType(text);
+  }
+
+  window.flyPasteFromHost = function () {
+    pasteFromHostOrEvent(null);
   };
 
   /** 智能提示浮层是否可见（跨屏键不会走 Monaco 原生 KeyDown） */
@@ -286,9 +337,18 @@
     }
     var theme = data.theme || data.Theme || 'vs';
     var background = data.background || data.Background;
+    var readOnly = !!(data.readOnly || data.ReadOnly);
     applyTheme(theme, background);
     editor.setValue(value);
     try { monaco.editor.setModelLanguage(editor.getModel(), language); } catch (e) { /* ignore */ }
+    try {
+      editor.updateOptions({
+        readOnly: readOnly,
+        // 只读仍允许查找/复制；禁改字与建议插入
+        quickSuggestions: readOnly ? false : { other: true, comments: false, strings: true }
+      });
+      editor.getDomNode() && editor.getDomNode().setAttribute('data-fly-readonly', readOnly ? '1' : '0');
+    } catch (e) { /* ignore */ }
     registerCompletion(language);
     setBreakpoints(bps);
     bootstrapped = true;
@@ -479,6 +539,24 @@
 
     editor.onDidChangeCursorPosition(function () { reportCaret(); });
     editor.onDidChangeModelContent(function () { reportCaret(); });
+
+    // 长按粘贴 / Ctrl+V：优先事件内文本，否则走宿主系统剪贴板（修 Android WebView）
+    try {
+      var dom = editor.getDomNode();
+      if (dom) {
+        dom.addEventListener('paste', function (e) {
+          pasteFromHostOrEvent(e);
+        }, true);
+      }
+    } catch (e) { /* ignore */ }
+    window.addEventListener('paste', function (e) {
+      if (!editor) return;
+      // 仅编辑器聚焦时接管，避免干扰其它输入
+      try {
+        if (!editor.hasTextFocus || !editor.hasTextFocus()) return;
+      } catch (err) { /* continue */ }
+      pasteFromHostOrEvent(e);
+    }, true);
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
       var text = editor.getValue();

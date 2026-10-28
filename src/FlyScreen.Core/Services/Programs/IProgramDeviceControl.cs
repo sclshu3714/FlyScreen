@@ -19,6 +19,12 @@ public interface IProgramDeviceControl
     /// <summary>屏幕像素宽高；失败时为 (0,0)。</summary>
     (int Width, int Height) ScreenSize { get; }
 
+    /// <summary>
+    /// 当前显示旋转角（度）：0 / 90 / 180 / 270。
+    /// 与选区无关（选区仍按宽高）；供日志排查四向放置。不可用时为 0。
+    /// </summary>
+    int DisplayRotationDegrees { get; }
+
     /// <summary>可见节点文本/描述中是否包含指定文案（子串匹配）。</summary>
     bool ContainsText(string text);
 
@@ -48,6 +54,19 @@ public interface IProgramDeviceControl
     /// <paramref name="argb"/> 为 0xAARRGGBB（如红色 0xFFFF0000）。
     /// </summary>
     bool DrawRect(int left, int top, int right, int bottom, uint argb, int durationMs);
+
+    /// <summary>
+    /// 按 id 显示/更新常驻调试框（识别区、操作区可并存）。像素坐标。
+    /// </summary>
+    bool SetDebugRect(string id, int left, int top, int right, int bottom, uint argb);
+
+    /// <summary>
+    /// 按 id 显示/更新常驻调试框（归一化 0..1）；旋转后宿主按新屏尺寸重放。
+    /// </summary>
+    bool SetDebugRectNorm(string id, double x, double y, double w, double h, uint argb);
+
+    /// <summary>清除指定 id 的调试框；id 为空则清除全部。</summary>
+    bool ClearDebugRect(string? id = null);
 
     /// <summary>点击第一个包含文案的节点中心；找不到返回 false。</summary>
     bool TapText(string text);

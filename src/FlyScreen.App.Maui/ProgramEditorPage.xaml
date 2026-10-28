@@ -28,6 +28,10 @@
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
                 FontSize="16"
                 Clicked="Find_Clicked" ToolTipProperties.Text="查找 (Ctrl+F)" />
+        <Button x:Name="BtnPaste" Style="{StaticResource SoftBlueBtn}"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
+                FontSize="16"
+                Clicked="Paste_Clicked" ToolTipProperties.Text="粘贴" />
         <Button x:Name="BtnBuild" Style="{StaticResource SoftBlueBtn}"
                 MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
                 FontSize="18"

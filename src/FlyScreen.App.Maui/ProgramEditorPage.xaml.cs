@@ -48,6 +48,7 @@ public partial class ProgramEditorPage : ContentPage
     // 通用字形：软盘、生成、运行、停止；调试钮用 Path（见 BtnDebugIcon）
     private const string IcSave = "💾";
     private const string IcFind = "🔍";
+    private const string IcPaste = "📋";
     private const string IcBuild = "🔨";
     private const string IcRun = "▷";
     private const string IcStop = "■";
@@ -72,6 +73,7 @@ public partial class ProgramEditorPage : ContentPage
         ToolTipProperties.SetText(BtnClose, "关闭并返回");
         ToolTipProperties.SetText(BtnSave, _saveLabel);
         ToolTipProperties.SetText(BtnFind, _findLabel + " (Ctrl+F)");
+        ToolTipProperties.SetText(BtnPaste, "粘贴");
         ToolTipProperties.SetText(BtnBuild, _buildLabel);
         ToolTipProperties.SetText(BtnDebug, _debugLabel);
         ToolTipProperties.SetText(BtnRun, _runLabel);
@@ -80,6 +82,15 @@ public partial class ProgramEditorPage : ContentPage
         OutputClearBtn.Text = Loc.T("Prog.OutputClear");
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
         ApplyOutputExpanded(false);
+        if (IsSourceReadOnly)
+        {
+            BtnSave.IsEnabled = false;
+            BtnBuild.IsEnabled = false;
+            BtnPaste.IsEnabled = false;
+            ToolTipProperties.SetText(BtnSave, Loc.T("Prog.BuiltinSourceReadonly"));
+            ToolTipProperties.SetText(BtnBuild, Loc.T("Prog.BuiltinSourceReadonly"));
+            ToolTipProperties.SetText(BtnPaste, Loc.T("Prog.BuiltinSourceReadonly"));
+        }
 
         ToolbarItems.Add(new ToolbarItem
         {
@@ -121,10 +132,68 @@ public partial class ProgramEditorPage : ContentPage
                 MaxLines = ProgramEditorLimits.MaxLines,
                 Keywords = ProgramEditorCompletions.Keywords(lang).ToArray(),
                 Theme = ProgramEditorTheme.MonacoThemeId(dark),
-                Background = ProgramEditorTheme.EditorBackgroundHex(dark)
+                Background = ProgramEditorTheme.EditorBackgroundHex(dark),
+                ReadOnly = _page.IsSourceReadOnly
             };
         }
+
+        /// <summary>
+        /// Android WebView 粘贴时 JS clipboardData 常为空；由宿主读系统剪贴板再 flyType。
+        /// </summary>
+        public string GetClipboardText()
+        {
+            try
+            {
+                if (MainThread.IsMainThread)
+                    return ReadClipboardTextNow();
+                return MainThread.InvokeOnMainThreadAsync(ReadClipboardTextNow)
+                    .ConfigureAwait(false).GetAwaiter().GetResult() ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static string ReadClipboardTextNow()
+        {
+            try
+            {
+#if ANDROID
+                var ctx = global::Android.App.Application.Context;
+                if (ctx != null)
+                {
+                    var cm = ctx.GetSystemService(global::Android.Content.Context.ClipboardService)
+                        as global::Android.Content.ClipboardManager;
+                    var clip = cm?.PrimaryClip;
+                    if (clip is { ItemCount: > 0 })
+                    {
+                        var item = clip.GetItemAt(0);
+                        var coerced = item?.CoerceToText(ctx)?.ToString();
+                        if (!string.IsNullOrEmpty(coerced))
+                            return coerced;
+                    }
+                }
+#endif
+                // 兜底：MAUI Clipboard（可能异步；此处尽量同步取）
+                if (Clipboard.Default.HasText)
+                {
+                    var t = Clipboard.Default.GetTextAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                    return t ?? "";
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            return "";
+        }
     }
+
+    private bool IsSourceReadOnly
+        => _program.IsBuiltin
+           || string.Equals(_program.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase);
 
     public sealed class EditorBootstrap
     {
@@ -135,6 +204,8 @@ public partial class ProgramEditorPage : ContentPage
         public string[] Keywords { get; set; } = [];
         public string Theme { get; set; } = "vs";
         public string Background { get; set; } = "#FFFFFF";
+        /// <summary>内置程序：可读/复制/查找，不可改字。</summary>
+        public bool ReadOnly { get; set; }
     }
 
     protected override void OnAppearing()
@@ -465,12 +536,13 @@ public partial class ProgramEditorPage : ContentPage
         BtnClose.Text = " ";
         BtnSave.Text = IcSave;
         BtnFind.Text = IcFind;
+        BtnPaste.Text = IcPaste;
         BtnBuild.Text = IcBuild;
         BtnDebug.Text = " ";
         BtnRun.Text = IcRun;
         BtnStop.Text = IcStop;
         BtnStop.TextColor = Color.FromArgb("#DC2626");
-        foreach (var b in new[] { BtnClose, BtnSave, BtnFind, BtnBuild, BtnDebug, BtnRun, BtnStop })
+        foreach (var b in new[] { BtnClose, BtnSave, BtnFind, BtnPaste, BtnBuild, BtnDebug, BtnRun, BtnStop })
         {
             b.Padding = new Thickness(0);
             b.WidthRequest = 36;
@@ -538,9 +610,21 @@ public partial class ProgramEditorPage : ContentPage
             RefreshBpHint();
         }
         if (!await EnsureWithinLineLimitAsync(text)) return;
+        if (_program.IsBuiltin
+            || string.Equals(_program.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            await DisplayAlertAsync(_saveLabel, Loc.T("Prog.BuiltinSourceReadonly"), "OK");
+            return;
+        }
         _catalog.WriteSource(_program, text);
         _catalog.SaveMeta(_program);
         AppLog.Info($"已保存程序「{_program.Name}」");
+    }
+
+    private void Paste_Clicked(object? sender, EventArgs e)
+    {
+        if (IsSourceReadOnly) return;
+        EvalEditorJs("window.flyPasteFromHost&&window.flyPasteFromHost()");
     }
 
     private void Find_Clicked(object? sender, EventArgs e)

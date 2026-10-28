@@ -12,6 +12,179 @@ namespace FlyScreen.Services.Programs;
 /// </summary>
 public static class Fly
 {
+    private static readonly object SettingsGate = new();
+    private static IReadOnlyDictionary<string, string> _settings =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>运行前由宿主绑定本程序 settings.json（覆盖 @fly-settings 默认）。</summary>
+    public static void BindSettings(IReadOnlyDictionary<string, string>? values)
+    {
+        lock (SettingsGate)
+        {
+            _settings = values == null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(values, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>运行结束清空绑定，避免串到下一程序。</summary>
+    public static void ClearSettings()
+    {
+        lock (SettingsGate)
+            _settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string? Raw(string key)
+    {
+        lock (SettingsGate)
+            return _settings.TryGetValue(key, out var v) ? v : null;
+    }
+
+    /// <summary>读取布尔设置；缺省返回 <paramref name="fallback"/>。</summary>
+    public static bool GetBool(string key, bool fallback = false)
+        => ProgramSettingsSchema.AsBool(Raw(key), fallback);
+
+    /// <summary>读取浮点设置。</summary>
+    public static double GetDouble(string key, double fallback = 0)
+        => ProgramSettingsSchema.AsDouble(Raw(key), fallback);
+
+    /// <summary>读取字符串设置。</summary>
+    public static string GetString(string key, string fallback = "")
+    {
+        var v = Raw(key);
+        return string.IsNullOrEmpty(v) ? fallback : v;
+    }
+
+    /// <summary>读取字符串列表（换行/逗号分隔）。</summary>
+    public static string[] GetStringList(string key)
+        => ProgramSettingsSchema.AsStringList(Raw(key)).ToArray();
+
+    /// <summary>读取命中后动作；无法解析时返回 <paramref name="fallback"/>。</summary>
+    public static ProgramHitAction GetAction(string key, ProgramHitAction fallback = ProgramHitAction.SwipeUp)
+        => ProgramSettingsSchema.AsAction(Raw(key), fallback);
+
+    /// <summary>读取归一化矩形；未设置返回 null。</summary>
+    public static NormRect? GetRect(string key)
+        => NormRect.TryParse(Raw(key));
+
+    /// <summary>当前是否横屏（宽 &gt; 高）。选区只看此项，不分正/反。</summary>
+    public static bool IsLandscape
+        => ProgramRegionKeys.IsLandscape(ScreenWidth, ScreenHeight);
+
+    /// <summary>
+    /// 显示旋转角（度）：0 / 90 / 180 / 270。仅诊断用；区域键仍按 <see cref="IsLandscape"/>。
+    /// </summary>
+    public static int DisplayRotation
+        => ProgramDevice.Current?.DisplayRotationDegrees ?? 0;
+
+    /// <summary>
+    /// 当前朝向的识别区键。横/竖互不回退；仅竖屏可回退旧键 <c>ocrRegion</c>。
+    /// 未标定返回朝向主键（<see cref="GetRect"/> 为空）。
+    /// </summary>
+    public static string CurrentOcrRegionKey()
+    {
+        var land = IsLandscape;
+        var primary = ProgramRegionKeys.OcrKey(land);
+        if (HasConfiguredRect(primary)) return primary;
+        if (!land && HasConfiguredRect(ProgramRegionKeys.LegacyOcr))
+            return ProgramRegionKeys.LegacyOcr;
+        return primary;
+    }
+
+    /// <summary>
+    /// 当前朝向的操作区键。横/竖互不回退；仅竖屏可回退旧键 <c>actionRegion</c>。
+    /// 未标定返回朝向主键（执行时走屏幕中央默认位）。
+    /// </summary>
+    public static string CurrentActionRegionKey()
+    {
+        var land = IsLandscape;
+        var primary = ProgramRegionKeys.ActionKey(land);
+        if (HasConfiguredRect(primary)) return primary;
+        if (!land && HasConfiguredRect(ProgramRegionKeys.LegacyAction))
+            return ProgramRegionKeys.LegacyAction;
+        return primary;
+    }
+
+    /// <summary>当前朝向是否已标定识别区（未标定则脚本应只用 HasText、不做 OCR）。</summary>
+    public static bool HasOcrRegionConfigured()
+        => HasConfiguredRect(CurrentOcrRegionKey());
+
+    /// <summary>当前朝向是否已标定操作区（未标定则 <see cref="PerformActionInRegion"/> 用屏幕中央）。</summary>
+    public static bool HasActionRegionConfigured()
+        => HasConfiguredRect(CurrentActionRegionKey());
+
+    private static bool HasConfiguredRect(string key)
+    {
+        var r = GetRect(key);
+        return r != null && !r.Value.IsEmpty;
+    }
+
+    /// <summary>
+    /// 对设置中的识别区做 OCR（像素由当前屏幕尺寸换算）。
+    /// 未配置识别区时返回空串。省略 <paramref name="key"/> 时按当前朝向选键。
+    /// </summary>
+    public static string OcrSettingRegion(string? key = null)
+    {
+        var k = string.IsNullOrWhiteSpace(key) ? CurrentOcrRegionKey() : key!;
+        var rect = GetRect(k);
+        if (rect == null || rect.Value.IsEmpty) return "";
+        var (l, t, r, b) = rect.Value.ToPixels(ScreenWidth, ScreenHeight);
+        return Ocr(l, t, r, b);
+    }
+
+    /// <summary>
+    /// 在设置的操作区内执行动作（上滑等沿区内中线；点击取中心）。
+    /// 省略 <paramref name="regionKey"/> 时按当前朝向选键。
+    /// </summary>
+    public static bool PerformActionInRegion(ProgramHitAction action, string? regionKey = null, double longPressSec = 0.7)
+    {
+        regionKey = string.IsNullOrWhiteSpace(regionKey) ? CurrentActionRegionKey() : regionKey;
+        var rect = GetRect(regionKey);
+        if (rect == null || rect.Value.IsEmpty)
+        {
+            // 未标定操作区：竖屏/横屏均取当前屏幕中央（滑动沿中线）
+            return action switch
+            {
+                ProgramHitAction.SwipeUp => Swipe(0.5, 0.72, 0.5, 0.28, 560),
+                ProgramHitAction.SwipeDown => Swipe(0.5, 0.28, 0.5, 0.72, 420),
+                ProgramHitAction.SwipeLeft => Swipe(0.78, 0.5, 0.22, 0.5, 360),
+                ProgramHitAction.SwipeRight => Swipe(0.22, 0.5, 0.78, 0.5, 360),
+                ProgramHitAction.Tap => Tap(0.5, 0.5),
+                ProgramHitAction.DoubleTap => DoubleTap(0.5, 0.5),
+                ProgramHitAction.LongPress => LongPress(0.5, 0.5, SecToMs(longPressSec)),
+                _ => false
+            };
+        }
+
+        var x0 = rect.Value.X;
+        var y0 = rect.Value.Y;
+        var x1 = rect.Value.X + rect.Value.W;
+        var y1 = rect.Value.Y + rect.Value.H;
+        var cx = (x0 + x1) / 2;
+        var cy = (y0 + y1) / 2;
+        // 区内滑动留边，避免擦到框外广告
+        var midX = x0 + rect.Value.W * 0.35;
+        var topY = y0 + rect.Value.H * 0.18;
+        var botY = y0 + rect.Value.H * 0.82;
+        var leftX = x0 + rect.Value.W * 0.18;
+        var rightX = x0 + rect.Value.W * 0.82;
+
+        return action switch
+        {
+            ProgramHitAction.SwipeUp => Swipe(midX, botY, midX, topY, 560),
+            ProgramHitAction.SwipeDown => Swipe(midX, topY, midX, botY, 420),
+            ProgramHitAction.SwipeLeft => Swipe(rightX, cy, leftX, cy, 360),
+            ProgramHitAction.SwipeRight => Swipe(leftX, cy, rightX, cy, 360),
+            ProgramHitAction.Tap => Tap(cx, cy),
+            ProgramHitAction.DoubleTap => DoubleTap(cx, cy),
+            ProgramHitAction.LongPress => LongPress(cx, cy, SecToMs(longPressSec)),
+            _ => false
+        };
+    }
+
+    private static int SecToMs(double sec)
+        => Math.Clamp((int)Math.Round(Math.Max(0.2, sec) * 1000), 200, 10_000);
+
     /// <summary>
     /// 无障碍是否就绪。为 false 时应调用 <see cref="OpenSettings"/> 引导用户开启，
     /// 或结束脚本等待用户开启后再跑。
@@ -89,6 +262,18 @@ public static class Fly
     /// <returns>是否成功加上浮层（失败时见日志；全屏视频可能仍看不见）。</returns>
     public static bool DrawRect(int left, int top, int right, int bottom, uint argb = 0xFFFF0000u, int durationMs = 1200)
         => Require()?.DrawRect(left, top, right, bottom, argb, durationMs) == true;
+
+    /// <summary>按 id 常驻调试框（像素）；同 id 覆盖更新。</summary>
+    public static bool SetDebugRect(string id, int left, int top, int right, int bottom, uint argb)
+        => Require()?.SetDebugRect(id, left, top, right, bottom, argb) == true;
+
+    /// <summary>按 id 常驻调试框（归一化）；旋转后由宿主按新屏重画，脚本宜用此 API。</summary>
+    public static bool SetDebugRectNorm(string id, double x, double y, double w, double h, uint argb)
+        => Require()?.SetDebugRectNorm(id, x, y, w, h, argb) == true;
+
+    /// <summary>清除调试框；id 为空清除全部。</summary>
+    public static bool ClearDebugRect(string? id = null)
+        => Require()?.ClearDebugRect(id) == true;
 
     /// <summary>
     /// 点击第一个包含 <paramref name="text"/> 的节点中心。
@@ -274,6 +459,14 @@ public sealed class FlyScriptBridge
     /// <inheritdoc cref="Fly.DrawRect"/>
     public bool drawRect(int left, int top, int right, int bottom, uint argb = 0xFFFF0000u, int durationMs = 1200)
         => Fly.DrawRect(left, top, right, bottom, argb, durationMs);
+    /// <inheritdoc cref="Fly.SetDebugRect"/>
+    public bool setDebugRect(string id, int left, int top, int right, int bottom, uint argb)
+        => Fly.SetDebugRect(id, left, top, right, bottom, argb);
+    /// <inheritdoc cref="Fly.SetDebugRectNorm"/>
+    public bool setDebugRectNorm(string id, double x, double y, double w, double h, uint argb)
+        => Fly.SetDebugRectNorm(id, x, y, w, h, argb);
+    /// <inheritdoc cref="Fly.ClearDebugRect"/>
+    public bool clearDebugRect(string? id = null) => Fly.ClearDebugRect(id);
     /// <inheritdoc cref="Fly.TapText"/>
     public bool tapText(string? text) => Fly.TapText(text);
     /// <inheritdoc cref="Fly.LongPressText"/>
@@ -331,4 +524,19 @@ public sealed class FlyScriptBridge
     public bool takeScreenshot() => Fly.TakeScreenshot();
     /// <inheritdoc cref="Fly.OpenSettings"/>
     public void openSettings() => Fly.OpenSettings();
+    public bool getBool(string key, bool fallback = false) => Fly.GetBool(key, fallback);
+    public double getDouble(string key, double fallback = 0) => Fly.GetDouble(key, fallback);
+    public string getString(string key, string fallback = "") => Fly.GetString(key, fallback);
+    public string[] getStringList(string key) => Fly.GetStringList(key);
+    public string getAction(string key, string fallback = "SwipeUp")
+        => Fly.GetAction(key, ProgramSettingsSchema.AsAction(fallback)).ToString();
+    public bool isLandscape() => Fly.IsLandscape;
+    public int displayRotation() => Fly.DisplayRotation;
+    public string currentOcrRegionKey() => Fly.CurrentOcrRegionKey();
+    public string currentActionRegionKey() => Fly.CurrentActionRegionKey();
+    public bool hasOcrRegionConfigured() => Fly.HasOcrRegionConfigured();
+    public bool hasActionRegionConfigured() => Fly.HasActionRegionConfigured();
+    public string ocrSettingRegion(string? key = null) => Fly.OcrSettingRegion(key);
+    public bool performActionInRegion(string action, string? regionKey = null, double longPressSec = 0.7)
+        => Fly.PerformActionInRegion(ProgramSettingsSchema.AsAction(action), regionKey, longPressSec);
 }

@@ -418,6 +418,7 @@ public partial class MainWindow : Window
         SetStr("Str.ProgActDelete", Loc.T("Prog.ActDelete"));
         SetStr("Str.ProgActLog", Loc.T("Prog.ActLog"));
         SetStr("Str.ProgActShare", Loc.T("Prog.ActShare"));
+        SetStr("Str.ProgActSettings", Loc.T("Prog.ActSettings"));
         ProgColName.Header = Loc.T("Prog.ColName");
         ProgColLang.Header = Loc.T("Prog.ColLang");
         ProgColSize.Header = Loc.T("Prog.ColSize");
@@ -1536,9 +1537,23 @@ public partial class MainWindow : Window
         RefreshProgramsPage();
     }
 
+    private void ProgRowSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        var win = new ProgramSettingsWindow(prog) { Owner = this };
+        win.ShowDialog();
+    }
+
     private async void ProgRowDelete_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, Loc.T("Prog.BuiltinNoDelete"), Loc.T("Prog.ActDelete"),
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         if (MessageBox.Show(this, Loc.T("Prog.ConfirmDelete"), Loc.T("Prog.ActDelete"),
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
             return;

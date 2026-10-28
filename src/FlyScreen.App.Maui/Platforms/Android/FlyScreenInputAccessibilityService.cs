@@ -83,6 +83,48 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         RaiseEnabledChanged();
     }
 
+    public override void OnConfigurationChanged(global::Android.Content.Res.Configuration? newConfig)
+    {
+        base.OnConfigurationChanged(newConfig);
+        var prevW = _screenW;
+        var prevH = _screenH;
+        RefreshScreenSize();
+        if (prevW == _screenW && prevH == _screenH)
+            return;
+
+        Log.Info("FlyScreen", $"朝向/分辨率变化 {prevW}x{prevH} → {_screenW}x{_screenH}");
+        try { InvalidateShotCache(); } catch { /* ignore */ }
+        try { InvalidateDebugOverlayContext(); } catch { /* ignore */ }
+        try { ClearAllDebugSlots_NoPost(); } catch { /* ignore */ }
+
+        // 横竖切换：旧规格是另一套区域键，丢掉等脚本重 Set；同横/同竖仅分辨率变则按归一化重放
+        var aspectFlip = ProgramRegionKeys.IsLandscape(prevW, prevH)
+                         != ProgramRegionKeys.IsLandscape(_screenW, _screenH);
+        if (aspectFlip)
+        {
+            try { ClearDebugRectSpecsOnly(); } catch { /* ignore */ }
+        }
+
+        _ui.Post(() =>
+        {
+            try { FlyScreenDebugLogHud.Relayout(); } catch { /* ignore */ }
+            try { EnsureCursorOverlay(); } catch { /* ignore */ }
+            if (!aspectFlip)
+            {
+                try { RelayoutDebugRects(); } catch { /* ignore */ }
+            }
+        });
+        // 系统旋转偶发延迟，再补一刀重放（同横/同竖）
+        if (!aspectFlip)
+        {
+            _ui.PostDelayed(() =>
+            {
+                try { RelayoutDebugRects(); } catch { /* ignore */ }
+                try { FlyScreenDebugLogHud.Relayout(); } catch { /* ignore */ }
+            }, 400);
+        }
+    }
+
     public override void OnAccessibilityEvent(AccessibilityEvent? e)
     {
         if (e == null || !_cursorWanted) return;

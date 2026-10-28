@@ -89,11 +89,13 @@ public static class ProgramEditorCompletions
         "StringBuilder", "Exception", "ArgumentException", "ArgumentNullException", "nameof",
         "async", "await", "get", "set", "value", "record", "init", "required",
         "Fly", "Ready", "App", "HasText", "HasId", "HasDesc", "Texts", "TextBounds", "Ocr", "DrawRect",
+        "SetDebugRect", "SetDebugRectNorm", "ClearDebugRect",
         "TapText", "LongPressText", "TapId", "TapDesc", "Tap", "TapPx", "DoubleTap", "LongPress",
         "Swipe", "SwipeUp", "SwipeDown", "SwipeLeft", "SwipeRight", "ScrollForward", "ScrollBackward",
         "WaitText", "WaitGone", "Input", "ClearInput", "Enter",
         "Back", "Home", "Recents", "Notifications", "QuickSettings", "LockScreen", "TakeScreenshot",
-        "OpenSettings", "ScreenWidth", "ScreenHeight", "ct"
+        "OpenSettings", "ScreenWidth", "ScreenHeight", "IsLandscape", "DisplayRotation",
+        "CurrentOcrRegionKey", "CurrentActionRegionKey", "HasOcrRegionConfigured", "HasActionRegionConfigured", "ct"
     ];
 
     private static readonly string[] JavaScript =

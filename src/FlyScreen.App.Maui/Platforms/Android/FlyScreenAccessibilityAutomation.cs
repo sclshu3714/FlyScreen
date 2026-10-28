@@ -2,6 +2,7 @@
 using Android.AccessibilityServices;
 using Android.Graphics;
 using Android.OS;
+using Android.Views;
 using Android.Views.Accessibility;
 using Path = Android.Graphics.Path;
 
@@ -35,6 +36,33 @@ public sealed partial class FlyScreenInputAccessibilityService
     {
         RefreshScreenSize();
         return (_screenW, _screenH);
+    }
+
+    /// <summary>当前显示旋转：0 / 90 / 180 / 270（度）。失败为 0。</summary>
+    public int GetDisplayRotationDegrees()
+    {
+        try
+        {
+            _wm ??= GetSystemService(WindowService) as IWindowManager;
+            global::Android.Views.Display? display = null;
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+                display = Display;
+            display ??= _wm?.DefaultDisplay;
+            if (display == null) return 0;
+            var rot = display.Rotation;
+            return rot switch
+            {
+                SurfaceOrientation.Rotation0 => 0,
+                SurfaceOrientation.Rotation90 => 90,
+                SurfaceOrientation.Rotation180 => 180,
+                SurfaceOrientation.Rotation270 => 270,
+                _ => 0
+            };
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     public bool ContainsVisibleText(string text)

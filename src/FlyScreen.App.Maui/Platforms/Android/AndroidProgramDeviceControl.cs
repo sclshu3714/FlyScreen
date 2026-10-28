@@ -25,6 +25,9 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
         }
     }
 
+    public int DisplayRotationDegrees
+        => Svc?.GetDisplayRotationDegrees() ?? 0;
+
     public bool ContainsText(string text)
         => Svc?.ContainsVisibleText(text) == true;
 
@@ -44,7 +47,46 @@ public sealed class AndroidProgramDeviceControl : IProgramDeviceControl
         => Svc?.TryOcrRegion(left, top, right, bottom) ?? "";
 
     public bool DrawRect(int left, int top, int right, int bottom, uint argb, int durationMs)
-        => Svc?.TryDrawRect(left, top, right, bottom, argb, durationMs) == true;
+    {
+        var svc = Svc;
+        if (svc == null)
+        {
+            const string msg = "DrawRect 失败：无障碍未连接（Fly.Ready=false）";
+            FlyScreen.Services.AppLog.Warn(msg);
+            try { Console.WriteLine(msg); } catch { /* ignore */ }
+            return false;
+        }
+        return svc.TryDrawRect(left, top, right, bottom, argb, durationMs);
+    }
+
+    public bool SetDebugRect(string id, int left, int top, int right, int bottom, uint argb)
+    {
+        var svc = Svc;
+        if (svc == null)
+        {
+            const string msg = "SetDebugRect 失败：无障碍未连接（Fly.Ready=false）";
+            FlyScreen.Services.AppLog.Warn(msg);
+            try { Console.WriteLine(msg); } catch { /* ignore */ }
+            return false;
+        }
+        return svc.TrySetDebugRect(id, left, top, right, bottom, argb);
+    }
+
+    public bool SetDebugRectNorm(string id, double x, double y, double w, double h, uint argb)
+    {
+        var svc = Svc;
+        if (svc == null)
+        {
+            const string msg = "SetDebugRectNorm 失败：无障碍未连接（Fly.Ready=false）";
+            FlyScreen.Services.AppLog.Warn(msg);
+            try { Console.WriteLine(msg); } catch { /* ignore */ }
+            return false;
+        }
+        return svc.TrySetDebugRectNorm(id, x, y, w, h, argb);
+    }
+
+    public bool ClearDebugRect(string? id = null)
+        => Svc?.TryClearDebugRect(id) == true;
 
     public bool TapText(string text)
         => Svc?.TryTapText(text) == true;

@@ -15,4 +15,10 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.14.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="Services\Programs\Builtin\generic_swipe_main.cs" />
+    <EmbeddedResource Include="Services\Programs\Builtin\generic_swipe_main.cs"
+                      LogicalName="FlyScreen.Services.Programs.Builtin.generic_swipe_main.cs" />
+  </ItemGroup>
+
 </Project>

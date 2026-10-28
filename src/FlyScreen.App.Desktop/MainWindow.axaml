@@ -912,6 +912,11 @@
                                 <Path Fill="#10B981" Data="{StaticResource GeoShare}"/>
                               </Viewbox>
                             </Button>
+                            <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowSettings_Click" ToolTip.Tip="设置">
+                              <Viewbox Width="14" Height="14">
+                                <Path Fill="#6366F1" Data="{StaticResource GeoAdvanced}"/>
+                              </Viewbox>
+                            </Button>
                             <Button Classes="progIcon" Tag="{Binding}" Click="ProgRowDelete_Click" Margin="0" ToolTip.Tip="删除">
                               <Viewbox Width="14" Height="14">
                                 <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
