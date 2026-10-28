@@ -187,17 +187,13 @@ public sealed class FileTransferService
         _settings = settings;
         _connections = connections;
         _clipboard = clipboard ?? NullClipboardApplySink.Instance;
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "FlyScreen");
-        // Linux/Mac 无 Roaming 时回退到 LocalApplicationData / ~/.config 风格路径
-        if (string.IsNullOrWhiteSpace(root))
-            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".flyscreen");
-        _inboxDir = Path.Combine(root, "Inbox");
+        // 路径跟 FlyScreenDataPaths（Android 可为公共 com.xuanniao.flyscreen）
+        _inboxDir = global::FlyScreen.Services.FlyScreenDataPaths.InboxDirectory;
         // 粘贴暂存与收件箱分开，避免未粘贴时收件箱里出现占位/缓存
-        _pasteDir = Path.Combine(root, "PasteStaging");
-        _historyPath = Path.Combine(root, "transfer-history.json");
+        _pasteDir = global::FlyScreen.Services.FlyScreenDataPaths.PasteStagingDirectory;
+        _historyPath = global::FlyScreen.Services.FlyScreenDataPaths.TransferHistoryFile;
         Directory.CreateDirectory(_inboxDir);
+        Directory.CreateDirectory(_pasteDir);
         _connections.MessageReceived += OnMessage;
         LoadHistory();
         _ = Task.Run(ChunkDiskLoopAsync);

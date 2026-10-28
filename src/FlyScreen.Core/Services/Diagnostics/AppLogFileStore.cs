@@ -25,11 +25,7 @@ internal static class AppLogFileStore
     private static long _writerBytes;
     private static DateOnly _lastCleanupDay;
 
-    public static string DirectoryPath
-        => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "FlyScreen",
-            "Logs");
+    public static string DirectoryPath => FlyScreenDataPaths.LogsDirectory;
 
     public static void Append(AppLogEntry entry)
     {

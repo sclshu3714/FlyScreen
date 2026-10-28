@@ -546,7 +546,9 @@ public partial class MainPage : ContentPage
         ProgMoreEditBtn.Text = $"✎  {Loc.T("Prog.ActEdit")}";
         ProgMoreLogBtn.Text = $"☰  {Loc.T("Prog.ActLog")}";
         ProgMoreShareBtn.Text = $"⇪  {Loc.T("Prog.ActShare")}";
+        ProgMoreSettingsBtn.Text = $"⚙  {Loc.T("Prog.ActSettings")}";
         ProgMoreDeleteBtn.Text = $"✕  {Loc.T("Prog.ActDelete")}";
+        ProgMoreDeleteBtn.IsVisible = prog is not { IsBuiltin: true };
 
         // 先 Invisible 定位，避免 (0,0)→锚点 闪现
         ProgMoreFlyout.Opacity = 0;
@@ -675,11 +677,30 @@ public partial class MainPage : ContentPage
         if (prog != null) await ProgRowShareAsync(prog);
     }
 
+    private async void ProgMoreSettings_Clicked(object? sender, EventArgs e)
+    {
+        var prog = _progMoreTarget;
+        HideProgMoreFlyout();
+        if (prog != null) await ProgRowSettingsAsync(prog);
+    }
+
     private async void ProgMoreDelete_Clicked(object? sender, EventArgs e)
     {
         var prog = _progMoreTarget;
         HideProgMoreFlyout();
         if (prog != null) await ProgRowDeleteAsync(prog);
+    }
+
+    private async Task ProgRowSettingsAsync(UserProgram prog)
+    {
+        try
+        {
+            await Navigation.PushAsync(new ProgramSettingsPage(prog));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.ActSettings"), ex.Message, "OK");
+        }
     }
 
     private void ApplyOptionsPlacement(bool compact)
@@ -1836,6 +1857,12 @@ public partial class MainPage : ContentPage
 
     private async Task ProgRowDeleteAsync(UserProgram prog)
     {
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            await DisplayAlertAsync(Loc.T("Prog.ActDelete"), Loc.T("Prog.BuiltinNoDelete"), "OK");
+            return;
+        }
         if (!await DisplayAlertAsync(Loc.T("Prog.ActDelete"), Loc.T("Prog.ConfirmDelete"), "OK", "Cancel"))
             return;
         try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
@@ -2616,6 +2643,27 @@ public partial class MainPage : ContentPage
                 FileName = dir,
                 UseShellExecute = true
             });
+#elif ANDROID
+            // 优先打开下载/XuanNiao（文件管理可直接看）；失败则提示路径
+            var ok = false;
+            try
+            {
+                var parent = Directory.GetParent(dir)?.FullName ?? dir;
+                await Launcher.Default.OpenAsync(new OpenFileRequest
+                {
+                    File = new ReadOnlyFile(Directory.Exists(parent) ? parent : dir)
+                });
+                ok = true;
+            }
+            catch { /* fall through */ }
+
+            if (!ok)
+            {
+                await DisplayAlertAsync(
+                    Loc.T("Xfer.OpenInbox"),
+                    $"请在文件管理中打开：\n下载/XuanNiao/Inbox\n\n{dir}",
+                    "OK");
+            }
 #else
             await Launcher.Default.OpenAsync(new OpenFileRequest { File = new ReadOnlyFile(dir) });
 #endif

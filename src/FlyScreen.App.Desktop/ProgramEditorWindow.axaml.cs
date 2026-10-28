@@ -74,6 +74,15 @@ public partial class ProgramEditorWindow : Window
         CodeEditor.Options.ConvertTabsToSpaces = true;
         CodeEditor.Text = _catalog.ReadSource(program);
         ApplyHighlighting();
+        if (program.IsBuiltin
+            || string.Equals(program.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            CodeEditor.IsReadOnly = true;
+            BtnSave.IsEnabled = false;
+            BtnBuild.IsEnabled = false;
+            ToolTip.SetTip(BtnSave, Loc.T("Prog.BuiltinSourceReadonly"));
+            ToolTip.SetTip(BtnBuild, Loc.T("Prog.BuiltinSourceReadonly"));
+        }
         // Ctrl+F / Ctrl+H：内置查找/替换面板（对齐 MAUI Monaco）
         _searchPanel = SearchPanel.Install(CodeEditor);
         _ = new EditorCompletion(CodeEditor, () => _program.Language);

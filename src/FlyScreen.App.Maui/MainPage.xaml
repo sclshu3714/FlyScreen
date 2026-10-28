@@ -679,6 +679,10 @@
                   HeightRequest="34" HorizontalOptions="Fill"
                   MinimumWidthRequest="0" Padding="8,0" FontSize="13"
                   Clicked="ProgMoreShare_Clicked" />
+          <Button x:Name="ProgMoreSettingsBtn" Style="{StaticResource SoftBlueBtn}"
+                  HeightRequest="34" HorizontalOptions="Fill"
+                  MinimumWidthRequest="0" Padding="8,0" FontSize="13"
+                  Clicked="ProgMoreSettings_Clicked" />
           <Button x:Name="ProgMoreDeleteBtn" Style="{StaticResource SoftBlueBtn}"
                   HeightRequest="34" HorizontalOptions="Fill"
                   MinimumWidthRequest="0" Padding="8,0" FontSize="13"

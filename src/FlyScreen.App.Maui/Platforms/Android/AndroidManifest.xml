@@ -29,6 +29,10 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
   <!-- 自动更新：安装本地下载的 APK -->
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+  <!-- 写入「下载/XuanNiao」（抽样图/收件箱）；Q+ 主要走 MediaStore，低版本需写存储 -->
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 </manifest>

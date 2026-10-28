@@ -908,9 +908,22 @@ public partial class MainWindow : Window
         RefreshProgramsPage();
     }
 
+    private async void ProgRowSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        var win = new ProgramSettingsWindow(prog);
+        await win.ShowDialog(this);
+    }
+
     private async void ProgRowDelete_Click(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.Tag is not UserProgram prog) return;
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText.Text = Loc.T("Prog.BuiltinNoDelete");
+            return;
+        }
         try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
         catch (Exception ex) { StatusText.Text = ex.Message; }
         RefreshProgramsPage();

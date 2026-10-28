@@ -3,6 +3,7 @@ using FlyScreen.AppMaui.Services;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
 using FlyScreen.Models;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
@@ -33,6 +34,9 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         _settings = settings;
         _transfers = transfers;
+        // 用户程序运行时持 WakeLock（无通知栏）；进程主要靠无障碍绑定
+        ProgramService.Instance.Runner.RunningCountChanged += count =>
+            AndroidProgramWakeLock.SetProgramsRunning(count);
     }
 
     public IClipboardApplySink ClipboardSink => _clipSink;

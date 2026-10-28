@@ -57,8 +57,7 @@ public sealed class AppSettings
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static string SettingsPath =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FlyScreen", "settings.json");
+    public static string SettingsPath => FlyScreen.Services.FlyScreenDataPaths.SettingsFile;
 
     public static AppSettings Load()
     {

@@ -21,6 +21,12 @@ public sealed class UserProgram : INotifyPropertyChanged
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
     public List<int> Breakpoints { get; set; } = [];
 
+    /// <summary>安装包内置程序：不可删除；源码由 EnsureBuiltin 按版本更新。</summary>
+    public bool IsBuiltin { get; set; }
+
+    /// <summary>内置源码版本；小于嵌入资源版本时覆盖 main 源文件。</summary>
+    public int BuiltinSourceVersion { get; set; }
+
     [JsonIgnore]
     public string FolderName => Id;
 

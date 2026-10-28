@@ -591,6 +591,7 @@
         <local:StringBox x:Key="Str.ProgActDelete" Value="删除"/>
         <local:StringBox x:Key="Str.ProgActLog" Value="日志"/>
         <local:StringBox x:Key="Str.ProgActShare" Value="共享"/>
+        <local:StringBox x:Key="Str.ProgActSettings" Value="设置"/>
 
         <Style TargetType="ListView">
             <Setter Property="Background" Value="{DynamicResource ListBg}"/>
@@ -1428,6 +1429,13 @@
                                                                 Tag="{Binding}" Click="ProgRowShare_Click">
                                                             <Viewbox Style="{StaticResource ProgRowIcon}">
                                                                 <Path Data="{StaticResource GeoShare}" Fill="#10B981"/>
+                                                            </Viewbox>
+                                                        </Button>
+                                                        <Button Style="{StaticResource ProgIconBtn}"
+                                                                ToolTip="{Binding Value, Source={StaticResource Str.ProgActSettings}}"
+                                                                Tag="{Binding}" Click="ProgRowSettings_Click">
+                                                            <Viewbox Style="{StaticResource ProgRowIcon}">
+                                                                <Path Data="{StaticResource GeoAdvanced}" Fill="#6366F1"/>
                                                             </Viewbox>
                                                         </Button>
                                                         <Button Style="{StaticResource ProgIconBtn}" Margin="0"
