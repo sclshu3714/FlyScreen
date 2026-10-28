@@ -12,8 +12,9 @@
 // rect actionRegionLandscape | 横屏操作区 |
 // @fly-settings-end
 //
-// 内置通用识别操作 v4：HasText →（当前朝向已标定识别区才）OCR → 操作区执行（未标定则屏幕中央）。
+// 内置通用识别操作 v5：HasText →（当前朝向已标定识别区才）OCR → 若文案含「7s / 7秒」则等满秒数 → 操作区执行。
 // 横/竖识别区、操作区互不回退。debugOcr：非目标红 / 目标蓝 / 命中绿；操作中操作区绿。
+// 触发成功后 coolUntil≈2.5s + Delay(800ms)，提示消失后 tipArmed 再开，才会再次识别执行。
 
 Console.WriteLine("=== 通用识别操作（内置） ===");
 Console.WriteLine($"时间 {DateTime.Now:HH:mm:ss}  Ready={Fly.Ready}  App={Fly.App}");
@@ -89,9 +90,24 @@ string? FindHitA11y()
     return null;
 }
 
-string? FindHitOcr()
+/// <summary>从 OCR/无障碍文案解析倒计时秒数。「7s后可继续上滑观看」「3秒后…」；无则 0。上限 30。</summary>
+static int TryParseCountdownSec(string? raw)
 {
-    if (!enableOcr) return null;
+    if (string.IsNullOrWhiteSpace(raw)) return 0;
+    var c = Compact(raw);
+    // 优先拉丁 s：7s后可继续上滑观看
+    var m = System.Text.RegularExpressions.Regex.Match(c, @"(\d{1,2})\s*[sS](?![a-zA-Z])");
+    if (!m.Success)
+        m = System.Text.RegularExpressions.Regex.Match(c, @"(\d{1,2})\s*秒");
+    if (!m.Success) return 0;
+    if (!int.TryParse(m.Groups[1].Value, out var sec)) return 0;
+    return Math.Clamp(sec, 0, 30);
+}
+
+/// <returns>hit=匹配到的提示；raw=OCR 原文（供解析倒计时）。</returns>
+(string? hit, string raw) FindHitOcr()
+{
+    if (!enableOcr) return (null, "");
     // 当前朝向未标定识别区：不做 OCR，只靠 HasText
     if (!Fly.HasOcrRegionConfigured())
     {
@@ -100,7 +116,7 @@ string? FindHitOcr()
             var orient = Fly.IsLandscape ? "横屏" : "竖屏";
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {orient}识别区未标定，跳过OCR（仅 HasText）");
         }
-        return null;
+        return (null, "");
     }
 
     var ocrKey = Fly.CurrentOcrRegionKey();
@@ -111,7 +127,7 @@ string? FindHitOcr()
         var preview = ocr.Length == 0 ? "" : (ocr.Length <= 80 ? ocr : ocr.Substring(0, 80) + "…");
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] OCR {orient} key={ocrKey} len={ocr.Length} [{preview}]");
     }
-    return MatchHints(ocr);
+    return (MatchHints(ocr), ocr);
 }
 
 void ShowDebugFrames(uint ocrColor, uint actionColor)
@@ -211,8 +227,25 @@ try
         }
 
         string? hit = FindHitA11y();
+        var hitRaw = "";
         if (hit == null)
-            hit = FindHitOcr();
+        {
+            var (ocrHit, ocrRaw) = FindHitOcr();
+            hit = ocrHit;
+            hitRaw = ocrRaw;
+        }
+        else
+        {
+            // 无障碍命中时也尝试从可见文本里找「Ns / N秒」
+            foreach (var t in Fly.Texts(40))
+            {
+                if (TryParseCountdownSec(t) > 0)
+                {
+                    hitRaw = t;
+                    break;
+                }
+            }
+        }
 
         // OCR 会撤框，识别后立刻按状态重画
         if (hit == null)
@@ -237,11 +270,22 @@ try
         }
 
         tipArmed = false;
+        var waitSec = TryParseCountdownSec(hitRaw);
         var actKey = Fly.CurrentActionRegionKey();
         var actMarked = Fly.HasActionRegionConfigured();
-        Console.WriteLine(actMarked
-            ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey}）"
-            : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")}操作区未标定，用屏幕中央）");
+        if (waitSec > 0)
+        {
+            Console.WriteLine(actMarked
+                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey}）"
+                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（操作区未标定，用屏幕中央）");
+            await Delay(waitSec * 1000);
+        }
+        else
+        {
+            Console.WriteLine(actMarked
+                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey}）"
+                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")}操作区未标定，用屏幕中央）");
+        }
 
         // 执行操作：识别区回蓝，操作区绿（未标定操作区时无框可画）
         ShowDebugFrames(ColorBlue, ColorGreen);
@@ -252,6 +296,7 @@ try
 
         // 操作完成：操作区恢复蓝（仍在目标应用则识别区蓝）
         ShowDebugFrames(ColorBlue, ColorBlue);
+        // 冷却 2.5s 内不再触发；再 Delay 0.8s。提示须先消失（tipArmed）才会下一轮真正执行。
         coolUntil = Environment.TickCount64 + 2500;
         await Delay(800);
     }

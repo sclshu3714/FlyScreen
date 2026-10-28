@@ -130,7 +130,7 @@ public sealed class ProgramSettingsFile
 public static class BuiltinPrograms
 {
     public const string GenericSwipeId = "builtin-generic-swipe";
-    public const int GenericSwipeSourceVersion = 4;
+    public const int GenericSwipeSourceVersion = 5;
     public const string GenericSwipeName = "通用识别操作";
     public const string ResourceName = "FlyScreen.Services.Programs.Builtin.generic_swipe_main.cs";
 }
