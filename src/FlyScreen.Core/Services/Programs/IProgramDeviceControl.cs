@@ -25,6 +25,13 @@ public interface IProgramDeviceControl
     /// </summary>
     int DisplayRotationDegrees { get; }
 
+    /// <summary>
+    /// 系统 UI 朝向是否横屏（Android <c>Configuration.orientation</c>）。
+    /// null 表示宿主未提供，由 <see cref="ScreenSize"/> 宽高推断。
+    /// 用于纠正部分机型 GetRealSize 与真实朝向不一致时误选横/竖识别区。
+    /// </summary>
+    bool? UiIsLandscape { get; }
+
     /// <summary>可见节点文本/描述中是否包含指定文案（子串匹配）。</summary>
     bool ContainsText(string text);
 

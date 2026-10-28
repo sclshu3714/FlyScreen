@@ -67,9 +67,19 @@ public static class Fly
     public static NormRect? GetRect(string key)
         => NormRect.TryParse(Raw(key));
 
-    /// <summary>当前是否横屏（宽 &gt; 高）。选区只看此项，不分正/反。</summary>
+    /// <summary>
+    /// 当前是否横屏。优先宿主 UI 朝向（Android Configuration）；否则宽 &gt; 高。
+    /// 选区只看此项，不分正/反。
+    /// </summary>
     public static bool IsLandscape
-        => ProgramRegionKeys.IsLandscape(ScreenWidth, ScreenHeight);
+    {
+        get
+        {
+            var ui = ProgramDevice.Current?.UiIsLandscape;
+            if (ui.HasValue) return ui.Value;
+            return ProgramRegionKeys.IsLandscape(ScreenWidth, ScreenHeight);
+        }
+    }
 
     /// <summary>
     /// 显示旋转角（度）：0 / 90 / 180 / 270。仅诊断用；区域键仍按 <see cref="IsLandscape"/>。
@@ -108,6 +118,15 @@ public static class Fly
     /// <summary>当前朝向是否已标定识别区（未标定则脚本应只用 HasText、不做 OCR）。</summary>
     public static bool HasOcrRegionConfigured()
         => HasConfiguredRect(CurrentOcrRegionKey());
+
+    /// <summary>
+    /// 是否至少标定过一个识别区（竖屏 / 横屏 / 旧键）。
+    /// 全未标定则等价于未启用 OCR（没有可跑 OCR 的区域）。
+    /// </summary>
+    public static bool HasAnyOcrRegionConfigured()
+        => HasConfiguredRect(ProgramRegionKeys.OcrPortrait)
+           || HasConfiguredRect(ProgramRegionKeys.OcrLandscape)
+           || HasConfiguredRect(ProgramRegionKeys.LegacyOcr);
 
     /// <summary>当前朝向是否已标定操作区（未标定则 <see cref="PerformActionInRegion"/> 用屏幕中央）。</summary>
     public static bool HasActionRegionConfigured()
@@ -535,6 +554,7 @@ public sealed class FlyScriptBridge
     public string currentOcrRegionKey() => Fly.CurrentOcrRegionKey();
     public string currentActionRegionKey() => Fly.CurrentActionRegionKey();
     public bool hasOcrRegionConfigured() => Fly.HasOcrRegionConfigured();
+    public bool hasAnyOcrRegionConfigured() => Fly.HasAnyOcrRegionConfigured();
     public bool hasActionRegionConfigured() => Fly.HasActionRegionConfigured();
     public string ocrSettingRegion(string? key = null) => Fly.OcrSettingRegion(key);
     public bool performActionInRegion(string action, string? regionKey = null, double longPressSec = 0.7)

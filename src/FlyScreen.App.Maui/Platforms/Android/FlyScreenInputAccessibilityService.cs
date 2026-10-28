@@ -991,6 +991,7 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
             {
                 _screenW = size.X;
                 _screenH = size.Y;
+                AlignScreenSizeWithConfiguration();
                 return;
             }
 
@@ -1002,6 +1003,7 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
                 {
                     _screenW = cur.Width();
                     _screenH = cur.Height();
+                    AlignScreenSizeWithConfiguration();
                     return;
                 }
             }
@@ -1015,6 +1017,34 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         if (dm == null) return;
         _screenW = dm.WidthPixels;
         _screenH = dm.HeightPixels;
+        AlignScreenSizeWithConfiguration();
+    }
+
+    /// <summary>
+    /// 部分 OEM 上 GetRealSize 与 Configuration.orientation 短暂不一致；
+    /// 以 Configuration 为准对调宽高，避免竖屏误选横屏识别区去跑 OCR。
+    /// </summary>
+    private void AlignScreenSizeWithConfiguration()
+    {
+        try
+        {
+            var orient = Resources?.Configuration?.Orientation
+                         ?? global::Android.Content.Res.Orientation.Undefined;
+            if (orient == global::Android.Content.Res.Orientation.Portrait && _screenW > _screenH)
+            {
+                (_screenW, _screenH) = (_screenH, _screenW);
+                Log.Info("FlyScreen", $"朝向对齐 Portrait → {_screenW}x{_screenH}");
+            }
+            else if (orient == global::Android.Content.Res.Orientation.Landscape && _screenW < _screenH)
+            {
+                (_screenW, _screenH) = (_screenH, _screenW);
+                Log.Info("FlyScreen", $"朝向对齐 Landscape → {_screenW}x{_screenH}");
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
 
     private void BeginDrag()

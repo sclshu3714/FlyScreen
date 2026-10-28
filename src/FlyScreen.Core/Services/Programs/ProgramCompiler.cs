@@ -213,6 +213,8 @@ public static class ProgramScriptHost
         TryAddBySimpleName(list, seen, "System.Collections");
         TryAddBySimpleName(list, seen, "System.Linq");
         TryAddBySimpleName(list, seen, "System.Console");
+        // 用户脚本若写 Regex；单文件/Android 上需显式带上（否则 CS1069）
+        TryAddBySimpleName(list, seen, "System.Text.RegularExpressions");
 
         return list.ToImmutableArray();
     }

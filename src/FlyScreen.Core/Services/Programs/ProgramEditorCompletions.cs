@@ -95,7 +95,7 @@ public static class ProgramEditorCompletions
         "WaitText", "WaitGone", "Input", "ClearInput", "Enter",
         "Back", "Home", "Recents", "Notifications", "QuickSettings", "LockScreen", "TakeScreenshot",
         "OpenSettings", "ScreenWidth", "ScreenHeight", "IsLandscape", "DisplayRotation",
-        "CurrentOcrRegionKey", "CurrentActionRegionKey", "HasOcrRegionConfigured", "HasActionRegionConfigured", "ct"
+        "CurrentOcrRegionKey", "CurrentActionRegionKey", "HasOcrRegionConfigured", "HasAnyOcrRegionConfigured", "HasActionRegionConfigured", "ct"
     ];
 
     private static readonly string[] JavaScript =
