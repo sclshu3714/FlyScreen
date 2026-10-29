@@ -3,7 +3,7 @@ using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
-/// <summary>托盘：对齐 WPF NotifyIcon（打开 / 重连 / 关于 / 退出 + 双击打开）。</summary>
+/// <summary>托盘：对齐 WPF NotifyIcon（打开 / 重连 / 关于 / 退出 + 双击打开）。右键用自定义直角菜单。</summary>
 public sealed class MauiTrayService : IDisposable
 {
     private const int NimAdd = 0x00000000;
@@ -13,21 +13,12 @@ public sealed class MauiTrayService : IDisposable
     private const int NifTip = 0x00000004;
     private const int WmApp = 0x8000;
     private const int CallbackMsg = WmApp + 1;
-    private const int WmCommand = 0x0111;
     private const int WmLButtonDblClk = 0x0203;
     private const int WmRButtonUp = 0x0205;
     private const int WmContextMenu = 0x007B;
-    private const uint MfString = 0x00000000;
-    private const uint MfSeparator = 0x00000800;
-    private const uint TpmRightButton = 0x0002;
     private const uint ImageIcon = 1;
     private const uint LrLoadFromFile = 0x00000010;
     private const uint LrDefaultSize = 0x00000040;
-
-    private const int IdOpen = 1001;
-    private const int IdReconnect = 1002;
-    private const int IdAbout = 1003;
-    private const int IdExit = 1004;
 
     private IntPtr _hwnd;
     private IntPtr _icon;
@@ -130,17 +121,11 @@ public sealed class MauiTrayService : IDisposable
 
     private void ShowContextMenu()
     {
-        var menu = CreatePopupMenu();
-        AppendMenu(menu, MfString, IdOpen, Loc.T("Tray.Open"));
-        AppendMenu(menu, MfString, IdReconnect, Loc.T("Tray.Reconnect"));
-        AppendMenu(menu, MfString, IdAbout, Loc.T("Tray.About"));
-        AppendMenu(menu, MfSeparator, 0, string.Empty);
-        AppendMenu(menu, MfString, IdExit, Loc.T("Tray.Exit"));
-
-        GetCursorPos(out var pt);
-        SetForegroundWindow(_hwnd);
-        TrackPopupMenu(menu, TpmRightButton, pt.X, pt.Y, 0, _hwnd, IntPtr.Zero);
-        DestroyMenu(menu);
+        MauiTrayPopup.ShowNearCursor(
+            onOpen: () => _show?.Invoke(),
+            onReconnect: () => _reconnect?.Invoke(),
+            onAbout: () => _about?.Invoke(),
+            onExit: () => _exit?.Invoke());
     }
 
     private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -155,33 +140,10 @@ public sealed class MauiTrayService : IDisposable
             return IntPtr.Zero;
         }
 
-        if (msg == WmCommand)
-        {
-            var id = wParam.ToInt32() & 0xFFFF;
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                switch (id)
-                {
-                    case IdOpen: _show?.Invoke(); break;
-                    case IdReconnect: _reconnect?.Invoke(); break;
-                    case IdAbout: _about?.Invoke(); break;
-                    case IdExit: _exit?.Invoke(); break;
-                }
-            });
-            return IntPtr.Zero;
-        }
-
         return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 
     private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Point
-    {
-        public int X;
-        public int Y;
-    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WndClassEx
@@ -226,13 +188,6 @@ public sealed class MauiTrayService : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadImage(IntPtr hInst, string name, uint type, int cx, int cy, uint fuLoad);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr hIcon);
-    [DllImport("user32.dll")] private static extern IntPtr CreatePopupMenu();
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern bool AppendMenu(IntPtr hMenu, uint uFlags, uint uIDNewItem, string lpNewItem);
-    [DllImport("user32.dll")] private static extern bool DestroyMenu(IntPtr hMenu);
-    [DllImport("user32.dll")] private static extern bool TrackPopupMenu(IntPtr hMenu, uint uFlags, int x, int y, int nReserved, IntPtr hWnd, IntPtr prcRect);
-    [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point lpPoint);
-    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string? lpModuleName);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]

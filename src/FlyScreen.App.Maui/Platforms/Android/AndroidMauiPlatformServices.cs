@@ -263,6 +263,8 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool GetAutoStartEnabled() => false;
     public void SetAutoStartEnabled(bool enabled) { }
 
+    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
+
     public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
     {
         var activity = Platform.CurrentActivity;

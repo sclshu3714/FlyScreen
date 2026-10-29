@@ -1,3 +1,5 @@
+using FlyScreen.Services;
+
 namespace FlyScreen.Services.Programs;
 
 /// <summary>
@@ -62,6 +64,31 @@ public static class Fly
     /// <summary>读取命中后动作；无法解析时返回 <paramref name="fallback"/>。</summary>
     public static ProgramHitAction GetAction(string key, ProgramHitAction fallback = ProgramHitAction.SwipeUp)
         => ProgramSettingsSchema.AsAction(Raw(key), fallback);
+
+    /// <summary>读取日志级别设置（Error/Warn/Info/Debug）；缺省 Info。</summary>
+    public static AppLogLevel GetLogLevel(string key = "logLevel", AppLogLevel fallback = AppLogLevel.Info)
+        => ProgramSettingsSchema.AsLogLevel(Raw(key), fallback);
+
+    private static string? _logProgramId;
+    private static string? _logProgramName;
+
+    /// <summary>由宿主在启动脚本前绑定，使 <see cref="LogDebug"/> 等写入带程序名的 AppLog。</summary>
+    public static void BindLogContext(string? programId, string? programName)
+    {
+        _logProgramId = programId;
+        _logProgramName = programName;
+    }
+
+    public static void ClearLogContext()
+    {
+        _logProgramId = null;
+        _logProgramName = null;
+    }
+
+    public static void LogDebug(string message) => AppLog.Debug(message, _logProgramId, _logProgramName);
+    public static void LogInfo(string message) => AppLog.Info(message, _logProgramId, _logProgramName);
+    public static void LogWarn(string message) => AppLog.Warn(message, _logProgramId, _logProgramName);
+    public static void LogError(string message) => AppLog.Error(message, _logProgramId, _logProgramName);
 
     /// <summary>读取归一化矩形；未设置返回 null。</summary>
     public static NormRect? GetRect(string key)
@@ -547,6 +574,10 @@ public sealed class FlyScriptBridge
     public double getDouble(string key, double fallback = 0) => Fly.GetDouble(key, fallback);
     public string getString(string key, string fallback = "") => Fly.GetString(key, fallback);
     public string[] getStringList(string key) => Fly.GetStringList(key);
+    public void logDebug(string message) => Fly.LogDebug(message);
+    public void logInfo(string message) => Fly.LogInfo(message);
+    public void logWarn(string message) => Fly.LogWarn(message);
+    public void logError(string message) => Fly.LogError(message);
     public string getAction(string key, string fallback = "SwipeUp")
         => Fly.GetAction(key, ProgramSettingsSchema.AsAction(fallback)).ToString();
     public bool isLandscape() => Fly.IsLandscape;

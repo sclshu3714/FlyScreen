@@ -988,6 +988,7 @@ public partial class MainWindow : Window
         void Add(AppLogLevelFilter f, string key)
             => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
         Add(AppLogLevelFilter.All, "Log.LevelAll");
+        Add(AppLogLevelFilter.Debug, "Log.LevelDebug");
         Add(AppLogLevelFilter.Info, "Log.LevelInfo");
         Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
         Add(AppLogLevelFilter.Error, "Log.LevelError");

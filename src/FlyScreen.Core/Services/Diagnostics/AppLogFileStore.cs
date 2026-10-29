@@ -235,6 +235,7 @@ internal static class AppLogFileStore
         {
             AppLogLevel.Error => "错误",
             AppLogLevel.Warn => "警告",
+            AppLogLevel.Debug => "调试",
             _ => "信息"
         };
         sb.Append('[').Append(e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff")).Append("] ")
@@ -356,6 +357,7 @@ internal static class AppLogFileStore
         {
             AppLogLevel.Error => "Error",
             AppLogLevel.Warn => "Warn",
+            AppLogLevel.Debug => "Debug",
             _ => "Info"
         };
         var pid = SanitizeToken(e.ProgramId);
@@ -386,6 +388,7 @@ internal static class AppLogFileStore
         {
             "Error" => AppLogLevel.Error,
             "Warn" => AppLogLevel.Warn,
+            "Debug" => AppLogLevel.Debug,
             _ => AppLogLevel.Info
         };
         var pid = m.Groups["pid"].Value;

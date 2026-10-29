@@ -229,7 +229,35 @@ public partial class MainPage : ContentPage
             StatusLabel.Text = $"网络启动失败：{ex.Message}";
         }
 
+        // 对齐 Win：启动即挂托盘；--autostart 时隐藏主窗（后台已连接）
+        if (_host.Platform.SupportsTray)
+        {
+            EnsureDesktopTray();
+#if WINDOWS
+            if (FlyScreen.Helpers.AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
+            {
+                StatusLabel.Text =
+                    $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+                _host.Platform.HideToBackground(
+                    showMain: () => { },
+                    reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+                    about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
+                    exit: () => Application.Current?.Quit());
+            }
+#endif
+        }
+
         _statusTimer?.Start();
+    }
+
+    private void EnsureDesktopTray()
+    {
+        if (!_host.Platform.SupportsTray) return;
+        _host.Platform.EnsureTray(
+            showMain: () => { },
+            reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
+            exit: () => Application.Current?.Quit());
     }
 
     protected override void OnAppearing()
@@ -1926,9 +1954,10 @@ public partial class MainPage : ContentPage
     {
         return LogLevelFilter.SelectedIndex switch
         {
-            1 => AppLogLevelFilter.Info,
-            2 => AppLogLevelFilter.Warn,
-            3 => AppLogLevelFilter.Error,
+            1 => AppLogLevelFilter.Debug,
+            2 => AppLogLevelFilter.Info,
+            3 => AppLogLevelFilter.Warn,
+            4 => AppLogLevelFilter.Error,
             _ => AppLogLevelFilter.All
         };
     }
@@ -1939,14 +1968,16 @@ public partial class MainPage : ContentPage
         _logFilterReady = false;
         LogLevelFilter.Items.Clear();
         LogLevelFilter.Items.Add(Loc.T("Log.LevelAll"));
+        LogLevelFilter.Items.Add(Loc.T("Log.LevelDebug"));
         LogLevelFilter.Items.Add(Loc.T("Log.LevelInfo"));
         LogLevelFilter.Items.Add(Loc.T("Log.LevelWarn"));
         LogLevelFilter.Items.Add(Loc.T("Log.LevelError"));
         LogLevelFilter.SelectedIndex = selected switch
         {
-            AppLogLevelFilter.Info => 1,
-            AppLogLevelFilter.Warn => 2,
-            AppLogLevelFilter.Error => 3,
+            AppLogLevelFilter.Debug => 1,
+            AppLogLevelFilter.Info => 2,
+            AppLogLevelFilter.Warn => 3,
+            AppLogLevelFilter.Error => 4,
             _ => 0
         };
         _logFilterReady = true;
@@ -2757,6 +2788,7 @@ public partial class MainPage : ContentPage
 
     private void Tray_Clicked(object? sender, EventArgs e)
     {
+        EnsureDesktopTray();
         _host.Platform.HideToBackground(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),

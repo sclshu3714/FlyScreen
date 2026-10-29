@@ -16,6 +16,7 @@ using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.Update;
+using FlyScreen.Tray;
 using WinForms = System.Windows.Forms;
 using Media = System.Windows.Media;
 
@@ -28,10 +29,6 @@ public partial class MainWindow : Window
     private readonly AppHost _host;
     private readonly ObservableCollection<MachineSlot> _slots = [];
     private WinForms.NotifyIcon? _tray;
-    private WinForms.ToolStripMenuItem? _trayOpen;
-    private WinForms.ToolStripMenuItem? _trayReconnect;
-    private WinForms.ToolStripMenuItem? _trayAbout;
-    private WinForms.ToolStripMenuItem? _trayExit;
     private System.Drawing.Icon? _trayIcon;
     private System.Windows.Point _dragStart;
     private object? _dragItem;
@@ -151,36 +148,39 @@ public partial class MainWindow : Window
             Visible = true,
             Icon = _trayIcon ?? System.Drawing.SystemIcons.Application
         };
-        _tray.DoubleClick += (_, _) =>
+        _tray.DoubleClick += (_, _) => ShowFromTray();
+        // 不用 WinForms ContextMenuStrip（圆角/系统样式难控）；改用 WPF 直角投影菜单
+        _tray.MouseUp += (_, e) =>
         {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
+            if (e.Button != WinForms.MouseButtons.Right) return;
+            Dispatcher.BeginInvoke(new Action(ShowTrayContextMenu));
         };
-        var menu = new WinForms.ContextMenuStrip();
-        _trayOpen = new WinForms.ToolStripMenuItem(Loc.T("Tray.Open"), null, (_, _) => { Show(); Activate(); });
-        _trayReconnect = new WinForms.ToolStripMenuItem(Loc.T("Tray.Reconnect"), null,
-            async (_, _) => await _host.Connections.ReconnectNowAsync());
-        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) =>
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-            ShowPage(5);
-        });
-        _trayExit = new WinForms.ToolStripMenuItem(Loc.T("Tray.Exit"), null, (_, _) => ExitApp());
-        menu.Items.AddRange([_trayOpen, _trayReconnect, _trayAbout, _trayExit]);
-        _tray.ContextMenuStrip = menu;
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void ShowTrayContextMenu()
+    {
+        TrayContextMenuWindow.ShowNearCursor(
+            onOpen: ShowFromTray,
+            onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            onAbout: () =>
+            {
+                ShowFromTray();
+                ShowPage(5);
+            },
+            onExit: ExitApp);
     }
 
     private void ApplyTrayLocalized()
     {
         if (_tray != null)
             _tray.Text = Loc.T("Tray.Tip");
-        if (_trayOpen != null) _trayOpen.Text = Loc.T("Tray.Open");
-        if (_trayReconnect != null) _trayReconnect.Text = Loc.T("Tray.Reconnect");
-        if (_trayAbout != null) _trayAbout.Text = Loc.T("Tray.About");
-        if (_trayExit != null) _trayExit.Text = Loc.T("Tray.Exit");
     }
 
     private void LoadUiFromSettings()
@@ -1626,6 +1626,7 @@ public partial class MainWindow : Window
         void Add(AppLogLevelFilter f, string key)
             => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
         Add(AppLogLevelFilter.All, "Log.LevelAll");
+        Add(AppLogLevelFilter.Debug, "Log.LevelDebug");
         Add(AppLogLevelFilter.Info, "Log.LevelInfo");
         Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
         Add(AppLogLevelFilter.Error, "Log.LevelError");

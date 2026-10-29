@@ -487,29 +487,51 @@ public sealed class ProgramSettingsPage : ContentPage
     {
         var title = ProgramRegionKeys.Caption(settingKey);
 #if ANDROID
-        CollectFromEditors();
-        ProgramSettingsStore.SaveValues(_catalog, _program, _values);
-        var orientTip = ProgramRegionKeys.IsLandscapeKey(settingKey)
-            ? "请先将设备转到横屏。"
-            : "请先将设备转到竖屏。";
-        await DisplayAlertAsync(
-            title,
-            orientTip + "请开启「显示在其他应用上层」。标定框会浮在其它 App 上，可切换到目标应用再拖动/缩放，完成后点确定。",
-            "OK");
-
-        var ok = await FlyScreenRegionCalibrator.RunAsync(_catalog, _program, settingKey);
-        if (!ok)
+        // 方向提示期间也占会话，同一时间只能有一个标定
+        if (!FlyScreenRegionCalibrator.TryBeginSession())
         {
-            await DisplayAlertAsync(title, Loc.T("Prog.CalibrateFailed"), "OK");
+            await DisplayAlertAsync(title, Loc.T("Prog.CalibrateBusy"), "OK");
             return;
         }
 
-        var disk = ProgramSettingsStore.LoadFile(ProgramSettingsStore.PathFor(_catalog, _program));
-        foreach (var (k, v) in disk.Values)
-            _values[k] = v;
-        ProgramRegionKeys.MigrateLegacy(_values);
-        RefreshRegionCells();
-        await DisplayAlertAsync(title, Loc.T("Prog.CalibrateDoneOne"), "OK");
+        try
+        {
+            CollectFromEditors();
+            ProgramSettingsStore.SaveValues(_catalog, _program, _values);
+            var orientTip = ProgramRegionKeys.IsLandscapeKey(settingKey)
+                ? "请先将设备转到横屏。"
+                : "请先将设备转到竖屏。";
+            await DisplayAlertAsync(
+                title,
+                orientTip + "请开启「显示在其他应用上层」。标定框会浮在其它 App 上，可切换到目标应用再拖动/缩放，完成后点确定。",
+                "OK");
+
+            var status = await FlyScreenRegionCalibrator.RunAsync(
+                _catalog, _program, settingKey, sessionAlreadyHeld: true);
+            if (status == RegionCalibrateStatus.Busy)
+            {
+                await DisplayAlertAsync(title, Loc.T("Prog.CalibrateBusy"), "OK");
+                return;
+            }
+
+            if (status != RegionCalibrateStatus.Ok)
+            {
+                await DisplayAlertAsync(title, Loc.T("Prog.CalibrateFailed"), "OK");
+                return;
+            }
+
+            var disk = ProgramSettingsStore.LoadFile(ProgramSettingsStore.PathFor(_catalog, _program));
+            foreach (var (k, v) in disk.Values)
+                _values[k] = v;
+            ProgramRegionKeys.MigrateLegacy(_values);
+            RefreshRegionCells();
+            await DisplayAlertAsync(title, Loc.T("Prog.CalibrateDoneOne"), "OK");
+        }
+        catch
+        {
+            FlyScreenRegionCalibrator.CancelSession();
+            throw;
+        }
 #else
         await DisplayAlertAsync(title, Loc.T("Prog.CalibrateOnPhone"), "OK");
 #endif

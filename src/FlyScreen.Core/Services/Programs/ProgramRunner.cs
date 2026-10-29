@@ -116,6 +116,11 @@ public sealed class ProgramRunner
                 {
                     var settings = ProgramSettingsStore.LoadResolved(_catalog, prog);
                     Fly.BindSettings(settings);
+                    Fly.BindLogContext(prog.Id, prog.Name);
+                    var logLevel = ProgramSettingsSchema.ResolveLogLevel(settings);
+                    // 先宣告再设过滤：带 programId 的 Info 在 Error 级下会被丢掉
+                    AppLog.Info($"「{prog.Name}」日志级别={logLevel}（低于此级的脚本日志不写入）");
+                    AppLog.SetProgramMinWriteLevel(logLevel);
                     var op = settings.GetValueOrDefault(ProgramRegionKeys.OcrPortrait) ?? "";
                     var ol = settings.GetValueOrDefault(ProgramRegionKeys.OcrLandscape) ?? "";
                     var ap = settings.GetValueOrDefault(ProgramRegionKeys.ActionPortrait) ?? "";
@@ -125,6 +130,7 @@ public sealed class ProgramRunner
                         AppLog.Info(
                             $"「{prog.Name}」区域 竖识={op} 竖操={ap} 横识={ol} 横操={al}",
                             prog.Id, prog.Name);
+                    // 调试浮层仅由 debugLog 控制（与日志写入级别 logLevel 分离）
                     if (ProgramSettingsSchema.AsBool(settings.GetValueOrDefault("debugLog"), false))
                         ProgramDebugHud.Start(prog.Id, prog.Name);
                 }
@@ -132,6 +138,8 @@ public sealed class ProgramRunner
                 {
                     AppLog.Warn($"加载程序设置失败「{prog.Name}」: {ex.Message}", prog.Id, prog.Name);
                     Fly.ClearSettings();
+                    Fly.ClearLogContext();
+                    AppLog.ClearProgramMinWriteLevel();
                 }
 
                 await InProcessProgramExecutor.RunAsync(
@@ -160,6 +168,8 @@ public sealed class ProgramRunner
             {
                 try { ProgramDebugHud.Stop(); } catch { /* ignore */ }
                 try { Fly.ClearSettings(); } catch { /* ignore */ }
+                try { Fly.ClearLogContext(); } catch { /* ignore */ }
+                try { AppLog.ClearProgramMinWriteLevel(); } catch { /* ignore */ }
                 try { gate?.EndRun(); } catch { /* ignore */ }
                 if (ProgramDebugGate.Current == gate)
                     ProgramDebugGate.Current = null;
