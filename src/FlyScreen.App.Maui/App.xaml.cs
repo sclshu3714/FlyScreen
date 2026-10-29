@@ -41,6 +41,16 @@ public partial class App : Application
 
 #if WINDOWS
         Services.MauiWindowIcon.Apply(window);
+        window.HandlerChanged += (_, _) =>
+            MainThread.BeginInvokeOnMainThread(() =>
+                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current)));
+        window.Created += (_, _) =>
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), () =>
+                    Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current)));
+            });
 #endif
 #if ANDROID
         Services.VirtualCursorOverlay.Attach(window);

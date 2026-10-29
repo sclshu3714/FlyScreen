@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |----|------|
 | 基准 | **Windows Desktop**（`FlyScreen.App.Windows`，stable 唯一交付） |
-| 统计日 | 2026-10-27 |
+| 统计日 | 2026-10-29 |
 | 图例 | **完整** = 与 Win 对标可用 · **骨架** = 工程/协议已通、主路径未齐 · **占位** = API/UI 有入口未落地 · **—** = 非本阶段目标 · **❌** = 明确不做 |
 
 相对完成度按「对标 Win 的必达能力」粗算，仅供排期，非精确工时。
@@ -15,16 +15,16 @@
 | 平台 | 阶段 | 工程 | 相对 Win | 一句话 |
 |------|------|------|----------|--------|
 | **Windows** | stable | `App.Windows` + `Windows` + `Core` | **100%（基准）** | 完整产品：键鼠、布局、剪贴板、文件、更新、诊断 |
-| macOS | W1 | `Mac` + `App.Mac` | **~45%** | Avalonia 壳 + Caps 全量；文本剪贴板/直传/Inbox；注入/捕获仍骨架 |
-| Linux X11 | W2 | `Linux` + `App.Linux` | **~45%** | GUI + 文本剪贴板/直传/Inbox；CLI `send`/`inbox`/`clip`；无边缘捕获 |
+| macOS | W1 | `Mac` + `App.Mac` | **~48%** | Avalonia 壳；剪贴板多格式尽力 + 直传/Inbox；注入/捕获仍骨架 |
+| Linux X11 | W2 | `Linux` + `App.Linux` | **~48%** | GUI；剪贴板多格式尽力 + 直传/Inbox；CLI `send`/`inbox`/`clip`；无边缘捕获 |
 | Linux Wayland | W2 | 同上 | **~35%** | 同 X11 传输路径；无 EdgeMouse；注入占位 |
 | Linux 无头 | W2 | 同上 | **~35%** | CLI/Daemon：直传落盘 + 文本宣告；无系统粘贴、无键鼠 |
-| Android Phone/Tablet | W3 / W7 | `App.Maui`（主）+ `mobile/android` | **~65%** | MAUI：触控板/键盘/剪贴板/直传；无障碍被控 + **用户程序 Fly/OCR**；Kotlin 工程仍骨架 |
+| Android Phone/Tablet | W3 / W7 | `App.Maui`（主）+ `mobile/android` | **~70%** | MAUI：触控板/键盘；剪贴板文/HTML/图 + 文件物化宣告；无障碍被控 + **用户程序 Fly/OCR**；Kotlin 仍骨架 |
 | Android TV | W4 | — | **0%** | 未开工 |
 | 鸿蒙手机/平板 | W5a | `mobile/harmony/phone` | **~30%** | ArkTS 触控板壳 + 共享连接层；剪贴板/文件未做 |
 | 鸿蒙电脑 | W5b | `mobile/harmony/desktop` | **~20%** | 设置/槽位壳 + Caps；无注入/捕获/布局同步 |
-| 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~65%** | Mac/Linux 共用壳；七页/高级三列/安全工具栏/传输列表/程序编辑器与 Win 对齐；Linux 自绘标题栏 + 收件箱打开 |
-| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~85%** | Win DesktopFull + Android 触控板/剪贴板/直传/无障碍被控 + **用户程序**；UI 与 Win 对齐 |
+| 统一桌面 UI（Avalonia） | W6 | `App.Desktop` | **~68%** | Mac/Linux 共用壳；剪贴板多格式尽力；七页 UI 与 Win 对齐；键鼠主路径仍骨架 |
+| **MAUI 跨平台 UI** | **W7** | `App.Maui` | **~90%** | Win：剪贴板与 WPF 全格式对齐 + 虚拟文件；Android：文/HTML/图 + 触控板/无障碍/用户程序；UI 同构 |
 
 ---
 
@@ -41,8 +41,8 @@
 | 本机捕获键鼠（主机） | **完整** | 占位 | 占位 | ❌ | 占位 |
 | 被控注入键鼠 | **完整** | 骨架² | 骨架² | 占位 | 占位 |
 | 1×4 / 2×2 布局 + 同步 | **完整** | 占位 | 占位 | ❌ | 占位 |
-| 文本/图片剪贴板 | **完整** | 骨架⁴ | 骨架⁴ | 骨架⁴ | — |
-| 文件剪贴板按需拉取 | **完整** | 骨架⁵ | 骨架⁵ | 骨架⁵ | — |
+| 文本/富文本/图片剪贴板 | **完整** | 尽力⁴ | 尽力⁴ | 尽力⁴ | — |
+| 文件剪贴板按需拉取 | **完整** | 半通⁵ | 半通⁵ | 半通⁵ | — |
 | 直接传输 | **完整** | 骨架 | 骨架 | 骨架 | — |
 | 托盘 / 单实例 / 自启 | **完整** | — | —³ | — | — |
 | 主题 / 多语言 / 更新 | **完整** | — | — | — | — |
@@ -51,8 +51,8 @@
 ¹ Win 已发握手扩展字段；与旧端兼容冒烟仍建议补强。  
 ² macOS CGEvent / Linux XTest：代码与权限入口有，真机联调与键码映射未齐。  
 ³ Linux 支持 `--daemon` + systemd 示例，无桌面托盘。  
-⁴ Avalonia：文本轮询宣告 + 对端拉取写入；富文本/PNG 降级为文本或 Inbox。传输核心已抽到 `FlyScreen.Core`。  
-⁵ 桌面拉取到 Inbox/PasteStaging；不做 Win 式 CF_HDROP 延迟粘贴。无头 CLI 仅 `send`/`inbox`/`clip set`。
+⁴ Avalonia（`DesktopClipboardCoordinator`）：采集 Text/Html/Rtf/Csv/Png（尽力）；对端宣告后 Pull+Apply。详见 [clipboard.md](clipboard.md)。  
+⁵ 桌面：文件可宣告；粘贴靠「接收剪贴板文件」落 Inbox/PasteStaging，不做 Win 式虚拟 HDROP。无头 CLI 仅 `send`/`inbox`/`clip set`。
 
 ---
 
@@ -65,7 +65,7 @@
 | AbsPointer / 触控板相对移动 | **完整**（`EnsureAcceptsRemoteInput`：AbsPointer 可自动进入被控） | **完整**（相对移动 + SwitchFocus） | **骨架** |
 | 触控区轻点 / 左右键 / 中键 | 完整 | **完整**（Pad=左键；中区轻点=中键；上下滑=滚轮） | 占位 |
 | 系统输入法 → 对端 | 完整（KeyEvent / 剪贴板粘贴） | **完整**（本地不留稿，停顿后直发） | — |
-| 文本剪贴板 | 完整 | ✅ | — |
+| 剪贴板（文/HTML/图） | 完整 | ✅（RTF/CSV 粘贴降级） | — |
 | 文件接收（DirectTransfer） | 完整 | ✅ | — |
 | Desktop → Phone（Easy Mouse） | 桌面发送 | ⚠️ 须开「玄鸟键鼠注入」无障碍；点击/滑动为主 | ❌ |
 | LayoutSync | 桌面能力 | ❌ 不宣告 | ❌ |
@@ -98,21 +98,21 @@
 | 阶段 | 主题 | 完成度 | 备注 |
 |------|------|--------|------|
 | W0 | Core 拆分 + Caps 地基 | **100%** | 拆分 + 握手 Caps 协商门控 + 单测；Adapter 深迁非阻塞 |
-| W1 | macOS | **~45%** | 剪贴板文本 + 直传/Inbox；键鼠主路径未齐 |
-| W2 | Linux | **~45%** | GUI/CLI 传输路径；键鼠主路径未齐 |
-| W3 | Android 手机/平板 | **~65%** | MAUI 主路径 + 用户程序；Kotlin 独立工程仍骨架 |
+| W1 | macOS | **~48%** | 剪贴板多格式尽力 + 直传/Inbox；键鼠主路径未齐 |
+| W2 | Linux | **~48%** | GUI/CLI 传输 + 剪贴板尽力；键鼠主路径未齐 |
+| W3 | Android 手机/平板 | **~70%** | MAUI 主路径 + 剪贴板文/HTML/图 + 用户程序；Kotlin 仍骨架 |
 | W4 | Android TV | **0%** | — |
 | W5a | 鸿蒙手机/平板 | **~30%** | 对标 W3 骨架级 |
 | W5b | 鸿蒙电脑 | **~20%** | 壳 + 降级 Caps；无桌面键鼠 |
-| W6 | Avalonia 统一桌面 UI | **~65%** | 共用壳 + 直传；高级三列/安全工具栏/传输列/程序编辑与 Win 对齐；键鼠主路径未齐 |
-| W7 | MAUI 跨平台 UI | **~85%** | AbsPointer + 无障碍被控 + 用户程序 Fly/OCR；签名 APK；OLE/真机打磨仍待 |
+| W6 | Avalonia 统一桌面 UI | **~68%** | 共用壳 + 直传 + 剪贴板多格式尽力；键鼠主路径未齐 |
+| W7 | MAUI 跨平台 UI | **~90%** | Maui-Win 剪贴板对齐 WPF；Android 文/HTML/图 + AbsPointer/无障碍/用户程序；文件 OLE 体验打磨仍待 |
 
 ---
 
 ## 6. 建议优先级（相对 Win 补齐）
 
 1. **Win**：保持回归门禁；握手 v2 与旧端交叉冒烟写进发版检查。  
-2. **Android W3**：剪贴板文本 + 联调稳定性（最接近「可用的第二端」）。  
+2. **Android W3**：剪贴板文/图联调 + 文件系统粘贴体验；稳定性。  
 3. **macOS / Linux X11**：EventTap / 边缘捕获 + 被控注入打磨（桌面互通）。  
 4. **鸿蒙 5a**：对齐 Android 触控板联调；**5b** 待系统注入 API 再投入。  
 5. **W7 MAUI**：与 WPF 真机交叉联调（边缘鼠标 / 直传）；Android 触控板联调。  
@@ -124,6 +124,7 @@
 
 | 日期 | 说明 |
 |------|------|
+| 2026-10-29 | 共享剪贴板：Maui-Win 全格式内联+图；Android Html/图/文件物化；Desktop 多格式尽力；专文 [clipboard.md](clipboard.md) |
 | 2026-10-27 | 竖/横屏四区域表格标定；运行按朝向选用识别区与操作区 |
 | 2026-10-27 | 程序设置（@fly-settings + settings.json）、触屏标定识别/操作区、内置通用识别脚本、OCR 多角度 |
 | 2026-10-27 | DrawRect：无障碍 Overlay + createWindowContext 悬浮窗双路径；失败经 Console 进程序日志 |

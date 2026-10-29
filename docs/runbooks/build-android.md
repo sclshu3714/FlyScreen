@@ -76,7 +76,7 @@ powershell -File build\Name-FlyScreenPackage.ps1 `
 
 ## 后续（本阶段未完成）
 
-- 文本剪贴板宣告/拉取  
+- 剪贴板宣告/拉取（文/HTML/图等；细表见 [clipboard.md](../clipboard.md)）  
 - 文件收件箱（DirectTransfer）  
 - 软键盘 → KeyEvent  
 - TV flavor → W4  

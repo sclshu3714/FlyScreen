@@ -22,6 +22,7 @@ FlyScreen 是跨端项目。测试时各端组合不固定：Win 桌面、Maui-W
 | --- | --- |
 | 组字/候选浮层 | `RemoteCompositionHost`（Win）+ `RemoteCompositionOverlay`（Maui）+ `Protocol`（Core） |
 | 键鼠/触控转发 | `InputRouter`（Win）+ Maui 无障碍/触控板 + 相关 `MessageType` |
+| 剪贴板内联（文/HTML/RTF/CSV/图） | `ClipboardInlineData`/`FileTransferService`（Core）+ `ClipboardBridge`（Win）+ `MauiWinClipboardInline`（Maui-Win）+ Android 监视 + `AvaloniaClipboardApplySink`（Desktop）；对标见 `docs/clipboard.md` |
 | 剪贴板文件宣告/懒粘贴/文件夹 | `FileTransferService`/`Protocol`（Core）+ `ClipboardMonitor`（Win）+ `MauiTextClipboardMonitor` / Android 监视 + `DesktopClipboardCoordinator`（Mac/Linux） |
 | 协议字段/消息类型 | `Protocol.cs`（Core）+ 所有收发端编解码与处理分支 |
 | 仅一端纯 UI 且不改协议 | 可只改该端；若影响对端展示约定仍要同步 |
@@ -30,7 +31,7 @@ FlyScreen 是跨端项目。测试时各端组合不固定：Win 桌面、Maui-W
 
 1. 是否新增/修改了 `MessageType` 或 Payload 字段？→ Core + 所有收发端。
 2. 电脑侧状态变化是否要反映到手机 UI（或相反）？→ 相关端都要改。
-3. 剪贴板/文件：Win 改了监听或宣告，是否同步 Maui-Win、Desktop（Mac/Linux）、Android 文本路径？
+3. 剪贴板/文件：Win 改了监听或宣告，是否同步 Maui-Win（含图/富文本）、Desktop（Mac/Linux）、Android？更新 `docs/clipboard.md` 对标表。
 4. 编译验证：至少构建 **Core + 改动的各端**（Win / Maui / Desktop 视改动而定），不要只编一端就结束。
 
 ## 反例
@@ -38,3 +39,4 @@ FlyScreen 是跨端项目。测试时各端组合不固定：Win 桌面、Maui-W
 - 只在 Win 做 Imm 翻页/多行，Maui 仍按旧序号或旧布局展示。
 - 只改 Maui 浮层隐藏，不通知 Win `CompositionCancel` 清 Imm。
 - 只改 Win 剪贴板懒粘贴/宣告，Maui-Win / Mac / Linux 仍旧逻辑或漏宣告。
+- 只改 Maui 写图，不补本机复制图的宣告（对端仍收不到）。

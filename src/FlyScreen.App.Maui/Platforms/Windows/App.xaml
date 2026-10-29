@@ -11,7 +11,9 @@
   -->
   <maui:MauiWinUIApplication.Resources>
     <DataTemplate x:Key="MauiAppTitleBarTemplate">
-      <Border Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0">
+      <!-- AppTitleBarRoot：MauiWindowChrome 按淡色/深色刷背景，避免深色主题下标题栏仍发白 -->
+      <Border x:Name="AppTitleBarRoot" Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0"
+              Background="#F7F8FA">
         <StackPanel Orientation="Horizontal" Margin="12,0,0,0">
           <Image x:Name="AppFontIcon"
                  HorizontalAlignment="Left"
@@ -25,7 +27,7 @@
                      VerticalAlignment="Center"
                      Margin="{Binding WindowTitleMargin}"
                      Text="{Binding WindowTitle}"
-                     Foreground="{Binding WindowTitleForeground}"
+                     Foreground="#111827"
                      Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
       </Border>

@@ -14,7 +14,7 @@ public sealed class DesktopClipboardCoordinator : IDisposable
     private readonly FileTransferService _transfers;
     private readonly AvaloniaClipboardApplySink _sink;
     private readonly DispatcherTimer _timer;
-    private string? _lastLocalTextKey;
+    private string? _lastLocalInlineKey;
     private string? _lastLocalFilesKey;
     private int _busy;
 
@@ -83,13 +83,14 @@ public sealed class DesktopClipboardCoordinator : IDisposable
                 }
             }
 
-            var text = await _sink.TryGetTextAsync().ConfigureAwait(true);
-            if (string.IsNullOrEmpty(text)) return;
-            var textKey = $"{text.Length}:{text[..Math.Min(32, text.Length)]}";
-            if (textKey == _lastLocalTextKey) return;
-            _lastLocalTextKey = textKey;
-            await _transfers.AnnounceLocalInlineAsync(new ClipboardInlineData { Text = text })
-                .ConfigureAwait(true);
+            var inline = await _sink.TryCaptureInlineAsync().ConfigureAwait(true);
+            if (inline == null || inline.IsEmpty) return;
+            if (_sink.IsSameAsLastApplied(inline)) return;
+
+            var inlineKey = inline.BuildKey();
+            if (inlineKey == _lastLocalInlineKey) return;
+            await _transfers.AnnounceLocalInlineAsync(inline).ConfigureAwait(true);
+            _lastLocalInlineKey = inlineKey;
         }
         catch
         {

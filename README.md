@@ -14,7 +14,8 @@
 
 - **[docs/README.md](docs/README.md)** — 文档索引  
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — 版本阶段与周期（W0–W7，含 MAUI）  
-- **[docs/status.md](docs/status.md)** — 各端完成情况（以 Win 为基准）
+- **[docs/status.md](docs/status.md)** — 各端完成情况（以 Win 为基准）  
+- **[docs/clipboard.md](docs/clipboard.md)** — 共享剪贴板各端格式对标
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
 当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
@@ -27,7 +28,7 @@ MAUI Android：触控板/键盘控桌面；桌面控手机与**用户程序（Fl
 3. **更稳的双向连接** — 每台同时「监听 + 主动连出」；心跳保活，任一方向可用即可收发，双通显示「双向已连接」。
 4. **按需文件传输** — 复制文件只宣告元数据；鼠标移到目标机后后台拉取，其它电脑不传文件；接收中不卡键鼠。
 5. **直接传输** — 推送文件/文件夹到指定电脑的桌面、文档、下载、收件箱或自定义路径，保留目录结构。
-6. **统一剪贴板** — 文本、HTML、RTF、CSV、截图：复制仅宣告，进入目标机后再拉取写入。
+6. **统一剪贴板** — 文本、HTML、RTF、CSV、截图/图片：复制仅宣告，进入目标机后再拉取写入（Win ↔ Maui-Win 全格式对齐；其它端见 [docs/clipboard.md](docs/clipboard.md)）。
 7. **布局同步** — 一台修改电脑布局并「应用」后，已连接对端同步槽位与 1×4 / 2×2。
 8. **多网卡绑定** — 「网络设置」选择通信网卡，减少虚拟网卡导致的单向连接。
 9. **开机自启** — 任务计划程序（最高权限）登录后启动；自启后托盘后台连接。
@@ -163,9 +164,11 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 
 | 场景 | 行为 |
 |------|------|
-| 文本 / HTML / RTF / CSV / 截图 | 仅宣告；鼠标进入某台后再拉取到该机 |
-| 复制文件后移到目标机 | 后台接收，完成后可粘贴；接收中不卡键鼠 |
+| 文本 / HTML / RTF / CSV / 截图·图片 | 仅宣告；鼠标/焦点进入目标机后再拉取并写入该机系统剪贴板 |
+| 复制文件后移到目标机 | Win / Maui-Win：虚拟剪贴板，粘贴时再拉；接收中不卡键鼠 |
 | 直接传输 | 「共享」→「直接传输…」选路径与目标电脑 |
+
+**各端格式对标**（完整 / 尽力 / 降级 / 半通）见 **[docs/clipboard.md](docs/clipboard.md)**。摘要：Win ↔ Maui-Win 内联与文件主路径已齐；Android 支持文本/HTML/图，RTF·CSV 粘贴降级；Mac/Linux Desktop 多格式尽力，文件粘贴靠「接收剪贴板文件」。
 
 进度与历史在 **共享**（传输列表）页，列与 Win/MAUI 对齐：方向、文件名、对端、大小、进度、状态、删除。「打开收件箱」打开本机 Inbox 目录；「清除已完成」与行内删除只删接收方收件箱缓存，不删发送方本地文件。
 
@@ -203,8 +206,8 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 
 - 跨机键鼠（边缘切换、热键、Easy Mouse、环形鼠标）
 - 电脑布局（拖拽互换、添加/移除、布局同步，最多 4 台）
-- 剪贴板：文本、富文本、CSV、图片/截图
-- 文件：粘贴按需拉取 + 直接推送
+- 剪贴板：文本、HTML、RTF、CSV、图片/截图（跨端能力见 [docs/clipboard.md](docs/clipboard.md)）
+- 文件：粘贴按需拉取（Win/Maui-Win 虚拟剪贴板）+ 直接推送
 - 局域网发现、多网卡、开机自启、托盘、单实例
 - 深色主题、多语言、GitHub 更新、连接诊断
 - 三端 UI 同构（WPF / Avalonia Desktop / MAUI）：七页导航 + 安全页密钥

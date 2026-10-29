@@ -1057,18 +1057,18 @@ public partial class MainPage : ContentPage
         A11yInjectLabel.Text = Loc.T("Opt.A11yInject");
         A11yInjectTipLabel.Text = Loc.T("Opt.A11yInjectTip");
         EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
-        EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
-        EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
-        EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        MauiRadioTheme.SetContent(EdgeCrossBarrierRadio, Loc.T("Opt.EdgeCross.BarrierFree"));
+        MauiRadioTheme.SetContent(EdgeCrossDoubleRadio, Loc.T("Opt.EdgeCross.DoubleTap"));
+        MauiRadioTheme.SetContent(EdgeCrossSpeedRadio, Loc.T("Opt.EdgeCross.SpeedBurst"));
         RefreshEdgeCrossTip();
         WireA11yInjectUi();
         SyncA11yInjectCheck();
 
         HotTitleText.Text = Loc.T("Hot.Title");
         HotSwitchText.Text = Loc.T("Hot.Switch");
-        HotF.Content = Loc.T("Hot.F14");
-        HotNum.Content = Loc.T("Hot.Num");
-        HotOff.Content = Loc.T("Hot.Off");
+        MauiRadioTheme.SetContent(HotF, Loc.T("Hot.F14"));
+        MauiRadioTheme.SetContent(HotNum, Loc.T("Hot.Num"));
+        MauiRadioTheme.SetContent(HotOff, Loc.T("Hot.Off"));
         HotSettingsLabel.Text = Loc.T("Hot.Settings");
         HotReconnectLabel.Text = Loc.T("Hot.Reconnect");
         HotExitLabel.Text = Loc.T("Hot.Exit");
@@ -1077,8 +1077,8 @@ public partial class MainPage : ContentPage
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
-        ThemeLight.Content = Loc.T("Sys.StyleLight");
-        ThemeDark.Content = Loc.T("Sys.StyleDark");
+        MauiRadioTheme.SetContent(ThemeLight, Loc.T("Sys.StyleLight"));
+        MauiRadioTheme.SetContent(ThemeDark, Loc.T("Sys.StyleDark"));
 
         NicTitleText.Text = Loc.T("Net.NicTitle");
         NicHintText.Text = Loc.T("Net.NicHint");
@@ -2423,6 +2423,10 @@ public partial class MainPage : ContentPage
         MauiThemeService.Apply(theme, this);
         LoadUi();
         ApplyLocalizedUi();
+        // 本地化会改 Radio 文案；再强制字色（含延迟，避免 WinUI 仍用旧主题前景）
+        RefreshOptionsRadioChrome();
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), RefreshOptionsRadioChrome);
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), RefreshOptionsRadioChrome);
         RebuildMatrix();
         if (layoutMerge)
             await _host.BroadcastLayoutMergeAsync();
@@ -2466,29 +2470,11 @@ public partial class MainPage : ContentPage
     }
 
     /// <summary>
-    /// Android 上 RadioButton 若在父级首次可见前未落地主题色，会短暂/首屏显示 Material 深色底。
-    /// 进入高级页时强制写回背景与文字色，并轻触 Content 触发原生重绘。
+    /// 主题切换或进入高级页：强制 RadioButton 字色/背景与资源 Text 一致。
+    /// WinUI 上 DynamicResource 常不刷新 Radio；Android 首次可见也会吃到 Material 深色底。
     /// </summary>
     private void RefreshOptionsRadioChrome()
-    {
-        var text = Application.Current?.Resources.TryGetValue("Text", out var tv) == true && tv is Color c
-            ? c
-            : Color.FromArgb("#111827");
-        var bg = Color.FromArgb("#01000000");
-        foreach (var rb in new RadioButton?[]
-                 {
-                     EdgeCrossBarrierRadio, EdgeCrossDoubleRadio, EdgeCrossSpeedRadio,
-                     HotF, HotNum, HotOff, ThemeLight, ThemeDark
-                 })
-        {
-            if (rb == null) continue;
-            rb.BackgroundColor = bg;
-            rb.TextColor = text;
-            // 重新赋值 Content 可迫使 Android 重建标签层，去掉残留深色底
-            if (rb.Content is string s)
-                rb.Content = s;
-        }
-    }
+        => MauiThemeService.RefreshRadioButtonsInVisualTree(this);
 
     private async void Reconnect_Clicked(object? sender, EventArgs e)
     {
