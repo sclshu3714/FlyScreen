@@ -170,15 +170,27 @@
                                 <VerticalStackLayout x:Name="EdgeCrossColumn" Grid.Column="2" Spacing="0">
                                     <Label x:Name="EdgeCrossTitleText" Text="穿边模式" FontAttributes="Bold" Margin="0,0,0,4" />
                                     <!-- 独立列内纵向排列，避免窄列横排挤换行 -->
-                                    <RadioButton x:Name="EdgeCrossBarrierRadio" Content="无障碍" GroupName="EdgeCross"
+                                    <RadioButton x:Name="EdgeCrossBarrierRadio" GroupName="EdgeCross"
                                                  IsChecked="True" FontSize="13" Margin="0,1"
-                                                 CheckedChanged="EdgeCrossMode_Changed" />
-                                    <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
+                                                 CheckedChanged="EdgeCrossMode_Changed">
+                                        <RadioButton.Content>
+                                            <Label Text="无障碍" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                        </RadioButton.Content>
+                                    </RadioButton>
+                                    <RadioButton x:Name="EdgeCrossDoubleRadio" GroupName="EdgeCross"
                                                  FontSize="13" Margin="0,1"
-                                                 CheckedChanged="EdgeCrossMode_Changed" />
-                                    <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                                                 CheckedChanged="EdgeCrossMode_Changed">
+                                        <RadioButton.Content>
+                                            <Label Text="双击" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                        </RadioButton.Content>
+                                    </RadioButton>
+                                    <RadioButton x:Name="EdgeCrossSpeedRadio" GroupName="EdgeCross"
                                                  FontSize="13" Margin="0,1,0,6"
-                                                 CheckedChanged="EdgeCrossMode_Changed" />
+                                                 CheckedChanged="EdgeCrossMode_Changed">
+                                        <RadioButton.Content>
+                                            <Label Text="极速" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                        </RadioButton.Content>
+                                    </RadioButton>
                                     <Label x:Name="EdgeCrossTipText" Text="" TextColor="{DynamicResource Muted}"
                                            FontSize="11" LineBreakMode="WordWrap" />
                                 </VerticalStackLayout>
@@ -192,9 +204,21 @@
                                     <Label x:Name="HotSwitchText" Text="切换机器（Ctrl+Alt+）" TextColor="{DynamicResource Muted}" FontSize="12" />
                                     <FlexLayout x:Name="HotSwitchRow" Wrap="Wrap" AlignItems="Center"
                                                 Margin="0,2,0,6">
-                                        <RadioButton x:Name="HotF" Content="F1–F4" GroupName="SwHot" IsChecked="True" Margin="0,0,14,4" />
-                                        <RadioButton x:Name="HotNum" Content="1–4" GroupName="SwHot" Margin="0,0,14,4" />
-                                        <RadioButton x:Name="HotOff" Content="禁用" GroupName="SwHot" Margin="0,0,0,4" />
+                                        <RadioButton x:Name="HotF" GroupName="SwHot" IsChecked="True" Margin="0,0,14,4">
+                                            <RadioButton.Content>
+                                                <Label Text="F1–F4" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                            </RadioButton.Content>
+                                        </RadioButton>
+                                        <RadioButton x:Name="HotNum" GroupName="SwHot" Margin="0,0,14,4">
+                                            <RadioButton.Content>
+                                                <Label Text="1–4" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                            </RadioButton.Content>
+                                        </RadioButton>
+                                        <RadioButton x:Name="HotOff" GroupName="SwHot" Margin="0,0,0,4">
+                                            <RadioButton.Content>
+                                                <Label Text="禁用" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                            </RadioButton.Content>
+                                        </RadioButton>
                                     </FlexLayout>
                                     <!-- 宽屏两列；窄屏由代码改为单列 -->
                                     <Grid x:Name="HotKeysGrid" ColumnDefinitions="Auto,68,12,Auto,68" RowDefinitions="Auto,Auto,Auto,Auto"
@@ -220,8 +244,16 @@
                                     <Label x:Name="SysTitleText" Text="系统设置" FontAttributes="Bold" />
                                     <Label x:Name="SysStyleLabel" Text="样式" Margin="0,4,0,2" />
                                     <FlexLayout Wrap="Wrap" AlignItems="Center" Margin="0,0,0,10">
-                                        <RadioButton x:Name="ThemeLight" Content="淡色" GroupName="UiTheme" IsChecked="True" Margin="0,0,18,4" />
-                                        <RadioButton x:Name="ThemeDark" Content="深色" GroupName="UiTheme" Margin="0,0,0,4" />
+                                        <RadioButton x:Name="ThemeLight" GroupName="UiTheme" IsChecked="True" Margin="0,0,18,4">
+                                            <RadioButton.Content>
+                                                <Label Text="淡色" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                            </RadioButton.Content>
+                                        </RadioButton>
+                                        <RadioButton x:Name="ThemeDark" GroupName="UiTheme" Margin="0,0,0,4">
+                                            <RadioButton.Content>
+                                                <Label Text="深色" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                            </RadioButton.Content>
+                                        </RadioButton>
                                     </FlexLayout>
                                     <Label x:Name="SysLangLabel" Text="语言" Margin="0,0,0,4" />
                                     <Picker x:Name="LanguagePicker" HeightRequest="40" MinimumHeightRequest="34"

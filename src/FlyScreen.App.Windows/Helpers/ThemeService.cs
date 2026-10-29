@@ -67,8 +67,8 @@ public static class ThemeService
     }
 
     /// <summary>
-    /// 同步 DWM 标题栏深/浅色。
-    /// 构造期窗口尚未显示，Win10 会忽略这次绘制；等 Loaded 与首帧空闲后再刷一次。
+    /// 同步 DWM 边框色（主窗已自绘标题栏；子窗仍依赖 DWM）。
+    /// Win10 首次显示前常无效，Loaded / ContentRendered / 短延迟再刷。
     /// </summary>
     private static void ApplyNativeTitleBar(Window window, bool dark)
     {
@@ -89,9 +89,28 @@ public static class ThemeService
         }
 
         Apply();
-        // 显示之后再刷：对应「最小化/拉动后标题栏才变深色」
         window.Dispatcher.BeginInvoke(Apply, DispatcherPriority.Loaded);
         window.Dispatcher.BeginInvoke(Apply, DispatcherPriority.ContextIdle);
+        window.Dispatcher.BeginInvoke(Apply, DispatcherPriority.ApplicationIdle);
+        if (!window.IsLoaded)
+        {
+            void OnLoaded(object sender, RoutedEventArgs e)
+            {
+                window.Loaded -= OnLoaded;
+                Apply();
+                window.Dispatcher.BeginInvoke(Apply, DispatcherPriority.ContextIdle);
+            }
+
+            window.Loaded += OnLoaded;
+        }
+
+        void OnRendered(object? sender, EventArgs e)
+        {
+            window.ContentRendered -= OnRendered;
+            Apply();
+        }
+
+        window.ContentRendered += OnRendered;
     }
 
     private static void OverrideSystemColorsOn(ResourceDictionary rd, bool dark)

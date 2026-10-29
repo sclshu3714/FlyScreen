@@ -76,6 +76,43 @@ public partial class MainWindow : Window
         _host = AppHost.EnsureCreated();
         Loaded += OnLoaded;
         Closing += OnClosing;
+        UpdateTitleMaxGlyph();
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            return;
+        }
+
+        if (e.ChangedButton == MouseButton.Left)
+            DragMove();
+    }
+
+    private void TitleMin_Click(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void TitleMax_Click(object sender, RoutedEventArgs e)
+        => ToggleMaximize();
+
+    private void TitleClose_Click(object sender, RoutedEventArgs e)
+        => Close();
+
+    private void MainWindow_StateChanged(object? sender, EventArgs e)
+        => UpdateTitleMaxGlyph();
+
+    private void ToggleMaximize()
+        => WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+
+    private void UpdateTitleMaxGlyph()
+    {
+        if (TitleMaxBtn == null) return;
+        // 最大化后显示「还原」样式
+        TitleMaxBtn.Content = WindowState == WindowState.Maximized ? "❐" : "☐";
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

@@ -18,8 +18,8 @@
 |-----|------|
 | `EdgeMouse` | 鼠标移出屏幕边缘切换到布局中相邻设备 |
 | `AbsPointer` | 绝对指针或触控板相对移动（移动端主路径） |
-| `ClipboardText` | 文本 / 富文本 / 常见图片剪贴板 |
-| `ClipboardFiles` | 文件类剪贴板按需拉取 |
+| `ClipboardText` | 文本 / 富文本（Html/Rtf/Csv）/ 常见图片（PNG）；细表见 [clipboard.md](clipboard.md) |
+| `ClipboardFiles` | 文件类剪贴板按需拉取（Win/Maui-Win 虚拟粘贴；其它端可半通） |
 | `DirectTransfer` | 直接推送到对端路径或应用收件箱 |
 | `LayoutSync` | 1×4 / 2×2 槽位布局同步 |
 | `InjectInput` | 允许对端注入本机键鼠 |
@@ -60,7 +60,7 @@
 ### 3.3 一期主路径（产品默认）
 
 1. **Desktop ↔ Desktop**：完整键鼠 + 布局（Wayland 除外）。  
-2. **Phone/Tablet → Desktop**：触控板控键鼠 + 文本剪贴板 + 文件接收（MAUI：系统输入法直发对端）。  
+2. **Phone/Tablet → Desktop**：触控板控键鼠 + 剪贴板（文/HTML/图）+ 文件接收（MAUI：系统输入法直发对端）。  
 3. **Tv → Desktop**：方向键 / 简易指针遥控。  
 4. **Desktop → Phone**：MAUI Android 在开启无障碍后支持 Easy Mouse 切入与点击/滑动；完整键盘注入仍为降级。  
 5. **本机用户程序（非 Caps）**：MAUI Android 可在无障碍就绪后运行脚本（`Fly.HasText` / `Ocr` / 手势等）；不参与握手能力位。见 [programs-android.md](runbooks/programs-android.md)。
@@ -89,7 +89,8 @@
 | ClipboardFiles / DirectTransfer | `send` 直传；收到写入 Inbox（`inbox` 命令） |
 | EdgeMouse / Inject / Capture / LayoutSync | ❌ 不宣告 |
 
-¹ 桌面：拉取到 Inbox/PasteStaging；不做 Win CF_HDROP 延迟系统粘贴。富文本/图片以文本降级或落盘为主。
+¹ 桌面 Mac/Linux：文件可宣告，粘贴靠「接收剪贴板文件」落 Inbox/PasteStaging，不做 Win 虚拟 HDROP。内联多格式尽力读写，见 [clipboard.md](clipboard.md)。  
+Android `ClipboardFiles`：开启传文件时可物化非图 URI 后宣告；粘贴不挂系统文件剪贴板（半通）。
 
 ## 6. 修订记录
 
@@ -99,3 +100,4 @@
 | 2026-10-14 | Mac/Linux 桌面 ClipboardFiles+DirectTransfer 落地；无头仅直传+文本通道 |
 | 2026-10-16 | MAUI Android：`AndroidMobile` 含 EdgeMouse/InjectInput；无障碍注入；触控板 AbsPointer 主路径完善 |
 | 2026-10-27 | 补充本机用户程序（Fly/OCR）说明；非 Caps |
+| 2026-10-29 | 剪贴板实现对齐说明；链到 [clipboard.md](clipboard.md)；Android/Desktop 半通与尽力语义 |

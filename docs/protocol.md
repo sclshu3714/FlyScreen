@@ -66,7 +66,7 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 连接 / 心跳 | 保活与身份 | 移动端后台可能更长心跳间隔，可配置但默认兼容 |
 | 键鼠事件 | 相对/按键/滚轮 | Phone 触控板发相对 `MouseMove` + `MouseButton`/`MouseWheel`/`KeyEvent`；桌面以 `SwitchFocus` 或 AbsPointer 自动进入被控后注入 |
 | 焦点 / 布局 | 切换与同步 | `SwitchFocus`：EdgeMouse 切入与 AbsPointer 会话；`LayoutSync` 仅 Desktop 交集 |
-| 剪贴板宣告 / 拉取 | 文本图片文件 | 电视端可能缺省 |
+| 剪贴板宣告 / 拉取 | 内联 Text/Html/Rtf/Csv/Png + 文件（见 [clipboard.md](clipboard.md)） | 电视端可能缺省 |
 | 直接传输 | 推路径 | 移动端目标为应用收件箱语义 |
 | 发现 UDP | 局域网 | 移动端注意省电与权限 |
 | 程序共享 | `ProgramShare`（64） | 用户程序源码推送到已连接对端；**同 Id 覆盖源码**，仅同名不同 Id 跳过。载荷见 `ProgramSharePayload` |
@@ -109,3 +109,4 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 2026-10-14 | W0 收口：Caps 交集门控 + Core.Tests |
 | 2026-10-16 | MAUI `AndroidMobile` / `HarmonyMobile`：AbsPointer+ClipboardText+DirectTransfer，另含 **EdgeMouse+InjectInput**（无 LayoutSync）；桌面 AbsPointer 接收侧 `EnsureAcceptsRemoteInput`（Win/MAUI/Linux/Mac） |
 | 2026-10-27 | 文档同步：`ProgramShare`（同 Id 覆盖源码）；用户程序本机 Fly 控制不进协议 |
+| 2026-10-29 | 剪贴板内联格式说明链到 [clipboard.md](clipboard.md) |

@@ -19,7 +19,7 @@ public sealed class MauiTextClipboardMonitor : IDisposable
     private readonly FileTransferService _transfers;
     private readonly MauiClipboardApplySink _sink;
     private CancellationTokenSource? _cts;
-    private string? _lastTextKey;
+    private string? _lastInlineKey;
     private string? _lastFilesKey;
     private uint _lastClipboardSeq;
     private long _armedFileSequence;
@@ -164,24 +164,38 @@ public sealed class MauiTextClipboardMonitor : IDisposable
                         }
                     }
 
-                    var text = await _sink.TryGetTextAsync().ConfigureAwait(false);
-                    if (string.IsNullOrEmpty(text))
-                    {
-                        _lastClipboardSeq = seq;
-                        continue;
-                    }
-
-                    var textKey = text.Length + ":" + text.GetHashCode();
-                    if (textKey == _lastTextKey && seq == _lastClipboardSeq)
-                    {
-                        _lastClipboardSeq = seq;
-                        continue;
-                    }
-
-                    _lastTextKey = textKey;
-                    _lastClipboardSeq = seq;
-                    await _transfers.AnnounceLocalInlineAsync(new ClipboardInlineData { Text = text })
+                    ClipboardInlineData? inline;
+#if WINDOWS
+                    inline = await MainThread.InvokeOnMainThreadAsync(MauiWinClipboardInline.TryCaptureAsync)
                         .ConfigureAwait(false);
+#else
+                    var textOnly = await _sink.TryGetTextAsync().ConfigureAwait(false);
+                    inline = string.IsNullOrEmpty(textOnly)
+                        ? null
+                        : new ClipboardInlineData { Text = textOnly };
+#endif
+                    if (inline == null || inline.IsEmpty)
+                    {
+                        _lastClipboardSeq = seq;
+                        continue;
+                    }
+
+                    if (_sink.IsSameAsLastApplied(inline))
+                    {
+                        _lastClipboardSeq = seq;
+                        continue;
+                    }
+
+                    var inlineKey = inline.BuildKey();
+                    if (inlineKey == _lastInlineKey && seq == _lastClipboardSeq)
+                    {
+                        _lastClipboardSeq = seq;
+                        continue;
+                    }
+
+                    await _transfers.AnnounceLocalInlineAsync(inline).ConfigureAwait(false);
+                    _lastInlineKey = inlineKey;
+                    _lastClipboardSeq = seq;
                 }
                 finally
                 {

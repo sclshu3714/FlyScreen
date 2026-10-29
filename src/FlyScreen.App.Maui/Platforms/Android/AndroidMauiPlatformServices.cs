@@ -20,7 +20,8 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private readonly FileTransferService _transfers;
     private readonly MauiClipboardApplySink _clipSink = new();
     private CancellationTokenSource? _clipCts;
-    private string? _lastTextKey;
+    private string? _lastInlineKey;
+    private string? _lastFilesKey;
     private bool _receiving;
     private bool _promptedOverlay;
     private bool _promptedTouchInjection;
@@ -412,16 +413,200 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             {
                 await Task.Delay(1200, ct).ConfigureAwait(false);
                 if (!_settings.ShareClipboard || _clipSink.IsSuppressed) continue;
-                var text = await _clipSink.TryGetTextAsync().ConfigureAwait(false);
-                if (string.IsNullOrEmpty(text)) continue;
-                var key = text.Length + ":" + text.GetHashCode();
-                if (key == _lastTextKey) continue;
-                _lastTextKey = key;
-                await _transfers.AnnounceLocalInlineAsync(new ClipboardInlineData { Text = text })
+
+                if (_settings.TransferFile)
+                {
+                    var files = await MainThread.InvokeOnMainThreadAsync(TryCaptureAndroidFilePaths)
+                        .ConfigureAwait(false);
+                    if (files is { Count: > 0 })
+                    {
+                        var real = files.Where(p => !_transfers.IsInboxPath(p)).ToList();
+                        if (real.Count > 0)
+                        {
+                            var key = string.Join("|", real);
+                            if (key != _lastFilesKey
+                                && await _transfers.AnnounceLocalFilesAsync(real).ConfigureAwait(false))
+                                _lastFilesKey = key;
+                            continue;
+                        }
+                    }
+                }
+
+                var inline = await MainThread.InvokeOnMainThreadAsync(TryCaptureAndroidInline)
                     .ConfigureAwait(false);
+                if (inline == null || inline.IsEmpty) continue;
+                if (_clipSink.IsSameAsLastApplied(inline)) continue;
+
+                var inlineKey = inline.BuildKey();
+                if (inlineKey == _lastInlineKey) continue;
+                await _transfers.AnnounceLocalInlineAsync(inline).ConfigureAwait(false);
+                _lastInlineKey = inlineKey;
             }
             catch (OperationCanceledException) { break; }
             catch { /* ignore */ }
+        }
+    }
+
+    private static ClipboardInlineData? TryCaptureAndroidInline()
+    {
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            if (ctx == null) return null;
+            var cm = ctx.GetSystemService(global::Android.Content.Context.ClipboardService)
+                as global::Android.Content.ClipboardManager;
+            var clip = cm?.PrimaryClip;
+            if (clip == null || clip.ItemCount <= 0) return null;
+
+            string? text = null;
+            string? html = null;
+            byte[]? png = null;
+
+            for (var i = 0; i < clip.ItemCount; i++)
+            {
+                var item = clip.GetItemAt(i);
+                if (item == null) continue;
+
+                if (string.IsNullOrEmpty(html))
+                {
+                    try
+                    {
+                        html = item.HtmlText;
+                        if (string.IsNullOrEmpty(html)) html = null;
+                    }
+                    catch
+                    {
+                        html = null;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(text))
+                {
+                    text = item.Text;
+                    if (string.IsNullOrEmpty(text))
+                        text = item.CoerceToText(ctx)?.ToString();
+                    if (string.IsNullOrEmpty(text)) text = null;
+                }
+
+                if (png == null)
+                {
+                    var uri = item.Uri;
+                    if (uri != null && IsLikelyImageUri(ctx, uri))
+                        png = TryReadImagePng(ctx, uri);
+                }
+            }
+
+            var data = new ClipboardInlineData { Text = text, Html = html, Png = png };
+            return data.IsEmpty ? null : data;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>非图片 URI → 物化到缓存后宣告为文件（TransferFile 开启时）。</summary>
+    private static IReadOnlyList<string>? TryCaptureAndroidFilePaths()
+    {
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            if (ctx == null) return null;
+            var cm = ctx.GetSystemService(global::Android.Content.Context.ClipboardService)
+                as global::Android.Content.ClipboardManager;
+            var clip = cm?.PrimaryClip;
+            if (clip == null || clip.ItemCount <= 0) return null;
+
+            var paths = new List<string>();
+            for (var i = 0; i < clip.ItemCount; i++)
+            {
+                var item = clip.GetItemAt(i);
+                var uri = item?.Uri;
+                if (uri == null) continue;
+                if (IsLikelyImageUri(ctx, uri)) continue;
+
+                var path = TryMaterializeUriToCache(ctx, uri);
+                if (!string.IsNullOrWhiteSpace(path))
+                    paths.Add(path);
+            }
+
+            return paths.Count > 0 ? paths : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsLikelyImageUri(global::Android.Content.Context ctx, global::Android.Net.Uri uri)
+    {
+        try
+        {
+            var mime = ctx.ContentResolver?.GetType(uri);
+            if (!string.IsNullOrEmpty(mime) && mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var path = uri.Path ?? uri.ToString() ?? "";
+            return path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryMaterializeUriToCache(
+        global::Android.Content.Context ctx, global::Android.Net.Uri uri)
+    {
+        try
+        {
+            if (string.Equals(uri.Scheme, "file", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(uri.Path)
+                && File.Exists(uri.Path))
+                return uri.Path;
+
+            using var input = ctx.ContentResolver?.OpenInputStream(uri);
+            if (input == null) return null;
+
+            var name = uri.LastPathSegment;
+            if (string.IsNullOrWhiteSpace(name) || name.Contains('/'))
+                name = "clip-" + Guid.NewGuid().ToString("N");
+
+            var dir = Path.Combine(ctx.CacheDir?.AbsolutePath ?? Path.GetTempPath(), "flyscreen-clip");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, name);
+            using (var fs = File.Create(path))
+                input.CopyTo(fs);
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static byte[]? TryReadImagePng(global::Android.Content.Context ctx, global::Android.Net.Uri uri)
+    {
+        try
+        {
+            using var input = ctx.ContentResolver?.OpenInputStream(uri);
+            if (input == null) return null;
+
+            using var bmp = global::Android.Graphics.BitmapFactory.DecodeStream(input);
+            if (bmp == null) return null;
+
+            using var ms = new MemoryStream();
+            if (!bmp.Compress(global::Android.Graphics.Bitmap.CompressFormat.Png!, 100, ms))
+                return null;
+            return ms.ToArray();
+        }
+        catch
+        {
+            return null;
         }
     }
 

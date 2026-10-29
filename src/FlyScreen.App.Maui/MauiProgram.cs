@@ -77,6 +77,16 @@ public static class MauiProgram
             native.VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
         });
 
+        // RadioButton：映射时走 MauiRadioTheme（Label 内容 + 原生 TextBlock 前景）
+        Microsoft.Maui.Handlers.RadioButtonHandler.Mapper.AppendToMapping("FlyScreenRadioTheme", (handler, view) =>
+        {
+            if (view is not RadioButton rb) return;
+            if (rb.Content is string s)
+                Helpers.MauiRadioTheme.SetContent(rb, s);
+            else
+                Helpers.MauiRadioTheme.RefreshAll(rb);
+        });
+
         // 侧栏搜索：去掉 WinUI Entry 默认白底边框，避免「灰底套白框」
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenSideSearch", (handler, view) =>
         {

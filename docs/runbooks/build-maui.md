@@ -20,7 +20,8 @@
 | 布局同步（LayoutSync） | ✅ | ❌ 不宣告 | ⏳ |
 | 边缘键鼠 / 热键（主机） | ✅ | —（被控见下） | ❌（走 Null；正式 Mac 见 Avalonia） |
 | 被控注入（收 AbsPointer / SwitchFocus） | ✅ `EnsureAcceptsRemoteInput` | ✅ 无障碍服务（须授权） | ⏳ |
-| 文本剪贴板 | ✅ | ✅ | ⏳ |
+| 剪贴板内联（文/HTML/RTF/CSV/PNG） | ✅ 对齐 WPF（`MauiWinClipboardInline`） | ✅ 文/HTML/PNG；RTF·CSV 粘贴降级 | ⏳ |
+| 文件剪贴板（虚拟粘贴） | ✅ | ⚠️ 可宣告物化路径；粘贴半通 | ⏳ |
 | 文件直传 / 收件箱 | ✅ | ✅ | ⏳ |
 | 托盘 / 开机自启 | ✅ | ❌ | ❌ |
 | 触控板控桌面 | — | ✅ `PhoneTouchpadPage` | — |
@@ -229,3 +230,4 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 | 日期 | 说明 |
 |------|------|
 | 2026-10-27 | 用户程序 / Fly；Publish.MauiWin 的 `FlyScreenMauiTfms=windows`；macos AutoImport 损坏提示 |
+| 2026-10-29 | 剪贴板：Maui-Win 对齐 WPF 全格式；Android 文/HTML/PNG + 文件物化；链到 clipboard.md |
