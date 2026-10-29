@@ -5,18 +5,21 @@ namespace FlyScreen.Services;
 
 public enum AppLogLevel
 {
+    /// <summary>调试（心跳/静默分支等）；正式运行默认不落盘。</summary>
+    Debug = 3,
     Info = 0,
     Warn = 1,
     Error = 2
 }
 
-/// <summary>日志页级别筛选：全部 / 信息 / 警告 / 错误。</summary>
+/// <summary>日志页级别筛选：全部 / 调试 / 信息 / 警告 / 错误。</summary>
 public enum AppLogLevelFilter
 {
     All = -1,
     Info = 0,
     Warn = 1,
-    Error = 2
+    Error = 2,
+    Debug = 3
 }
 
 /// <summary>日志列表相对水印的增量；<see cref="Reset"/> 时 UI 应替换而非追加。</summary>
@@ -49,6 +52,7 @@ public sealed class AppLogEntry
             {
                 AppLogLevel.Error => "错误",
                 AppLogLevel.Warn => "警告",
+                AppLogLevel.Debug => "调试",
                 _ => "信息"
             };
             return $"[{Time:HH:mm:ss}] {tag}  {Message}";
@@ -73,9 +77,43 @@ public static class AppLog
 
     private static long _lastChangedMs;
     private static int _changedPending;
+    /// <summary>当前运行中程序的最低写入级别；null 表示不过滤（宿主日志照常写）。</summary>
+    private static AppLogLevel? _programMinWriteLevel;
 
     public static event Action? Changed;
 
+    /// <summary>
+    /// 程序运行期间的最低落盘级别：Debug &lt; Info &lt; Warn &lt; Error。
+    /// 低于此级别的条目直接丢弃；结束运行请 <see cref="ClearProgramMinWriteLevel"/>。
+    /// </summary>
+    public static void SetProgramMinWriteLevel(AppLogLevel minLevel)
+        => _programMinWriteLevel = minLevel;
+
+    public static void ClearProgramMinWriteLevel()
+        => _programMinWriteLevel = null;
+
+    public static AppLogLevel? ProgramMinWriteLevel => _programMinWriteLevel;
+
+    /// <summary>是否达到当前程序最低写入级别（无绑定时一律允许）。</summary>
+    public static bool ShouldWrite(AppLogLevel level)
+    {
+        var min = _programMinWriteLevel;
+        if (min is null) return true;
+        return Rank(level) >= Rank(min.Value);
+    }
+
+    /// <summary>严重度排序：数字越大越「重」，用于最低级别过滤。</summary>
+    public static int Rank(AppLogLevel level) => level switch
+    {
+        AppLogLevel.Debug => 0,
+        AppLogLevel.Info => 1,
+        AppLogLevel.Warn => 2,
+        AppLogLevel.Error => 3,
+        _ => 1
+    };
+
+    public static void Debug(string message, string? programId = null, string? programName = null)
+        => Add(AppLogLevel.Debug, message, programId, programName);
     public static void Info(string message, string? programId = null, string? programName = null)
         => Add(AppLogLevel.Info, message, programId, programName);
     public static void Warn(string message, string? programId = null, string? programName = null)
@@ -419,6 +457,9 @@ public static class AppLog
     private static void Add(AppLogLevel level, string message, string? programId = null, string? programName = null)
     {
         if (string.IsNullOrWhiteSpace(message)) return;
+        // 程序运行中的最低级别：仅过滤带 programId 的脚本输出，避免误伤宿主日志
+        if (!string.IsNullOrWhiteSpace(programId) && !ShouldWrite(level))
+            return;
         var entry = new AppLogEntry
         {
             Time = DateTime.Now,

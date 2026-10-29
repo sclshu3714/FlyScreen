@@ -153,6 +153,7 @@ public static class ProgramScriptHost
                 "System.Text",
                 "System.Threading",
                 "System.Threading.Tasks",
+                "FlyScreen.Services",
                 "FlyScreen.Services.Programs");
 
     /// <summary>

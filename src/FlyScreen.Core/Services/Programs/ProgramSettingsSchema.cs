@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using FlyScreen.Services;
 
 namespace FlyScreen.Services.Programs;
 
@@ -130,6 +131,42 @@ public static partial class ProgramSettingsSchema
         if (Enum.TryParse<ProgramHitAction>(raw?.Trim(), ignoreCase: true, out var a))
             return a;
         return fallback;
+    }
+
+    /// <summary>
+    /// 解析程序「日志级别」设置：支持 Error/Warn/Info/Debug 及中文 错误/警告/信息/调试。
+    /// </summary>
+    public static AppLogLevel AsLogLevel(string? raw, AppLogLevel fallback = AppLogLevel.Info)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return fallback;
+        var t = raw.Trim();
+        if (Enum.TryParse<AppLogLevel>(t, ignoreCase: true, out var lv)
+            && lv is AppLogLevel.Debug or AppLogLevel.Info or AppLogLevel.Warn or AppLogLevel.Error)
+            return lv;
+        return t switch
+        {
+            "错误" or "error" or "err" => AppLogLevel.Error,
+            "警告" or "warn" or "warning" => AppLogLevel.Warn,
+            "信息" or "info" or "information" or "消息" => AppLogLevel.Info,
+            "调试" or "debug" or "dbg" or "verbose" => AppLogLevel.Debug,
+            _ => fallback
+        };
+    }
+
+    /// <summary>
+    /// 从 settings 解析最低写入级别：优先 <c>logLevel</c>；旧版 <c>debugLog=true</c> 视为 Debug。
+    /// </summary>
+    public static AppLogLevel ResolveLogLevel(IReadOnlyDictionary<string, string>? settings)
+    {
+        if (settings == null) return AppLogLevel.Info;
+        settings.TryGetValue("logLevel", out var rawLevel);
+        var hasExplicit = !string.IsNullOrWhiteSpace(rawLevel);
+        var level = AsLogLevel(rawLevel, AppLogLevel.Info);
+        if (!hasExplicit
+            && settings.TryGetValue("debugLog", out var dbg)
+            && AsBool(dbg, false))
+            return AppLogLevel.Debug;
+        return level;
     }
 
     private static ProgramSettingKind MapKind(string typeTok)

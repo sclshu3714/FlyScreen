@@ -33,7 +33,14 @@ public static class InProcessProgramExecutor
         bool debug = false,
         ProgramDebugGate? debugGate = null)
     {
-        onInfo ??= s => AppLog.Info(s, prog.Id, prog.Name);
+        // Console.WriteLine → Info；失败类文案提升为 Warn（仍受程序 logLevel 过滤）
+        onInfo ??= s =>
+        {
+            if (LooksLikeScriptWarn(s))
+                AppLog.Warn(s, prog.Id, prog.Name);
+            else
+                AppLog.Info(s, prog.Id, prog.Name);
+        };
         onWarn ??= s => AppLog.Warn(s, prog.Id, prog.Name);
 
         switch (prog.Language)
@@ -90,6 +97,12 @@ public static class InProcessProgramExecutor
             engine.Execute(source ?? "");
         }, ct);
     }
+
+    private static bool LooksLikeScriptWarn(string? s)
+        => !string.IsNullOrEmpty(s)
+           && (s.Contains("执行失败", StringComparison.Ordinal)
+               || s.Contains("失败", StringComparison.Ordinal)
+               || s.Contains("错误", StringComparison.Ordinal));
 
     private static readonly SemaphoreSlim CSharpConsoleGate = new(1, 1);
 

@@ -1,11 +1,12 @@
 namespace FlyScreen.Services.Programs;
 
 /// <summary>
-/// 程序运行期调试浮层：由手机宿主注册实现；开启 settings.debugLog 后左中显示最近若干行日志。
+/// 程序运行期调试浮层：由手机宿主注册实现；仅 <c>debugLog=true</c> 时显示（与 logLevel 无关）。
 /// </summary>
 public static class ProgramDebugHud
 {
-    public const int MaxLines = 5;
+    /// <summary>浮层滚动区内保留的最近日志行数。</summary>
+    public const int MaxLines = 80;
 
     private static readonly object Gate = new();
     private static Action<bool, string?, string?>? _setActive;
@@ -86,13 +87,20 @@ public static class ProgramDebugHud
                     if (msg.StartsWith(prefix, StringComparison.Ordinal))
                         msg = msg[prefix.Length..];
                 }
-                var line = $"[{e.Time:HH:mm:ss}] {msg}";
-                if (line.Length > 72)
-                    line = line[..71] + "…";
+                var tag = e.Level switch
+                {
+                    AppLogLevel.Error => "E",
+                    AppLogLevel.Warn => "W",
+                    AppLogLevel.Debug => "D",
+                    _ => "I"
+                };
+                var line = $"[{e.Time:HH:mm:ss}] {tag} {msg}";
+                if (line.Length > 240)
+                    line = line[..239] + "…";
                 lines.Add(line);
             }
             if (lines.Count == 0)
-                lines.Add($"[{DateTime.Now:HH:mm:ss}] 调试日志已开启");
+                lines.Add($"[{DateTime.Now:HH:mm:ss}] I 调试浮层已开启（可拖标题栏移动，右下角缩放）");
             _setLines?.Invoke(lines);
         }
         catch { /* ignore */ }

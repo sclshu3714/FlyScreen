@@ -1,7 +1,8 @@
 // @fly-settings
 // bool enableOcr | 启用OCR | true
 // bool debugOcr | 调试OCR | false
-// bool debugLog | 调试日志 | false
+// enum logLevel | 日志级别 | 信息 | 错误,警告,信息,调试
+// bool debugLog | 调试浮层 | false
 // string[] appHints | 应用包名关键词 | com.kylin.read,kylin.read,kylin,hongguo,phoenix.read,dragon.read,fanqie,novel.read
 // string[] swipeHints | 识别文案 | 上滑继续观看漫剧,上滑继续观看短剧,上滑继续观看剧集,上滑继续观看,继续观看漫剧,继续观看短剧,继续观看剧集
 // enum action | 命中后操作 | SwipeUp | SwipeUp,SwipeDown,SwipeLeft,SwipeRight,Tap,DoubleTap,LongPress
@@ -12,9 +13,10 @@
 // rect actionRegionLandscape | 横屏操作区 |
 // @fly-settings-end
 //
-// 内置通用识别操作 v8：HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满再操作。
+// 内置通用识别操作 v9：HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满再操作。
 // 横/竖识别区互不回退；当前朝向未标定则不做 OCR。两侧都未标定 ≈ 未启用 OCR。
-// debugOcr：非目标红 / 目标蓝 / 命中绿。触发成功后 coolUntil≈2.5s + Delay(800ms)。
+// tipArmed：仅成功执行后解除；失败保持武装并可重试。静默等待/冷却打调试心跳。
+// logLevel：错误/警告/信息/调试 — 仅控制脚本日志落盘；调试浮层只看 debugLog。
 
 Console.WriteLine("=== 通用识别操作（内置） ===");
 Console.WriteLine($"时间 {DateTime.Now:HH:mm:ss}  Ready={Fly.Ready}  App={Fly.App}");
@@ -34,6 +36,7 @@ if (enableOcr && !Fly.HasAnyOcrRegionConfigured())
     Console.WriteLine("竖屏/横屏识别区均未标定 → 等价未启用 OCR（仅 HasText）");
 }
 var debugOcr = enableOcr && Fly.GetBool("debugOcr", false);
+var logLevel = Fly.GetLogLevel("logLevel", AppLogLevel.Info);
 var debugLog = Fly.GetBool("debugLog", false);
 var appHints = Fly.GetStringList("appHints");
 var swipeHints = Fly.GetStringList("swipeHints");
@@ -53,7 +56,7 @@ const uint ColorRed = 0xFFFF0000u;
 const uint ColorBlue = 0xFF2196F3u;
 const uint ColorGreen = 0xFF4CAF50u;
 
-Console.WriteLine($"设置 enableOcr={enableOcr} debugOcr={debugOcr} debugLog={debugLog} action={action} longPressSec={longPressSec}");
+Console.WriteLine($"设置 enableOcr={enableOcr} debugOcr={debugOcr} logLevel={logLevel} debugLog={debugLog} action={action} longPressSec={longPressSec}");
 Console.WriteLine($"竖屏识别={Fly.GetString("ocrRegionPortrait")} 竖屏操作={Fly.GetString("actionRegionPortrait")}");
 Console.WriteLine($"横屏识别={Fly.GetString("ocrRegionLandscape")} 横屏操作={Fly.GetString("actionRegionLandscape")}");
 Console.WriteLine($"当前朝向={(Fly.IsLandscape ? "横屏" : "竖屏")} {Fly.ScreenWidth}x{Fly.ScreenHeight} Rotation={Fly.DisplayRotation} 本朝向识别区已标定={Fly.HasOcrRegionConfigured()} 任一识别区={Fly.HasAnyOcrRegionConfigured()} key={Fly.CurrentOcrRegionKey()}");
@@ -157,7 +160,7 @@ var skipOcrLog = 0;
     {
         var orient = Fly.IsLandscape ? "横屏" : "竖屏";
         var preview = ocr.Length == 0 ? "" : (ocr.Length <= 80 ? ocr : ocr.Substring(0, 80) + "…");
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] OCR {orient} key={ocrKey} len={ocr.Length} [{preview}]");
+        Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] OCR {orient} key={ocrKey} len={ocr.Length} [{preview}]");
     }
     return (MatchHints(ocr), ocr);
 }
@@ -173,13 +176,13 @@ void ShowDebugFrames(uint ocrColor, uint actionColor)
     if (ocrRect != null && !ocrRect.Value.IsEmpty)
     {
         var r = ocrRect.Value;
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 画识别区 key={ocrKey} norm={r} screen={Fly.ScreenWidth}x{Fly.ScreenHeight}");
+        Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] 画识别区 key={ocrKey} norm={r} screen={Fly.ScreenWidth}x{Fly.ScreenHeight}");
         Fly.SetDebugRectNorm("ocr", r.X, r.Y, r.W, r.H, ocrColor);
     }
     if (actRect != null && !actRect.Value.IsEmpty)
     {
         var r = actRect.Value;
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 画操作区 key={actKey} norm={r} screen={Fly.ScreenWidth}x{Fly.ScreenHeight}");
+        Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] 画操作区 key={actKey} norm={r} screen={Fly.ScreenWidth}x{Fly.ScreenHeight}");
         Fly.SetDebugRectNorm("action", r.X, r.Y, r.W, r.H, actionColor);
     }
 }
@@ -192,6 +195,17 @@ var missLog = 0;
 var lastOrientLand = Fly.IsLandscape;
 var lastSw = Fly.ScreenWidth;
 var lastSh = Fly.ScreenHeight;
+long lastHeartbeatMs = 0;
+var holdTipLog = 0;
+const int HeartbeatMs = 60_000;
+
+void Heartbeat(string reason)
+{
+    var now = Environment.TickCount64;
+    if (now - lastHeartbeatMs < HeartbeatMs) return;
+    lastHeartbeatMs = now;
+    Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] 心跳 alive tipArmed={tipArmed} cool={(coolUntil > now)} app={Fly.App} {reason}");
+}
 
 try
 {
@@ -230,6 +244,7 @@ try
         if (string.IsNullOrEmpty(app))
         {
             if (debugOcr) ShowDebugFrames(ColorRed, ColorBlue);
+            Heartbeat("无前台包名");
             await Delay(400);
             continue;
         }
@@ -242,8 +257,10 @@ try
             ShowDebugFrames(ColorRed, ColorBlue);
             missAppLog++;
             tipArmed = true;
+            holdTipLog = 0;
             if (missAppLog == 1 || missAppLog % 20 == 0)
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 前台非目标应用，等待中… app={app}");
+            Heartbeat("非目标应用");
             await Delay(1200);
             continue;
         }
@@ -254,17 +271,20 @@ try
 
         if (Environment.TickCount64 < coolUntil)
         {
+            Heartbeat("冷却中");
             await Delay(400);
             continue;
         }
 
         string? hit = FindHitA11y();
         var hitRaw = "";
+        var hitVia = "a11y";
         if (hit == null)
         {
             var (ocrHit, ocrRaw) = FindHitOcr();
             hit = ocrHit;
             hitRaw = ocrRaw;
+            hitVia = "ocr";
         }
         else
         {
@@ -284,9 +304,11 @@ try
         {
             ShowDebugFrames(ColorBlue, ColorBlue);
             tipArmed = true;
+            holdTipLog = 0;
             missLog++;
             if (missLog == 1 || missLog % 10 == 0)
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 未识别到提示文案");
+            Heartbeat("未命中文案");
             await Delay(1000);
             continue;
         }
@@ -297,39 +319,52 @@ try
 
         if (!tipArmed)
         {
+            // 文案仍在树中、等待其消失后再武装 — 原先完全静默，易误判为「程序挂了」
+            holdTipLog++;
+            if (holdTipLog == 1 || holdTipLog % 20 == 0)
+                Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] 等待提示消失后再触发 via={hitVia} hit={hit}（第{holdTipLog}次）");
+            Heartbeat($"等待提示消失 hit={hit}");
             await Delay(600);
             continue;
         }
 
-        tipArmed = false;
         var waitSec = TryParseCountdownSec(hitRaw);
         var actKey = Fly.CurrentActionRegionKey();
         var actMarked = Fly.HasActionRegionConfigured();
         if (waitSec > 0)
         {
             Console.WriteLine(actMarked
-                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey}）"
-                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（操作区未标定，用屏幕中央）");
+                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey} via={hitVia}）"
+                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（操作区未标定，用屏幕中央 via={hitVia}）");
             await Delay(waitSec * 1000);
         }
         else
         {
             Console.WriteLine(actMarked
-                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey}）"
-                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")}操作区未标定，用屏幕中央）");
+                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey} via={hitVia}）"
+                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」→ {action}（{(land ? "横屏" : "竖屏")}操作区未标定，用屏幕中央 via={hitVia}）");
         }
 
         // 执行操作：识别区回蓝，操作区绿（未标定操作区时无框可画）
         ShowDebugFrames(ColorBlue, ColorGreen);
         var ok = Fly.PerformActionInRegion(action, actKey, longPressSec);
-        Console.WriteLine(ok
-            ? $"[{DateTime.Now:HH:mm:ss}] 已执行 {action}"
-            : $"[{DateTime.Now:HH:mm:ss}] 执行失败 {action}");
+        if (ok)
+        {
+            // 仅成功后解除武装，避免「执行失败」后文案常驻导致数小时静默
+            tipArmed = false;
+            holdTipLog = 0;
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 已执行 {action}");
+            coolUntil = Environment.TickCount64 + 2500;
+        }
+        else
+        {
+            tipArmed = true;
+            Fly.LogWarn($"[{DateTime.Now:HH:mm:ss}] 执行失败 {action}，保持武装并将重试");
+            coolUntil = Environment.TickCount64 + 1500;
+        }
 
         // 操作完成：操作区恢复蓝（仍在目标应用则识别区蓝）
         ShowDebugFrames(ColorBlue, ColorBlue);
-        // 冷却 2.5s 内不再触发；再 Delay 0.8s。提示须先消失（tipArmed）才会下一轮真正执行。
-        coolUntil = Environment.TickCount64 + 2500;
         await Delay(800);
     }
 }
@@ -337,4 +372,5 @@ finally
 {
     if (debugOcr)
         Fly.ClearDebugRect();
+    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 通用识别操作循环结束");
 }
