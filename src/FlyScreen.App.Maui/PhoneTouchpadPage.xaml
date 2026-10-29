@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FlyScreen.AppMaui.PhoneTouchpadPage"
+             Title="触控板"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="{StaticResource WinBg}">
+  <!-- 顶栏 + 按键区 + 触控板（键盘为系统输入法，内容直发对端不在本地累加） -->
+  <Grid RowDefinitions="Auto,*,2*" Padding="12" RowSpacing="10">
+
+    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+      <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+        <Label Text="玄鸟 · 触控板" FontSize="18" FontAttributes="Bold" />
+        <Label x:Name="StatusLabel" Text="连接桌面后即可控制"
+               TextColor="{StaticResource Muted}" FontSize="11" LineBreakMode="TailTruncation" />
+      </VerticalStackLayout>
+
+      <Button x:Name="KeyboardToggleBtn" Grid.Column="1" Text="键盘"
+              Style="{StaticResource NormalBtn}"
+              MinimumWidthRequest="0" HeightRequest="34" Padding="12,0"
+              VerticalOptions="Center" Clicked="KeyboardToggle_Clicked" />
+
+      <Button x:Name="SettingsBtn" Grid.Column="2" Text="⚙ 设置"
+              Style="{StaticResource NormalBtn}"
+              MinimumWidthRequest="0" HeightRequest="34" Padding="10,0"
+              VerticalOptions="Center" Clicked="OpenSettings_Clicked" />
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+      <Border x:Name="LeftZone" BackgroundColor="{StaticResource CardBg}"
+              Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="4"
+                             InputTransparent="True">
+          <Label Text="⬤" FontSize="10" TextColor="{StaticResource Blue}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="左键" FontSize="15" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="点击" FontSize="11" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+      </Border>
+
+      <Border x:Name="WheelZone" Grid.Column="1" BackgroundColor="{StaticResource CardBg}"
+              Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="2"
+                             InputTransparent="True">
+          <Label Text="↑" FontSize="14" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="滚轮" FontSize="15" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="轻点中键 · 上下滑滚轮" FontSize="11" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="↓" FontSize="14" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+      </Border>
+
+      <Border x:Name="RightZone" Grid.Column="2" BackgroundColor="{StaticResource CardBg}"
+              Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12">
+        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="4"
+                             InputTransparent="True">
+          <Label Text="⬤" FontSize="10" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="右键" FontSize="15" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="点击" FontSize="11" TextColor="{StaticResource Muted}"
+                 HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="2" BackgroundColor="{StaticResource CardBg}"
+            Stroke="{StaticResource Line}" StrokeThickness="1" StrokeShape="RoundRectangle 12"
+            Padding="0">
+      <Grid RowDefinitions="*,Auto">
+        <Grid x:Name="PadArea" BackgroundColor="Transparent">
+          <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center"
+                               Spacing="6" InputTransparent="True">
+            <Label Text="触控板" FontSize="16" FontAttributes="Bold"
+                   TextColor="{StaticResource Muted}" HorizontalTextAlignment="Center" />
+            <Label Text="滑动移动 · 轻点=左键 · 「键盘」直发电脑"
+                   FontSize="12" TextColor="{StaticResource Muted}"
+                   HorizontalTextAlignment="Center" />
+          </VerticalStackLayout>
+          <AbsoluteLayout x:Name="CursorLayer" InputTransparent="True">
+            <BoxView x:Name="CursorDot" Color="{StaticResource Blue}"
+                     WidthRequest="14" HeightRequest="14" CornerRadius="7"
+                     AbsoluteLayout.LayoutBounds="0.5,0.5,14,14"
+                     AbsoluteLayout.LayoutFlags="PositionProportional" />
+          </AbsoluteLayout>
+        </Grid>
+
+        <!-- 仅作 IME 载体：输入后立刻发到对端并清空，不在本地保留文稿 -->
+        <Grid x:Name="KeyboardStrip" Grid.Row="1" IsVisible="False"
+              Padding="10,8" ColumnDefinitions="*,Auto" ColumnSpacing="8"
+              BackgroundColor="{StaticResource SubtleBg}">
+          <!-- StyleClass=PhoneIme：Android 固定 ClassText，避免 Entry 默认 NoSuggestions 掐掉拼音候选 -->
+          <Entry x:Name="KeyboardEntry"
+                 StyleClass="PhoneIme"
+                 Placeholder="输入法/手写 → 直接发到电脑（本地不保留）"
+                 FontSize="15"
+                 ReturnType="Done"
+                 IsTextPredictionEnabled="True"
+                 IsSpellCheckEnabled="True"
+                 BackgroundColor="Transparent"
+                 Completed="KeyboardEntry_Completed" />
+          <Button Grid.Column="1" Text="收起" Style="{StaticResource NormalBtn}"
+                  MinimumWidthRequest="56" Padding="10,0" Clicked="DismissKeyboard_Clicked" />
+        </Grid>
+      </Grid>
+    </Border>
+  </Grid>
+</ContentPage>

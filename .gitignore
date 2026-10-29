@@ -1,8 +1,26 @@
 bin/
 obj/
 .vs/
+artifacts/
 *.user
 *.suo
 *.swp
 Thumbs.db
-/artifacts/release
+
+# Android
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/android/**/build/
+mobile/android/.idea/
+*.apk
+*.aab
+
+# HarmonyOS
+mobile/harmony/local.properties
+mobile/harmony/oh_modules/
+mobile/harmony/**/build/
+mobile/harmony/**/.cxx/
+mobile/harmony/.hvigor/
+mobile/harmony/.idea/
+*.hap
+*.app

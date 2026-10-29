@@ -67,8 +67,12 @@
       <Setter Property="BorderThickness" Value="0"/>
     </Style>
     <Style TargetType="ListBoxItem">
+      <!-- 默认主题用 RelativeSource 找 ItemsControl，容器尚未入树时会报绑定错误 -->
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="Padding" Value="4,2"/>
       <Setter Property="Template">
         <Setter.Value>
@@ -151,6 +155,7 @@
       </Setter>
     </Style>
     <Style TargetType="ComboBoxItem">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Height" Value="30"/>
       <Setter Property="Padding" Value="10,0"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
@@ -201,9 +206,19 @@
     <TextBlock x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
                Foreground="{DynamicResource Muted}" Margin="0,0,0,6"/>
 
-    <Border Grid.Row="2" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+    <!-- 拖放走 WM_DROPFILES（见 code-behind）：管理员进程下 OLE AllowDrop 会被 UIPI 禁止 -->
+    <Border x:Name="PathDropBorder" Grid.Row="2" Background="{DynamicResource CardBg}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="1"
             CornerRadius="8" Padding="12">
-      <ListBox x:Name="PathList" SelectionMode="Extended"/>
+      <Grid>
+        <TextBlock x:Name="PathDropHint" Text="将文件或文件夹拖到此处"
+                   Foreground="{DynamicResource Muted}" FontSize="12"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   IsHitTestVisible="False"
+                   Visibility="Visible"/>
+        <ListBox x:Name="PathList" SelectionMode="Extended"
+                 Background="Transparent" BorderThickness="0"/>
+      </Grid>
     </Border>
 
     <TextBlock x:Name="TargetHintText" Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"

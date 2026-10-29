@@ -1,0 +1,177 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:AvalonEdit="https://github.com/avaloniaui/avaloniaedit"
+        x:Class="FlyScreen.DesktopUi.ProgramEditorWindow"
+        Title="编辑程序"
+        KeyDown="Window_KeyDown"
+        Width="780" Height="560"
+        WindowStartupLocation="CenterOwner"
+        MinWidth="640" MinHeight="420"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}">
+  <Window.Resources>
+    <StreamGeometry x:Key="GeoSave">M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoBuild">M2,20L20,2L22,4L4,22L2,20M16.5,6.5L17.5,7.5L7.5,17.5L6.5,16.5L16.5,6.5M15,1L13,3L21,11L23,9L15,1Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoPause">M8,5H11V19H8V5M13,5H16V19H13V5Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoPlayOutline">F0 M8,5 L19,12 L8,19 Z M10.4,9 L10.4,15 L15.5,12 Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoStop">M9,9H15V15H9V9Z</StreamGeometry>
+  </Window.Resources>
+  <Window.Styles>
+    <Style Selector="Button.editorTool">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinWidth" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.editorRun">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinWidth" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.titleBtn">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Width" Value="40"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+  </Window.Styles>
+
+  <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
+    <DockPanel>
+      <!-- Linux：自绘标题栏，避免 X11 系统栏中文乱码 -->
+      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
+              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
+        <Grid ColumnDefinitions="*,Auto" Margin="12,0,4,0">
+          <TextBlock x:Name="ClientTitleText" Text="编辑程序" FontSize="13" FontWeight="SemiBold"
+                     VerticalAlignment="Center" IsHitTestVisible="False"
+                     TextTrimming="CharacterEllipsis"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+            <Button x:Name="TitleMinBtn" Classes="titleBtn" Content="—"/>
+            <Button x:Name="TitleMaxBtn" Classes="titleBtn" Content="□"/>
+            <Button x:Name="TitleCloseBtn" Classes="titleBtn" Content="×"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Padding="12">
+        <DockPanel>
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
+            <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
+                       Foreground="{DynamicResource Muted}" FontSize="11"
+                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+            <Border x:Name="ToolBarHost" HorizontalAlignment="Stretch"
+                    SizeChanged="ToolBarHost_SizeChanged">
+              <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left"
+                          VerticalAlignment="Center">
+                <Button x:Name="BtnSave" Classes="editorTool" Click="Save_Click" ToolTip.Tip="保存">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoSave}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnSaveText" Text="保存" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnBuild" Classes="editorTool" Click="Build_Click" ToolTip.Tip="生成">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                      <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoBuild}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnBuildText" Text="生成" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnDebug" Classes="editorTool" Click="Debug_Click" ToolTip.Tip="调试">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                      <Path x:Name="BtnDebugIcon" Fill="{DynamicResource Blue}" Data="{StaticResource GeoPlay}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnDebugText" Text="调试" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnRun" Classes="editorRun" Click="Run_Click" ToolTip.Tip="运行">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                      <Path Fill="White" Data="{StaticResource GeoPlayOutline}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnRunText" Text="运行" VerticalAlignment="Center" FontSize="13" Foreground="White"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="BtnStop" Classes="editorTool" Margin="0" Click="Stop_Click" ToolTip.Tip="停止">
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Viewbox Width="18" Height="18" VerticalAlignment="Center">
+                      <Path Fill="#DC2626" Data="{StaticResource GeoStop}"/>
+                    </Viewbox>
+                    <TextBlock x:Name="BtnStopText" Text="停止" VerticalAlignment="Center" FontSize="13"/>
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+            </Border>
+          </DockPanel>
+          <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
+                  Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                  BorderThickness="1" CornerRadius="8">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                      BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
+                      Height="30" Cursor="Hand" PointerPressed="OutputHeader_PointerPressed">
+                <Grid Margin="10,0" ColumnDefinitions="Auto,*,Auto">
+                  <TextBlock x:Name="OutputToggleGlyph" Text="▲" FontSize="11"
+                             Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                  <TextBlock x:Name="OutputTitleText" Grid.Column="1" Text="输出" FontWeight="SemiBold"
+                             FontSize="12" VerticalAlignment="Center"/>
+                  <Button x:Name="OutputClearBtn" Grid.Column="2" Content="清除" Padding="10,0" Height="24"
+                          MinWidth="52" FontSize="12" Click="OutputClear_Click"
+                          Background="Transparent" BorderThickness="0"
+                          Foreground="{DynamicResource Blue}" VerticalAlignment="Center"/>
+                </Grid>
+              </Border>
+              <Border x:Name="OutputBody" Height="150" IsVisible="False">
+                <Grid>
+                  <ScrollViewer x:Name="OutputScroll" Background="{DynamicResource ListBg}"
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="OutputText" TextWrapping="Wrap" Margin="8,4"
+                               FontFamily="Consolas, Cascadia Mono, Menlo" FontSize="12"/>
+                  </ScrollViewer>
+                  <TextBlock x:Name="OutputEmptyText" Text="运行或调试后，程序输出会显示在这里。"
+                             Foreground="{DynamicResource Muted}" FontSize="12"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             IsHitTestVisible="False"/>
+                </Grid>
+              </Border>
+            </DockPanel>
+          </Border>
+
+          <Border BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                  Background="{DynamicResource ControlBg}">
+            <AvalonEdit:TextEditor x:Name="CodeEditor"
+                                   FontFamily="Consolas, Cascadia Mono, Menlo"
+                                   FontSize="13"
+                                   ShowLineNumbers="True"
+                                   WordWrap="False"
+                                   Background="{DynamicResource ControlBg}"
+                                   Foreground="{DynamicResource Text}"
+                                   HorizontalScrollBarVisibility="Auto"
+                                   VerticalScrollBarVisibility="Auto"/>
+          </Border>
+        </DockPanel>
+      </Border>
+    </DockPanel>
+  </Border>
+</Window>

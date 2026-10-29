@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+  <!-- 对齐 Win MainWindow：FontSize=13、Card Padding=18/Radius=12、按钮高 34；主题色用 DynamicResource -->
+  <Style TargetType="Page">
+    <Setter Property="BackgroundColor" Value="{DynamicResource WinBg}" />
+  </Style>
+  <Style TargetType="Label">
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style TargetType="Entry">
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style TargetType="Picker">
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="MinimumHeightRequest" Value="34" />
+    <Setter Property="VerticalOptions" Value="Center" />
+  </Style>
+  <Style TargetType="CheckBox">
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="MinimumWidthRequest" Value="0" />
+    <Setter Property="VerticalOptions" Value="Center" />
+    <Setter Property="HorizontalOptions" Value="Start" />
+  </Style>
+  <!-- Android：未显式设色时首次可见会吃到 Material 深色底；#01000000 避免 Transparent 被原生忽略 -->
+  <Style TargetType="RadioButton">
+    <Setter Property="BackgroundColor" Value="#01000000" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="VerticalOptions" Value="Center" />
+  </Style>
+  <Style TargetType="Button">
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <Style x:Key="PrimaryBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource Blue}" />
+    <Setter Property="TextColor" Value="White" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="FontAttributes" Value="Bold" />
+  </Style>
+  <Style x:Key="NormalBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <Style x:Key="SoftBlueBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+    <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <Style x:Key="SoftWarnBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource WarnSoft}" />
+    <Setter Property="TextColor" Value="{DynamicResource Warn}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Warn}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+  </Style>
+  <!-- 列表行内图标按钮（如传输删除）：无边框、背景透明 -->
+  <Style x:Key="IconActionBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="Transparent" />
+    <Setter Property="TextColor" Value="Transparent" />
+    <Setter Property="BorderColor" Value="Transparent" />
+    <Setter Property="BorderWidth" Value="0" />
+    <Setter Property="WidthRequest" Value="28" />
+    <Setter Property="HeightRequest" Value="28" />
+    <Setter Property="MinimumWidthRequest" Value="28" />
+    <Setter Property="MinimumHeightRequest" Value="28" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="FontSize" Value="1" />
+  </Style>
+  <!-- 侧栏导航：Button 仅作命中层（彩标 Path+Label 叠在上层，对齐 WPF） -->
+  <Style x:Key="SideNavBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="#01000000" />
+    <Setter Property="TextColor" Value="Transparent" />
+    <Setter Property="BorderWidth" Value="0" />
+    <Setter Property="HeightRequest" Value="40" />
+    <Setter Property="MinimumHeightRequest" Value="40" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="FontSize" Value="1" />
+    <Setter Property="HorizontalOptions" Value="Fill" />
+  </Style>
+  <Style x:Key="SideNavBtnActive" TargetType="Button" BasedOn="{StaticResource SideNavBtn}">
+    <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+  </Style>
+  <!-- 兼容旧名：布局矩阵卡片等仍可能引用 -->
+  <Style x:Key="SideNavItem" TargetType="Border">
+    <Setter Property="BackgroundColor" Value="#01000000" />
+    <Setter Property="StrokeThickness" Value="0" />
+    <Setter Property="HeightRequest" Value="40" />
+    <Setter Property="Margin" Value="8,2" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="HorizontalOptions" Value="Fill" />
+    <Setter Property="StrokeShape">
+      <Setter.Value>
+        <RoundRectangle CornerRadius="8" />
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="SideNavItemActive" TargetType="Border" BasedOn="{StaticResource SideNavItem}">
+    <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+  </Style>
+  <Style x:Key="SideNavLabel" TargetType="Label">
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="VerticalOptions" Value="Center" />
+    <Setter Property="InputTransparent" Value="True" />
+  </Style>
+  <Style x:Key="SideNavLabelActive" TargetType="Label" BasedOn="{StaticResource SideNavLabel}">
+    <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+  </Style>
+  <Style x:Key="SideSearchEntry" TargetType="Entry">
+    <Setter Property="BackgroundColor" Value="Transparent" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="PlaceholderColor" Value="{DynamicResource Muted}" />
+    <Setter Property="HeightRequest" Value="36" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Margin" Value="0" />
+  </Style>
+  <!-- 与 Win Style Card 一致 -->
+  <Style x:Key="Card" TargetType="Border">
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="Stroke" Value="{DynamicResource Line}" />
+    <Setter Property="StrokeThickness" Value="1" />
+    <Setter Property="Padding" Value="18" />
+    <Setter Property="StrokeShape">
+      <Setter.Value>
+        <RoundRectangle CornerRadius="12" />
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="SegBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="Transparent" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="HeightRequest" Value="28" />
+    <Setter Property="WidthRequest" Value="52" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style x:Key="SegBtnActive" TargetType="Button" BasedOn="{StaticResource SegBtn}">
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="FontAttributes" Value="Bold" />
+  </Style>
+</ResourceDictionary>

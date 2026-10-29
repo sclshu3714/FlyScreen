@@ -1,8 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -12,12 +12,6 @@
     <AssemblyName>FlyScreen</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\wlogo_tu.ico</ApplicationIcon>
-    <!--
-      版本 = 最新 Git tag（vX.Y.Z）的 patch+1，与提交次数无关。
-      例：最新 tag v1.0.1 → 构建版本始终 1.0.2；打上 v1.0.2 后 → 始终 1.0.3。
-      可覆盖：dotnet build -p:Version=1.1.0
-    -->
-    <Version Condition="'$(Version)' == ''">1.0.0</Version>
     <Product>玄鸟</Product>
     <Authors>sclshu3714</Authors>
     <Company>玄鸟</Company>
@@ -26,6 +20,7 @@
     <SelfContained Condition="'$(RuntimeIdentifier)' != '' and '$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
+  <!-- WPF pack:// URI 需要「资源」(Resource)，不是 Content，也不是「嵌入的资源」(EmbeddedResource) -->
   <ItemGroup>
     <Resource Include="Assets\wlogo_tu.ico" />
   </ItemGroup>
@@ -35,52 +30,10 @@
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
   </ItemGroup>
 
-  <!-- 从 Git 最新 v* 标签推算下一版本（不随 commit 增高） -->
-  <Target Name="ResolveVersionFromGitTag"
-          BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild"
-          Condition="'$(IgnoreGitVersion)' != 'true'">
-    <Exec Command="git tag -l v*.*.* --sort=-v:refname"
-          ConsoleToMSBuild="true"
-          IgnoreExitCode="true"
-          StandardOutputImportance="Low"
-          WorkingDirectory="$(MSBuildThisFileDirectory)..\..\">
-      <Output TaskParameter="ConsoleOutput" ItemName="_GitTagLines" />
-    </Exec>
+  <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
+  </ItemGroup>
 
-    <PropertyGroup>
-      <_LatestTagRaw>@(_GitTagLines->'%(Identity)', '|')</_LatestTagRaw>
-      <!-- 取第一行标签 -->
-      <_LatestTag>$([System.Text.RegularExpressions.Regex]::Match($(_LatestTagRaw), 'v\d+\.\d+\.\d+').Value)</_LatestTag>
-    </PropertyGroup>
-
-    <!-- 无标签时保持 Version 默认；有标签则 patch+1 -->
-    <PropertyGroup Condition="'$(_LatestTag)' != ''">
-      <_TagBody>$(_LatestTag.Substring(1))</_TagBody>
-      <_TagMajor>$([System.Version]::Parse($(_TagBody)).Major)</_TagMajor>
-      <_TagMinor>$([System.Version]::Parse($(_TagBody)).Minor)</_TagMinor>
-      <_TagPatch>$([System.Version]::Parse($(_TagBody)).Build)</_TagPatch>
-      <!-- Build 在 Version 里是第三段；若 tag 写成 1.0.1，Build=1 -->
-      <_NextPatch>$([MSBuild]::Add($(_TagPatch), 1))</_NextPatch>
-      <Version>$(_TagMajor).$(_TagMinor).$(_NextPatch)</Version>
-    </PropertyGroup>
-
-    <PropertyGroup>
-      <AssemblyVersion>$(Version).0</AssemblyVersion>
-      <FileVersion>$(Version).0</FileVersion>
-      <InformationalVersion>$(Version)</InformationalVersion>
-    </PropertyGroup>
-
-    <Message Importance="High"
-             Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（提交不改变此版本）" />
-  </Target>
-
-  <Target Name="WritePublishVersion" AfterTargets="Publish">
-    <PropertyGroup>
-      <_VerOutDir Condition="'$(PublishDir)' != ''">$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_VerOutDir>
-      <_VerOutDir Condition="'$(PublishDir)' == ''">$(OutputPath)</_VerOutDir>
-    </PropertyGroup>
-    <WriteLinesToFile File="$(_VerOutDir)version.txt" Lines="$(Version)" Overwrite="true" Encoding="UTF-8" />
-    <Message Importance="High" Text="玄鸟 Version=$(Version)。发版：上传本 exe 到 GitHub Release，并打 tag v$(Version)" />
-  </Target>
+  <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>

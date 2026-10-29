@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MAUI Mac Catalyst 单文件 → artifacts/release/FlyScreen-{ver}-maui-osx-arm64 -->
+  <Import Project="PublishProject.Common.props" />
+  <PropertyGroup>
+    <FlyScreenPublishRequiresMac>true</FlyScreenPublishRequiresMac>
+    <FlyScreenPublishTitle>发布 MAUI Mac Catalyst (maui-osx-arm64)</FlyScreenPublishTitle>
+    <FlyScreenPublishRid>maui-osx-arm64</FlyScreenPublishRid>
+    <FlyScreenPublishKind>UnixBin</FlyScreenPublishKind>
+    <FlyScreenPublishStagingDir>src/FlyScreen.App.Maui/bin/publish/maui-osx-arm64</FlyScreenPublishStagingDir>
+    <FlyScreenPublishCommand>dotnet publish "src/FlyScreen.App.Maui/FlyScreen.App.Maui.csproj" -c Release -f net10.0-maccatalyst -r maccatalyst-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:CreatePackage=false -o "src/FlyScreen.App.Maui/bin/publish/maui-osx-arm64"</FlyScreenPublishCommand>
+  </PropertyGroup>
+  <Import Project="PublishProject.Common.targets" />
+</Project>
