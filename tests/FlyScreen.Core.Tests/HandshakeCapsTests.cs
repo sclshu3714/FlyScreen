@@ -70,6 +70,15 @@ public class HandshakeCapsTests
     }
 
     [Fact]
+    public void AndroidMobile_IncludesScreenExtendHost_NotSink()
+    {
+        Assert.Contains(PeerCaps.ScreenExtendHost, PeerCaps.AndroidMobile);
+        Assert.DoesNotContain(PeerCaps.ScreenExtendSink, PeerCaps.AndroidMobile);
+        Assert.Contains(PeerCaps.ScreenExtendHost, PeerCaps.HarmonyMobile);
+        Assert.DoesNotContain(PeerCaps.ScreenExtendSink, PeerCaps.HarmonyMobile);
+    }
+
+    [Fact]
     public void FromHandshake_LegacyPayload_IsLegacy()
     {
         var json = """{"MachineName":"OLD","SecurityKey":"k","LocalIp":"1.2.3.4","ProtocolVersion":1}""";

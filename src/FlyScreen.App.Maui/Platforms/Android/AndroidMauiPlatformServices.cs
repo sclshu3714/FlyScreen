@@ -4,6 +4,7 @@ using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Models;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
@@ -13,12 +14,14 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// 1) 悬浮小窗画指针（其他应用上层可见）
 /// 2) 未加窗成功前绝不关掉无障碍/应用内箭头（避免「能点但看不见」）
 /// 3) 电脑主动穿入时解除触控板屏蔽
+/// 4) 手机→电脑复制投影（MediaProjection Host，不做 Sink）
 /// </summary>
 public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 {
     private readonly AppSettings _settings;
     private readonly FileTransferService _transfers;
     private readonly MauiClipboardApplySink _clipSink = new();
+    private readonly AndroidScreenExtendHostController _screenExtendHost;
     private CancellationTokenSource? _clipCts;
     private string? _lastInlineKey;
     private string? _lastFilesKey;
@@ -31,14 +34,22 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private long _lastOverlayWarnTicks;
     private bool? _a11yDrawCursor;
 
-    public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
+    public AndroidMauiPlatformServices(
+        AppSettings settings,
+        FileTransferService transfers,
+        ScreenExtendService screenExtend)
     {
         _settings = settings;
         _transfers = transfers;
+        _screenExtendHost = new AndroidScreenExtendHostController(screenExtend);
         // 用户程序运行时持 WakeLock（无通知栏）；进程主要靠无障碍绑定
         ProgramService.Instance.Runner.RunningCountChanged += count =>
             AndroidProgramWakeLock.SetProgramsRunning(count);
     }
+
+    /// <summary>弹出录屏授权并启动采集；须在 StartHostAsync 之前调用。</summary>
+    public Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default)
+        => _screenExtendHost.PrepareCaptureAsync(ct);
 
     public IClipboardApplySink ClipboardSink => _clipSink;
     public bool SupportsDesktopInput => false;
@@ -275,15 +286,17 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void DisposeTray() { }
 
     public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
-        FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
-            FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown)
-        => Task.FromResult<(bool, string?)>((false, "手机端不作扩展屏主机"));
+        LayoutEdgeSide layoutSide = LayoutEdgeSide.Unknown)
+        // 手机仅复制，无虚拟副屏；采集在 PrepareScreenExtendCaptureAsync
+        => Task.FromResult<(bool, string?)>((true, "手机复制投影"));
 
-    public Task ReleaseScreenExtendHostDisplayAsync() => Task.CompletedTask;
+    public Task ReleaseScreenExtendHostDisplayAsync()
+        => _screenExtendHost.ReleaseAsync();
 
-    public void SetScreenExtendProjectionMode(FlyScreen.Services.ScreenExtend.DisplayProjectionMode mode) { }
+    public void SetScreenExtendProjectionMode(DisplayProjectionMode mode) { }
 
-    public void SetScreenExtendDisplayChoice(FlyScreen.Services.ScreenExtend.ProjectionDisplayChoice? choice) { }
+    public void SetScreenExtendDisplayChoice(ProjectionDisplayChoice? choice)
+        => _screenExtendHost.SetDisplayChoice(choice);
 
     /// <summary>
     /// 指针只走系统层：悬浮窗 或 无障碍 Overlay。

@@ -215,6 +215,23 @@ public sealed class MauiAppHost : IAsyncDisposable
     {
 #if WINDOWS
         return FlyScreen.ScreenExtend.DisplayModeHelper.ToDisplayInfoPayload();
+#elif ANDROID
+        try
+        {
+            var d = DeviceDisplay.MainDisplayInfo;
+            var density = d.Density <= 0 ? 1 : d.Density;
+            return new DisplayInfoPayload
+            {
+                Width = Math.Max(1, (int)d.Width),
+                Height = Math.Max(1, (int)d.Height),
+                ScalePercent = (int)Math.Round(density * 100),
+                RefreshHz = d.RefreshRate > 1 ? (int)Math.Round(d.RefreshRate) : 60
+            };
+        }
+        catch
+        {
+            return null;
+        }
 #else
         return null;
 #endif
@@ -225,8 +242,16 @@ public sealed class MauiAppHost : IAsyncDisposable
         DisplayProjectionMode mode,
         ProjectionDisplayChoice? display = null)
     {
-#if WINDOWS
+#if !WINDOWS && !ANDROID
+        await Task.CompletedTask;
+        return ProjectionStartResult.Fail("当前平台不支持发起投影");
+#else
+#if ANDROID
+        // 手机仅复制；扩展需虚拟副屏，Android 不做
+        mode = DisplayProjectionMode.Clone;
+#else
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
+#endif
         if (target == null)
             return ProjectionStartResult.Fail("请选择目标");
 
@@ -244,11 +269,15 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
         else
         {
+#if ANDROID
+            return ProjectionStartResult.Fail("手机端请选择一台已连接的电脑作为投影目标");
+#else
             peer = (Settings.ScreenExtendPeer ?? "").Trim();
             if (string.IsNullOrEmpty(peer) || !Connections.GetPeerStatus(peer).Bidirectional)
                 peer = ScreenExtendTargets.ListEligible(Connections).FirstOrDefault() ?? "";
             if (string.IsNullOrEmpty(peer))
                 return ProjectionStartResult.Fail("已选本机副屏，但仍需至少一台双向已连接电脑作为接收端");
+#endif
         }
 
         var choice = display ?? new ProjectionDisplayChoice
@@ -283,6 +312,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         Platform.SetScreenExtendProjectionMode(mode);
         Platform.SetScreenExtendDisplayChoice(choice);
 
+#if WINDOWS
         // 任何 DisplaySwitch / 改模式前先快照主屏
         FlyScreen.ScreenExtend.DisplayTopologyGuard.CaptureIfEmpty();
 
@@ -318,6 +348,14 @@ public sealed class MauiAppHost : IAsyncDisposable
         {
             FlyScreen.ScreenExtend.DisplayProjection.TryApply(DisplayProjectionMode.Clone);
         }
+#endif
+
+#if ANDROID
+        // 须先拿到系统录屏授权并启动采集，再发 Offer（Accept 后即可推帧）
+        var (capOk, capErr) = await Platform.PrepareScreenExtendCaptureAsync().ConfigureAwait(false);
+        if (!capOk)
+            return ProjectionStartResult.Fail(capErr ?? "屏幕录制授权失败");
+#endif
 
         if (ScreenExtend.Role == ScreenExtendRole.Host
             && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase))
@@ -332,24 +370,30 @@ public sealed class MauiAppHost : IAsyncDisposable
         var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height)
             .ConfigureAwait(false);
         if (!ok)
+        {
+#if ANDROID
+            await Platform.ReleaseScreenExtendHostDisplayAsync().ConfigureAwait(false);
+#endif
             return ProjectionStartResult.Fail(err ?? "发起投影失败");
+        }
 
         PublishStatus(
             $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}）");
         return ProjectionStartResult.Success();
-#else
-        await Task.CompletedTask;
-        return ProjectionStartResult.Fail("当前平台不支持发起投影");
 #endif
     }
 
     public async Task StopProjectionAsync()
     {
-#if WINDOWS
+#if WINDOWS || ANDROID
         if (ScreenExtend.IsActive)
             await ScreenExtend.StopAsync("stopped").ConfigureAwait(false);
         await Platform.ReleaseScreenExtendHostDisplayAsync().ConfigureAwait(false);
+#if WINDOWS
         PublishStatus("投影：已停止（已切回仅电脑屏幕）");
+#else
+        PublishStatus("投影：已停止");
+#endif
 #else
         await Task.CompletedTask;
 #endif

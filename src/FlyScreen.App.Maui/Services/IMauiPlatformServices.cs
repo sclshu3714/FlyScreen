@@ -55,7 +55,13 @@ public interface IMauiPlatformServices
         FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
             FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown);
 
-    /// <summary>Win 扩展屏：释放本机第二输出。</summary>
+    /// <summary>
+    /// 手机：弹出 MediaProjection 授权并启动采集前台服务（须在 StartHost 前）。
+    /// 桌面：空操作成功（采集由 Win 控制器在 HostSessionReady 后启动）。
+    /// </summary>
+    Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default);
+
+    /// <summary>Win 扩展屏：释放本机第二输出；手机：停止 MediaProjection 采集。</summary>
     Task ReleaseScreenExtendHostDisplayAsync();
 
     /// <summary>Win 扩展屏：设置采集用的投影方式。</summary>
@@ -105,6 +111,9 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
         FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
             FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown)
         => Task.FromResult<(bool, string?)>((false, "当前平台不支持扩展屏主机"));
+
+    public Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default)
+        => Task.FromResult<(bool, string?)>((true, null));
 
     public Task ReleaseScreenExtendHostDisplayAsync() => Task.CompletedTask;
 

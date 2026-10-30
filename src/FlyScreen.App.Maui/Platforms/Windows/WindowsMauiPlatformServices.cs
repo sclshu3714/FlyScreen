@@ -192,6 +192,9 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         => _screenExtendUi?.EnsureHostDisplayAsync(layoutSide: layoutSide)
            ?? Task.FromResult<(bool, string?)>((false, "扩展屏控制器未初始化"));
 
+    public Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default)
+        => Task.FromResult<(bool, string?)>((true, null));
+
     public Task ReleaseScreenExtendHostDisplayAsync()
         => _screenExtendUi?.ReleaseHostDisplayAsync() ?? Task.CompletedTask;
 
