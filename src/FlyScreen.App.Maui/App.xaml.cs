@@ -23,9 +23,10 @@ public partial class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
+        // 手机/平板/桌面统一进玄鸟主界面；触控板由布局工具条按需打开
         Window window;
         if (DeviceInfo.Idiom == DeviceIdiom.Phone)
-            window = new Window(new NavigationPage(new PhoneTouchpadPage()));
+            window = new Window(new AppShell()) { Title = "玄鸟" };
         else
         {
             window = new Window(new AppShell())

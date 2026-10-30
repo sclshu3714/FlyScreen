@@ -95,6 +95,11 @@
                                 <Button x:Name="ReconnectBtn" Text="↻ 刷新" Style="{StaticResource NormalBtn}"
                                         Margin="0" Padding="10,0" HeightRequest="34" MinimumWidthRequest="36"
                                         HorizontalOptions="Start" Clicked="Reconnect_Clicked" />
+                                <!-- 手机：按需打开触控板，控制布局中选中的对端电脑 -->
+                                <Button x:Name="TouchpadBtn" Text="⌨ 触控板" Style="{StaticResource PrimaryBtn}"
+                                        Margin="0" Padding="10,0" HeightRequest="34" MinimumWidthRequest="36"
+                                        HorizontalOptions="Start" IsVisible="False"
+                                        Clicked="OpenTouchpad_Clicked" />
                             </HorizontalStackLayout>
 
                             <Border x:Name="MatrixBorder" Grid.Row="3" BackgroundColor="{DynamicResource MatrixBg}" Stroke="{DynamicResource Line}"
@@ -166,20 +171,36 @@
                                         <CheckBox x:Name="EasyMouseCheck" IsChecked="True" VerticalOptions="Center" />
                                         <Label x:Name="EasyMouseLabel" Text="轻松鼠标（移出边缘切换）" VerticalOptions="Center" FontSize="13" />
                                     </HorizontalStackLayout>
-                                    <!-- 仅 Android：无障碍注入（与电脑穿入提示双入口，状态同步） -->
-                                    <HorizontalStackLayout x:Name="A11yInjectRow" IsVisible="False"
-                                                           Spacing="4" MinimumHeightRequest="32" Margin="0,1">
+                                    <!-- 仅 Android：通知注入。Grid 约束文本列宽，HorizontalStack 无限宽导致 WordWrap 失效 -->
+                                    <Grid x:Name="NotifyInjectRow" IsVisible="False"
+                                          ColumnDefinitions="Auto,*" ColumnSpacing="4"
+                                          MinimumHeightRequest="32" Margin="0,1">
+                                        <CheckBox x:Name="NotifyInjectCheck" VerticalOptions="Start" Margin="0,2,0,0"
+                                                  CheckedChanged="NotifyInject_Changed" />
+                                        <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="0">
+                                            <Label x:Name="NotifyInjectLabel" Text="通知注入（子程序后台保活）"
+                                                   FontSize="13" LineBreakMode="WordWrap" />
+                                            <Label x:Name="NotifyInjectTipLabel"
+                                                   Text="仅当有用户子程序运行时显示前台通知；无子程序时不占用通知栏。"
+                                                   TextColor="{DynamicResource Muted}" FontSize="11"
+                                                   LineBreakMode="WordWrap" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+                                    <!-- 仅 Android：无障碍注入 -->
+                                    <Grid x:Name="A11yInjectRow" IsVisible="False"
+                                          ColumnDefinitions="Auto,*" ColumnSpacing="4"
+                                          MinimumHeightRequest="32" Margin="0,1">
                                         <CheckBox x:Name="A11yInjectCheck" VerticalOptions="Start" Margin="0,2,0,0"
                                                   CheckedChanged="A11yInject_Changed" />
-                                        <VerticalStackLayout VerticalOptions="Center" Spacing="0">
+                                        <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="0">
                                             <Label x:Name="A11yInjectLabel" Text="无障碍注入（键鼠/程序控机）"
-                                                   VerticalOptions="Center" FontSize="13" LineBreakMode="WordWrap" />
+                                                   FontSize="13" LineBreakMode="WordWrap" />
                                             <Label x:Name="A11yInjectTipLabel"
                                                    Text="开=跳转系统设置；关=直接停用。电脑穿入时仍会提示。"
                                                    TextColor="{DynamicResource Muted}" FontSize="11"
                                                    LineBreakMode="WordWrap" />
                                         </VerticalStackLayout>
-                                    </HorizontalStackLayout>
+                                    </Grid>
                                 </VerticalStackLayout>
                                 <VerticalStackLayout x:Name="EdgeCrossColumn" Grid.Column="2" Spacing="0">
                                     <Label x:Name="EdgeCrossTitleText" Text="穿边模式" FontAttributes="Bold" Margin="0,0,0,4" />

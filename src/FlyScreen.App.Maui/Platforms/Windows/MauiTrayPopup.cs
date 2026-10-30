@@ -13,7 +13,7 @@ using WinUiColor = Windows.UI.Color;
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
 /// <summary>
-/// Maui-Win 托盘菜单：白底铺满客户区（避免右/下露黑）、四边等距内边距；关系统硬阴影。
+/// Maui-Win 托盘菜单：白底铺满客户区（避免右/下露黑）；左右等距；略增高底部以免末项悬停被裁。
 /// </summary>
 internal sealed class MauiTrayPopup
 {
@@ -28,10 +28,12 @@ internal sealed class MauiTrayPopup
     private readonly Action _onExit;
     private bool _closing;
 
-    // 与 WPF TrayContextMenuWindow 内容区对齐：Stack (4,6,4,6) + 行 Margin(4,1)
-    private const double PanelPadX = 8;
-    private const double PanelPadY = 8;
+    // 对齐 WPF TrayContextMenuWindow：Stack (4,6,4,6) + 行 Margin(4,1)；底边略多 2，给末项圆角悬停留空
+    private const double PanelPadX = 4;
+    private const double PanelPadYTop = 6;
+    private const double PanelPadYBottom = 8;
     private const double ItemHeight = 36;
+    private const double ItemHMargin = 4;
     private const double ItemVMargin = 1;
     private const double SepHeight = 1;
     private const double SepVMargin = 6;
@@ -104,13 +106,15 @@ internal sealed class MauiTrayPopup
         GetCursorPos(out var pt);
         var content = (WinUi.FrameworkElement)_window.Content;
         content.Measure(new global::Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        content.Arrange(new global::Windows.Foundation.Rect(0, 0, content.DesiredSize.Width, content.DesiredSize.Height));
 
-        // 紧贴内容尺寸，不加「余量」——余量会露出默认黑底，看起来像右/下硬阴影
+        // 白底 Grid 铺满客户区，可多 2px 防 DPI 取整裁切悬停描边，不会露系统黑边
+        const int safetyPx = 2;
         var wDip = Math.Max(188, content.DesiredSize.Width);
         var hDip = Math.Max(EstimateContentHeightDip(), content.DesiredSize.Height);
         var scale = GetDpiScale(_hwnd);
-        var widthPx = Math.Max(1, (int)Math.Ceiling(wDip * scale));
-        var heightPx = Math.Max(1, (int)Math.Ceiling(hDip * scale));
+        var widthPx = Math.Max(1, (int)Math.Ceiling(wDip * scale) + safetyPx);
+        var heightPx = Math.Max(1, (int)Math.Ceiling(hDip * scale) + safetyPx);
 
         var left = pt.X - widthPx + (int)(28 * scale);
         var top = pt.Y - heightPx + (int)(8 * scale);
@@ -127,9 +131,8 @@ internal sealed class MauiTrayPopup
         try
         {
             content.UpdateLayout();
-            // 仅当内容实际更高才加高；绝不因「预留」把窗体撑出黑边
-            var needW = Math.Max(1, (int)Math.Ceiling(Math.Max(wDip, content.ActualWidth) * scale));
-            var needH = Math.Max(1, (int)Math.Ceiling(Math.Max(hDip, content.ActualHeight) * scale));
+            var needW = Math.Max(1, (int)Math.Ceiling(Math.Max(wDip, content.ActualWidth) * scale) + safetyPx);
+            var needH = Math.Max(1, (int)Math.Ceiling(Math.Max(hDip, content.ActualHeight) * scale) + safetyPx);
             if (needW != widthPx || needH != heightPx)
             {
                 widthPx = needW;
@@ -142,9 +145,9 @@ internal sealed class MauiTrayPopup
         catch { /* ignore */ }
     }
 
-    /// <summary>4 项×(36+2) + 分隔(1+12) + 面板上下各 8。</summary>
+    /// <summary>4 项×(36+2) + 分隔(1+12) + 面板上 6 下 8。</summary>
     private static double EstimateContentHeightDip()
-        => 4 * (ItemHeight + ItemVMargin * 2) + (SepHeight + SepVMargin * 2) + PanelPadY * 2;
+        => 4 * (ItemHeight + ItemVMargin * 2) + (SepHeight + SepVMargin * 2) + PanelPadYTop + PanelPadYBottom;
 
     private void OnActivated(object sender, WinUi.WindowActivatedEventArgs args)
     {
@@ -155,13 +158,13 @@ internal sealed class MauiTrayPopup
     private WinUi.UIElement BuildContent()
     {
         var bg = Brush(0xFB, 0xFD, 0xFF);
-        // 铺满客户区：Actual 小于窗体时也不会露系统黑底
+        // 铺满客户区：窗体略大于内容时也不露系统黑底；左右 Padding 相同保证悬停条左右等距
         var panel = new WinUiControls.Border
         {
             Background = bg,
             BorderThickness = new WinUi.Thickness(0),
             CornerRadius = new WinUi.CornerRadius(0),
-            Padding = new WinUi.Thickness(PanelPadX, PanelPadY, PanelPadX, PanelPadY),
+            Padding = new WinUi.Thickness(PanelPadX, PanelPadYTop, PanelPadX, PanelPadYBottom),
             MinWidth = 188,
             HorizontalAlignment = WinUi.HorizontalAlignment.Stretch,
             VerticalAlignment = WinUi.VerticalAlignment.Stretch
@@ -223,7 +226,8 @@ internal sealed class MauiTrayPopup
             CornerRadius = new WinUi.CornerRadius(8),
             Padding = new WinUi.Thickness(14, 0, 14, 0),
             Height = ItemHeight,
-            Margin = new WinUi.Thickness(4, ItemVMargin, 4, ItemVMargin),
+            // 左右同 Margin，避免悬停条贴右/贴左不一致
+            Margin = new WinUi.Thickness(ItemHMargin, ItemVMargin, ItemHMargin, ItemVMargin),
             HorizontalAlignment = WinUi.HorizontalAlignment.Stretch,
             Child = inner
         };
@@ -268,14 +272,15 @@ internal sealed class MauiTrayPopup
         catch { /* ignore */ }
     }
 
-    /// <summary>DWM 圆角 + 去系统边框线/backdrop（勿改窗口类 CS_*，会牵连主窗）。</summary>
+    /// <summary>直角客户区（避免 DWM 圆角裁末项悬停）+ 去系统边框线/backdrop。</summary>
     private static void ApplyChrome(IntPtr hwnd)
     {
         try
         {
+            // 勿用系统圆角：会裁剪右下角悬停圆角；菜单项自身已有 CornerRadius
             const int dwmwaWindowCornerPreference = 33;
-            const int dwmwcpRound = 2;
-            var pref = dwmwcpRound;
+            const int dwmwcpDoNotRound = 1;
+            var pref = dwmwcpDoNotRound;
             DwmSetWindowAttribute(hwnd, dwmwaWindowCornerPreference, ref pref, sizeof(int));
 
             const int dwmwaBorderColor = 34;

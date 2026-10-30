@@ -1,14 +1,21 @@
 namespace FlyScreen.AppMaui.Helpers;
 
 /// <summary>
-/// RadioButton 主题字色：WinUI 对字符串 Content + TextColor 经常不刷新；
-/// 统一用 Label 承载文案，并在 Windows 上刷原生 TextBlock.Foreground。
+/// RadioButton 主题字色：
+/// - Windows：Label 承载文案（WinUI 对字符串 Content + TextColor 经常不刷新）
+/// - Android：必须用 string Content（View 内容会变成 ToString() →「Microsoft.Maui.Controls.Label」）
 /// </summary>
 public static class MauiRadioTheme
 {
     public static void SetContent(RadioButton rb, string text)
     {
         var color = TextColor();
+#if ANDROID
+        // Android Material RadioButton 只可靠显示字符串 Content
+        rb.Content = text ?? "";
+        rb.TextColor = color;
+        rb.BackgroundColor = Color.FromArgb("#01000000");
+#else
         if (rb.Content is Label lbl)
         {
             lbl.Text = text;
@@ -30,6 +37,7 @@ public static class MauiRadioTheme
         rb.TextColor = color;
         rb.BackgroundColor = Color.FromArgb("#01000000");
         ForcePlatformForeground(rb, color);
+#endif
     }
 
     public static void RefreshAll(Element? root)
@@ -38,6 +46,14 @@ public static class MauiRadioTheme
         var color = TextColor();
         foreach (var rb in Enumerate(root).OfType<RadioButton>())
         {
+#if ANDROID
+            if (rb.Content is Label lbl)
+                rb.Content = lbl.Text ?? "";
+            else if (rb.Content is not string)
+                continue;
+            rb.TextColor = color;
+            rb.BackgroundColor = Color.FromArgb("#01000000");
+#else
             if (rb.Content is Label lbl)
             {
                 lbl.TextColor = color;
@@ -56,6 +72,7 @@ public static class MauiRadioTheme
             rb.BackgroundColor = Color.FromArgb("#01000000");
             ForcePlatformForeground(rb, color);
             try { rb.Handler?.UpdateValue(nameof(RadioButton.TextColor)); } catch { /* ignore */ }
+#endif
         }
     }
 
@@ -82,7 +99,6 @@ public static class MauiRadioTheme
                 (byte)Math.Clamp((int)(mauiColor.Green * 255), 0, 255),
                 (byte)Math.Clamp((int)(mauiColor.Blue * 255), 0, 255));
             var brush = new Microsoft.UI.Xaml.Media.SolidColorBrush(win);
-            // 覆盖主题资源前景，再递归刷 Content 内 TextBlock（WinUI Radio 字色多在子级）
             native.ClearValue(Microsoft.UI.Xaml.Controls.Control.ForegroundProperty);
             native.Foreground = brush;
             PaintTextBlocks(native, brush);

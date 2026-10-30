@@ -28,6 +28,11 @@ public sealed class AppSettings
     public bool BlockMouseAtCorners { get; set; }
     public bool ShowStatusMessages { get; set; } = true;
     public bool EasyMouse { get; set; } = true;
+    /// <summary>
+    /// Android：通知注入。启用且有用户子程序运行时，以前台通知保活；
+    /// 无子程序运行时不占用通知（本机项，不参与 BehaviorSync）。
+    /// </summary>
+    public bool NotificationInject { get; set; }
     /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
     public int EdgeCrossMode { get; set; }
     /// <summary>最近一次投影目标机器名（弹窗默认项；须双向已连接的电脑/大屏）。</summary>

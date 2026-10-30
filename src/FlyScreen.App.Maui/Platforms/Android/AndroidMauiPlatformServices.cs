@@ -42,7 +42,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         _settings = settings;
         _transfers = transfers;
         _screenExtendHost = new AndroidScreenExtendHostController(screenExtend);
-        // 用户程序运行时持 WakeLock（无通知栏）；进程主要靠无障碍绑定
+        // 用户程序运行：WakeLock；可选「通知注入」前台通知（无子程序则不占通知）
         ProgramService.Instance.Runner.RunningCountChanged += count =>
             AndroidProgramWakeLock.SetProgramsRunning(count);
     }
