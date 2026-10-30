@@ -51,9 +51,12 @@ public partial class PhoneTouchpadPage : ContentPage
     private async void OnLoaded(object? sender, EventArgs e)
     {
         _host.StatusMessage += OnHostStatus;
+        _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
         await _host.StartAsync();
         PickPeer();
         RefreshStatus();
+        RefreshProjectButton();
         SetKeyboardOpen(false);
         // 触控板控制对端：屏蔽电脑穿透鼠标，避免双指针；本机外接鼠标照常
         _host.Platform.SetRemotePointerSuppressed(true);
@@ -64,14 +67,20 @@ public partial class PhoneTouchpadPage : ContentPage
     private void OnUnloaded(object? sender, EventArgs e)
     {
         _host.StatusMessage -= OnHostStatus;
+        _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
         _keyboardCommitCts?.Cancel();
         _host.Platform.SetRemotePointerSuppressed(false);
     }
+
+    private void OnProjectionSessionChanged()
+        => MainThread.BeginInvokeOnMainThread(RefreshProjectButton);
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
         _host.Platform.SetRemotePointerSuppressed(true);
+        RefreshProjectButton();
     }
 
     protected override void OnDisappearing()
@@ -600,5 +609,34 @@ public partial class PhoneTouchpadPage : ContentPage
             _openingSettings = false;
             SettingsBtn.IsEnabled = true;
         }
+    }
+
+    private async void OpenProjection_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_host.ScreenExtend.IsActive
+                && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
+            {
+                await _host.StopProjectionAsync();
+                RefreshProjectButton();
+                return;
+            }
+
+            await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+            RefreshProjectButton();
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"投影：{ex.Message}";
+        }
+    }
+
+    private void RefreshProjectButton()
+    {
+        var on = _host.ScreenExtend.IsActive
+                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
+        ProjectBtn.Text = on ? "投影中" : "投影";
+        ProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
     }
 }

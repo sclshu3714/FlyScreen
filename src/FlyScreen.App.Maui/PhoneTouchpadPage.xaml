@@ -8,7 +8,7 @@
   <!-- 顶栏 + 按键区 + 触控板（键盘为系统输入法，内容直发对端不在本地累加） -->
   <Grid RowDefinitions="Auto,*,2*" Padding="12" RowSpacing="10">
 
-    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
       <VerticalStackLayout Spacing="2" VerticalOptions="Center">
         <Label Text="玄鸟 · 触控板" FontSize="18" FontAttributes="Bold" />
         <Label x:Name="StatusLabel" Text="连接桌面后即可控制"
@@ -20,7 +20,13 @@
               MinimumWidthRequest="0" HeightRequest="34" Padding="12,0"
               VerticalOptions="Center" Clicked="KeyboardToggle_Clicked" />
 
-      <Button x:Name="SettingsBtn" Grid.Column="2" Text="⚙ 设置"
+      <!-- 对齐电脑端标题栏「投影」：手机无自定义标题栏，放在触控板顶栏 -->
+      <Button x:Name="ProjectBtn" Grid.Column="2" Text="投影"
+              Style="{StaticResource NormalBtn}"
+              MinimumWidthRequest="0" HeightRequest="34" Padding="12,0"
+              VerticalOptions="Center" Clicked="OpenProjection_Clicked" />
+
+      <Button x:Name="SettingsBtn" Grid.Column="3" Text="⚙ 设置"
               Style="{StaticResource NormalBtn}"
               MinimumWidthRequest="0" HeightRequest="34" Padding="10,0"
               VerticalOptions="Center" Clicked="OpenSettings_Clicked" />

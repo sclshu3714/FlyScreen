@@ -41,6 +41,7 @@ public partial class App : Application
 
 #if WINDOWS
         Services.MauiWindowIcon.Apply(window);
+        Platforms.Windows.MauiCloseToTray.TryHook(window);
         Platforms.Windows.MauiProjectionTitleBar.OpenProjection = () =>
             MainThread.BeginInvokeOnMainThread(async () =>
             {
@@ -70,16 +71,19 @@ public partial class App : Application
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                Platforms.Windows.MauiCloseToTray.TryHook(window);
                 Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
             });
         window.Created += (_, _) =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                Platforms.Windows.MauiCloseToTray.TryHook(window);
                 Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
                 window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), () =>
                 {
                     Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                    Platforms.Windows.MauiCloseToTray.TryHook(window);
                     Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
                 });
             });

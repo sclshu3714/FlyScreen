@@ -594,7 +594,7 @@ public sealed class MauiInputRouter : IDisposable
 
         if (MatchKey(vk, _settings.HotkeyExit))
         {
-            MainThread.BeginInvokeOnMainThread(() => Application.Current?.Quit());
+            MainThread.BeginInvokeOnMainThread(MauiCloseToTray.RequestExit);
             return true;
         }
 

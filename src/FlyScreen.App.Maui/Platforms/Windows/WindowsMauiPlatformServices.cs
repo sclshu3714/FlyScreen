@@ -171,7 +171,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
             exit: () =>
             {
                 if (exit != null) exit();
-                else Application.Current?.Quit();
+                else MauiCloseToTray.RequestExit();
             });
     }
 
