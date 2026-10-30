@@ -86,10 +86,12 @@ public sealed class MauiScreenExtendController : IDisposable
         return (primary.Width, primary.Height, primary.RefreshHz);
     }
 
+    private readonly SemaphoreSlim _finalizeGate = new(1, 1);
+
     public async Task ReleaseHostDisplayAsync()
     {
         _wantDisplay = false;
-        await StopCaptureAsync(releaseDisplay: true).ConfigureAwait(false);
+        await FinalizeAfterSessionEndedAsync(releaseHostDisplay: true).ConfigureAwait(false);
     }
 
     private void OnHostReady()
@@ -219,9 +221,18 @@ public sealed class MauiScreenExtendController : IDisposable
 
     private async Task FinalizeAfterSessionEndedAsync(bool releaseHostDisplay)
     {
-        await StopCaptureAsync(releaseDisplay: releaseHostDisplay).ConfigureAwait(false);
-        if (releaseHostDisplay)
-            DisplayTopologyGuard.TryRestorePrimary();
+        await _finalizeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var usedVdd = _vdd?.UsedVirtualDriver == true;
+            await StopCaptureAsync(releaseDisplay: releaseHostDisplay).ConfigureAwait(false);
+            if (releaseHostDisplay)
+                await DisplayTopologyGuard.FinalizeAfterExtendStopAsync(usedVdd).ConfigureAwait(false);
+        }
+        finally
+        {
+            _finalizeGate.Release();
+        }
     }
 
     private async Task StopCaptureAsync(bool releaseDisplay)

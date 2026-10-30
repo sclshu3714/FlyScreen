@@ -328,10 +328,9 @@ public sealed class AppHost : IAsyncDisposable
     {
         if (ScreenExtend.IsActive)
             await ScreenExtend.StopAsync("stopped").ConfigureAwait(false);
+        // ReleaseHostDisplay 内：释放 VDD → /internal 收回窗口 → 恢复主屏快照
         await ScreenExtendUi.ReleaseHostDisplayAsync().ConfigureAwait(false);
-        // 禁止 DisplaySwitch /internal：会重写主屏显示配置。仅恢复投影前主屏模式。
-        FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRestorePrimary();
-        PublishStatus("投影：已停止");
+        PublishStatus("投影：已停止（已切回仅电脑屏幕）");
     }
 
     public async Task<(bool Ok, string Message)> RepairProjectionEnvironmentAsync(
