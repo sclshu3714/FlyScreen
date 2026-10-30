@@ -11,15 +11,20 @@
 
     <Grid>
     <Grid x:Name="RootGrid" RowDefinitions="Auto,*">
-        <!-- 手机顶栏：汉堡菜单 + 标题 -->
-        <Grid x:Name="PhoneTopBar" IsVisible="False" HeightRequest="48" Padding="4,0,12,0"
+        <!-- 手机顶栏：汉堡 + 标题 + 投影（对齐电脑标题栏入口；触控板页另有同名按钮） -->
+        <Grid x:Name="PhoneTopBar" IsVisible="False" HeightRequest="48" Padding="4,0,8,0"
+              ColumnDefinitions="Auto,*,Auto"
               BackgroundColor="{DynamicResource PaneBg}">
-            <BoxView HeightRequest="1" Color="{DynamicResource Line}" VerticalOptions="End" />
+            <BoxView Grid.ColumnSpan="3" HeightRequest="1" Color="{DynamicResource Line}" VerticalOptions="End" />
             <Button x:Name="MenuBtn" Text="☰" Style="{StaticResource NormalBtn}"
                     WidthRequest="44" MinimumWidthRequest="44" HeightRequest="40" Margin="0"
                     Padding="0" HorizontalOptions="Start" Clicked="MenuBtn_Clicked" />
-            <Label x:Name="PhoneTitleLabel" Text="玄鸟" FontAttributes="Bold" FontSize="16"
+            <Label x:Name="PhoneTitleLabel" Grid.Column="1" Text="玄鸟" FontAttributes="Bold" FontSize="16"
                    HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+            <Button x:Name="PhoneProjectBtn" Grid.Column="2" Text="投影"
+                    Style="{StaticResource NormalBtn}"
+                    MinimumWidthRequest="0" HeightRequest="36" Padding="12,0"
+                    VerticalOptions="Center" Clicked="PhoneProject_Clicked" />
         </Grid>
 
         <!-- 主内容：宽屏左侧留白给固定侧栏；窄屏全宽 -->

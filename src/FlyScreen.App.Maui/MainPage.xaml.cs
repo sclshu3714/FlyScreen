@@ -156,6 +156,8 @@ public partial class MainPage : ContentPage
         _host.SecurityKeySyncedFromPeer += _onSecurityKeySynced;
         _host.Connections.Discovery.PeersUpdated += _onPeersUpdated;
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
+        _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
 
         _statusTimer = Dispatcher.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2);
@@ -164,7 +166,11 @@ public partial class MainPage : ContentPage
             if (_pageAlive && Handler != null)
                 RefreshSlotStatuses();
         };
+        RefreshPhoneProjectButton();
     }
+
+    private void OnProjectionSessionChanged()
+        => RunOnUi(RefreshPhoneProjectButton);
 
     private void UnwireHost()
     {
@@ -185,6 +191,8 @@ public partial class MainPage : ContentPage
             _host.Connections.Discovery.PeersUpdated -= _onPeersUpdated;
         if (_onPeerLinkChanged != null)
             _host.Connections.PeerLinkChanged -= _onPeerLinkChanged;
+        _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
 
         _onStatusMessage = null;
         _onAppLogChanged = null;
@@ -252,7 +260,7 @@ public partial class MainPage : ContentPage
                     showMain: () => { },
                     reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
                     about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-                    exit: () => Application.Current?.Quit());
+                    exit: RequestAppExit);
             }
 #endif
         }
@@ -267,7 +275,19 @@ public partial class MainPage : ContentPage
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: () => Application.Current?.Quit());
+            exit: RequestAppExit);
+    }
+
+    /// <summary>托盘「关于」：显示关于页。</summary>
+    public void ShowAboutFromTray() => ShowPage(5);
+
+    private static void RequestAppExit()
+    {
+#if WINDOWS
+        Platforms.Windows.MauiCloseToTray.RequestExit();
+#else
+        Application.Current?.Quit();
+#endif
     }
 
     protected override void OnAppearing()
@@ -2491,13 +2511,41 @@ public partial class MainPage : ContentPage
         StatusLabel.Text = Loc.T("Sys.Applied");
     }
 
-#if WINDOWS
     public async Task OpenProjectionDialogAsync()
     {
         // 无 NavigationPage，避免系统顶栏白条；页内自定义标题 + 居中卡片
         await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
     }
-#endif
+
+    private async void PhoneProject_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_host.ScreenExtend.IsActive
+                && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
+            {
+                await _host.StopProjectionAsync();
+                RefreshPhoneProjectButton();
+                return;
+            }
+
+            await OpenProjectionDialogAsync();
+            RefreshPhoneProjectButton();
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
+    private void RefreshPhoneProjectButton()
+    {
+        if (PhoneProjectBtn == null) return;
+        var on = _host.ScreenExtend.IsActive
+                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
+        PhoneProjectBtn.Text = on ? "投影中" : "投影";
+        PhoneProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
+    }
 
     private void LoadEdgeCrossModeUi(int mode)
     {
@@ -2841,7 +2889,7 @@ public partial class MainPage : ContentPage
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: () => Application.Current?.Quit());
+            exit: RequestAppExit);
     }
 
     private void RefreshAboutPage()
@@ -2958,7 +3006,7 @@ public partial class MainPage : ContentPage
             {
                 ShowHelpLog(Loc.T("Help.Restarting"));
                 await Task.Delay(400).ConfigureAwait(true);
-                Application.Current?.Quit();
+                RequestAppExit();
                 Environment.Exit(0);
                 return;
             }
@@ -3105,7 +3153,7 @@ public partial class MainPage : ContentPage
     }
 
     private void Exit_Clicked(object? sender, EventArgs e)
-        => Application.Current?.Quit();
+        => RequestAppExit();
 
     /// <summary>日志列表行：自绘勾选，避免 Win CollectionView Multiple 平台勾与文字不齐。</summary>
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
