@@ -291,7 +291,9 @@ public sealed class MauiScreenExtendSinkWindow
         _onUserClose = onUserClose;
         _image = new Microsoft.UI.Xaml.Controls.Image
         {
-            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.None,
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
         };
         _waiting = new Microsoft.UI.Xaml.Controls.TextBlock
         {
@@ -306,7 +308,15 @@ public sealed class MauiScreenExtendSinkWindow
         {
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Black)
         };
-        root.Children.Add(_image);
+        // Viewbox 按窗口等比放大/缩小。Image 自身在部分 WinUI 版本上会停在像素尺寸，高和宽都填不满。
+        root.Children.Add(new Microsoft.UI.Xaml.Controls.Viewbox
+        {
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
+            StretchDirection = Microsoft.UI.Xaml.Controls.StretchDirection.Both,
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch,
+            Child = _image
+        });
         root.Children.Add(_waiting);
         var tip = new Microsoft.UI.Xaml.Controls.TextBlock
         {
@@ -412,6 +422,10 @@ public sealed class MauiScreenExtendSinkWindow
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
             var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            if (area != null)
+                appWindow.MoveAndResize(area.OuterBounds);
             appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
             appWindow.Show();
         }

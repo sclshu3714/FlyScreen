@@ -159,6 +159,18 @@ public sealed class MauiAppHost : IAsyncDisposable
         Platforms.Android.AndroidNetworkBootstrap.EnsureMulticastLock();
 #endif
         Settings.EnsureLocalMachineSlot();
+#if WINDOWS
+        try
+        {
+            var fw = await MauiConnectionDiagnostics.EnsureListenRulesAsync(Settings.TcpPort, Settings.UdpPort)
+                .ConfigureAwait(false);
+            PublishStatus(fw.Message);
+        }
+        catch (Exception ex)
+        {
+            PublishStatus("配置防火墙失败：" + ex.Message);
+        }
+#endif
         await Connections.StartAsync().ConfigureAwait(false);
         MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -177,6 +189,18 @@ public sealed class MauiAppHost : IAsyncDisposable
     public async Task RestartNetworkingAsync()
     {
         Settings.Save();
+#if WINDOWS
+        try
+        {
+            var fw = await MauiConnectionDiagnostics.EnsureListenRulesAsync(Settings.TcpPort, Settings.UdpPort)
+                .ConfigureAwait(false);
+            PublishStatus(fw.Message);
+        }
+        catch (Exception ex)
+        {
+            PublishStatus("配置防火墙失败：" + ex.Message);
+        }
+#endif
         await Connections.StartAsync().ConfigureAwait(false);
         _platform.SetEasyMouse(Settings.EasyMouse);
     }

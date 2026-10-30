@@ -129,6 +129,7 @@ public sealed class AppHost : IAsyncDisposable
 
     public async Task StartAsync()
     {
+        await EnsureWindowsFirewallAsync().ConfigureAwait(false);
         await Connections.StartAsync().ConfigureAwait(false);
         Input.EasyMouseEnabled = Settings.EasyMouse;
         Input.Start();
@@ -138,7 +139,21 @@ public sealed class AppHost : IAsyncDisposable
     public async Task RestartNetworkingAsync()
     {
         Settings.Save();
+        await EnsureWindowsFirewallAsync().ConfigureAwait(false);
         await Connections.StartAsync().ConfigureAwait(false);
+    }
+
+    private async Task EnsureWindowsFirewallAsync()
+    {
+        try
+        {
+            var (_, msg) = await new ConnectionDiagnostics(this).EnsureListenRulesAsync().ConfigureAwait(false);
+            PublishStatus(msg);
+        }
+        catch (Exception ex)
+        {
+            PublishStatus("配置防火墙失败：" + ex.Message);
+        }
     }
 
     /// <summary>

@@ -13,7 +13,7 @@
 // rect actionRegionLandscape | 横屏操作区 |
 // @fly-settings-end
 //
-// 内置通用识别操作 v9：HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满再操作。
+// 内置通用识别操作 v11：HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满，再多停 0.5s 后操作。
 // 横/竖识别区互不回退；当前朝向未标定则不做 OCR。两侧都未标定 ≈ 未启用 OCR。
 // tipArmed：仅成功执行后解除；失败保持武装并可重试。静默等待/冷却打调试心跳。
 // logLevel：错误/警告/信息/调试 — 仅控制脚本日志落盘；调试浮层只看 debugLog。
@@ -334,9 +334,10 @@ try
         if (waitSec > 0)
         {
             Console.WriteLine(actMarked
-                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey} via={hitVia}）"
-                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等待后再 {action}（操作区未标定，用屏幕中央 via={hitVia}）");
-            await Delay(waitSec * 1000);
+                ? $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等满后再停 0.5s 执行 {action}（{(land ? "横屏" : "竖屏")} 操作区 {actKey} via={hitVia}）"
+                : $"[{DateTime.Now:HH:mm:ss}] 命中「{hit}」含倒计时 {waitSec}s，等满后再停 0.5s 执行 {action}（操作区未标定，用屏幕中央 via={hitVia}）");
+            // 倒计时刚归零时界面往往还不能滑，多停半秒
+            await Delay(waitSec * 1000 + 500);
         }
         else
         {
