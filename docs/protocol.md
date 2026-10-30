@@ -84,7 +84,7 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 
 具体 opcode / JSON 字段在实现 PR 中更新本文与 `Protocol.cs` 注释。用户程序运行时控制**不走**跨端消息，仅在本机无障碍上执行（见 [programs-android.md](runbooks/programs-android.md)）。
 
-Caps：`ScreenExtendHost` / `ScreenExtendSink`（仅桌面宣告）。
+Caps：`ScreenExtendHost` / `ScreenExtendSink`（桌面双宣告；手机仅 Host 复制投屏）。
 
 ## 6. 安全
 

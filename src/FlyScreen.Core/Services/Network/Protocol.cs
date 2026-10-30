@@ -205,18 +205,21 @@ public static class PeerCaps
     /// <summary>
     /// Android 手机/平板：触控板控桌面 + 文本剪贴板 + 收文件；
     /// 另宣告 EdgeMouse/InjectInput，便于桌面边缘切入并由无障碍服务注入键鼠（须用户授权）。
+    /// ScreenExtendHost：可「复制」投屏到电脑（MediaProjection）；不含 Sink（不作接收端）。
     /// 不含 LayoutSync（不参与桌面布局同步主路径）。
     /// 功能/行为同步（BehaviorSync）不依赖 LayoutSync，手机仍会收到穿边模式等设置。
     /// </summary>
     public static readonly string[] AndroidMobile =
     [
-        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer,
+        ScreenExtendHost
     ];
 
     /// <summary>鸿蒙手机/平板（W5a）：对标 AndroidMobile。</summary>
     public static readonly string[] HarmonyMobile =
     [
-        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer,
+        ScreenExtendHost
     ];
 
     /// <summary>鸿蒙电脑（W5b）：对标桌面；API 不足时由宿主降级去掉 EdgeMouse/Capture。</summary>

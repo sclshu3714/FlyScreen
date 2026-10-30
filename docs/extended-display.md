@@ -4,14 +4,14 @@
 |----|------|
 | 文档版本 | 1.1 |
 | 状态 | E1：标题栏投影 UX + MTT 按需环境修复 |
-| 范围 | **电脑↔电脑**真扩展屏；手机作系统扩展屏 / 手机投屏另议 |
+| 范围 | **电脑↔电脑**真扩展屏；**手机→电脑复制投屏**（MediaProjection Host）；手机不作接收端 |
 
 ## 1. 产品逻辑
 
 1. **标题栏**（最小化左侧）投影按钮 → 弹窗：先选 **投影方式**（复制 / 扩展），再选 **目标**（本机真副屏 + 双向已连接电脑）。扩展且对端目标缺 MTT 时显示 **环境修复**（离线 `VddOffline` 优先，其次 winget）。
 2. 投影中标题栏变为「投影中」，再点即 **停止**。
 3. A **采集**（复制=主屏；扩展=副屏/VDD）经局域网推到 B；B **全屏显示**。
-4. 会话期内，B 从 **穿边拓扑摘除**。**手机**不作投影目标；Mac/Linux 本期可 **接收** 投影，发起请用 Windows。
+4. 会话期内，B 从 **穿边拓扑摘除**。**手机不作投影目标（无 Sink）**；手机可作 Host **复制**投到电脑。Mac/Linux 可 **接收**；电脑发起仍以 Windows 为主（含扩展/VDD）。
 
 > 真扩展 ≠ 把所有电脑当成扩展屏。无第二输出时无法「凭空」扩展；须虚拟 IDD 或第二物理显示器。复制模式不强制 MTT。
 
@@ -39,7 +39,7 @@
 - `ScreenExtendHost`：可作为主机（创建/占用扩展输出并推流）
 - `ScreenExtendSink`：可作为从机（全屏收流）
 
-手机 Caps **不**宣告上述两位。
+手机 Caps 宣告 **`ScreenExtendHost`**（复制投屏），**不**宣告 `ScreenExtendSink`。
 
 ## 4. 主机第二输出策略（Windows）
 
@@ -71,7 +71,7 @@
 
 采集：GDI 按**副屏**边界抓取（扩展模式禁止回退主屏）→ **叠加软件光标**（BitBlt 本身不含指针）→ JPEG（质量约 80）。
 
-投影弹窗在目标下提供**分辨率与缩放**：复制默认本机主屏；扩展默认目标电脑（`DisplayInfoQuery` / Accept 上报）。扩展时仅改虚拟副屏模式，**不改主屏**分辨率/DPI。手机端仅「复制」，无扩展/环境修复。
+投影弹窗在目标下提供**分辨率与缩放**：复制默认本机主屏；扩展默认目标电脑（`DisplayInfoQuery` / Accept 上报）。扩展时仅改虚拟副屏模式，**不改主屏**分辨率/DPI。手机端仅「复制」：系统 MediaProjection 授权 → 前台采集 → Offer/Accept → JPEG 推到电脑全屏；无扩展/环境修复。
 
 ## 5. 从机行为（接收投影）
 
@@ -92,11 +92,12 @@
 | 离线包（共用） | `tools/VddOffline\`（WPF/Maui-Win 全量；Mac/Linux 仅 README） |
 | WPF 主机/从机 UI | `FlyScreen.App.Windows`（弹窗 + 标题栏） |
 | Maui 电脑端 | `FlyScreen.App.Maui` + `Platforms/Windows` |
+| Maui 手机 Host | `Platforms/Android`：`FlyScreenMediaProjectionService` + `AndroidScreenExtendHostController` |
 | Mac / Linux UI | `FlyScreen.App.Desktop` + `FlyScreen.App.Mac` / `FlyScreen.App.Linux`（可收流；本期不发起） |
 
 ## 7. 非目标（本期）
 
-- 手机当扩展屏、有线 USB 扩展协议、HDR、多路扩展、从机键鼠回控扩展屏内容（键鼠仍在主机扩展桌面上本地操作）。
+- 手机当扩展屏（Sink）、有线 USB 扩展协议、HDR、多路扩展、从机键鼠回控扩展屏内容（键鼠仍在主机扩展桌面上本地操作）。
 - 设置页勾选扩展；「仅电脑屏幕 / 仅第二屏幕」作为发起方式（Internal 仅停止时系统侧使用）。
 
 ## 8. 修订记录
@@ -118,3 +119,4 @@
 | 2026-10-30 | 投影弹窗增加分辨率/缩放；扩展副屏可独立于主屏；手机仅复制 |
 | 2026-10-30 | 停投：VDD 释放后 /internal 收回窗口再恢复主屏快照；帧内光标按系统尺寸绘制 |
 | 2026-10-30 | Maui-Win 关窗=隐藏托盘；手机投影入口在触控板顶栏（设置页窄屏顶栏亦有） |
+| 2026-10-30 | 手机→电脑复制投屏：`ScreenExtendHost` + MediaProjection 采集；仍拒绝作 Sink |

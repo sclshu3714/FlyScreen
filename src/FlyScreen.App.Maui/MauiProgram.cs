@@ -119,7 +119,7 @@ public static class MauiProgram
             host.Settings, host.Connections, host.Transfers, host.ScreenExtend));
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
-            host.Settings, host.Transfers));
+            host.Settings, host.Transfers, host.ScreenExtend));
         // 用户程序 Fly.* 控机：无障碍服务连上后也会再设一次
         ProgramDevice.Current = Platforms.Android.AndroidProgramDeviceControl.Instance;
         Platforms.Android.FlyScreenDebugLogHud.Register();
