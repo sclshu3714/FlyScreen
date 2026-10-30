@@ -3,6 +3,8 @@ using FlyScreen.Helpers;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.ScreenExtend;
+using DisplayProjectionMode = FlyScreen.Services.ScreenExtend.DisplayProjectionMode;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
@@ -12,19 +14,32 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private readonly AppSettings _settings;
     private readonly ConnectionManager _connections;
     private readonly FileTransferService _transfers;
+    private readonly ScreenExtendService _screenExtend;
     private readonly MauiClipboardApplySink _clipSink = new();
     private MauiInputRouter? _router;
     private MauiTextClipboardMonitor? _clipMonitor;
     private MauiTrayService? _tray;
+    private MauiScreenExtendController? _screenExtendUi;
 
     public WindowsMauiPlatformServices(
         AppSettings settings,
         ConnectionManager connections,
-        FileTransferService transfers)
+        FileTransferService transfers,
+        ScreenExtendService screenExtend)
     {
         _settings = settings;
         _connections = connections;
         _transfers = transfers;
+        _screenExtend = screenExtend;
+        _screenExtendUi = new MauiScreenExtendController(screenExtend);
+        _screenExtend.SinkSessionReady += () =>
+        {
+            try { _router?.SetEasyMousePaused(true); } catch { /* ignore */ }
+        };
+        _screenExtend.SessionEnded += () =>
+        {
+            try { _router?.SetEasyMousePaused(false); } catch { /* ignore */ }
+        };
     }
 
     public IClipboardApplySink ClipboardSink => _clipSink;
@@ -43,6 +58,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _router?.Dispose();
         _router = new MauiInputRouter(_settings, _connections);
         _router.EasyMouseEnabled = _settings.EasyMouse;
+        _router.IsEdgeCrossExcluded = peer => _screenExtend.IsExcludedFromEdgeCross(peer);
+        _router.ShouldPauseEasyMouseForExtend = () => _screenExtend.ShouldPauseLocalEasyMouse;
         _router.TryHandleLocalFilePasteHotkey = () =>
             _clipMonitor?.TryHandlePasteHotkey() == true;
         _router.ControlTargetChanged += peer =>
@@ -169,4 +186,18 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _tray?.Dispose();
         _tray = null;
     }
+
+    public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        LayoutEdgeSide layoutSide = LayoutEdgeSide.Unknown)
+        => _screenExtendUi?.EnsureHostDisplayAsync(layoutSide: layoutSide)
+           ?? Task.FromResult<(bool, string?)>((false, "扩展屏控制器未初始化"));
+
+    public Task ReleaseScreenExtendHostDisplayAsync()
+        => _screenExtendUi?.ReleaseHostDisplayAsync() ?? Task.CompletedTask;
+
+    public void SetScreenExtendProjectionMode(DisplayProjectionMode mode)
+        => _screenExtendUi?.SetProjectionMode(mode);
+
+    public void SetScreenExtendDisplayChoice(ProjectionDisplayChoice? choice)
+        => _screenExtendUi?.SetDisplayChoice(choice);
 }

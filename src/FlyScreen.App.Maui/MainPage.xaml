@@ -32,9 +32,14 @@
                             <Grid ColumnDefinitions="*,Auto">
                                 <Label x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontAttributes="Bold"
                                        VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                                <Button x:Name="NewKeyBtn" Grid.Column="1" Text="生成新密钥"
-                                        Style="{StaticResource PrimaryBtn}" Clicked="NewKey_Clicked"
-                                        Margin="12,0,0,0" VerticalOptions="Center" />
+                                <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                                    <Button x:Name="NewKeyBtn" Text="生成新密钥"
+                                            Style="{StaticResource PrimaryBtn}" Clicked="NewKey_Clicked"
+                                            VerticalOptions="Center" />
+                                    <Button x:Name="SyncKeyBtn" Text="同步密钥"
+                                            Style="{StaticResource PrimaryBtn}" Clicked="SyncKey_Clicked"
+                                            VerticalOptions="Center" />
+                                </HorizontalStackLayout>
                             </Grid>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                 <Entry x:Name="KeyEntry" IsPassword="True" StyleClass="Mono" FontSize="14"
@@ -45,6 +50,9 @@
                                 </HorizontalStackLayout>
                             </Grid>
                             <Label x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
+                                   TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                            <Label x:Name="SecuritySyncHintText"
+                                   Text="生成或修改密钥后点「同步密钥」，布局内已连接与因密钥不同未连上的电脑都会收到并应用。"
                                    TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                         </VerticalStackLayout>
                     </Border>
@@ -97,7 +105,8 @@
                     <Grid RowDefinitions="Auto,Auto" RowSpacing="10" Padding="0,0,0,4">
                         <Border Style="{StaticResource Card}" Padding="12,10">
                             <!-- 宽屏三列；窄屏由 ApplyOptionsPlacement 改为单列堆叠 -->
-                            <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                            <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto"
+                                  ColumnSpacing="12" RowSpacing="10">
                                 <VerticalStackLayout x:Name="FeatColumn" Spacing="0">
                                     <Label x:Name="FeatTitleText" Text="功能" FontAttributes="Bold" Margin="0,0,0,4" />
                                     <!-- Spacing=8；列勿锁死 20px（会裁掉勾选图标） -->

@@ -31,6 +31,9 @@ public sealed class DiscoveryService : IAsyncDisposable
 
     public event Action<IReadOnlyList<DiscoveredPeer>>? PeersUpdated;
 
+    /// <summary>收到 UDP 安全密钥同步包（密钥不同时无法走 TCP）。</summary>
+    public event Action<SecurityKeySyncPayload>? SecurityKeySyncPacketReceived;
+
     /// <param name="announceIp">发现包中宣告的本机 IPv4（对端用来回连）。</param>
     /// <param name="bindAny">true 时绑定 0.0.0.0（Android 等上绑定单网卡 IP 常收不到广播）。</param>
     public void Start(string announceIp, int udpPort, string? subnetMask = null, bool bindAny = false)
@@ -175,6 +178,22 @@ public sealed class DiscoveryService : IAsyncDisposable
     {
         try
         {
+            using var doc = JsonDocument.Parse(buffer);
+            if (doc.RootElement.TryGetProperty("Kind", out var kindEl)
+                && string.Equals(kindEl.GetString(), SecurityKeySyncPayloadKind, StringComparison.Ordinal))
+            {
+                var sync = JsonSerializer.Deserialize<SecurityKeySyncPayload>(buffer);
+                if (sync == null || string.IsNullOrWhiteSpace(sync.SourceMachine)
+                    || string.IsNullOrWhiteSpace(sync.SecurityKey))
+                    return;
+                if (string.Equals(sync.SourceMachine, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                    return;
+                if (string.IsNullOrWhiteSpace(sync.Ip))
+                    sync.Ip = remote.Address.ToString();
+                try { SecurityKeySyncPacketReceived?.Invoke(sync); } catch { /* ignore */ }
+                return;
+            }
+
             var pkt = JsonSerializer.Deserialize<DiscoveryPacket>(buffer);
             if (pkt == null || string.IsNullOrWhiteSpace(pkt.MachineName))
                 return;
@@ -206,6 +225,40 @@ public sealed class DiscoveryService : IAsyncDisposable
         catch
         {
             // ignore bad packets
+        }
+    }
+
+    public const string SecurityKeySyncPayloadKind = "SecurityKeySync";
+
+    /// <summary>经发现口 UDP 广播（子网广播 + 全网广播）；发现未启动时返回 false。</summary>
+    public async Task<bool> TryBroadcastRawAsync(byte[] payload, CancellationToken ct = default)
+    {
+        var udp = _udp;
+        if (udp == null || payload.Length == 0 || UdpPort <= 0)
+            return false;
+        try
+        {
+            if (_subnetBroadcast != null)
+            {
+                await udp.SendAsync(payload, payload.Length, new IPEndPoint(_subnetBroadcast, UdpPort))
+                    .ConfigureAwait(false);
+            }
+
+            await udp.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
+                .ConfigureAwait(false);
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        catch
+        {
+            return false;
         }
     }
 

@@ -53,7 +53,7 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 通道 | 承载 |
 | --- | --- |
 | Control（`Channel=0`/缺省） | 键鼠、心跳、布局/行为同步、剪贴板宣告与拉取信令 |
-| Bulk（`Channel=1`） | `File*`、`ClipboardInlineChunk/Complete`、`ClipboardImageChunk/Complete` |
+| Bulk（`Channel=1`） | `File*`、`ClipboardInlineChunk/Complete`、`ClipboardImageChunk/Complete`、`ScreenExtendFrame` |
 
 旧端无 `BulkTransfer` / 忽略 `Channel`：大块消息仍走控制面（兼容）。建立 bulk 须对端 **Caps 显式含** `BulkTransfer`（不可用「空 Caps=legacy 全开」逻辑）。
 
@@ -80,8 +80,11 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | `PointerAbsolute` | 归一化坐标 0–1 或像素 + 屏索引（平板/触控板） |
 | `TouchpadDelta` | 相对位移 + 按钮状态 |
 | `CapsUpdate` | 运行时权限变化（如用户刚授予辅助功能） |
+| `ScreenExtendOffer/Accept/Reject/Stop/Frame`（80–84） | 电脑扩展屏会话与 Bulk JPEG 帧；详见 [extended-display.md](extended-display.md) |
 
 具体 opcode / JSON 字段在实现 PR 中更新本文与 `Protocol.cs` 注释。用户程序运行时控制**不走**跨端消息，仅在本机无障碍上执行（见 [programs-android.md](runbooks/programs-android.md)）。
+
+Caps：`ScreenExtendHost` / `ScreenExtendSink`（仅桌面宣告）。
 
 ## 6. 安全
 
@@ -110,3 +113,4 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 2026-10-16 | MAUI `AndroidMobile` / `HarmonyMobile`：AbsPointer+ClipboardText+DirectTransfer，另含 **EdgeMouse+InjectInput**（无 LayoutSync）；桌面 AbsPointer 接收侧 `EnsureAcceptsRemoteInput`（Win/MAUI/Linux/Mac） |
 | 2026-10-27 | 文档同步：`ProgramShare`（同 Id 覆盖源码）；用户程序本机 Fly 控制不进协议 |
 | 2026-10-29 | 剪贴板内联格式说明链到 [clipboard.md](clipboard.md) |
+| 2026-10-29 | 扩展屏 `ScreenExtend*`（80–84）+ Caps；见 [extended-display.md](extended-display.md) |

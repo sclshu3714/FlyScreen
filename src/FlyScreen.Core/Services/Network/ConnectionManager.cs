@@ -33,6 +33,9 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public ConnectionManager(AppSettings settings) => _settings = settings;
 
+    /// <summary>监听与维护循环是否已在运行（未 Stop）。</summary>
+    public bool IsRunning => _cts != null && _listener != null;
+
     public async Task StartAsync()
     {
         await StopAsync().ConfigureAwait(false);
@@ -231,6 +234,22 @@ public sealed class ConnectionManager : IAsyncDisposable
             await EnsureOutboundAsync(peer, _cts.Token).ConfigureAwait(false);
             await EnsureOutboundBulkAsync(peer, _cts.Token).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// 不断开现有有效链路：剪去已不在布局中的对端，并为布局内对端补出站/bulk。
+    /// 端口、网卡、密钥变更须改用 <see cref="StartAsync"/>（会先 Stop）。
+    /// </summary>
+    public async Task RefreshConfiguredPeersAsync()
+    {
+        if (!IsRunning)
+        {
+            await StartAsync().ConfigureAwait(false);
+            return;
+        }
+
+        await PruneUnconfiguredLinksAsync().ConfigureAwait(false);
+        await ReconnectNowAsync().ConfigureAwait(false);
     }
 
     private async Task AcceptLoopAsync(CancellationToken ct)

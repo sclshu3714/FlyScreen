@@ -1,0 +1,293 @@
+<Window x:Class="FlyScreen.ProjectionDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="投影"
+        Icon="pack://application:,,,/Assets/wlogo_tu.ico"
+        Width="460"
+        MinWidth="420"
+        SizeToContent="Height"
+        MinHeight="320"
+        MaxHeight="640"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="13">
+  <Window.Resources>
+    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
+    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
+    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+    <SolidColorBrush x:Key="ControlHover" Color="#F9FAFB"/>
+    <SolidColorBrush x:Key="Accent" Color="#2563EB"/>
+
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="14,12"/>
+      <Setter Property="Margin" Value="0,0,0,12"/>
+    </Style>
+
+    <!-- 与主窗口 ComboBox 一致 -->
+    <Style TargetType="ComboBox">
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="Padding" Value="10,0,32,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="4"/>
+              <ToggleButton Focusable="False" ClickMode="Press"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="32"/>
+                      </Grid.ColumnDefinitions>
+                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{DynamicResource Muted}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                IsHitTestVisible="False"/>
+              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+                        BorderThickness="1"
+                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                  <ScrollViewer>
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                TextBlock.Foreground="{DynamicResource Text}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="DlgNormalBtn" TargetType="Button">
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource CardBg}"
+                    BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                    CornerRadius="8" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Content="{TemplateBinding Content}"
+                                TextBlock.Foreground="{TemplateBinding Foreground}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHover}"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Line}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="DlgPrimaryBtn" TargetType="Button">
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="Padding" Value="16,0"/>
+      <Setter Property="MinWidth" Value="100"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource Blue}" CornerRadius="8"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Content="{TemplateBinding Content}"
+                                TextBlock.Foreground="White"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BluePress}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="DlgDangerBtn" TargetType="Button" BasedOn="{StaticResource DlgNormalBtn}">
+      <Setter Property="Foreground" Value="#B91C1C"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="HorizontalAlignment" Value="Left"/>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel>
+    <Border DockPanel.Dock="Bottom" Padding="20,12,20,16"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0"
+            Background="{DynamicResource WinBg}">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="取消" Style="{StaticResource DlgNormalBtn}"
+                IsCancel="True" Click="Cancel_Click"/>
+        <Button x:Name="StartBtn" Content="开始投影" Style="{StaticResource DlgPrimaryBtn}"
+                IsDefault="True" IsEnabled="False" Click="Start_Click"/>
+      </StackPanel>
+    </Border>
+
+    <ScrollViewer Padding="20,16,20,8" VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <TextBlock Text="投影方式" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <ComboBox x:Name="ModeCombo" SelectionChanged="Mode_Changed"/>
+            <TextBlock x:Name="ModeHint" Foreground="{DynamicResource Muted}" FontSize="12"
+                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <TextBlock Text="目标" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <ComboBox x:Name="TargetCombo" DisplayMemberPath="DisplayName"
+                      SelectionChanged="Target_Changed"/>
+            <TextBlock x:Name="TargetHint" Foreground="{DynamicResource Muted}" FontSize="12"
+                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <TextBlock Text="分辨率与缩放" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="Auto" MinWidth="110"/>
+              </Grid.ColumnDefinitions>
+              <ComboBox x:Name="ResolutionCombo" Grid.Column="0" SelectionChanged="Display_Changed"/>
+              <ComboBox x:Name="ScaleCombo" Grid.Column="2" MinWidth="110" SelectionChanged="Display_Changed"/>
+            </Grid>
+            <TextBlock x:Name="DisplayHint" Foreground="{DynamicResource Muted}" FontSize="12"
+                       TextWrapping="Wrap" Margin="0,8,0,0"
+                       Text="复制默认本机主屏；扩展默认目标电脑。可选手动分辨率与缩放。"/>
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="EnvPanel" Style="{StaticResource Card}"
+                Background="{DynamicResource SubtleBg}">
+          <StackPanel>
+            <TextBlock Text="环境检查" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBlock x:Name="EnvHint" Foreground="{DynamicResource Muted}" FontSize="12"
+                       TextWrapping="Wrap" Margin="0,0,0,10"
+                       Text="正在检查环境…"/>
+            <StackPanel x:Name="RepairActions" Orientation="Horizontal" Visibility="Collapsed">
+              <Button x:Name="RepairBtn" Content="自动修复环境" Style="{StaticResource DlgPrimaryBtn}"
+                      Margin="0,0,8,0" MinWidth="0" Click="Repair_Click"/>
+              <Button x:Name="RecheckBtn" Content="重新检测" Style="{StaticResource DlgNormalBtn}"
+                      Margin="0" Click="Recheck_Click"/>
+            </StackPanel>
+            <TextBlock x:Name="EnvStatus" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="UninstallPanel" Style="{StaticResource Card}"
+                Background="{DynamicResource SubtleBg}" Visibility="Collapsed" Margin="0">
+          <StackPanel>
+            <TextBlock Text="卸载虚拟显示驱动" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBlock Text="检测到本程序曾安装 MTT Virtual Display Driver。可卸载并清理相关程序与数据（不影响系统预装的其他驱动）。"
+                       Foreground="{DynamicResource Muted}" FontSize="12"
+                       TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <Button x:Name="UninstallBtn" Content="卸载并清理" Style="{StaticResource DlgDangerBtn}"
+                    Click="Uninstall_Click"/>
+            <TextBlock x:Name="UninstallStatus" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

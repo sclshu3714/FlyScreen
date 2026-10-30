@@ -54,6 +54,7 @@ public partial class MainPage : ContentPage
     private Action? _onAppLogChanged;
     private Action<string>? _onLayoutSynced;
     private Action<string>? _onBehaviorSynced;
+    private Action<string>? _onSecurityKeySynced;
     private Action<IReadOnlyList<DiscoveredPeer>>? _onPeersUpdated;
     private Action<string, bool, bool>? _onPeerLinkChanged;
 
@@ -140,6 +141,11 @@ public partial class MainPage : ContentPage
             LoadUi();
             ApplyLocalizedUi();
         });
+        _onSecurityKeySynced = from => RunOnUi(() =>
+        {
+            KeyEntry.Text = _host.Settings.SecurityKey ?? "";
+            StatusLabel.Text = $"已同步安全密钥 ← {from}";
+        });
         _onPeersUpdated = _ => RunOnUi(RefreshDiscovery);
         _onPeerLinkChanged = (_, _, _) => RunOnUi(RefreshSlotStatuses);
 
@@ -147,6 +153,7 @@ public partial class MainPage : ContentPage
         AppLog.Changed += _onAppLogChanged;
         _host.LayoutSyncedFromPeer += _onLayoutSynced;
         _host.BehaviorSyncedFromPeer += _onBehaviorSynced;
+        _host.SecurityKeySyncedFromPeer += _onSecurityKeySynced;
         _host.Connections.Discovery.PeersUpdated += _onPeersUpdated;
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
 
@@ -172,6 +179,8 @@ public partial class MainPage : ContentPage
             _host.LayoutSyncedFromPeer -= _onLayoutSynced;
         if (_onBehaviorSynced != null)
             _host.BehaviorSyncedFromPeer -= _onBehaviorSynced;
+        if (_onSecurityKeySynced != null)
+            _host.SecurityKeySyncedFromPeer -= _onSecurityKeySynced;
         if (_onPeersUpdated != null)
             _host.Connections.Discovery.PeersUpdated -= _onPeersUpdated;
         if (_onPeerLinkChanged != null)
@@ -181,6 +190,7 @@ public partial class MainPage : ContentPage
         _onAppLogChanged = null;
         _onLayoutSynced = null;
         _onBehaviorSynced = null;
+        _onSecurityKeySynced = null;
         _onPeersUpdated = null;
         _onPeerLinkChanged = null;
     }
@@ -792,10 +802,13 @@ public partial class MainPage : ContentPage
                 OptionsFeatGrid.ColumnSpacing = 0;
                 Grid.SetRow(FeatColumn, 0);
                 Grid.SetColumn(FeatColumn, 0);
+                Grid.SetColumnSpan(FeatColumn, 1);
                 Grid.SetRow(BehColumn, 1);
                 Grid.SetColumn(BehColumn, 0);
+                Grid.SetColumnSpan(BehColumn, 1);
                 Grid.SetRow(EdgeCrossColumn, 2);
                 Grid.SetColumn(EdgeCrossColumn, 0);
+                Grid.SetColumnSpan(EdgeCrossColumn, 1);
             }
         }
         else
@@ -850,14 +863,17 @@ public partial class MainPage : ContentPage
                 {
                     new(GridLength.Auto)
                 };
-                OptionsFeatGrid.RowSpacing = 0;
+                OptionsFeatGrid.RowSpacing = 10;
                 OptionsFeatGrid.ColumnSpacing = 12;
                 Grid.SetRow(FeatColumn, 0);
                 Grid.SetColumn(FeatColumn, 0);
+                Grid.SetColumnSpan(FeatColumn, 1);
                 Grid.SetRow(BehColumn, 0);
                 Grid.SetColumn(BehColumn, 1);
+                Grid.SetColumnSpan(BehColumn, 1);
                 Grid.SetRow(EdgeCrossColumn, 0);
                 Grid.SetColumn(EdgeCrossColumn, 2);
+                Grid.SetColumnSpan(EdgeCrossColumn, 1);
             }
         }
     }
@@ -1034,7 +1050,9 @@ public partial class MainPage : ContentPage
         SecurityTitleText.Text = Loc.T("Sec.Title");
         ShowKeyLabel.Text = Loc.T("Sec.Show");
         NewKeyBtn.Text = Loc.T("Sec.NewKey");
+        if (SyncKeyBtn != null) SyncKeyBtn.Text = Loc.T("Sec.SyncKey");
         SecurityHintText.Text = Loc.T("Sec.Hint");
+        if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
         LayoutTitleText.Text = Loc.T("Layout.Title");
         LayoutHintText.Text = Loc.T("Layout.Hint");
         LayoutDragTipText.Text = Loc.T("Layout.DragTip");
@@ -1617,6 +1635,17 @@ public partial class MainPage : ContentPage
         StatusLabel.Text = slot.IsEmpty
             ? "已选空位，可添加电脑"
             : $"已选 {slot.DisplayName}（按住拖到其他格子互换）";
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v))
+                return v.Trim();
+        }
+
+        return null;
     }
 
     private long _lastTapTicks;
@@ -2366,6 +2395,24 @@ public partial class MainPage : ContentPage
         KeyEntry.IsPassword = ShowKeyCheck.IsChecked != true;
     }
 
+    private async void SyncKey_Clicked(object? sender, EventArgs e)
+    {
+        var prevKey = _host.Settings.SecurityKey ?? "";
+        _host.Settings.SecurityKey = (KeyEntry.Text ?? "").Trim();
+        _host.Settings.Save();
+        var (ok, msg) = await _host.SyncSecurityKeyAsync();
+        if (ok)
+        {
+            await _host.ApplyNetworkingAsync(
+                _host.Settings.TcpPort,
+                _host.Settings.UdpPort,
+                _host.Settings.PreferredNicId ?? "",
+                _host.Settings.PreferredLocalIp ?? "",
+                prevKey);
+        }
+        StatusLabel.Text = msg;
+    }
+
     private async void Apply_Clicked(object? sender, EventArgs e)
     {
         _ = int.TryParse(TcpPortEntry.Text, out var tcp);
@@ -2391,6 +2438,12 @@ public partial class MainPage : ContentPage
             LayoutSlotMerge.NonEmptyNames(newSlots), StringComparer.OrdinalIgnoreCase);
         var removedAny = prevSet.Any(n => !newSet.Contains(n));
         var layoutMerge = !removedAny && newSet.Count >= prevSet.Count;
+
+        var prevTcp = _host.Settings.TcpPort;
+        var prevUdp = _host.Settings.UdpPort;
+        var prevNic = _host.Settings.PreferredNicId ?? "";
+        var prevIp = _host.Settings.PreferredLocalIp ?? "";
+        var prevKey = _host.Settings.SecurityKey ?? "";
 
         _host.ApplyFromUi(
             KeyEntry.Text ?? "",
@@ -2433,9 +2486,18 @@ public partial class MainPage : ContentPage
         else
             await _host.BroadcastLayoutSyncAsync();
         await _host.BroadcastBehaviorSyncAsync();
-        await _host.RestartNetworkingAsync();
+        // 默认保持连接；仅端口/网卡/密钥变化才整网重启
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         StatusLabel.Text = Loc.T("Sys.Applied");
     }
+
+#if WINDOWS
+    public async Task OpenProjectionDialogAsync()
+    {
+        // 无 NavigationPage，避免系统顶栏白条；页内自定义标题 + 居中卡片
+        await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+    }
+#endif
 
     private void LoadEdgeCrossModeUi(int mode)
     {

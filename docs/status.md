@@ -125,6 +125,7 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-10-29 | 共享剪贴板：Maui-Win 全格式内联+图；Android Html/图/文件物化；Desktop 多格式尽力；专文 [clipboard.md](clipboard.md) |
+| 2026-10-29 | 电脑扩展屏 E1：Win/Maui-Win 主机推流+从机全屏+穿边摘除；专文 [extended-display.md](extended-display.md) |
 | 2026-10-27 | 竖/横屏四区域表格标定；运行按朝向选用识别区与操作区 |
 | 2026-10-27 | 程序设置（@fly-settings + settings.json）、触屏标定识别/操作区、内置通用识别脚本、OCR 多角度 |
 | 2026-10-27 | DrawRect：无障碍 Overlay + createWindowContext 悬浮窗双路径；失败经 Console 进程序日志 |

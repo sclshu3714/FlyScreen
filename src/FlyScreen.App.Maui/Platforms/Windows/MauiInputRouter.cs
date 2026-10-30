@@ -57,6 +57,13 @@ public sealed class MauiInputRouter : IDisposable
 
     /// <summary>本机 Ctrl+V / Shift+Insert：返回 true 表示已处理（吞键）。</summary>
     public Func<bool>? TryHandleLocalFilePasteHotkey { get; set; }
+    /// <summary>扩展屏会话：排除该对端名的穿边切入。</summary>
+    public Func<string, bool>? IsEdgeCrossExcluded { get; set; }
+    /// <summary>扩展屏从机：暂停本机 EasyMouse。</summary>
+    public Func<bool>? ShouldPauseEasyMouseForExtend { get; set; }
+
+    public void SetEasyMousePaused(bool paused)
+        => EasyMouseEnabled = !paused && _settings.EasyMouse;
 
     public MauiInputRouter(AppSettings settings, ConnectionManager connections)
     {
@@ -319,7 +326,8 @@ public sealed class MauiInputRouter : IDisposable
             var onEdge = info.pt.X <= screenL || info.pt.X >= rightObs || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
-            if (EasyMouseEnabled && _settings.EasyMouse && !InSwitchCooldown())
+            var pauseExtend = ShouldPauseEasyMouseForExtend?.Invoke() == true;
+            if (EasyMouseEnabled && _settings.EasyMouse && !pauseExtend && !InSwitchCooldown())
             {
                 if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                         out var peer, out var entryX, out var entryY, out var peerSide))
@@ -734,7 +742,8 @@ public sealed class MauiInputRouter : IDisposable
         bool IsValidPeer(string? name) =>
             !string.IsNullOrWhiteSpace(name)
             && !IsLocalMachine(name)
-            && _connections.IsPeerEdgeMouseCapable(name!);
+            && _connections.IsPeerEdgeMouseCapable(name!)
+            && IsEdgeCrossExcluded?.Invoke(name!) != true;
 
         var nx = screenW <= 1 ? 0.5 : Math.Clamp((x - screenL) / (double)(screenW - 1), 0, 1);
         var ey = entryY;
@@ -881,7 +890,7 @@ public sealed class MauiInputRouter : IDisposable
             return true;
         }
 
-        if (!_connections.IsPeerEdgeMouseCapable(next))
+        if (!_connections.IsPeerEdgeMouseCapable(next) || IsEdgeCrossExcluded?.Invoke(next) == true)
         {
             _remoteCursor.ClampInside();
             return false;

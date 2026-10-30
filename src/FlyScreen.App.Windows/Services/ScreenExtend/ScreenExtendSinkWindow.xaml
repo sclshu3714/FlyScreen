@@ -1,0 +1,14 @@
+<Window x:Class="FlyScreen.Services.ScreenExtend.ScreenExtendSinkWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="玄鸟投影" WindowStyle="None" ResizeMode="NoResize"
+        WindowState="Maximized" Topmost="True" Background="Black"
+        ShowInTaskbar="True" Focusable="True" KeyDown="Window_KeyDown">
+    <Grid>
+        <Image x:Name="FrameImage" Stretch="Uniform" />
+        <TextBlock x:Name="WaitingText" Text="等待投影画面…" Foreground="#AAFFFFFF"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18"/>
+        <TextBlock Text="Esc 退出投影" Foreground="#88FFFFFF" Margin="16"
+                   HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="14"/>
+    </Grid>
+</Window>

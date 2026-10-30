@@ -49,6 +49,21 @@ public interface IMauiPlatformServices
     void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null);
     void DisposeTray();
 
+    /// <summary>Win 扩展屏：立刻准备本机第二输出（虚拟驱动/已有副屏）。
+    /// <paramref name="layoutSide"/>：对端在布局中相对本机的方位（-1左/+1右/-2上/+2下）。</summary>
+    Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
+            FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown);
+
+    /// <summary>Win 扩展屏：释放本机第二输出。</summary>
+    Task ReleaseScreenExtendHostDisplayAsync();
+
+    /// <summary>Win 扩展屏：设置采集用的投影方式。</summary>
+    void SetScreenExtendProjectionMode(FlyScreen.Services.ScreenExtend.DisplayProjectionMode mode);
+
+    /// <summary>Win 扩展屏：设置副屏分辨率/缩放选择。</summary>
+    void SetScreenExtendDisplayChoice(FlyScreen.Services.ScreenExtend.ProjectionDisplayChoice? choice);
+
     event Action<string?>? ControlTargetChanged;
 }
 
@@ -85,6 +100,17 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
     public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
     public void DisposeTray() { }
+
+    public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
+            FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown)
+        => Task.FromResult<(bool, string?)>((false, "当前平台不支持扩展屏主机"));
+
+    public Task ReleaseScreenExtendHostDisplayAsync() => Task.CompletedTask;
+
+    public void SetScreenExtendProjectionMode(FlyScreen.Services.ScreenExtend.DisplayProjectionMode mode) { }
+
+    public void SetScreenExtendDisplayChoice(FlyScreen.Services.ScreenExtend.ProjectionDisplayChoice? choice) { }
 
     public event Action<string?>? ControlTargetChanged
     {

@@ -30,6 +30,20 @@ public sealed class AppSettings
     public bool EasyMouse { get; set; } = true;
     /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
     public int EdgeCrossMode { get; set; }
+    /// <summary>最近一次投影目标机器名（弹窗默认项；须双向已连接的电脑/大屏）。</summary>
+    public string ScreenExtendPeer { get; set; } = "";
+    /// <summary>最近一次投影方式：0 仅电脑 / 1 复制 / 2 扩展 / 3 仅第二屏。</summary>
+    public int ScreenExtendProjectionMode { get; set; } = 2;
+    /// <summary>投影分辨率来源：0 本机主屏 / 1 目标电脑 / 2 自定义。</summary>
+    public int ScreenExtendDisplaySource { get; set; }
+    public int ScreenExtendWidth { get; set; }
+    public int ScreenExtendHeight { get; set; }
+    /// <summary>投影缩放百分比；0 表示跟随来源自动。</summary>
+    public int ScreenExtendScalePercent { get; set; }
+    /// <summary>
+    /// 镜像：MTT/VDD 是否由本程序环境修复安装（权威标记见 Windows 侧 mtt-vdd-installed-by-app.flag）。
+    /// </summary>
+    public bool MttVddInstalledByApp { get; set; }
     /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
     public bool AutoStart { get; set; }
     /// <summary>启动时静默检查 GitHub Release 更新。</summary>

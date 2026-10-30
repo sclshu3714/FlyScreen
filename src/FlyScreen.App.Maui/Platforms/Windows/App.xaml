@@ -6,30 +6,43 @@
 
   <!--
     MAUI 默认标题栏 DataTemplate 引用 Square44x44Logo.png（不存在），导致图标空白。
-    覆盖 MauiAppTitleBarTemplate，使用与 Win 同源的 logo。
-    见 https://github.com/dotnet/maui/issues/20265
+    覆盖 MauiAppTitleBarTemplate，使用与 Win 同源的 logo；右侧加投影按钮（最小化左侧）。
   -->
   <maui:MauiWinUIApplication.Resources>
     <DataTemplate x:Key="MauiAppTitleBarTemplate">
-      <!-- AppTitleBarRoot：MauiWindowChrome 按淡色/深色刷背景，避免深色主题下标题栏仍发白 -->
       <Border x:Name="AppTitleBarRoot" Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0"
               Background="#F7F8FA">
-        <StackPanel Orientation="Horizontal" Margin="12,0,0,0">
-          <Image x:Name="AppFontIcon"
-                 HorizontalAlignment="Left"
-                 VerticalAlignment="Center"
-                 Source="Assets/appiconLogo.png"
-                 Visibility="Visible"
-                 Width="16"
-                 Height="16"
-                 Margin="0,0,8,0" />
-          <TextBlock x:Name="AppTitle"
-                     VerticalAlignment="Center"
-                     Margin="{Binding WindowTitleMargin}"
-                     Text="{Binding WindowTitle}"
-                     Foreground="#111827"
-                     Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
+        <Grid>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="12,0,0,0">
+            <Image x:Name="AppFontIcon"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Center"
+                   Source="Assets/appiconLogo.png"
+                   Visibility="Visible"
+                   Width="16"
+                   Height="16"
+                   Margin="0,0,8,0" />
+            <TextBlock x:Name="AppTitle"
+                       VerticalAlignment="Center"
+                       Margin="{Binding WindowTitleMargin}"
+                       Text="{Binding WindowTitle}"
+                       Foreground="#111827"
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+          </StackPanel>
+          <Button x:Name="TitleProjectBtn"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Stretch"
+                  Width="46"
+                  Padding="0"
+                  Margin="0,0,140,0"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  ToolTipService.ToolTip="投影到电脑"
+                  FontFamily="Segoe MDL2 Assets"
+                  Content="&#xE8B9;"
+                  FontSize="13"
+                  Foreground="#111827"/>
+        </Grid>
       </Border>
     </DataTemplate>
   </maui:MauiWinUIApplication.Resources>

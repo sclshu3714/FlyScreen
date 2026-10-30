@@ -41,15 +41,47 @@ public partial class App : Application
 
 #if WINDOWS
         Services.MauiWindowIcon.Apply(window);
+        Platforms.Windows.MauiProjectionTitleBar.OpenProjection = () =>
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                try
+                {
+                    var host = Services.MauiAppHost.EnsureCreated();
+                    if (host.ScreenExtend.IsActive
+                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
+                    {
+                        await host.StopProjectionAsync();
+                        Platforms.Windows.MauiProjectionTitleBar.SetProjecting(false);
+                        return;
+                    }
+
+                    if (Current?.Windows.FirstOrDefault()?.Page is not Page root) return;
+                    var main = FindMainPage(root);
+                    if (main != null)
+                        await main.OpenProjectionDialogAsync();
+                    Platforms.Windows.MauiProjectionTitleBar.SetProjecting(
+                        host.ScreenExtend.IsActive
+                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host);
+                }
+                catch { /* ignore */ }
+            });
+        Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
         window.HandlerChanged += (_, _) =>
             MainThread.BeginInvokeOnMainThread(() =>
-                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current)));
+            {
+                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+            });
         window.Created += (_, _) =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
                 window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), () =>
-                    Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current)));
+                {
+                    Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                    Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                });
             });
 #endif
 #if ANDROID
@@ -58,6 +90,27 @@ public partial class App : Application
 #endif
         return window;
     }
+
+#if WINDOWS
+    private static MainPage? FindMainPage(Page? page)
+    {
+        switch (page)
+        {
+            case MainPage main:
+                return main;
+            case FlyoutPage flyout:
+                return FindMainPage(flyout.Detail) ?? FindMainPage(flyout.Flyout);
+            case NavigationPage nav:
+                return FindMainPage(nav.CurrentPage);
+            case TabbedPage tabs:
+                return FindMainPage(tabs.CurrentPage);
+            case Shell shell:
+                return FindMainPage(shell.CurrentPage);
+            default:
+                return null;
+        }
+    }
+#endif
 
     /// <summary>启动时居中（主显示器工作区）。</summary>
     private static void CenterWindow(Window window)

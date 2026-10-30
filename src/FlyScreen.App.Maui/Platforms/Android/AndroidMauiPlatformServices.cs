@@ -274,6 +274,17 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void DisposeTray() { }
 
+    public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
+            FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown)
+        => Task.FromResult<(bool, string?)>((false, "手机端不作扩展屏主机"));
+
+    public Task ReleaseScreenExtendHostDisplayAsync() => Task.CompletedTask;
+
+    public void SetScreenExtendProjectionMode(FlyScreen.Services.ScreenExtend.DisplayProjectionMode mode) { }
+
+    public void SetScreenExtendDisplayChoice(FlyScreen.Services.ScreenExtend.ProjectionDisplayChoice? choice) { }
+
     /// <summary>
     /// 指针只走系统层：悬浮窗 或 无障碍 Overlay。
     /// 绝不走 VirtualCursorOverlay（DecorView），否则退后台/多任务预览里像「画在玄鸟里面」。
