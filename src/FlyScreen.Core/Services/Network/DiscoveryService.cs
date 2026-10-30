@@ -7,7 +7,10 @@ namespace FlyScreen.Services.Network;
 public sealed class DiscoveredPeer
 {
     public string MachineName { get; set; } = "";
+    /// <summary>对端宣告的 IPv4。</summary>
     public string Ip { get; set; } = "";
+    /// <summary>实际收到 UDP 的来源 IPv4（回连优先用它）。</summary>
+    public string ObservedIp { get; set; } = "";
     public int TcpPort { get; set; }
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
 }
@@ -33,6 +36,11 @@ public sealed class DiscoveryService : IAsyncDisposable
 
     /// <summary>收到 UDP 安全密钥同步包（密钥不同时无法走 TCP）。</summary>
     public event Action<SecurityKeySyncPayload>? SecurityKeySyncPacketReceived;
+
+    /// <summary>对端请本机主动连过去（name, 优先 IP, tcp 端口）。</summary>
+    public event Action<string, string, int>? PeerDialRequested;
+
+    public const string DialRequestKind = "DialRequest";
 
     /// <param name="announceIp">发现包中宣告的本机 IPv4（对端用来回连）。</param>
     /// <param name="bindAny">true 时绑定 0.0.0.0（Android 等上绑定单网卡 IP 常收不到广播）。</param>
@@ -179,26 +187,53 @@ public sealed class DiscoveryService : IAsyncDisposable
         try
         {
             using var doc = JsonDocument.Parse(buffer);
-            if (doc.RootElement.TryGetProperty("Kind", out var kindEl)
-                && string.Equals(kindEl.GetString(), SecurityKeySyncPayloadKind, StringComparison.Ordinal))
+            if (doc.RootElement.TryGetProperty("Kind", out var kindEl))
             {
-                var sync = JsonSerializer.Deserialize<SecurityKeySyncPayload>(buffer);
-                if (sync == null || string.IsNullOrWhiteSpace(sync.SourceMachine)
-                    || string.IsNullOrWhiteSpace(sync.SecurityKey))
+                var kind = kindEl.GetString();
+                if (string.Equals(kind, SecurityKeySyncPayloadKind, StringComparison.Ordinal))
+                {
+                    var sync = JsonSerializer.Deserialize<SecurityKeySyncPayload>(buffer);
+                    if (sync == null || string.IsNullOrWhiteSpace(sync.SourceMachine)
+                        || string.IsNullOrWhiteSpace(sync.SecurityKey))
+                        return;
+                    if (string.Equals(sync.SourceMachine, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                        return;
+                    var observed = ObservedIpv4(remote);
+                    if (string.IsNullOrWhiteSpace(sync.Ip))
+                        sync.Ip = observed ?? "";
+                    var advertised = IsUsableLanIpv4(sync.Ip) ? sync.Ip! : (observed ?? "");
+                    if (!string.IsNullOrWhiteSpace(advertised))
+                        RememberPeer(sync.SourceMachine, advertised, sync.TcpPort, observed);
+                    try { SecurityKeySyncPacketReceived?.Invoke(sync); } catch { /* ignore */ }
                     return;
-                if (string.Equals(sync.SourceMachine, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                }
+
+                if (string.Equals(kind, DialRequestKind, StringComparison.Ordinal))
+                {
+                    var dial = JsonSerializer.Deserialize<DialRequestPayload>(buffer);
+                    if (dial == null || string.IsNullOrWhiteSpace(dial.SourceMachine))
+                        return;
+                    if (string.Equals(dial.SourceMachine, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                        return;
+                    var observed = ObservedIpv4(remote);
+                    var advertised = IsUsableLanIpv4(dial.Ip) ? dial.Ip! : (observed ?? "");
+                    if (!string.IsNullOrWhiteSpace(advertised))
+                        RememberPeer(dial.SourceMachine, advertised, dial.TcpPort, observed);
+                    var connectIp = OrderConnectIps(advertised, observed).FirstOrDefault() ?? "";
+                    if (string.IsNullOrWhiteSpace(connectIp))
+                        return;
+                    try { PeerDialRequested?.Invoke(dial.SourceMachine, connectIp, dial.TcpPort); }
+                    catch { /* ignore */ }
                     return;
-                if (string.IsNullOrWhiteSpace(sync.Ip))
-                    sync.Ip = remote.Address.ToString();
-                try { SecurityKeySyncPacketReceived?.Invoke(sync); } catch { /* ignore */ }
-                return;
+                }
             }
 
             var pkt = JsonSerializer.Deserialize<DiscoveryPacket>(buffer);
             if (pkt == null || string.IsNullOrWhiteSpace(pkt.MachineName))
                 return;
 
-            var ip = string.IsNullOrWhiteSpace(pkt.Ip) ? remote.Address.ToString() : pkt.Ip;
+            var observedIp = ObservedIpv4(remote);
+            var ip = IsUsableLanIpv4(pkt.Ip) ? pkt.Ip : (observedIp ?? pkt.Ip);
 
             // 同名且同 IP → 本机回环，忽略
             if (string.Equals(pkt.MachineName, LocalMachine, StringComparison.OrdinalIgnoreCase)
@@ -215,6 +250,7 @@ public sealed class DiscoveryService : IAsyncDisposable
                 {
                     MachineName = pkt.MachineName,
                     Ip = ip,
+                    ObservedIp = observedIp ?? "",
                     TcpPort = pkt.TcpPort <= 0 ? 15155 : pkt.TcpPort,
                     LastSeenUtc = DateTime.UtcNow
                 };
@@ -282,30 +318,117 @@ public sealed class DiscoveryService : IAsyncDisposable
     public string? FindIp(string machineName)
     {
         lock (_gate)
-            return _peers.TryGetValue(machineName, out var p) ? p.Ip : null;
+        {
+            if (!_peers.TryGetValue(machineName, out var p))
+                return null;
+            return OrderConnectIps(p.Ip, p.ObservedIp).FirstOrDefault();
+        }
+    }
+
+    /// <summary>出站候选：先 UDP 来源地址，再宣告地址；端口为对端宣告的 TCP 端口。</summary>
+    public bool TryGetConnectTargets(string machineName, int fallbackTcpPort, out IReadOnlyList<(string Ip, int Port)> targets)
+    {
+        lock (_gate)
+        {
+            if (!_peers.TryGetValue(machineName, out var p))
+            {
+                targets = [];
+                return false;
+            }
+
+            var port = p.TcpPort > 0 ? p.TcpPort : fallbackTcpPort;
+            targets = OrderConnectIps(p.Ip, p.ObservedIp)
+                .Select(ip => (ip, port))
+                .ToList();
+            return targets.Count > 0;
+        }
     }
 
     /// <summary>
     /// 从已建立的 TCP/握手学习对端地址（UDP 发现不对称时仍可补齐出站）。
     /// 各平台通用，不依赖特定虚拟化环境。
     /// </summary>
-    public void RememberPeer(string machineName, string ip, int tcpPort = 0)
+    public void RememberPeer(string machineName, string ip, int tcpPort = 0, string? observedIp = null)
     {
         if (string.IsNullOrWhiteSpace(machineName) || string.IsNullOrWhiteSpace(ip))
             return;
-        if (IPAddress.TryParse(ip, out var addr) && IPAddress.IsLoopback(addr))
+        if (!IsUsableLanIpv4(ip) && !IsUsableLanIpv4(observedIp))
             return;
+        if (!IsUsableLanIpv4(ip))
+            ip = observedIp!;
 
         lock (_gate)
         {
-            _peers[machineName] = new DiscoveredPeer
+            if (!_peers.TryGetValue(machineName, out var existing))
             {
-                MachineName = machineName,
-                Ip = ip,
-                TcpPort = tcpPort <= 0 ? AnnounceTcpPort : tcpPort,
-                LastSeenUtc = DateTime.UtcNow
-            };
+                _peers[machineName] = new DiscoveredPeer
+                {
+                    MachineName = machineName,
+                    Ip = ip,
+                    ObservedIp = IsUsableLanIpv4(observedIp) ? observedIp! : "",
+                    TcpPort = tcpPort <= 0 ? AnnounceTcpPort : tcpPort,
+                    LastSeenUtc = DateTime.UtcNow
+                };
+                return;
+            }
+
+            existing.Ip = ip;
+            existing.LastSeenUtc = DateTime.UtcNow;
+            if (tcpPort > 0)
+                existing.TcpPort = tcpPort;
+            if (IsUsableLanIpv4(observedIp))
+                existing.ObservedIp = observedIp!;
         }
+    }
+
+    /// <summary>请名为 <paramref name="targetMachine"/> 的对端主动连回本机。未在布局中的实例会忽略。</summary>
+    public async Task RequestDialAsync(string localIp, int tcpPort, CancellationToken ct = default)
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new DialRequestPayload
+        {
+            Kind = DialRequestKind,
+            SourceMachine = LocalMachine,
+            Ip = localIp,
+            TcpPort = tcpPort
+        });
+        await TryBroadcastRawAsync(payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>回连顺序：实际收到包的来源地址优先，其次宣告地址。不可路由地址丢弃。</summary>
+    public static List<string> OrderConnectIps(string? advertised, string? observed)
+    {
+        var list = new List<string>(2);
+        Add(observed);
+        Add(advertised);
+        return list;
+
+        void Add(string? ip)
+        {
+            if (!IsUsableLanIpv4(ip)) return;
+            if (list.Exists(x => string.Equals(x, ip, StringComparison.OrdinalIgnoreCase)))
+                return;
+            list.Add(ip!);
+        }
+    }
+
+    public static bool IsUsableLanIpv4(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip)) return false;
+        if (!IPAddress.TryParse(ip, out var addr)) return false;
+        if (addr.AddressFamily != AddressFamily.InterNetwork) return false;
+        if (IPAddress.IsLoopback(addr)) return false;
+        var b = addr.GetAddressBytes();
+        if (b[0] == 0 || b[0] >= 224) return false;
+        if (b[0] == 169 && b[1] == 254) return false;
+        return true;
+    }
+
+    private static string? ObservedIpv4(IPEndPoint remote)
+    {
+        if (remote.Address.AddressFamily != AddressFamily.InterNetwork)
+            return null;
+        var text = remote.Address.ToString();
+        return IsUsableLanIpv4(text) ? text : null;
     }
 
     public void Stop()

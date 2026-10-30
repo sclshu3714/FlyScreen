@@ -22,6 +22,7 @@ public sealed class PeerSession : IAsyncDisposable
     private readonly Task _recvLoop;
     private DateTime _lastRecvUtc = DateTime.UtcNow;
     private DateTime _lastSendUtc = DateTime.UtcNow;
+    private int _framesSent;
     private int _disposed;
 
     public string PeerName { get; private set; } = "";
@@ -79,6 +80,22 @@ public sealed class PeerSession : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>入队并等到发送循环写出该帧。拒绝握手后须先写出再关套接字，否则对端收不到原因。</summary>
+    public async Task SendRawAndWaitAsync(byte[] frame, int timeoutMs = 400)
+    {
+        var seen = Volatile.Read(ref _framesSent);
+        await SendRawAsync(frame).ConfigureAwait(false);
+        var start = Environment.TickCount64;
+        while (Environment.TickCount64 - start < timeoutMs)
+        {
+            if (Volatile.Read(ref _framesSent) > seen)
+                return;
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+            await Task.Delay(10).ConfigureAwait(false);
+        }
+    }
+
     public async Task SendAndFlushAsync(MessageType type, byte[]? payload = null, CancellationToken ct = default)
     {
         if (Volatile.Read(ref _disposed) != 0) return;
@@ -101,6 +118,7 @@ public sealed class PeerSession : IAsyncDisposable
 
                     await _stream.WriteAsync(frame.AsMemory()).ConfigureAwait(false);
                     _lastSendUtc = DateTime.UtcNow;
+                    Interlocked.Increment(ref _framesSent);
                 }
             }
         }

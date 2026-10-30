@@ -5,7 +5,8 @@
         WindowState="Maximized" Topmost="True" Background="Black"
         ShowInTaskbar="True" Focusable="True" KeyDown="Window_KeyDown">
     <Grid>
-        <Image x:Name="FrameImage" Stretch="Uniform" />
+        <Image x:Name="FrameImage" Stretch="Uniform"
+               HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
         <TextBlock x:Name="WaitingText" Text="等待投影画面…" Foreground="#AAFFFFFF"
                    HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18"/>
         <TextBlock Text="Esc 退出投影" Foreground="#88FFFFFF" Margin="16"

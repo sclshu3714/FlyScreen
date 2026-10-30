@@ -551,6 +551,15 @@ public sealed class SecurityKeySyncPayload
     public int TcpPort { get; set; }
 }
 
+/// <summary>出站 TCP 失败时，请对端主动连回本机（发现口 UDP）。</summary>
+public sealed class DialRequestPayload
+{
+    public string? Kind { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public string? Ip { get; set; }
+    public int TcpPort { get; set; }
+}
+
 public sealed class ScreenExtendOfferPayload
 {
     public string SessionId { get; set; } = "";

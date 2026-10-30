@@ -74,3 +74,45 @@ public static class ProjectionDisplayPresets
 
     public static double ScaleToFactor(int percent) => Math.Max(0.5, percent / 100.0);
 }
+
+/// <summary>手机投影采集缓冲尺寸。宽高比跟手机屏幕走，只把所选分辨率当作长边上限。</summary>
+public readonly record struct ProjectionCaptureSize(int Width, int Height)
+{
+    /// <summary>
+    /// 虚拟屏与手机比例不一致时，系统会把画面缩进黑边。接收端再等比放入显示器后，高和宽都会填不满。
+    /// 这里保持手机当前朝向的比例，长边不超过 <paramref name="maxEdge"/>，也不超过所选分辨率的长边。
+    /// </summary>
+    public static ProjectionCaptureSize ForPhoneScreen(
+        int screenW, int screenH, int choiceW, int choiceH, int maxEdge = 1920)
+    {
+        screenW = Math.Max(1, screenW);
+        screenH = Math.Max(1, screenH);
+        var screenLong = Math.Max(screenW, screenH);
+        var screenShort = Math.Min(screenW, screenH);
+
+        var capLong = screenLong;
+        var choiceLong = Math.Max(0, choiceW);
+        if (choiceH > choiceLong) choiceLong = choiceH;
+        if (choiceLong > 0)
+            capLong = Math.Min(capLong, choiceLong);
+        if (maxEdge > 0)
+            capLong = Math.Min(capLong, maxEdge);
+        capLong = Math.Max(160, capLong);
+
+        var capShort = (int)Math.Round(screenShort * (capLong / (double)screenLong));
+        capShort = Math.Max(160, capShort);
+        capLong = ToEven(capLong);
+        capShort = ToEven(capShort);
+
+        var landscape = screenW >= screenH;
+        return landscape
+            ? new ProjectionCaptureSize(capLong, capShort)
+            : new ProjectionCaptureSize(capShort, capLong);
+    }
+
+    private static int ToEven(int value)
+    {
+        if (value < 160) return 160;
+        return (value & 1) == 0 ? value : value - 1;
+    }
+}
