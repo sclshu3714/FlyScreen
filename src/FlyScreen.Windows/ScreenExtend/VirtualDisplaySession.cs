@@ -10,10 +10,12 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
 
     private int _previousVirtualCount = -1;
     private bool _createdVirtual;
+    private bool _manageVirtualCount;
     private MonitorRect? _target;
 
     public MonitorRect? Target => _target;
-    public bool UsedVirtualDriver => _createdVirtual;
+    /// <summary>本会话通过 MTT 管道创建/占用了虚拟屏（停止时需收拢）。</summary>
+    public bool UsedVirtualDriver => _createdVirtual || _manageVirtualCount;
 
     public void RefreshTarget(MonitorRect rect) => _target = rect;
 
@@ -42,6 +44,10 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
                 "未检测到第二显示器，且本机未运行虚拟显示驱动（MTTVirtualDisplayPipe）。" + InstallHint);
         }
 
+        // 走管道 Ensure 时，停止会话必须把 count 收回（含「开始前已有 VDD 副屏」）
+        if (pipeOk)
+            _manageVirtualCount = true;
+
         if (!await MttVddEnvironment.EnsureVirtualMonitorVisibleAsync(
                     ct: ct,
                     layoutSide: layoutSide,
@@ -55,7 +61,9 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
                 + InstallHint);
         }
 
-        _createdVirtual = existing == null || _createdVirtual;
+        if (existing == null)
+            _createdVirtual = true;
+
         for (var i = 0; i < 20; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -74,13 +82,26 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (!_createdVirtual) return;
+        var shouldRestore = _createdVirtual || _manageVirtualCount;
         _createdVirtual = false;
+        _manageVirtualCount = false;
+        if (!shouldRestore)
+        {
+            _target = null;
+            return;
+        }
+
         try
         {
-            // 回到会话前虚拟数量（至少 0）；避免频繁 SETDISPLAYCOUNT 崩溃，失败可忽略
+            // 回到会话前虚拟数量（至少 0）
             var restore = Math.Max(0, _previousVirtualCount);
             await MttVddPipeClient.SetDisplayCountAsync(restore).ConfigureAwait(false);
+            for (var i = 0; i < 15; i++)
+            {
+                if (restore > 0 || DisplayMonitorEnum.FindBestExtendTarget() == null)
+                    break;
+                await Task.Delay(100).ConfigureAwait(false);
+            }
         }
         catch { /* ignore */ }
 

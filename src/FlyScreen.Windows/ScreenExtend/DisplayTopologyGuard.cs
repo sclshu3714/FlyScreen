@@ -63,6 +63,39 @@ public static class DisplayTopologyGuard
         }
     }
 
+    /// <summary>
+    /// 扩展投影结束后收拢拓扑：先释放虚拟屏，再 <c>/internal</c> 把窗口收回主屏，
+    /// 最后用投影前快照覆盖主屏模式（避免 /internal 改坏缩放）。
+    /// 物理真副屏会话不要传 <paramref name="usedVirtualDriver"/> = true。
+    /// </summary>
+    public static async Task FinalizeAfterExtendStopAsync(
+        bool usedVirtualDriver,
+        CancellationToken ct = default)
+    {
+        if (usedVirtualDriver)
+        {
+            // 等 VDD 消失；残留副屏时 /internal 才能把其上的窗口收回
+            for (var i = 0; i < 15; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (DisplayMonitorEnum.FindBestExtendTarget() == null)
+                    break;
+                await Task.Delay(100, ct).ConfigureAwait(false);
+            }
+
+            try
+            {
+                DisplayProjection.TryApply(Services.ScreenExtend.DisplayProjectionMode.Internal);
+            }
+            catch { /* ignore */ }
+
+            try { await Task.Delay(450, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { /* ignore */ }
+        }
+
+        TryRestorePrimary();
+    }
+
     public static void Clear()
     {
         lock (Gate)

@@ -312,6 +312,10 @@ public static class NativeMethods
     public const int SRCCOPY = 0x00CC0020;
     public const int CURSOR_SHOWING = 0x00000001;
     public const int DI_NORMAL = 0x0003;
+    public const int SM_CXCURSOR = 13;
+    public const int SM_CYCURSOR = 14;
+    /// <summary>Win10 1809+：读光标大小滑块（像素）。</summary>
+    public const uint SPI_GETCURSORSIZE = 0x2028;
 
     [DllImport("gdi32.dll")]
     public static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int w, int h,
@@ -345,6 +349,24 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool DrawIconEx(IntPtr hdc, int xLeft, int yTop, IntPtr hIcon,
         int cxWidth, int cyWidth, uint istepIfAniCur, IntPtr hbrFlickerFreeDraw, uint diFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref int pvParam, uint fWinIni);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAP
+    {
+        public int bmType;
+        public int bmWidth;
+        public int bmHeight;
+        public int bmWidthBytes;
+        public short bmPlanes;
+        public short bmBitsPixel;
+        public IntPtr bmBits;
+    }
+
+    [DllImport("gdi32.dll")]
+    public static extern int GetObject(IntPtr hgdiobj, int cbBuffer, ref BITMAP lpvObject);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct MSLLHOOKSTRUCT

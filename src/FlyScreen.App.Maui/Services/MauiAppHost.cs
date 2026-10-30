@@ -349,9 +349,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         if (ScreenExtend.IsActive)
             await ScreenExtend.StopAsync("stopped").ConfigureAwait(false);
         await Platform.ReleaseScreenExtendHostDisplayAsync().ConfigureAwait(false);
-        // 禁止 DisplaySwitch /internal：会重写主屏显示配置。仅恢复投影前主屏模式。
-        FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRestorePrimary();
-        PublishStatus("投影：已停止");
+        PublishStatus("投影：已停止（已切回仅电脑屏幕）");
 #else
         await Task.CompletedTask;
 #endif
