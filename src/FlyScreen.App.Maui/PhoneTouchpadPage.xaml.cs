@@ -13,8 +13,8 @@ public partial class PhoneTouchpadPage : ContentPage
     private static readonly TimeSpan KeyboardCommitDelay = TimeSpan.FromMilliseconds(520);
 
     private readonly MauiAppHost _host;
-    private MainPage? _settingsPage;
-    private bool _openingSettings;
+    /// <summary>布局页传入的控制目标（非本机电脑名）。</summary>
+    private readonly string? _targetPeer;
     private string? _activePeer;
     private bool _keyboardOpen;
 
@@ -33,10 +33,12 @@ public partial class PhoneTouchpadPage : ContentPage
     private CancellationTokenSource? _keyboardCommitCts;
     private long _lastClickTick;
 
-    public PhoneTouchpadPage()
+    public PhoneTouchpadPage(string targetPeer)
     {
         InitializeComponent();
         _host = MauiAppHost.EnsureCreated();
+        _targetPeer = string.IsNullOrWhiteSpace(targetPeer) ? null : targetPeer.Trim();
+        _activePeer = _targetPeer;
         AttachPadGestures();
         AttachButtonZone(LeftZone, button: 0);
         AttachButtonZone(RightZone, button: 1);
@@ -54,14 +56,12 @@ public partial class PhoneTouchpadPage : ContentPage
         _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
         await _host.StartAsync();
-        PickPeer();
+        ResolveActivePeer();
         RefreshStatus();
         RefreshProjectButton();
         SetKeyboardOpen(false);
         // 触控板控制对端：屏蔽电脑穿透鼠标，避免双指针；本机外接鼠标照常
         _host.Platform.SetRemotePointerSuppressed(true);
-        // 设置页 XAML + LoadUi 很重：空闲时创建并 PrepareHeavyUi，点击时只做导航
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(200), WarmSettingsPage);
     }
 
     private void OnUnloaded(object? sender, EventArgs e)
@@ -86,33 +86,49 @@ public partial class PhoneTouchpadPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        // 进入设置页时解除屏蔽，设置界面可接收电脑穿入指针
+        // 返回主界面后允许电脑键鼠穿入本机
         _host.Platform.SetRemotePointerSuppressed(false);
     }
 
     private void OnHostStatus(string msg)
-        => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // 保留控制目标提示；状态消息附加在后
+            if (string.IsNullOrEmpty(_activePeer))
+                StatusLabel.Text = msg;
+            else if (!string.IsNullOrWhiteSpace(msg))
+                StatusLabel.Text = $"控制目标：{_activePeer} · {msg}";
+        });
 
     private void RefreshStatus()
     {
         StatusLabel.Text = _activePeer == null
-            ? "未连接对端：请先在设置中配置密钥并连接"
+            ? "未指定控制目标：请返回布局选中电脑后再打开触控板"
             : $"控制目标：{_activePeer}";
     }
 
-    private void PickPeer()
+    /// <summary>固定使用布局传入的目标；仅当其不可用时清空（不自动改选其它电脑）。</summary>
+    private void ResolveActivePeer()
     {
-        _activePeer = _host.Connections.GetConfiguredPeerStatuses()
-            .FirstOrDefault(s => s.AnyAlive)?.Name
-            ?? _host.Settings.MachineSlots.FirstOrDefault(s =>
-                !string.IsNullOrWhiteSpace(s)
-                && !string.Equals(s, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(s, Environment.MachineName, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(_targetPeer))
+        {
+            _activePeer = null;
+            return;
+        }
+
+        if (string.Equals(_targetPeer, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(_targetPeer, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        {
+            _activePeer = null;
+            return;
+        }
+
+        _activePeer = _targetPeer;
     }
 
     private async Task EnsureControlSessionAsync()
     {
-        PickPeer();
+        ResolveActivePeer();
         if (string.IsNullOrEmpty(_activePeer)) return;
 
         await _host.Connections.SendToAsync(_activePeer, MessageType.SwitchFocus,
@@ -204,7 +220,7 @@ public partial class PhoneTouchpadPage : ContentPage
                 _padMoved = true;
 
             UpdateCursorDot(dx, dy);
-            PickPeer();
+            ResolveActivePeer();
             if (string.IsNullOrEmpty(_activePeer)) return;
             await _host.Connections.SendToAsync(_activePeer, MessageType.MouseMove,
                 MessageCodec.JsonBytes(new MouseMovePayload { Relative = true, Dx = dx, Dy = dy }));
@@ -564,51 +580,17 @@ public partial class PhoneTouchpadPage : ContentPage
             MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down }));
     }
 
-    private void WarmSettingsPage()
+    private async void Back_Clicked(object? sender, EventArgs e)
     {
         try
         {
-            _settingsPage ??= ResolveSettingsPage();
-            // InitializeComponent 之后把 LoadUi/矩阵等重活做掉，避免点设置时再卡 3–4 秒
-            if (!_settingsPage.IsUiPrepared)
-                _settingsPage.PrepareHeavyUi();
+            var nav = Shell.Current?.Navigation ?? Navigation;
+            if (nav.NavigationStack.Count > 1)
+                await nav.PopAsync(animated: true);
+            else if (nav.ModalStack.Count > 0)
+                await nav.PopModalAsync(animated: true);
         }
-        catch { /* 预热失败则点击时再创建 */ }
-    }
-
-    private MainPage ResolveSettingsPage()
-    {
-        // MauiProgram 已注册 Singleton；勿每次 new（InitializeComponent 是卡顿主因）
-        var services = Handler?.MauiContext?.Services
-                       ?? Application.Current?.Handler?.MauiContext?.Services;
-        if (services?.GetService(typeof(MainPage)) is MainPage fromDi)
-            return fromDi;
-        return new MainPage();
-    }
-
-    private async void OpenSettings_Clicked(object? sender, EventArgs e)
-    {
-        if (_openingSettings) return;
-        _openingSettings = true;
-        SettingsBtn.IsEnabled = false;
-        var prevStatus = StatusLabel.Text;
-        try
-        {
-            StatusLabel.Text = "正在打开设置…";
-            var page = _settingsPage ??= ResolveSettingsPage();
-            if (!page.IsUiPrepared)
-                page.PrepareHeavyUi();
-            page.Title = "设置";
-            if (Navigation.NavigationStack.Contains(page))
-                return;
-            await Navigation.PushAsync(page, animated: false);
-        }
-        finally
-        {
-            StatusLabel.Text = prevStatus ?? StatusLabel.Text;
-            _openingSettings = false;
-            SettingsBtn.IsEnabled = true;
-        }
+        catch { /* ignore */ }
     }
 
     private async void OpenProjection_Clicked(object? sender, EventArgs e)

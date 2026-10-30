@@ -77,12 +77,14 @@ public static class MauiProgram
             native.VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
         });
 
-        // RadioButton：映射时走 MauiRadioTheme（Label 内容 + 原生 TextBlock 前景）
+        // RadioButton：Win 用 Label 刷字色；Android 须把 Label Content 收成 string（否则显示类型名）
         Microsoft.Maui.Handlers.RadioButtonHandler.Mapper.AppendToMapping("FlyScreenRadioTheme", (handler, view) =>
         {
             if (view is not RadioButton rb) return;
             if (rb.Content is string s)
                 Helpers.MauiRadioTheme.SetContent(rb, s);
+            else if (rb.Content is Label lbl)
+                Helpers.MauiRadioTheme.SetContent(rb, lbl.Text ?? "");
             else
                 Helpers.MauiRadioTheme.RefreshAll(rb);
         });
@@ -130,7 +132,7 @@ public static class MauiProgram
 
         builder.Services.AddSingleton(host);
         builder.Services.AddSingleton<MainPage>();
-        builder.Services.AddSingleton<PhoneTouchpadPage>();
+        // PhoneTouchpadPage 按目标 peer 每次 new，不注册 Singleton
 
 #if DEBUG
         builder.Logging.AddDebug();

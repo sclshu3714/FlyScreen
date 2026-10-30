@@ -6,21 +6,33 @@ using Android.Util;
 namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
-/// 无通知栏常驻：程序运行时持有 Partial WakeLock；进程保活主要依赖无障碍服务绑定。
-/// （Android 前台服务强制要通知，故不采用 FGS 保活。）
+/// 程序运行时持 Partial WakeLock；若开启「通知注入」且 count&gt;0，再叠前台通知保活。
+/// 无子程序时绝不占通知栏。
 /// </summary>
 public static class AndroidProgramWakeLock
 {
     private static readonly object Gate = new();
     private static PowerManager.WakeLock? _wakeLock;
+    private static int _lastCount;
 
     public static void SetProgramsRunning(int count)
     {
-        if (count > 0)
+        _lastCount = Math.Max(0, count);
+        if (_lastCount > 0)
             Acquire();
         else
             Release();
+
+        // 通知注入：仅有子程序且用户开启时才 FGS
+        var enabled = false;
+        try { enabled = Services.MauiAppHost.EnsureCreated().Settings.NotificationInject; }
+        catch { /* ignore */ }
+        FlyScreenProgramNotifyService.Sync(_lastCount, enabled);
     }
+
+    /// <summary>设置页切换「通知注入」后立刻按当前运行数刷新。</summary>
+    public static void RefreshNotificationInject(bool enabled)
+        => FlyScreenProgramNotifyService.Sync(_lastCount, enabled);
 
     private static void Acquire()
     {

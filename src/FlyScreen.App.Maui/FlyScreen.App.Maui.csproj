@@ -77,9 +77,15 @@
   </Target>
 
   <ItemGroup>
-    <!-- 勿设不透明 Color：会把透明区填实，Windows 任务栏/托盘出现黑底方块。
-         Android 自适应底板用极浅透明无关色即可；前景仍是带 Alpha 的玄鸟 png。 -->
-    <MauiIcon Include="Resources\AppIcon\appicon.png" BaseSize="256,256" />
+    <!-- Windows / iOS 等：原透明底图标；勿设不透明 Color（否则 Win 托盘黑底方块）。 -->
+    <MauiIcon Include="Resources\AppIcon\appicon.png" BaseSize="256,256"
+              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'" />
+    <!-- Android：专用暖杏底 + 内边距版，避免自适应图标裁玄鸟、黑底过重。仅影响 Android。
+         文件名须为 appicon.png，才能生成 Manifest 所需的 mipmap/appicon(_round)。
+         ForegroundScale 再留安全区，防止圆形/圆角遮罩裁剪。 -->
+    <MauiIcon Include="Resources\AppIcon\Android\appicon.png" BaseSize="256,256"
+              Color="#FFF1E8" ForegroundScale="0.78"
+              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
     <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#0F172A" BaseSize="256,256" />
   </ItemGroup>
 

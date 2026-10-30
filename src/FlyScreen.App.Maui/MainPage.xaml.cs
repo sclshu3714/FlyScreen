@@ -47,6 +47,7 @@ public partial class MainPage : ContentPage
     private bool _uiPrepared;
     private bool _a11yInjectUpdating;
     private bool _a11yInjectWired;
+    private bool _notifyInjectUpdating;
     private bool _pageAlive = true;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
@@ -76,7 +77,11 @@ public partial class MainPage : ContentPage
         _host = MauiAppHost.EnsureCreated();
         DiscoveryList.ItemsSource = _discovery;
         TransferList.ItemsSource = _host.Transfers.Items;
-        TrayBtn.IsVisible = true;
+        TrayBtn.IsVisible = _host.Platform.SupportsTray;
+        // 触控板入口：手机（及 Android 平板）按需打开，默认不进触控板页
+        TouchpadBtn.IsVisible =
+            DeviceInfo.Platform == DevicePlatform.Android
+            && (DeviceInfo.Idiom == DeviceIdiom.Phone || DeviceInfo.Idiom == DeviceIdiom.Tablet);
         AutoStartCheck.IsEnabled = _host.Platform.SupportsAutoStart;
         Loaded += OnLoaded;
         SizeChanged += OnPageSizeChanged;
@@ -923,9 +928,13 @@ public partial class MainPage : ContentPage
         AddMachineBtn.Text = Loc.T(iconOnly ? "Layout.AddShort" : "Layout.AddTool");
         RemoveMachineBtn.Text = Loc.T(iconOnly ? "Layout.RemoveShort" : "Layout.RemoveTool");
         ReconnectBtn.Text = Loc.T(iconOnly ? "Layout.ReconnectShort" : "Layout.ReconnectTool");
+        if (TouchpadBtn != null && TouchpadBtn.IsVisible)
+            TouchpadBtn.Text = iconOnly ? "⌨" : "⌨ 触控板";
         AddMachineBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
         RemoveMachineBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
         ReconnectBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
+        if (TouchpadBtn != null)
+            TouchpadBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
     }
 
     // 与文字同行的符号，避免 Path 叠字导致垂直错位
@@ -1014,6 +1023,7 @@ public partial class MainPage : ContentPage
         HideMouseCheck.IsChecked = s.HideMouseAtEdge;
         DrawCursorCheck.IsChecked = s.DrawMouseCursor;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        SyncNotifyInjectCheck();
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
         SameSubnetCheck.IsChecked = s.SameSubnetOnly;
         ShowStatusCheck.IsChecked = s.ShowStatusMessages;
@@ -1092,6 +1102,8 @@ public partial class MainPage : ContentPage
         RelativeMouseLabel.Text = Loc.T("Opt.MoveRel");
         BlockCornersLabel.Text = Loc.T("Opt.BlockCorner");
         EasyMouseLabel.Text = Loc.T("Opt.EasyMouse");
+        NotifyInjectLabel.Text = Loc.T("Opt.NotifyInject");
+        NotifyInjectTipLabel.Text = Loc.T("Opt.NotifyInjectTip");
         A11yInjectLabel.Text = Loc.T("Opt.A11yInject");
         A11yInjectTipLabel.Text = Loc.T("Opt.A11yInjectTip");
         EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
@@ -1099,6 +1111,8 @@ public partial class MainPage : ContentPage
         MauiRadioTheme.SetContent(EdgeCrossDoubleRadio, Loc.T("Opt.EdgeCross.DoubleTap"));
         MauiRadioTheme.SetContent(EdgeCrossSpeedRadio, Loc.T("Opt.EdgeCross.SpeedBurst"));
         RefreshEdgeCrossTip();
+        WireNotifyInjectUi();
+        SyncNotifyInjectCheck();
         WireA11yInjectUi();
         SyncA11yInjectCheck();
 
@@ -2329,6 +2343,86 @@ public partial class MainPage : ContentPage
     }
 #endif
 
+    private void WireNotifyInjectUi()
+    {
+#if ANDROID
+        NotifyInjectRow.IsVisible = true;
+#else
+        NotifyInjectRow.IsVisible = false;
+#endif
+    }
+
+    private void SyncNotifyInjectCheck()
+    {
+#if ANDROID
+        if (!NotifyInjectRow.IsVisible) return;
+        _notifyInjectUpdating = true;
+        try { NotifyInjectCheck.IsChecked = _host.Settings.NotificationInject; }
+        finally { _notifyInjectUpdating = false; }
+#endif
+    }
+
+    private async void NotifyInject_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+#if ANDROID
+        // 仅改通知注入；不影响无障碍注入勾选/服务状态
+        if (_notifyInjectUpdating) return;
+        var want = e.Value;
+        _host.Settings.NotificationInject = want;
+        _host.Settings.Save();
+
+        if (want && OperatingSystem.IsAndroidVersionAtLeast(33))
+        {
+            try
+            {
+                var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
+                if (status != PermissionStatus.Granted)
+                    status = await Permissions.RequestAsync<Permissions.PostNotifications>();
+                if (status != PermissionStatus.Granted)
+                    StatusLabel.Text = "未授予通知权限：系统可能不显示保活通知";
+            }
+            catch { /* ignore */ }
+        }
+
+        Platforms.Android.AndroidProgramWakeLock.RefreshNotificationInject(want);
+        StatusLabel.Text = want
+            ? "已开启通知注入：有子程序运行时将显示前台通知"
+            : "已关闭通知注入：不再使用通知保活";
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    /// <summary>勾选无障碍时顺带打开通知注入（可再单独取消；取消不影响无障碍）。</summary>
+    private void EnsureNotificationInjectOnFromA11y()
+    {
+#if ANDROID
+        if (_host.Settings.NotificationInject && NotifyInjectCheck.IsChecked == true)
+            return;
+        _host.Settings.NotificationInject = true;
+        _host.Settings.Save();
+        _notifyInjectUpdating = true;
+        try { NotifyInjectCheck.IsChecked = true; }
+        finally { _notifyInjectUpdating = false; }
+        Platforms.Android.AndroidProgramWakeLock.RefreshNotificationInject(true);
+        _ = RequestNotifyPermissionQuietAsync();
+#endif
+    }
+
+#if ANDROID
+    private static async Task RequestNotifyPermissionQuietAsync()
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(33)) return;
+        try
+        {
+            var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
+            if (status != PermissionStatus.Granted)
+                await Permissions.RequestAsync<Permissions.PostNotifications>();
+        }
+        catch { /* ignore */ }
+    }
+#endif
+
     private void WireA11yInjectUi()
     {
 #if ANDROID
@@ -2373,6 +2467,8 @@ public partial class MainPage : ContentPage
 
         if (wantOn)
         {
+            // 开启无障碍时自动勾选通知注入；之后可单独取消通知，不牵动无障碍
+            EnsureNotificationInjectOnFromA11y();
             if (connected) return;
             // 设置里已开但未连上：仍引导去设置重新开关
             var go = await DisplayAlertAsync(
@@ -2387,7 +2483,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        // 关闭：能 DisableSelf 则直接停；否则去设置关
+        // 关闭无障碍：不改动通知注入勾选
         if (connected)
             Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf();
         else if (listed)
@@ -2590,6 +2686,51 @@ public partial class MainPage : ContentPage
     {
         await _host.Connections.ReconnectNowAsync();
         StatusLabel.Text = "正在重新连接…";
+    }
+
+    private async void OpenTouchpad_Clicked(object? sender, EventArgs e)
+    {
+        if (_selected == null || _selected.IsEmpty)
+        {
+            StatusLabel.Text = "请先在布局中选中要控制的电脑";
+            return;
+        }
+
+        if (_selected.IsLocal)
+        {
+            StatusLabel.Text = "请选择一台非本机的电脑再打开触控板";
+            return;
+        }
+
+        var peer = (_selected.Name ?? "").Trim();
+        if (string.IsNullOrEmpty(peer))
+        {
+            StatusLabel.Text = "所选槽位无效";
+            return;
+        }
+
+        if (!_host.Connections.GetPeerStatus(peer).AnyAlive)
+        {
+            StatusLabel.Text = $"「{peer}」未连接，请先点「刷新」或检查密钥/网络";
+            return;
+        }
+
+        try
+        {
+            TouchpadBtn.IsEnabled = false;
+            var page = new PhoneTouchpadPage(peer);
+            // Shell 内 Push；若无 Shell 则用页内 Navigation
+            var nav = Shell.Current?.Navigation ?? Navigation;
+            await nav.PushAsync(page, animated: true);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"打开触控板失败：{ex.Message}";
+        }
+        finally
+        {
+            TouchpadBtn.IsEnabled = true;
+        }
     }
 
     private void RefreshNics_Clicked(object? sender, EventArgs e) => RefreshNics();
