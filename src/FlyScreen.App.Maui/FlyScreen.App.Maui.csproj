@@ -139,6 +139,10 @@
   <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+    <!-- 离线 VDD：共用 tools\VddOffline（不依赖其它 App 工程） -->
+    <None Include="..\..\tools\VddOffline\**\*"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="VddOffline\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />

@@ -27,6 +27,14 @@
     <ProjectReference Include="..\FlyScreen.App.Desktop\FlyScreen.App.Desktop.csproj" />
   </ItemGroup>
 
+  <!-- 共用 tools\VddOffline 仅 README；不复制 Windows .exe -->
+  <ItemGroup>
+    <None Include="..\..\tools\VddOffline\README.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="VddOffline\README.txt"
+          Condition="Exists('..\..\tools\VddOffline\README.txt')" />
+  </ItemGroup>
+
   <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>

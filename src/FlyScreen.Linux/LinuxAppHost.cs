@@ -5,6 +5,7 @@ using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.Linux;
 
@@ -32,10 +33,14 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public ILinuxInputInjector Injector { get; private set; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
+    public SecurityKeySyncHelper SecurityKeySync { get; }
+    public DisplayInfoService DisplayInfo { get; }
+    public ScreenExtendService ScreenExtend { get; }
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
+    public event Action<string>? SecurityKeySyncedFromPeer;
     /// <summary>被远程控制时指针归一化坐标更新（供 GUI 软件光标）。</summary>
     public event Action<double, double>? RemotePointerMoved;
     /// <summary>是否处于「被对端操控本机」状态。</summary>
@@ -81,6 +86,31 @@ public sealed class LinuxAppHost : IAsyncDisposable
         {
             BehaviorSyncedFromPeer?.Invoke(peer);
         };
+        SecurityKeySync = new SecurityKeySyncHelper(Settings, Connections, Connections.Discovery);
+        SecurityKeySync.StatusMessage += PublishStatus;
+        SecurityKeySync.SecurityKeyAppliedFromPeer += (from, _key) =>
+        {
+            try { SecurityKeySyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+            _ = RestartNetworkingAsync();
+        };
+        DisplayInfo = new DisplayInfoService(Connections)
+        {
+            GetLocalDisplayInfo = () => new DisplayInfoPayload
+            {
+                Width = 1920,
+                Height = 1080,
+                ScalePercent = 100,
+                RefreshHz = 60
+            }
+        };
+        ScreenExtend = new ScreenExtendService(Connections);
+        ScreenExtend.GetSinkDisplayInfo = () =>
+        {
+            var d = DisplayInfo.GetLocalDisplayInfo?.Invoke();
+            return d == null ? (1920, 1080, 100) : (d.Width, d.Height, d.ScalePercent);
+        };
+        ScreenExtend.StatusMessage += PublishStatus;
+        ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         Connections.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
     }
@@ -107,11 +137,35 @@ public sealed class LinuxAppHost : IAsyncDisposable
         await Connections.StartAsync().ConfigureAwait(false);
     }
 
+    public async Task ApplyNetworkingAsync(
+        int previousTcpPort,
+        int previousUdpPort,
+        string previousNicId,
+        string previousLocalIp,
+        string previousSecurityKey)
+    {
+        Settings.Save();
+        var needRestart =
+            previousTcpPort != Settings.TcpPort
+            || previousUdpPort != Settings.UdpPort
+            || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+
+        if (needRestart || !Connections.IsRunning)
+            await Connections.StartAsync().ConfigureAwait(false);
+        else
+            await Connections.RefreshConfiguredPeersAsync().ConfigureAwait(false);
+    }
+
     public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
 
     public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
 
     public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
+        => SecurityKeySync.SyncCurrentKeyAsync(ct);
 
     public void RefreshCaps()
     {
@@ -239,6 +293,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
     {
         LayoutSync.Detach();
         BehaviorSync.Detach();
+        SecurityKeySync.Dispose();
+        DisplayInfo.Dispose();
+        ScreenExtend.Dispose();
         if (Injector is IDisposable d)
             d.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

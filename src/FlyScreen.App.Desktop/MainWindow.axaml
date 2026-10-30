@@ -377,6 +377,8 @@
         </Border>
         <Border Grid.Column="1" Background="Transparent"/>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+          <Button x:Name="TitleProjectBtn" Classes="link" Content="⧉" Width="40" Height="32" Padding="0"
+                  Click="TitleProject_Click" ToolTip.Tip="投影到电脑"/>
           <Button Classes="link" Content="—" Width="40" Height="32" Padding="0"
                   Click="TitleMin_Click" ToolTip.Tip="最小化"/>
           <Button Classes="link" Content="□" Width="40" Height="32" Padding="0"
@@ -500,8 +502,12 @@
             <Border Classes="card" VerticalAlignment="Top">
               <StackPanel>
                 <DockPanel Margin="0,0,0,12" LastChildFill="True">
-                  <Button x:Name="NewKeyBtn" DockPanel.Dock="Right" Classes="primary" Content="生成新密钥"
-                          Click="NewKey_Click" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                    <Button x:Name="NewKeyBtn" Classes="primary" Content="生成新密钥"
+                            Click="NewKey_Click" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                    <Button x:Name="SyncKeyBtn" Classes="primary" Content="同步密钥"
+                            Click="SyncKey_Click" VerticalAlignment="Center"/>
+                  </StackPanel>
                   <TextBlock x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontWeight="SemiBold"
                              VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
@@ -517,6 +523,10 @@
                 </Grid>
                 <TextBlock x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
                            Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"
+                           TextWrapping="Wrap"/>
+                <TextBlock x:Name="SecuritySyncHintText"
+                           Text="生成或修改密钥后点「同步密钥」，布局内已连接与因密钥不同未连上的电脑都会收到并应用。"
+                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,6,0,0"
                            TextWrapping="Wrap"/>
               </StackPanel>
             </Border>

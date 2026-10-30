@@ -1,0 +1,66 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ProjectionDialog"
+        Title="投影"
+        Icon="/Assets/app_icon.png"
+        Width="460" SizeToContent="Height"
+        MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontSize="13">
+  <DockPanel>
+    <Border DockPanel.Dock="Bottom" Padding="20,12,20,16"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0"
+            Background="{DynamicResource WinBg}">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+        <Button Content="取消" MinWidth="88" Height="34" Click="Cancel_Click"/>
+        <Button x:Name="StartBtn" Content="开始投影" MinWidth="100" Height="34" Click="Start_Click"
+                IsEnabled="False" Opacity="0.5"
+                Background="{DynamicResource Blue}" Foreground="White" FontWeight="SemiBold"/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer Padding="20,16,20,8">
+      <StackPanel Spacing="12">
+        <Border Padding="14,12" Background="{DynamicResource CardBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
+          <StackPanel Spacing="8">
+            <TextBlock Text="投影方式" FontWeight="SemiBold"/>
+            <ComboBox x:Name="ModeCombo" MinHeight="36" Height="36" SelectionChanged="Mode_Changed"/>
+            <TextBlock x:Name="ModeHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+        <Border Padding="14,12" Background="{DynamicResource CardBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
+          <StackPanel Spacing="8">
+            <TextBlock Text="目标" FontWeight="SemiBold"/>
+            <ComboBox x:Name="TargetCombo" MinHeight="36" Height="36" SelectionChanged="Target_Changed"/>
+            <TextBlock x:Name="TargetHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+        <Border Padding="14,12" Background="{DynamicResource CardBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
+          <StackPanel Spacing="8">
+            <TextBlock Text="分辨率与缩放" FontWeight="SemiBold"/>
+            <Grid ColumnDefinitions="*,12,Auto">
+              <ComboBox x:Name="ResolutionCombo" MinHeight="36" Height="36" Grid.Column="0"/>
+              <ComboBox x:Name="ScaleCombo" MinHeight="36" Height="36" MinWidth="110" Grid.Column="2"/>
+            </Grid>
+            <TextBlock x:Name="DisplayHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                       Text="复制默认本机主屏；扩展默认目标电脑。Mac/Linux 本期不发起投影。"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="EnvPanel" Padding="14,12" Background="{DynamicResource SubtleBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
+          <StackPanel Spacing="8">
+            <TextBlock Text="环境检查" FontWeight="SemiBold"/>
+            <TextBlock x:Name="EnvHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                       Text="正在检查环境…"/>
+            <TextBlock x:Name="EnvStatus" FontSize="12" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

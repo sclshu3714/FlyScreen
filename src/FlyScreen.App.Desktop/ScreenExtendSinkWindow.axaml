@@ -1,0 +1,16 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ScreenExtendSinkWindow"
+        Title="玄鸟投影"
+        Background="Black"
+        SystemDecorations="None"
+        WindowState="FullScreen"
+        Topmost="True">
+  <Grid>
+    <Image x:Name="FrameImage" Stretch="Uniform"/>
+    <TextBlock x:Name="WaitingText" Text="等待投影画面…" FontSize="18" Opacity="0.7" Foreground="White"
+               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <TextBlock Text="Esc 退出投影" Margin="16" Opacity="0.55" Foreground="White"
+               HorizontalAlignment="Left" VerticalAlignment="Top"/>
+  </Grid>
+</Window>

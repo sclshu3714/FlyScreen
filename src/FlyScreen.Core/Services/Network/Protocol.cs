@@ -56,6 +56,12 @@ public enum MessageType : byte
     BehaviorSync = 63,
     /// <summary>把本机程序发给已连接电脑；对端已有同名或相同 Id 则跳过。</summary>
     ProgramShare = 64,
+    /// <summary>安全密钥同步（布局内已连接 + 密钥不同未连上的发现实例）。</summary>
+    SecurityKeySync = 65,
+    /// <summary>查询对端主屏分辨率/缩放。</summary>
+    DisplayInfoQuery = 66,
+    /// <summary>对端主屏分辨率/缩放应答。</summary>
+    DisplayInfoReply = 67,
     /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
     CompositionUpdate = 70,
     /// <summary>电脑→手机：取消组字浮层。</summary>
@@ -63,7 +69,18 @@ public enum MessageType : byte
     /// <summary>电脑→手机：已确认文本（插入目标）。</summary>
     TextInput = 72,
     /// <summary>手机→电脑：点选候选（Index 或直接 Text）。</summary>
-    CompositionSelect = 73
+    CompositionSelect = 73,
+
+    /// <summary>电脑扩展屏：主机→从机发起会话。</summary>
+    ScreenExtendOffer = 80,
+    /// <summary>电脑扩展屏：从机接受。</summary>
+    ScreenExtendAccept = 81,
+    /// <summary>电脑扩展屏：从机拒绝。</summary>
+    ScreenExtendReject = 82,
+    /// <summary>电脑扩展屏：任一方结束会话。</summary>
+    ScreenExtendStop = 83,
+    /// <summary>电脑扩展屏：JPEG 帧（Bulk；见 ScreenExtendFrameCodec）。</summary>
+    ScreenExtendFrame = 84
 }
 
 public readonly struct NetMessage
@@ -144,31 +161,39 @@ public static class PeerCaps
     public const string CaptureInput = "CaptureInput";
     /// <summary>支持独立大块传输连接（文件/剪贴板分块），与键鼠控制面分离。</summary>
     public const string BulkTransfer = "BulkTransfer";
+    /// <summary>可作为扩展屏主机（占用第二输出并推流）。</summary>
+    public const string ScreenExtendHost = "ScreenExtendHost";
+    /// <summary>可作为扩展屏从机（全屏收流）。</summary>
+    public const string ScreenExtendSink = "ScreenExtendSink";
 
     public static readonly string[] DesktopFull =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>macOS 桌面：与 Win 对齐（键鼠 + 剪贴板文本/文件 + 直传 + 布局）。</summary>
     public static readonly string[] MacDesktopW1 =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>Linux X11 桌面：与 Win 对齐。</summary>
     public static readonly string[] LinuxDesktopX11 =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>Linux Wayland：无 EdgeMouse/捕获；剪贴板文本/文件 + 直传 + 有限注入。</summary>
     public static readonly string[] LinuxDesktopWayland =
     [
-        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput, BulkTransfer
+        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>无图形会话：直传落盘 + 文本通道（无系统粘贴体验）；ClipboardFiles 表示可收文件到 Inbox。</summary>
@@ -198,7 +223,8 @@ public static class PeerCaps
     public static readonly string[] HarmonyDesktop =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 }
 
@@ -218,6 +244,7 @@ public static class BulkMessageTypes
             or MessageType.FileComplete or MessageType.FileAbort
             or MessageType.ClipboardInlineChunk or MessageType.ClipboardInlineComplete
             or MessageType.ClipboardImageChunk or MessageType.ClipboardImageComplete
+            or MessageType.ScreenExtendFrame
             => true,
         _ => false
     };
@@ -502,6 +529,96 @@ public sealed class CursorOwnerPayload
 {
     /// <summary>当前操作/应显示光标的机器名。</summary>
     public string OwnerMachine { get; set; } = "";
+}
+
+/// <summary>布局内同步安全密钥（TCP 已连接；UDP 给密钥不同尚未握手成功的实例）。</summary>
+public sealed class SecurityKeySyncPayload
+{
+    /// <summary>UDP 包判别；TCP JSON 可省略。</summary>
+    public string? Kind { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public string SecurityKey { get; set; } = "";
+    /// <summary>UTC 毫秒时间戳，忽略过期推送。</summary>
+    public long Revision { get; set; }
+    /// <summary>发送方当前电脑布局槽位（接收方校验是否同布局）。</summary>
+    public List<string> LayoutSlots { get; set; } = [];
+    /// <summary>UDP 可选：发送方宣告 IP。</summary>
+    public string? Ip { get; set; }
+    /// <summary>UDP 可选：发送方 TCP 端口。</summary>
+    public int TcpPort { get; set; }
+}
+
+public sealed class ScreenExtendOfferPayload
+{
+    public string SessionId { get; set; } = "";
+    public int PreferredWidth { get; set; } = 1920;
+    public int PreferredHeight { get; set; } = 1080;
+    public int Fps { get; set; } = 12;
+}
+
+public sealed class ScreenExtendAcceptPayload
+{
+    public string SessionId { get; set; } = "";
+    public int SinkWidth { get; set; }
+    public int SinkHeight { get; set; }
+    /// <summary>从机主屏缩放百分比（100=100%）；旧端缺省 0 表示未知。</summary>
+    public int SinkScalePercent { get; set; }
+}
+
+/// <summary>对端主屏显示信息（投影弹窗默认值 / 扩展副屏对齐）。</summary>
+public sealed class DisplayInfoPayload
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+    /// <summary>100 / 125 / 150 / 175 / 200 …</summary>
+    public int ScalePercent { get; set; } = 100;
+    public int RefreshHz { get; set; } = 60;
+}
+
+public sealed class ScreenExtendRejectPayload
+{
+    public string SessionId { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
+public sealed class ScreenExtendStopPayload
+{
+    public string SessionId { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
+/// <summary>
+/// ScreenExtendFrame 二进制：16 字节 SessionId（Guid）+ int32 W + int32 H + int32 Seq + JPEG。
+/// </summary>
+public static class ScreenExtendFrameCodec
+{
+    public const int HeaderSize = 28;
+
+    public static byte[] Encode(Guid sessionId, int width, int height, int seq, ReadOnlySpan<byte> jpeg)
+    {
+        var buf = new byte[HeaderSize + jpeg.Length];
+        sessionId.TryWriteBytes(buf.AsSpan(0, 16));
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(16, 4), width);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(20, 4), height);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(24, 4), seq);
+        jpeg.CopyTo(buf.AsSpan(HeaderSize));
+        return buf;
+    }
+
+    public static bool TryDecode(ReadOnlySpan<byte> payload,
+        out Guid sessionId, out int width, out int height, out int seq, out ReadOnlySpan<byte> jpeg)
+    {
+        sessionId = default;
+        width = height = seq = 0;
+        jpeg = default;
+        if (payload.Length < HeaderSize) return false;
+        sessionId = new Guid(payload[..16]);
+        width = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
+        height = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(20, 4));
+        seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
+        jpeg = payload[HeaderSize..];
+        return true;
+    }
 }
 
 public static class Utf8

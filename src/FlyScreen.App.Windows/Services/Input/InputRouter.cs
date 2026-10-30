@@ -52,6 +52,10 @@ public sealed class InputRouter : IDisposable
     private RemoteCompositionHost? _composition;
 
     public bool EasyMouseEnabled { get; set; } = true;
+    /// <summary>扩展屏会话：排除该对端名的穿边切入。</summary>
+    public Func<string, bool>? IsEdgeCrossExcluded { get; set; }
+    /// <summary>扩展屏从机：暂停本机 EasyMouse。</summary>
+    public Func<bool>? ShouldPauseEasyMouseForExtend { get; set; }
     public bool IsControllingRemote => _controllingRemote;
     /// <summary>是否接受对端键鼠注入（须先经 SwitchFocus 进入被控）。</summary>
     public bool IsReceivingRemoteControl => _receivingRemoteControl;
@@ -377,7 +381,8 @@ public sealed class InputRouter : IDisposable
             var onEdge = info.pt.X <= screenL || info.pt.X >= right || info.pt.Y <= screenT || info.pt.Y >= bottom;
             _edgeGate.Observe(nx, ny, onEdge, Environment.TickCount64);
 
-            if (EasyMouseEnabled && _settings.EasyMouse && !InSwitchCooldown())
+            var pauseExtend = ShouldPauseEasyMouseForExtend?.Invoke() == true;
+            if (EasyMouseEnabled && _settings.EasyMouse && !pauseExtend && !InSwitchCooldown())
             {
                 if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                         out var peer, out var entryX, out var entryY, out var peerSide))
@@ -892,7 +897,8 @@ public sealed class InputRouter : IDisposable
         bool IsValidPeer(string? name) =>
             !string.IsNullOrWhiteSpace(name)
             && !IsLocalMachine(name)
-            && _connections.IsPeerEdgeMouseCapable(name!);
+            && _connections.IsPeerEdgeMouseCapable(name!)
+            && IsEdgeCrossExcluded?.Invoke(name!) != true;
 
         var nx = screenW <= 1 ? 0.5 : Math.Clamp((x - screenL) / (double)(screenW - 1), 0, 1);
         var ey = entryY;
@@ -1043,7 +1049,7 @@ public sealed class InputRouter : IDisposable
             return true;
         }
 
-        if (!_connections.IsPeerEdgeMouseCapable(next))
+        if (!_connections.IsPeerEdgeMouseCapable(next) || IsEdgeCrossExcluded?.Invoke(next) == true)
         {
             _remoteCursor.ClampInside();
             return false;

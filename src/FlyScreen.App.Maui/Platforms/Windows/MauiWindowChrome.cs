@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using WinRT.Interop;
 using WinBorder = Microsoft.UI.Xaml.Controls.Border;
+using WinButton = Microsoft.UI.Xaml.Controls.Button;
 using WinSolidBrush = Microsoft.UI.Xaml.Media.SolidColorBrush;
 using WinTextBlock = Microsoft.UI.Xaml.Controls.TextBlock;
 
@@ -90,6 +91,10 @@ internal static class MauiWindowChrome
         var title = FindByName(tree, "AppTitle") as WinTextBlock;
         if (title != null)
             title.Foreground = brushFg;
+
+        var projectBtn = FindByName(tree, "TitleProjectBtn") as WinButton;
+        if (projectBtn != null)
+            projectBtn.Foreground = brushFg;
     }
 
     private static DependencyObject? FindByName(DependencyObject parent, string name)

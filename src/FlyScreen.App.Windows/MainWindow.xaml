@@ -796,6 +796,10 @@
                                FontSize="12" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="TitleProjectBtn" Style="{StaticResource TitleBarBtn}"
+                            FontFamily="Segoe MDL2 Assets" Content="&#xE8B9;" FontSize="13"
+                            ToolTip="投影到电脑" Click="TitleProject_Click"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
                     <Button x:Name="TitleMinBtn" Style="{StaticResource TitleBarBtn}" Content="─"
                             Click="TitleMin_Click"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
@@ -944,9 +948,14 @@
                     <Border Style="{StaticResource Card}" Padding="16" VerticalAlignment="Top">
                         <StackPanel>
                             <DockPanel Margin="0,0,0,12" LastChildFill="True">
-                                <Button x:Name="NewKeyBtn" DockPanel.Dock="Right" Style="{StaticResource PrimaryBtn}"
-                                        Content="生成新密钥" Click="NewKey_Click" Margin="12,0,0,0"
-                                        VerticalAlignment="Center"/>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="NewKeyBtn" Style="{StaticResource PrimaryBtn}"
+                                            Content="生成新密钥" Click="NewKey_Click" Margin="12,0,0,0"
+                                            VerticalAlignment="Center"/>
+                                    <Button x:Name="SyncKeyBtn" Style="{StaticResource PrimaryBtn}"
+                                            Content="同步密钥" Click="SyncKey_Click" Margin="8,0,0,0"
+                                            VerticalAlignment="Center"/>
+                                </StackPanel>
                                 <TextBlock x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontWeight="SemiBold"
                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             </DockPanel>
@@ -968,6 +977,10 @@
                             </Grid>
                             <TextBlock x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
                                        Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock x:Name="SecuritySyncHintText"
+                                       Text="生成或修改密钥后点「同步密钥」，布局内已连接与因密钥不同未连上的电脑都会收到并应用。"
+                                       Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,6,0,0"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
@@ -1127,6 +1140,9 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <StackPanel x:Name="FeatColumn" Margin="0,0,10,0">
                                 <TextBlock x:Name="FeatTitleText" Text="功能" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <CheckBox x:Name="WrapMouseCheck" Content="环形鼠标（首尾相连）"

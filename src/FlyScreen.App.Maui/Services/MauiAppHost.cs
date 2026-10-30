@@ -3,6 +3,7 @@ using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.AppMaui.Services;
 
@@ -30,12 +31,16 @@ public sealed class MauiAppHost : IAsyncDisposable
     public ConnectionManager Connections { get; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
+    public SecurityKeySyncHelper SecurityKeySync { get; }
+    public DisplayInfoService DisplayInfo { get; }
     public FileTransferService Transfers { get; }
+    public ScreenExtendService ScreenExtend { get; }
     public IMauiPlatformServices Platform => _platform;
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
+    public event Action<string>? SecurityKeySyncedFromPeer;
 
     public string PlatformBanner { get; }
 
@@ -58,6 +63,11 @@ public sealed class MauiAppHost : IAsyncDisposable
         ProgramShareService.Attach(Connections);
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
+        ScreenExtend = new ScreenExtendService(Connections);
+        ScreenExtend.StatusMessage += PublishStatus;
+#if !WINDOWS
+        ScreenExtend.ShouldAcceptOffer = (_, _) => false;
+#endif
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
@@ -77,8 +87,19 @@ public sealed class MauiAppHost : IAsyncDisposable
         {
             _platform.SetEasyMouse(Settings.EasyMouse);
             BehaviorSyncedFromPeer?.Invoke(peer);
+            // 行为同步不重启网络，避免打断已有连接与扩展屏等会话
+        };
+        SecurityKeySync = new SecurityKeySyncHelper(Settings, Connections, Connections.Discovery);
+        SecurityKeySync.StatusMessage += PublishStatus;
+        SecurityKeySync.SecurityKeyAppliedFromPeer += (from, _key) =>
+        {
+            try { SecurityKeySyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
             _ = RestartNetworkingAsync();
         };
+        DisplayInfo = new DisplayInfoService(Connections);
+#if WINDOWS
+        DisplayInfo.GetLocalDisplayInfo = () => FlyScreen.ScreenExtend.DisplayModeHelper.ToDisplayInfoPayload();
+#endif
         Connections.StatusMessage += PublishStatus;
         Transfers.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
@@ -152,6 +173,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         PublishStatus($"网络已启动 · {PlatformBanner} · {Connections.BindIp}");
     }
 
+    /// <summary>强制整网重启（Stop+Start）。仅端口/网卡/密钥等监听参数变更时使用。</summary>
     public async Task RestartNetworkingAsync()
     {
         Settings.Save();
@@ -159,11 +181,260 @@ public sealed class MauiAppHost : IAsyncDisposable
         _platform.SetEasyMouse(Settings.EasyMouse);
     }
 
+    /// <summary>
+    /// 应用设置后的网络侧：默认保持现有连接，只剪枝并补连；
+    /// 仅当 TCP/UDP 端口、网卡/绑定 IP、安全密钥变化时才整网重启。
+    /// </summary>
+    public async Task ApplyNetworkingAsync(
+        int previousTcpPort,
+        int previousUdpPort,
+        string previousNicId,
+        string previousLocalIp,
+        string previousSecurityKey)
+    {
+        Settings.Save();
+        var needRestart =
+            previousTcpPort != Settings.TcpPort
+            || previousUdpPort != Settings.UdpPort
+            || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+
+        if (needRestart || !Connections.IsRunning)
+            await Connections.StartAsync().ConfigureAwait(false);
+        else
+            await Connections.RefreshConfiguredPeersAsync().ConfigureAwait(false);
+
+        _platform.SetEasyMouse(Settings.EasyMouse);
+    }
+
+    public Task<DisplayInfoPayload?> QueryPeerDisplayAsync(string peer, CancellationToken ct = default)
+        => DisplayInfo.QueryPeerAsync(peer, ct: ct);
+
+    public DisplayInfoPayload? TryGetLocalDisplayInfo()
+    {
+#if WINDOWS
+        return FlyScreen.ScreenExtend.DisplayModeHelper.ToDisplayInfoPayload();
+#else
+        return null;
+#endif
+    }
+
+    public async Task<ProjectionStartResult> StartProjectionAsync(
+        ProjectionTarget? target,
+        DisplayProjectionMode mode,
+        ProjectionDisplayChoice? display = null)
+    {
+#if WINDOWS
+        mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
+        if (target == null)
+            return ProjectionStartResult.Fail("请选择目标");
+
+        string peer;
+        if (target.Kind == ProjectionTargetKind.Peer)
+        {
+            peer = target.Id.Trim();
+            if (string.IsNullOrEmpty(peer))
+                return ProjectionStartResult.Fail("请选择目标电脑");
+            if (!Connections.GetPeerStatus(peer).Bidirectional)
+                return ProjectionStartResult.Fail($"「{peer}」未双向连接，无法投影");
+            if (!ScreenExtendTargets.IsEligiblePeer(Connections, peer))
+                return ProjectionStartResult.Fail($"「{peer}」不是可投影的电脑/大屏");
+            Settings.ScreenExtendPeer = peer;
+        }
+        else
+        {
+            peer = (Settings.ScreenExtendPeer ?? "").Trim();
+            if (string.IsNullOrEmpty(peer) || !Connections.GetPeerStatus(peer).Bidirectional)
+                peer = ScreenExtendTargets.ListEligible(Connections).FirstOrDefault() ?? "";
+            if (string.IsNullOrEmpty(peer))
+                return ProjectionStartResult.Fail("已选本机副屏，但仍需至少一台双向已连接电脑作为接收端");
+        }
+
+        var choice = display ?? new ProjectionDisplayChoice
+        {
+            Source = mode == DisplayProjectionMode.Clone
+                ? ProjectionDisplaySource.HostPrimary
+                : ProjectionDisplaySource.TargetPeer,
+            Width = 1920,
+            Height = 1080,
+            ScalePercent = 100
+        };
+        if (choice.Width <= 0 || choice.Height <= 0)
+        {
+            var local = TryGetLocalDisplayInfo();
+            if (local != null)
+            {
+                choice.Width = local.Width;
+                choice.Height = local.Height;
+                choice.ScalePercent = local.ScalePercent;
+                choice.RefreshHz = local.RefreshHz;
+            }
+        }
+
+        choice.ScalePercent = ProjectionDisplayPresets.ClampScale(
+            choice.ScalePercent > 0 ? choice.ScalePercent : 100);
+        Settings.ScreenExtendProjectionMode = (int)mode;
+        Settings.ScreenExtendDisplaySource = (int)choice.Source;
+        Settings.ScreenExtendWidth = choice.Width;
+        Settings.ScreenExtendHeight = choice.Height;
+        Settings.ScreenExtendScalePercent = choice.ScalePercent;
+        Settings.Save();
+        Platform.SetScreenExtendProjectionMode(mode);
+        Platform.SetScreenExtendDisplayChoice(choice);
+
+        // 任何 DisplaySwitch / 改模式前先快照主屏
+        FlyScreen.ScreenExtend.DisplayTopologyGuard.CaptureIfEmpty();
+
+        if (mode == DisplayProjectionMode.Extend)
+        {
+            if (target.Kind == ProjectionTargetKind.Peer)
+            {
+                var (ready, detail) = await FlyScreen.ScreenExtend.MttVddEnvironment.CheckExtendReadyAsync()
+                    .ConfigureAwait(false);
+                if (!ready)
+                    return ProjectionStartResult.NeedRepair(detail);
+            }
+
+            var layoutSide = target.Kind == ProjectionTargetKind.Peer
+                ? LayoutPeerDirection.Resolve(
+                    Settings.MachineSlots,
+                    Settings.TwoRow,
+                    LocalPeerIdentity.MachineName,
+                    peer,
+                    Environment.MachineName)
+                : LayoutEdgeSide.Unknown;
+            var (dispOk, dispInfo) = await Platform.EnsureScreenExtendHostDisplayAsync(layoutSide)
+                .ConfigureAwait(false);
+            if (!dispOk)
+                return ProjectionStartResult.NeedRepair(dispInfo ?? "无法创建第二输出");
+            PublishStatus($"投影：本机第二输出已就绪 {dispInfo}"
+                          + (layoutSide == LayoutEdgeSide.Unknown
+                              ? ""
+                              : $"，方位={layoutSide}"));
+            // Ensure 内已按需 DisplaySwitch 一次；勿再重复 /extend
+        }
+        else
+        {
+            FlyScreen.ScreenExtend.DisplayProjection.TryApply(DisplayProjectionMode.Clone);
+        }
+
+        if (ScreenExtend.Role == ScreenExtendRole.Host
+            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase))
+        {
+            PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
+            return ProjectionStartResult.Success();
+        }
+
+        if (ScreenExtend.IsActive)
+            await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
+
+        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height)
+            .ConfigureAwait(false);
+        if (!ok)
+            return ProjectionStartResult.Fail(err ?? "发起投影失败");
+
+        PublishStatus(
+            $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}）");
+        return ProjectionStartResult.Success();
+#else
+        await Task.CompletedTask;
+        return ProjectionStartResult.Fail("当前平台不支持发起投影");
+#endif
+    }
+
+    public async Task StopProjectionAsync()
+    {
+#if WINDOWS
+        if (ScreenExtend.IsActive)
+            await ScreenExtend.StopAsync("stopped").ConfigureAwait(false);
+        await Platform.ReleaseScreenExtendHostDisplayAsync().ConfigureAwait(false);
+        // 禁止 DisplaySwitch /internal：会重写主屏显示配置。仅恢复投影前主屏模式。
+        FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRestorePrimary();
+        PublishStatus("投影：已停止");
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    public async Task<(bool Ok, string Message)> RepairProjectionEnvironmentAsync(
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+#if WINDOWS
+        var result = await FlyScreen.ScreenExtend.MttVddRepairSession
+            .RunOrAttachAsync(progress, ct).ConfigureAwait(false);
+        SyncMttInstallFlag();
+        return result;
+#else
+        await Task.CompletedTask;
+        return (false, "仅 Windows 支持");
+#endif
+    }
+
+    public bool IsProjectionEnvironmentRepairing
+#if WINDOWS
+        => FlyScreen.ScreenExtend.MttVddRepairSession.IsRunning;
+#else
+        => false;
+#endif
+
+    public string ProjectionEnvironmentRepairStatus
+#if WINDOWS
+        => FlyScreen.ScreenExtend.MttVddRepairSession.Status;
+#else
+        => "";
+#endif
+
+    public async Task<(bool Ok, string Message)> UninstallProjectionEnvironmentAsync(
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+#if WINDOWS
+        if (ScreenExtend.IsActive)
+            await StopProjectionAsync().ConfigureAwait(false);
+        var result = await FlyScreen.ScreenExtend.MttVddInstaller.TryUninstallAsync(progress, ct)
+            .ConfigureAwait(false);
+        SyncMttInstallFlag();
+        return result;
+#else
+        await Task.CompletedTask;
+        return (false, "仅 Windows 支持");
+#endif
+    }
+
+    public bool IsMttInstalledByApp
+    {
+        get
+        {
+#if WINDOWS
+            SyncMttInstallFlag();
+            return FlyScreen.ScreenExtend.MttVddInstallRecord.IsInstalledByApp;
+#else
+            return false;
+#endif
+        }
+    }
+
+#if WINDOWS
+    private void SyncMttInstallFlag()
+    {
+        var byApp = FlyScreen.ScreenExtend.MttVddInstallRecord.IsInstalledByApp;
+        if (Settings.MttVddInstalledByApp == byApp) return;
+        Settings.MttVddInstalledByApp = byApp;
+        Settings.Save();
+    }
+#endif
+
+
     public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
 
     public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
 
     public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
+        => SecurityKeySync.SyncCurrentKeyAsync(ct);
 
     /// <summary>布局仅剩本机时恢复可见光标。</summary>
     public void RestoreCursorIfLayoutSolo()
@@ -349,8 +620,11 @@ public sealed class MauiAppHost : IAsyncDisposable
         _platform.StopClipboardMonitor();
         _platform.StopDesktopInput();
         _platform.DisposeTray();
+        ScreenExtend.Dispose();
         LayoutSync.Detach();
         BehaviorSync.Detach();
+        SecurityKeySync.Dispose();
+        DisplayInfo.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         Settings.Save();
         if (ReferenceEquals(_instance, this))

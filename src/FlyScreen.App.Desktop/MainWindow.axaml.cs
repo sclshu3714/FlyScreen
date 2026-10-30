@@ -24,6 +24,7 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi;
@@ -86,24 +87,19 @@ public partial class MainWindow : Window
         InitializeComponent();
         Title = "玄鸟";
         TryApplyWindowIcon();
-        ConfigureLinuxClientTitleBar();
+        ConfigureClientTitleBar();
         Opened += OnOpened;
         Closing += OnClosing;
     }
 
     /// <summary>
-    /// WSL/X11 系统标题栏常因字体/编码只画出「玄」。关闭系统标题文字，改用客户端标题栏显示完整「玄鸟」。
+    /// 自绘标题栏（含投影按钮）。Linux 另规避系统标题栏中文乱码。
     /// </summary>
-    private void ConfigureLinuxClientTitleBar()
+    private void ConfigureClientTitleBar()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            return;
-
-        // None：自绘标题栏 + 圆角；Wayland 仍走 BeginMoveDrag，X11 用手势跟指针
         SystemDecorations = SystemDecorations.None;
         ClientTitleBar.IsVisible = true;
         Title = "玄鸟";
-        // 不使用整窗透明：X11 上拖动时透明合成会严重闪烁；圆角由 WindowChrome 裁剪呈现
         Background = TryBrush("WinBg") ?? Brushes.White;
         if (WindowChrome != null)
         {
@@ -229,6 +225,29 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private async void TitleProject_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
+        {
+            await _host.StopProjectionAsync();
+            RefreshTitleProjectButton();
+            return;
+        }
+
+        var dlg = new ProjectionDialog(_host);
+        await dlg.ShowDialog(this);
+        RefreshTitleProjectButton();
+    }
+
+    private void RefreshTitleProjectButton()
+    {
+        if (TitleProjectBtn == null) return;
+        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
+        TitleProjectBtn.Content = on ? "投影中" : "⧉";
+        ToolTip.SetTip(TitleProjectBtn, on ? "正在投影（点击停止）" : "投影到电脑");
+        TitleProjectBtn.Width = on ? 64 : 40;
+    }
+
     private void TitleMin_Click(object? sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
@@ -295,8 +314,16 @@ public partial class MainWindow : Window
             ApplyBehaviorFromSettings();
             StatusText.Text = $"已同步功能与行为 ← {from}";
         });
+        _host.SecurityKeySyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
+        {
+            SetSecurityKey(_host.Settings.SecurityKey ?? "");
+            StatusText.Text = $"已同步安全密钥 ← {from}";
+        });
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.UIThread.Post(RefreshDiscovery);
+        _host.ScreenExtend.HostSessionReady += () => Dispatcher.UIThread.Post(RefreshTitleProjectButton);
+        _host.ScreenExtend.SessionEnded += () => Dispatcher.UIThread.Post(RefreshTitleProjectButton);
+        RefreshTitleProjectButton();
 
         await _host.StartAsync();
         StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
@@ -484,6 +511,8 @@ public partial class MainWindow : Window
         if (SecurityHintText != null) SecurityHintText.Text = Loc.T("Sec.Hint");
         if (ShowKeyCheck != null) ShowKeyCheck.Content = Loc.T("Sec.Show");
         if (NewKeyBtn != null) NewKeyBtn.Content = Loc.T("Sec.NewKey");
+        if (SyncKeyBtn != null) SyncKeyBtn.Content = Loc.T("Sec.SyncKey");
+        if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
 
         if (FeatTitleText != null) FeatTitleText.Text = Loc.T("Feat.Title");
         if (BehTitleText != null) BehTitleText.Text = Loc.T("Beh.Title");
@@ -648,10 +677,17 @@ public partial class MainWindow : Window
 
     private async void Apply_Click(object? sender, RoutedEventArgs e)
     {
+        var s = _host.Settings;
+        var prevTcp = s.TcpPort;
+        var prevUdp = s.UdpPort;
+        var prevNic = s.PreferredNicId ?? "";
+        var prevIp = s.PreferredLocalIp ?? "";
+        var prevKey = s.SecurityKey ?? "";
+
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
         await _host.BroadcastBehaviorSyncAsync();
-        await _host.RestartNetworkingAsync();
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         SyncSlotLocalFlags();
         StatusText.Text = Loc.T("Sys.Applied");
     }
@@ -1696,6 +1732,17 @@ public partial class MainWindow : Window
     private void NewKey_Click(object? sender, RoutedEventArgs e)
         => SetSecurityKey(AppSettings.GenerateKey());
 
+    private async void SyncKey_Click(object? sender, RoutedEventArgs e)
+    {
+        var s = _host.Settings;
+        var prevKey = s.SecurityKey ?? "";
+        ApplySettingsFromUi();
+        var (ok, msg) = await _host.SyncSecurityKeyAsync();
+        if (ok)
+            await _host.ApplyNetworkingAsync(s.TcpPort, s.UdpPort, s.PreferredNicId ?? "", s.PreferredLocalIp ?? "", prevKey);
+        StatusText.Text = msg;
+    }
+
     private async void Reconnect_Click(object? sender, RoutedEventArgs e)
     {
         ApplySettingsFromUi();
@@ -2169,8 +2216,7 @@ public partial class MainWindow : Window
                 await _host.BroadcastLayoutMergeAsync().ConfigureAwait(true);
             else
                 await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
-            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
-            await _host.RestartNetworkingAsync().ConfigureAwait(true);
+            await _host.Connections.RefreshConfiguredPeersAsync().ConfigureAwait(true);
         }
         catch
         {

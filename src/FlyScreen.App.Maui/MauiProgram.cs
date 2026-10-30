@@ -116,7 +116,7 @@ public static class MauiProgram
         var host = MauiAppHost.EnsureCreated();
 #if WINDOWS
         host.AttachPlatform(new Platforms.Windows.WindowsMauiPlatformServices(
-            host.Settings, host.Connections, host.Transfers));
+            host.Settings, host.Connections, host.Transfers, host.ScreenExtend));
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
             host.Settings, host.Transfers));
