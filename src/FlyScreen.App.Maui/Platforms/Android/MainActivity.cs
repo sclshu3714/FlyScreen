@@ -176,6 +176,25 @@ public class MainActivity : MauiAppCompatActivity
         }
     }
 
+    private static MainPage? FindMainPage(Page? page)
+    {
+        switch (page)
+        {
+            case MainPage main:
+                return main;
+            case FlyoutPage flyout:
+                return FindMainPage(flyout.Detail) ?? FindMainPage(flyout.Flyout);
+            case NavigationPage nav:
+                return FindMainPage(nav.CurrentPage) ?? FindMainPage(nav.RootPage);
+            case TabbedPage tabs:
+                return FindMainPage(tabs.CurrentPage);
+            case Shell shell:
+                return FindMainPage(shell.CurrentPage);
+            default:
+                return null;
+        }
+    }
+
     protected override void OnResume()
     {
         base.OnResume();
@@ -189,18 +208,13 @@ public class MainActivity : MauiAppCompatActivity
             /* ignore */
         }
 
-        // 从无障碍设置返回：刷新「高级 → 行为」勾选状态
+        // 从无障碍设置返回：刷新「高级 → 行为」勾选状态（主界面在 Shell 里）
         try
         {
             Microsoft.Maui.Controls.Application.Current?.Dispatcher.Dispatch(() =>
             {
                 foreach (var w in Microsoft.Maui.Controls.Application.Current?.Windows ?? [])
-                {
-                    if (w.Page is NavigationPage nav && nav.CurrentPage is MainPage mp)
-                        mp.RefreshA11yInjectFromResume();
-                    else if (w.Page is MainPage main)
-                        main.RefreshA11yInjectFromResume();
-                }
+                    FindMainPage(w.Page)?.RefreshA11yInjectFromResume();
             });
         }
         catch

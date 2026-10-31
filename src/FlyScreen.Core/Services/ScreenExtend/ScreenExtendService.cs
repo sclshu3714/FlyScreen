@@ -18,6 +18,8 @@ public sealed class ScreenExtendService : IDisposable
     private readonly ConnectionManager _connections;
     private readonly object _gate = new();
     private int _frameSeq;
+    private int _audioSeq;
+    private int _audioPending;
     private bool _disposed;
 
     public ScreenExtendService(ConnectionManager connections)
@@ -46,6 +48,9 @@ public sealed class ScreenExtendService : IDisposable
     public int PeerSinkHeight { get; private set; }
     public int PeerSinkScalePercent { get; private set; }
 
+    /// <summary>本会话是否把主机声音送到从机，并让主机不再本地播放。</summary>
+    public bool AudioSync { get; private set; }
+
     /// <summary>主机侧：对端已 Accept，应创建第二输出并开始推流。</summary>
     public event Action? HostSessionReady;
 
@@ -57,6 +62,9 @@ public sealed class ScreenExtendService : IDisposable
 
     /// <summary>从机收到一帧 JPEG。</summary>
     public event Action<ReadOnlyMemory<byte>, int, int>? FrameReceived;
+
+    /// <summary>从机收到一块 PCM s16le。</summary>
+    public event Action<byte[], int, int>? AudioReceived;
 
     public event Action<string>? StatusMessage;
 
@@ -74,6 +82,7 @@ public sealed class ScreenExtendService : IDisposable
 
     public async Task<(bool Ok, string? Error)> StartHostAsync(string peer,
         int preferredWidth = 1920, int preferredHeight = 1080, int fps = 12,
+        bool audioSync = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(peer))
@@ -94,6 +103,8 @@ public sealed class ScreenExtendService : IDisposable
             Peer = peer;
             SessionId = sessionId;
             _frameSeq = 0;
+            _audioSeq = 0;
+            AudioSync = audioSync;
         }
 
         var offer = new ScreenExtendOfferPayload
@@ -101,7 +112,8 @@ public sealed class ScreenExtendService : IDisposable
             SessionId = sessionId.ToString("D"),
             PreferredWidth = preferredWidth,
             PreferredHeight = preferredHeight,
-            Fps = fps
+            Fps = fps,
+            AudioSync = audioSync
         };
 
         try
@@ -168,6 +180,49 @@ public sealed class ScreenExtendService : IDisposable
         }
     }
 
+    /// <summary>主机把一块 PCM s16le 送给当前从机。积压过多时丢掉，避免声音把链路堵住。</summary>
+    public void PostAudio(byte[] pcm, int sampleRate, int channels)
+    {
+        if (pcm.Length == 0 || sampleRate <= 0 || channels <= 0) return;
+        if (Interlocked.Increment(ref _audioPending) > 8)
+        {
+            Interlocked.Decrement(ref _audioPending);
+            return;
+        }
+
+        _ = SendAudioAsync(pcm, sampleRate, channels);
+    }
+
+    private async Task SendAudioAsync(byte[] pcm, int sampleRate, int channels)
+    {
+        try
+        {
+            string? peer;
+            Guid sid;
+            int seq;
+            lock (_gate)
+            {
+                if (Role != ScreenExtendRole.Host || !AudioSync || string.IsNullOrEmpty(Peer))
+                    return;
+                peer = Peer;
+                sid = SessionId;
+                seq = ++_audioSeq;
+            }
+
+            var payload = ScreenExtendAudioCodec.Encode(sid, sampleRate, channels, seq, pcm);
+            await _connections.SendToAsync(peer!, MessageType.ScreenExtendAudio, payload)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // 单块声音失败不拆会话
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _audioPending);
+        }
+    }
+
     private void OnPeerMessage(string peer, NetMessage msg)
     {
         switch (msg.Type)
@@ -186,6 +241,9 @@ public sealed class ScreenExtendService : IDisposable
                 break;
             case MessageType.ScreenExtendFrame:
                 HandleFrame(peer, msg.Payload);
+                break;
+            case MessageType.ScreenExtendAudio:
+                HandleAudio(peer, msg.Payload);
                 break;
         }
     }
@@ -215,6 +273,8 @@ public sealed class ScreenExtendService : IDisposable
             Peer = peer;
             SessionId = sid;
             _frameSeq = 0;
+            _audioSeq = 0;
+            AudioSync = offer.AudioSync;
         }
 
         var sinkW = offer.PreferredWidth;
@@ -345,6 +405,16 @@ public sealed class ScreenExtendService : IDisposable
         try { FrameReceived?.Invoke(jpeg.ToArray(), w, h); } catch { /* ignore */ }
     }
 
+    private void HandleAudio(string peer, byte[] payload)
+    {
+        if (Role != ScreenExtendRole.Sink || !AudioSync) return;
+        if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+        if (!ScreenExtendAudioCodec.TryDecode(payload, out var sid, out var rate, out var channels, out _, out var pcm))
+            return;
+        if (sid != SessionId || pcm.Length == 0) return;
+        try { AudioReceived?.Invoke(pcm.ToArray(), rate, channels); } catch { /* ignore */ }
+    }
+
     private void OnPeerLinkChanged(string peer, bool outbound, bool inbound)
     {
         if (!IsActive) return;
@@ -372,6 +442,8 @@ public sealed class ScreenExtendService : IDisposable
             PeerSinkWidth = 0;
             PeerSinkHeight = 0;
             PeerSinkScalePercent = 0;
+            AudioSync = false;
+            _audioSeq = 0;
         }
     }
 

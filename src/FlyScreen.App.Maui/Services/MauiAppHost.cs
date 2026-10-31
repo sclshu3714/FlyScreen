@@ -278,7 +278,8 @@ public sealed class MauiAppHost : IAsyncDisposable
     public async Task<ProjectionStartResult> StartProjectionAsync(
         ProjectionTarget? target,
         DisplayProjectionMode mode,
-        ProjectionDisplayChoice? display = null)
+        ProjectionDisplayChoice? display = null,
+        bool audioSync = false)
     {
 #if !WINDOWS && !ANDROID
         await Task.CompletedTask;
@@ -396,7 +397,8 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
 
         if (ScreenExtend.Role == ScreenExtendRole.Host
-            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase)
+            && ScreenExtend.AudioSync == audioSync)
         {
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
@@ -405,7 +407,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         if (ScreenExtend.IsActive)
             await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
 
-        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height)
+        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height, audioSync: audioSync)
             .ConfigureAwait(false);
         if (!ok)
         {
@@ -416,7 +418,9 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
 
         PublishStatus(
-            $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}）");
+            $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
+            + (audioSync ? " · 声音同步" : "")
+            + "）");
         return ProjectionStartResult.Success();
 #endif
     }

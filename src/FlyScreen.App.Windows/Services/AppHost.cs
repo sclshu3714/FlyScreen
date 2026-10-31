@@ -193,7 +193,8 @@ public sealed class AppHost : IAsyncDisposable
     public async Task<ProjectionStartResult> StartProjectionAsync(
         ProjectionTarget? target,
         DisplayProjectionMode mode,
-        ProjectionDisplayChoice? display = null)
+        ProjectionDisplayChoice? display = null,
+        bool audioSync = false)
     {
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
         if (target == null)
@@ -276,7 +277,8 @@ public sealed class AppHost : IAsyncDisposable
         }
 
         if (ScreenExtend.Role == ScreenExtendRole.Host
-            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase)
+            && ScreenExtend.AudioSync == audioSync)
         {
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
@@ -285,13 +287,15 @@ public sealed class AppHost : IAsyncDisposable
         if (ScreenExtend.IsActive)
             await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
 
-        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height)
+        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height, audioSync: audioSync)
             .ConfigureAwait(false);
         if (!ok)
             return ProjectionStartResult.Fail(err ?? "发起投影失败");
 
         PublishStatus(
-            $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}）");
+            $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
+            + (audioSync ? " · 声音同步" : "")
+            + "）");
         return ProjectionStartResult.Success();
     }
 

@@ -258,6 +258,15 @@
           </StackPanel>
         </Border>
 
+        <Border Style="{StaticResource Card}">
+          <StackPanel>
+            <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold" IsChecked="False"/>
+            <TextBlock Foreground="{DynamicResource Muted}" FontSize="12"
+                       TextWrapping="Wrap" Margin="22,6,0,0"
+                       Text="默认关闭。开启后本机不再播放声音，声音改由目标电脑播放。"/>
+          </StackPanel>
+        </Border>
+
         <Border x:Name="EnvPanel" Style="{StaticResource Card}"
                 Background="{DynamicResource SubtleBg}">
           <StackPanel>

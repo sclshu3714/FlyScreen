@@ -45,6 +45,7 @@ public sealed class FlyScreenMediaProjectionService : Service
     private static TaskCompletionSource<bool>? s_started;
 
     private MediaProjection? _projection;
+    internal MediaProjection? Projection => _projection;
     private VirtualDisplay? _virtualDisplay;
     private ImageReader? _reader;
     private HandlerThread? _readerThread;
@@ -668,6 +669,7 @@ public sealed class FlyScreenMediaProjectionService : Service
 
     private void TearDown()
     {
+        AndroidProjectionAudio.StopAny();
         Interlocked.Exchange(ref _closing, 1);
         _longEdge = 0;
         _shortEdge = 0;

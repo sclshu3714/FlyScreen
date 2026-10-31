@@ -196,7 +196,7 @@
                                             <Label x:Name="A11yInjectLabel" Text="无障碍注入（键鼠/程序控机）"
                                                    FontSize="13" LineBreakMode="WordWrap" />
                                             <Label x:Name="A11yInjectTipLabel"
-                                                   Text="开=跳转系统设置；关=直接停用。电脑穿入时仍会提示。"
+                                                   Text="与「玄鸟键鼠注入」是否正在运行一致。开=跳转系统设置；关=直接停用。"
                                                    TextColor="{DynamicResource Muted}" FontSize="11"
                                                    LineBreakMode="WordWrap" />
                                         </VerticalStackLayout>

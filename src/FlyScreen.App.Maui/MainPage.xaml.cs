@@ -47,6 +47,7 @@ public partial class MainPage : ContentPage
     private bool _uiPrepared;
     private bool _a11yInjectUpdating;
     private bool _a11yInjectWired;
+    private int _a11yRefreshGen;
     private bool _notifyInjectUpdating;
     private bool _pageAlive = true;
 
@@ -2429,6 +2430,7 @@ public partial class MainPage : ContentPage
         A11yInjectRow.IsVisible = true;
         if (_a11yInjectWired) return;
         _a11yInjectWired = true;
+        Platforms.Android.FlyScreenInputAccessibilityService.EnsureSettingsWatch();
         Platforms.Android.FlyScreenInputAccessibilityService.EnabledChanged += () =>
             MainThread.BeginInvokeOnMainThread(SyncA11yInjectCheck);
 #else
@@ -2443,8 +2445,8 @@ public partial class MainPage : ContentPage
         _a11yInjectUpdating = true;
         try
         {
-            // 设置已开或实例已连都显示勾选（避免刚开启时 Instance 未到导致勾选弹回）
-            A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsEnabled;
+            // 只跟服务是否真的在跑。系统里开关还在、服务已停止时取消勾选。
+            A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
         }
         finally
         {
@@ -2453,8 +2455,20 @@ public partial class MainPage : ContentPage
 #endif
     }
 
-    /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。</summary>
-    public void RefreshA11yInjectFromResume() => SyncA11yInjectCheck();
+    /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。绑定可能略晚，补两次。</summary>
+    public void RefreshA11yInjectFromResume()
+    {
+        SyncA11yInjectCheck();
+        var gen = ++_a11yRefreshGen;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () =>
+        {
+            if (gen == _a11yRefreshGen) SyncA11yInjectCheck();
+        });
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), () =>
+        {
+            if (gen == _a11yRefreshGen) SyncA11yInjectCheck();
+        });
+    }
 
     private async void A11yInject_Changed(object? sender, CheckedChangedEventArgs e)
     {
@@ -2483,10 +2497,15 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        // 关闭无障碍：不改动通知注入勾选
+        // 关闭无障碍：不改动通知注入勾选。停用是异步的，成功时等服务断开再刷新，避免马上被旧状态勾回去。
         if (connected)
-            Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf();
-        else if (listed)
+        {
+            if (!Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf())
+                SyncA11yInjectCheck();
+            return;
+        }
+
+        if (listed)
             Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
         SyncA11yInjectCheck();
 #else

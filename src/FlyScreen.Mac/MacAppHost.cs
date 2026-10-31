@@ -1,3 +1,4 @@
+using FlyScreen.Mac.Audio;
 using FlyScreen.Mac.Input;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Models;
@@ -36,6 +37,7 @@ public sealed class MacAppHost : IAsyncDisposable
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
+    private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
     public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS && AccessibilityPermission.IsTrusted();
 
@@ -100,6 +102,7 @@ public sealed class MacAppHost : IAsyncDisposable
         Injector = new MacInputInjector();
         Capture = new MacInputCapture();
         ScreenExtend = new ScreenExtendService(Connections);
+        _projectionAudio = new ProjectionAudioBridge(ScreenExtend, new MacProjectionAudio());
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
@@ -266,6 +269,7 @@ public sealed class MacAppHost : IAsyncDisposable
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
+        _projectionAudio.Dispose();
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
         Capture.Dispose();
