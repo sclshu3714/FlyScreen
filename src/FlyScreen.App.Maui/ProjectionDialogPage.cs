@@ -51,6 +51,10 @@ public sealed class ProjectionDialogPage : ContentPage
     private Border _modeCard = null!;
     private Border _targetCard = null!;
     private Border _displayCard = null!;
+    private Border _audioCard = null!;
+    private CheckBox _audioSyncCheck = null!;
+    private Label _audioTitle = null!;
+    private Label _audioHint = null!;
     private Border _envCard = null!;
     private Border _uninstallCard = null!;
     private Border _footerBar = null!;
@@ -242,6 +246,41 @@ public sealed class ProjectionDialogPage : ContentPage
                 }
             }
         };
+        _audioSyncCheck = new CheckBox { IsChecked = false };
+        _audioTitle = new Label
+        {
+            Text = "声音同步",
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center
+        };
+        _audioHint = new Label
+        {
+            Text = "默认关闭。开启后本机不再播放声音，声音改由目标电脑播放。",
+            FontSize = 12
+        };
+        _audioCard = new Border
+        {
+            StrokeThickness = 1,
+            Padding = new Thickness(14, 12),
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
+            Content = new VerticalStackLayout
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new HorizontalStackLayout
+                    {
+                        Spacing = 8,
+                        Children =
+                        {
+                            _audioSyncCheck,
+                            _audioTitle
+                        }
+                    },
+                    _audioHint
+                }
+            }
+        };
         _envCard = WrapCard(_envPanel);
         _uninstallCard = WrapCard(_uninstallPanel);
         _uninstallCard.IsVisible = false;
@@ -267,7 +306,7 @@ public sealed class ProjectionDialogPage : ContentPage
         {
             Padding = new Thickness(16, 8, 16, 8),
             Spacing = 12,
-            Children = { _modeCard, _targetCard, _displayCard }
+            Children = { _modeCard, _targetCard, _displayCard, _audioCard }
         };
         if (!_phoneOnlyClone)
         {
@@ -405,6 +444,9 @@ public sealed class ProjectionDialogPage : ContentPage
         PaintCard(_modeCard, card, line, text);
         PaintCard(_targetCard, card, line, text);
         PaintCard(_displayCard, card, line, text);
+        PaintCard(_audioCard, card, line, text);
+        _audioHint.TextColor = muted;
+        _audioTitle.TextColor = text;
         PaintCard(_envCard, subtle, line, text);
         PaintCard(_uninstallCard, subtle, line, text);
         PaintPanelLabels(_envPanel, text);
@@ -821,7 +863,8 @@ public sealed class ProjectionDialogPage : ContentPage
         UpdateRepairActionButtons();
         try
         {
-            var result = await _host.StartProjectionAsync(ReadTarget(), ReadMode(), ReadDisplayChoice());
+            var result = await _host.StartProjectionAsync(
+                ReadTarget(), ReadMode(), ReadDisplayChoice(), _audioSyncCheck.IsChecked == true);
             if (result.NeedEnvironmentRepair)
             {
                 SetEnvUi(result.Message ?? "需要安装虚拟显示驱动", false, true, "请点击「自动修复环境」");

@@ -93,7 +93,8 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
 
     public async Task<(bool Ok, string? Message)> StartProjectionAsync(
         ProjectionTarget? target,
-        DisplayProjectionMode mode)
+        DisplayProjectionMode mode,
+        bool audioSync = false)
     {
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
         _host.Settings.ScreenExtendProjectionMode = (int)mode;

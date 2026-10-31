@@ -187,7 +187,8 @@ public partial class ProjectionDialog : Window
         UpdateStartEnabled();
         try
         {
-            var (ok, msg) = await _host.StartProjectionAsync(ReadTarget(), ReadMode());
+            var (ok, msg) = await _host.StartProjectionAsync(
+                ReadTarget(), ReadMode(), AudioSyncCheck.IsChecked == true);
             if (!ok)
             {
                 await ConfirmDialog.ShowAsync(this, "投影", msg ?? "投影失败", primaryText: "确定", cancelText: null);

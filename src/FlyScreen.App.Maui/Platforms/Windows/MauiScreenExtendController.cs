@@ -20,10 +20,12 @@ public sealed class MauiScreenExtendController : IDisposable
     private bool _wantDisplay;
     private bool _hostSessionActive;
     private bool _disposed;
+    private readonly ProjectionAudioBridge _audio;
 
     public MauiScreenExtendController(ScreenExtendService service)
     {
         _service = service;
+        _audio = new ProjectionAudioBridge(service, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
         _service.HostSessionReady += OnHostReady;
         _service.SinkSessionReady += OnSinkReady;
         _service.SessionEnded += OnSessionEnded;
@@ -251,6 +253,7 @@ public sealed class MauiScreenExtendController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _audio.Dispose();
         var releaseHost = _hostSessionActive || _wantDisplay || _vdd != null;
         _hostSessionActive = false;
         _wantDisplay = false;

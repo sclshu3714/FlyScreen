@@ -16,10 +16,12 @@ public sealed class AndroidScreenExtendHostController : IDisposable
     private int _height = 1920;
     private bool _prepared;
     private bool _disposed;
+    private readonly ProjectionAudioBridge _audio;
 
     public AndroidScreenExtendHostController(ScreenExtendService service)
     {
         _service = service;
+        _audio = new ProjectionAudioBridge(service, new AndroidProjectionAudio());
         _service.SessionEnded += OnSessionEnded;
         // 推流由 MediaProjection 服务在 ImageAvailable 时直接 SendFrame；无需 HostSessionReady 再启采集
     }
@@ -129,6 +131,7 @@ public sealed class AndroidScreenExtendHostController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _audio.Dispose();
         _service.SessionEnded -= OnSessionEnded;
         FlyScreenMediaProjectionService.Stop();
     }

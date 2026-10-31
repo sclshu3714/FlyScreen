@@ -1,3 +1,4 @@
+using FlyScreen.Linux.Audio;
 using FlyScreen.Linux.Environment;
 using FlyScreen.Linux.Input;
 using FlyScreen.Models;
@@ -36,6 +37,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
+    private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
     public bool CanFollowEdgeFileDrag => Injector is X11InputInjector x11 && x11.IsAvailable;
 
@@ -116,6 +118,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
             }
         };
         ScreenExtend = new ScreenExtendService(Connections);
+        _projectionAudio = new ProjectionAudioBridge(ScreenExtend, new LinuxProjectionAudio());
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.GetSinkDisplayInfo = () =>
         {
@@ -317,6 +320,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
+        _projectionAudio.Dispose();
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
         if (Injector is IDisposable d)

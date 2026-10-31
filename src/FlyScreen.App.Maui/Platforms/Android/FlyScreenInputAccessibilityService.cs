@@ -2,6 +2,7 @@
 using Android.AccessibilityServices;
 using Android.App;
 using Android.Content;
+using Android.Database;
 using Android.Graphics;
 using Android.OS;
 using Android.Provider;
@@ -80,7 +81,18 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         ProgramDevice.Current = AndroidProgramDeviceControl.Instance;
         Log.Info("FlyScreen", "a11y OnServiceConnected");
         AppLog.Info("无障碍「玄鸟键鼠注入」已连接");
+        EnsureSettingsWatch();
         RaiseEnabledChanged();
+    }
+
+    public override bool OnUnbind(Intent? intent)
+    {
+        if (ReferenceEquals(Instance, this))
+            Instance = null;
+        var rebound = base.OnUnbind(intent);
+        Log.Info("FlyScreen", "a11y OnUnbind");
+        RaiseEnabledChanged();
+        return rebound;
     }
 
     public override void OnConfigurationChanged(global::Android.Content.Res.Configuration? newConfig)
@@ -154,10 +166,9 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
     public static bool IsConnected => Instance != null;
 
     /// <summary>
-    /// 对用户/UI：实例已连接，或系统设置里已打开本服务。
-    /// 脚本就绪请用 <see cref="IsReady"/>（需真正连上实例）。
+    /// 高级设置勾选：只认服务是否正在运行。系统里开关还在、但服务已停止时为 false。
     /// </summary>
-    public static bool IsEnabled => IsConnected || IsListedInSecureSettings();
+    public static bool IsEnabled => IsConnected;
 
     /// <summary>
     /// Fly / 键鼠注入是否可用。设置已开但实例未到时短暂等待系统绑定，避免刚开启就误判。
@@ -217,6 +228,34 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
 
     /// <summary>无障碍启停变化（高级设置复选框与提示入口共用）。</summary>
     public static event System.Action? EnabledChanged;
+
+    /// <summary>系统无障碍开关变化时也通知 UI（服务停掉但设置项残留时能把勾选清掉）。</summary>
+    public static void EnsureSettingsWatch()
+    {
+        if (Interlocked.Exchange(ref _settingsWatch, 1) == 1) return;
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            var uri = Settings.Secure.GetUriFor(Settings.Secure.EnabledAccessibilityServices);
+            if (ctx?.ContentResolver == null || uri == null) return;
+            _settingsObserver = new A11ySettingsObserver(new Handler(Looper.MainLooper!));
+            ctx.ContentResolver.RegisterContentObserver(uri, false, _settingsObserver);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyScreen", "a11y settings watch: " + ex.Message);
+        }
+    }
+
+    private static int _settingsWatch;
+    private static A11ySettingsObserver? _settingsObserver;
+
+    private sealed class A11ySettingsObserver : ContentObserver
+    {
+        public A11ySettingsObserver(Handler handler) : base(handler) { }
+
+        public override void OnChange(bool selfChange) => RaiseEnabledChanged();
+    }
 
     public static void OpenAccessibilitySettings()
     {

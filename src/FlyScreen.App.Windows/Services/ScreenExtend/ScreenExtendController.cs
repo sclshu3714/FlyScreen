@@ -18,11 +18,13 @@ public sealed class ScreenExtendController : IDisposable
     private bool _wantDisplay;
     private bool _hostSessionActive;
     private bool _disposed;
+    private readonly ProjectionAudioBridge _audio;
 
     public ScreenExtendController(ScreenExtendService service, Dispatcher dispatcher)
     {
         _service = service;
         _dispatcher = dispatcher;
+        _audio = new ProjectionAudioBridge(service, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
         _service.HostSessionReady += OnHostReady;
         _service.SinkSessionReady += OnSinkReady;
         _service.SessionEnded += OnSessionEnded;
@@ -257,6 +259,7 @@ public sealed class ScreenExtendController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _audio.Dispose();
         var releaseHost = _hostSessionActive || _wantDisplay || _vdd != null;
         _hostSessionActive = false;
         _wantDisplay = false;

@@ -51,6 +51,14 @@
                        Text="复制默认本机主屏；扩展默认目标电脑。Mac/Linux 本期不发起投影。"/>
           </StackPanel>
         </Border>
+        <Border Padding="14,12" Background="{DynamicResource CardBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
+          <StackPanel Spacing="6">
+            <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold" IsChecked="False"/>
+            <TextBlock FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="22,0,0,0"
+                       Text="默认关闭。开启后投影端不再播放声音，声音改由目标电脑播放。"/>
+          </StackPanel>
+        </Border>
         <Border x:Name="EnvPanel" Padding="14,12" Background="{DynamicResource SubtleBg}"
                 BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
           <StackPanel Spacing="8">

@@ -85,7 +85,10 @@ public enum MessageType : byte
     /// <summary>穿边拖文件：光标所在机器请回报放下目录。</summary>
     EdgeDragQuery = 85,
     /// <summary>穿边拖文件：放下目录（接收端绝对路径）。</summary>
-    EdgeDragPlace = 86
+    EdgeDragPlace = 86,
+
+    /// <summary>投影声音：PCM s16le 分块（Bulk）。</summary>
+    ScreenExtendAudio = 87
 }
 
 public readonly struct NetMessage
@@ -253,6 +256,7 @@ public static class BulkMessageTypes
             or MessageType.ClipboardInlineChunk or MessageType.ClipboardInlineComplete
             or MessageType.ClipboardImageChunk or MessageType.ClipboardImageComplete
             or MessageType.ScreenExtendFrame
+            or MessageType.ScreenExtendAudio
             => true,
         _ => false
     };
@@ -577,6 +581,8 @@ public sealed class ScreenExtendOfferPayload
     public int PreferredWidth { get; set; } = 1920;
     public int PreferredHeight { get; set; } = 1080;
     public int Fps { get; set; } = 12;
+    /// <summary>为 true 时主机静音，把正在播放的声音送到从机播放。旧端忽略。</summary>
+    public bool AudioSync { get; set; }
 }
 
 public sealed class ScreenExtendAcceptPayload
@@ -653,6 +659,40 @@ public static class ScreenExtendFrameCodec
         seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
         jpeg = payload[HeaderSize..];
         return true;
+    }
+}
+
+/// <summary>
+/// ScreenExtendAudio 二进制：16 字节 SessionId + int32 采样率 + int16 声道 + int16 保留 + int32 序号 + PCM s16le。
+/// </summary>
+public static class ScreenExtendAudioCodec
+{
+    public const int HeaderSize = 28;
+
+    public static byte[] Encode(Guid sessionId, int sampleRate, int channels, int seq, ReadOnlySpan<byte> pcm)
+    {
+        var buf = new byte[HeaderSize + pcm.Length];
+        sessionId.TryWriteBytes(buf.AsSpan(0, 16));
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(16, 4), sampleRate);
+        BinaryPrimitives.WriteInt16LittleEndian(buf.AsSpan(20, 2), (short)channels);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(24, 4), seq);
+        pcm.CopyTo(buf.AsSpan(HeaderSize));
+        return buf;
+    }
+
+    public static bool TryDecode(ReadOnlySpan<byte> payload,
+        out Guid sessionId, out int sampleRate, out int channels, out int seq, out ReadOnlySpan<byte> pcm)
+    {
+        sessionId = default;
+        sampleRate = channels = seq = 0;
+        pcm = default;
+        if (payload.Length < HeaderSize) return false;
+        sessionId = new Guid(payload[..16]);
+        sampleRate = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
+        channels = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(20, 2));
+        seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
+        pcm = payload[HeaderSize..];
+        return sampleRate > 0 && channels is > 0 and <= 8;
     }
 }
 

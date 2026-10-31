@@ -482,7 +482,8 @@ public partial class ProjectionDialog : Window
         UpdateRepairActionButtons();
         try
         {
-            var result = await _host.StartProjectionAsync(ReadTarget(), ReadMode(), ReadDisplayChoice())
+            var result = await _host.StartProjectionAsync(
+                ReadTarget(), ReadMode(), ReadDisplayChoice(), AudioSyncCheck.IsChecked == true)
                 .ConfigureAwait(true);
             if (result.NeedEnvironmentRepair)
             {
