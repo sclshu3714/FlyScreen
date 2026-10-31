@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.0 |
+| 文档版本 | 1.2 |
 | 状态 | 生效 |
 | 原则 | 协议先行、能力协商、平台隔离、**Windows 主干零回退** |
 
@@ -10,6 +10,7 @@
 
 相关文档：
 
+- [**各端完成情况（以 Win 为基准）**](status.md)
 - [设备形态 × 功能矩阵](device-matrix.md)
 - [协议与能力位（概要）](protocol.md)
 - [版本与兼容](compatibility.md)
@@ -64,7 +65,7 @@
 
 | 层级 | 允许 | 禁止 |
 |------|------|------|
-| Core | `net8.0`、纯 BCL | WPF、WinForms、`DllImport`、各移动 SDK |
+| Core | `net10.0`、纯 BCL | WPF、WinForms、`DllImport`、各移动 SDK |
 | Windows Adapter | Core + Win32 | 被 Mac/Android 工程直接引用实现细节 |
 | App.Windows | Core + Windows Adapter + WPF | 新平台 UI 混写进 MainWindow |
 
@@ -83,12 +84,15 @@ FlyScreen/
     FlyScreen.Core/              # W0 起
     FlyScreen.Windows/           # W0 起
     FlyScreen.App.Windows/       # WPF Windows 应用
-    FlyScreen.Mac/               # W1
-    FlyScreen.Linux/             # W2
-    FlyScreen.App.Desktop/       # W6 Avalonia 可选
+    FlyScreen.Mac/               # W1 适配层
+    FlyScreen.App.Mac/           # W1 Avalonia 应用
+    FlyScreen.Linux/             # W2 适配层
+    FlyScreen.App.Linux/         # W2 GUI + CLI/Daemon
+    FlyScreen.App.Desktop/       # W6 Avalonia 共用 UI（Mac/Linux）
+    FlyScreen.App.Maui/          # W7 MAUI 跨平台 UI（Win/Android…）
   mobile/
-    android/                     # W3–W4（含 tv flavor）
-    harmony/                     # W5
+    android/                     # W3 已建（phone/tablet flavor；W4 加 tv）
+    harmony/                     # W5：common + phone(5a) + desktop(5b)
   tests/
     Protocol.Tests/
     Windows.Regression/          # 清单或自动化冒烟
@@ -122,15 +126,31 @@ FlyScreen/
 
 ### 4.2 平台包命名
 
+统一格式：`FlyScreen-{version}-{rid}{实际后缀}`。
+
+- `{version}`：与 §4.1 构建版本一致（如 `1.0.4`）
+- `{rid}`：平台标识（`win-x64` / `osx-arm64` / `osx-x64` / `linux-x64` / `linux-arm64` / `android` / `android-tv` / `harmony` / `maui-win-x64` 等）
+- **后缀以实际打包产物为准**（`.exe` / `.apk` / `.hap` / `.zip` / `.dmg` / `.AppImage` / `.msix` …），不以本表示例强制；目录发布默认打成 `.zip`
+
+示例（后缀仅为常见形态，发版以构建结果为准）：
+
 ```text
-FlyScreen-{version}-win-x64.exe
-FlyScreen-{version}-osx-arm64.dmg
-FlyScreen-{version}-osx-x64.dmg
-FlyScreen-{version}-linux-x64.AppImage
-FlyScreen-{version}-android.apk
-FlyScreen-{version}-android-tv.apk    # 或同一 APK 的 tv flavor
-FlyScreen-{version}-harmony.hap      # 以官方格式为准
+FlyScreen-{version}-win-x64.exe            # WPF stable 单文件
+FlyScreen-{version}-osx-arm64              # Avalonia Mac 单文件（无扩展名）
+FlyScreen-{version}-osx-x64
+FlyScreen-{version}-linux-x64              # Avalonia Linux 单文件（无扩展名）
+FlyScreen-{version}-linux-arm64
+FlyScreen-{version}-android.apk            # Kotlin 骨架（若有）
+FlyScreen-{version}-android-tv.apk
+FlyScreen-{version}-harmony.hap
+FlyScreen-{version}-maui-win-x64.exe       # MAUI 双轨 beta，不替代 WPF stable
+FlyScreen-{version}-maui-android.apk
+FlyScreen-{version}-maui-osx-arm64         # MAUI Mac Catalyst 单文件
+# 目录产物仅作中间态；发版优先单文件。旧 zip 仍可被 Name-FlyScreenPackage 从目录打出。
 ```
+
+
+辅助脚本：`build/Name-FlyScreenPackage.ps1 -Source <产物> -Rid <rid>` → 输出到 `artifacts/release/`。
 
 ### 4.3 协议版本
 
@@ -162,7 +182,8 @@ Windows 用户默认只跟 `stable`；新平台初期可只发 `beta`。
 | **W3** | v1.4.x | 6–8 周 | Android 手机 / 平板 | 无 |
 | **W4** | v1.5.x | 4–6 周 | Android TV | 无 |
 | **W5** | v1.6.x | 8–10 周 | 鸿蒙手机 / 平板 + **鸿蒙电脑** | 无 |
-| **W6** | v2.0.x | 持续 | 统一桌面 UI、能力对齐 | Win UI 可选双轨迁移，需单独门禁 |
+| **W6** | v2.0.x | 持续 | Avalonia 统一桌面 UI、能力对齐 | Mac/Linux 已共用 `FlyScreen.App.Desktop`；Win 仍可 WPF 双轨 |
+| **W7** | v2.1.x | 6–10 周 | **.NET MAUI 跨平台 UI**（对齐 Win 分区） | 无（独立工程 / beta）；**不替换** WPF stable |
 
 W1–W5 可与 Win 热修并行；热修优先进 Windows 层，合入 Core 须评审。
 
@@ -173,7 +194,7 @@ W1–W5 可与 Win 热修并行；热修优先进 Windows 层，合入 Core 须�
 ### 6.0 阶段 W0 — 地基
 
 **周期：** 3–4 周 · **版本：** 1.1.x  
-**进度：** 工程拆分已完成（Core / Windows / App.Windows）；Caps 协议扩展与冒烟待续。
+**进度：已完成（100%）** — 拆分 + Caps 宣告/交集协商 + 单元测试；Adapter 深度迁徙不阻塞 W0 签收（仍可在后续清理）。
 
 #### 目标
 
@@ -185,16 +206,16 @@ W1–W5 可与 Win 热修并行；热修优先进 Windows 层，合入 Core 须�
 1. ~~新建 `FlyScreen.Core`：Protocol、Connection、Discovery、Settings、Loc、单实例。~~ ✅
 2. ~~新建 `FlyScreen.Windows`：NativeMethods、开机自启。~~ ✅（剪贴板 / 钩子注入 / 诊断仍在 App.Windows，随后续 Adapter 再迁）
 3. ~~`FlyScreen.App.Windows` 引用 Core + Windows；`UiMarshal` 注入 UI 调度。~~ ✅
-4. 握手增加可选扩展；默认仍按原逻辑。 ⏳
-5. Win Release 构建 + 冒烟；完善 `docs/protocol.md`。 ⏳（`dotnet build FlyScreen.sln -c Release` 已通过）
+4. ~~握手可选扩展；旧端无 Caps 时按 legacy 兼容；新端存对端身份并 `IntersectCaps`。~~ ✅
+5. ~~Win 构建 + Caps 单测；protocol/regression 收口。~~ ✅（`dotnet test tests/FlyScreen.Core.Tests`）
 
 #### 当前仓库结构（拆分后）
 
 ```text
 FlyScreen.sln
 src/
-  FlyScreen.Core/       # net8.0：协议、网络、模型、本地化、UiMarshal
-  FlyScreen.Windows/    # net8.0-windows：Win32 Native、AutoStart
+  FlyScreen.Core/       # net10.0：协议、网络、模型、本地化、UiMarshal
+  FlyScreen.Windows/    # net10.0-windows：Win32 Native、AutoStart
   FlyScreen.App.Windows/            # WPF App：UI、AppHost、Input、Clipboard、诊断、更新
 ```
 
@@ -219,7 +240,8 @@ src/
 ### 6.1 阶段 W1 — Apple macOS
 
 **周期：** 6–8 周 · **版本：** 1.2.x  
-**工程：** `FlyScreen.Mac` + Mac 应用壳（或 Avalonia 多启动）
+**工程：** `FlyScreen.Mac` + `FlyScreen.App.Mac`（Avalonia）  
+**进度：** 周 1–2 骨架已落地（见下）；键鼠捕获 / 剪贴板 / 托盘待续。构建说明：[runbooks/build-macos.md](runbooks/build-macos.md)。
 
 #### 设备范围
 
@@ -241,15 +263,16 @@ src/
 - 独立 RID：`osx-arm64` / `osx-x64`。
 - CI：`build-mac` 失败不 fail `build-win`。
 - 禁止为迁就 Mac 删除或改语义 Win 钩子路径。
+- Mac 工程**不引用** `FlyScreen.Windows` / `FlyScreen.App.Windows`。
 
 #### 里程碑（参考）
 
-| 周 | 内容 |
-|----|------|
-| 1–2 | 壳、发现、TCP、Hello/Caps |
-| 3–5 | CGEvent 注入 / 捕获、权限 UX |
-| 6–7 | 剪贴板、布局、托盘 |
-| 8 | 与 Win 联调、签名公证、beta |
+| 周 | 内容 | 状态 |
+|----|------|------|
+| 1–2 | 壳、发现、TCP、Hello/Caps | ✅ 骨架：`FlyScreen.Mac` + Avalonia App；握手 v2 可选字段；被控注入 API + 权限引导入口 |
+| 3–5 | CGEvent 注入完善 / 捕获、权限 UX | ⏳ 注入可编译桩已有；EventTap 捕获待做 |
+| 6–7 | 剪贴板、布局、托盘 | ⏳ |
+| 8 | 与 Win 联调、签名公证、beta | ⏳ |
 
 #### 验收
 
@@ -261,32 +284,36 @@ src/
 
 ### 6.2 阶段 W2 — Linux
 
-**周期：** 6–8 周 · **版本：** 1.3.x
+**周期：** 6–8 周 · **版本：** 1.3.x  
+**工程：** `FlyScreen.Linux` + `FlyScreen.App.Linux`  
+**进度：** 骨架已落地 — 启动自动识别 X11 / Wayland / 无头；GUI（Avalonia）与 CLI/Daemon 共用 `LinuxAppHost`。说明：[runbooks/build-linux.md](runbooks/build-linux.md)。
 
-| 环境 | 目标 |
-|------|------|
-| X11 | 完整 EdgeMouse + 注入 |
-| Wayland | 文本剪贴板 + 文件；EdgeMouse **不承诺**（Caps 关闭） |
+| 环境 | 目标 | 现状 |
+|------|------|------|
+| X11 桌面 | 完整 EdgeMouse + 注入 | Caps + XTest 注入骨架；捕获/边缘后续 |
+| Wayland 桌面 | 文本剪贴板 + 文件；EdgeMouse **不承诺** | Caps 降级；注入占位 |
+| 无桌面 / 服务器 | 网络连接 + 后续文件；无键鼠 Caps | CLI / `--daemon` + systemd 示例 |
 
-验收含：X11 下 Linux↔Win 键鼠；Wayland 降级不断会话；Win 门禁全过。
+验收含：X11 下 Linux↔Win 键鼠；Wayland/无头降级不断会话；Win 门禁全过。
 
 ---
 
 ### 6.3 阶段 W3 — Android 手机 / 平板
 
-**周期：** 6–8 周 · **版本：** 1.4.x · **工程：** `mobile/android`（Kotlin）
+**周期：** 6–8 周 · **版本：** 1.4.x · **工程：** `mobile/android`（Kotlin）  
+**进度：** 主交付转 **MAUI（W7）** — 触控板/键盘直发、剪贴板文本、直传、可选无障碍被桌面控；`mobile/android` Kotlin 工程仍为早期骨架。见 [runbooks/build-maui.md](runbooks/build-maui.md)、[runbooks/build-android.md](runbooks/build-android.md)。
 
-| 形态 | 角色 | 功能 |
-|------|------|------|
-| Phone | 控 PC 为主 | 触控板、滚轮、可选软键盘；文本剪贴板；收文件 |
-| Tablet | 同 Phone | 更大触控板 UI |
-| TV | **本阶段不做** | → W4 |
+| 形态 | 角色 | 功能 | 现状 |
+|------|------|------|------|
+| Phone | 控 PC 为主 | 触控板、滚轮、系统输入法；文本剪贴板；收文件 | ✅ MAUI 触控板/键盘/剪贴板/直传 |
+| Tablet | 同 Phone | 更大触控板 UI | ✅ MAUI 同构 |
+| TV | **本阶段不做** | → W4 | — |
 
-- `DeviceClass=Phone|Tablet`；**无** `EdgeMouse` / `LayoutSync`；有 `AbsPointer`。
-- **主路径：Android 控桌面**；桌面控 Android 不做承诺。
-- 独立 APK；前台服务保活；断线只摘该 peer。
+- `DeviceClass=Phone|Tablet`；**无** `LayoutSync`；有 `AbsPointer`。MAUI 另宣告 `EdgeMouse`+`InjectInput`（无障碍授权后桌面可切入）。
+- **主路径：Android 控桌面**；**桌面控 Android**：MAUI 可选（无障碍），键码注入降级。
+- 独立 APK；断线只摘该 peer。可出现在布局槽以便邻接（不参与 LayoutSync）。
 
-验收：Phone/Tablet→Win 触控板；文本剪贴板；Win 门禁全过。
+验收：Phone/Tablet→Win 触控板；文本剪贴板；可选 Easy Mouse 切入手机；Win 门禁全过。
 
 ---
 
@@ -300,13 +327,15 @@ src/
 
 ### 6.5 阶段 W5 — 鸿蒙（手机 / 平板 / 电脑）
 
-**周期：** 8–10 周（可拆 5a / 5b）· **版本：** 1.6.x
+**周期：** 8–10 周（可拆 5a / 5b）· **版本：** 1.6.x  
+**工程：** `mobile/harmony`（ArkTS：`common` + `phone` + `desktop`）  
+**进度：** 骨架已落地 — 共享协议/发现/连接；手机触控板壳；电脑设置/槽位壳 + Caps 降级入口。见 [runbooks/build-harmony.md](runbooks/build-harmony.md)。
 
-| 形态 | DeviceClass | 对标 | 说明 |
-|------|-------------|------|------|
-| 鸿蒙手机 | Phone | Android Phone | ArkTS 原生；勿假设跑 APK |
-| 鸿蒙平板 | Tablet | Android Tablet | 大屏触控板 UI |
-| **鸿蒙电脑** | **Desktop** | Win/Mac | 完整键鼠 + 布局 + 剪贴板 |
+| 形态 | DeviceClass | 对标 | 说明 | 现状 |
+|------|-------------|------|------|------|
+| 鸿蒙手机 | Phone | Android Phone | ArkTS 原生；勿假设跑 APK | ✅ phone 模块触控板 + 连接 |
+| 鸿蒙平板 | Tablet | Android Tablet | 大屏触控板 UI | ✅ 同 phone（deviceTypes 含 tablet） |
+| **鸿蒙电脑** | **Desktop** | Win/Mac | 完整键鼠 + 布局 + 剪贴板 | ✅ desktop 壳；⏳ 注入/捕获/布局 |
 
 - **5a：** 手机 / 平板（对标 W3）  
 - **5b：** 电脑（对标 W1）；API 不足则 Caps 降级，**禁止**改 Win 注入语义  
@@ -315,11 +344,60 @@ src/
 
 ---
 
-### 6.6 阶段 W6 — 统一与打磨（v2.0）
+### 6.6 阶段 W6 — Avalonia 统一桌面 UI（v2.0）
 
-- 桌面 UI 收敛（如 Avalonia）；Win 可 WPF / 新 UI **双轨**一个大版本。
+- Mac/Linux 共用 `FlyScreen.App.Desktop`，布局/文案对齐 Win。
+- Win 可 WPF / Avalonia **双轨**一个大版本。
 - 各 Desktop 文件传输能力对齐；移动端有限被控。
 - **仅当**新 Win UI 通过与 WPF 同等回归后，才切换 stable 默认包。
+
+**进度（UI 壳）：** 侧栏彩色 Path 图标 + 七页导航（基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）已与 WPF 对齐；密钥在安全页；关于/帮助为页内内容（非独立窗）。键鼠主路径仍见 W1/W2。
+
+---
+
+### 6.7 阶段 W7 — .NET MAUI 跨平台 UI（v2.1）
+
+**周期：** 6–10 周 · **版本：** 2.1.x  
+**工程：** `FlyScreen.App.Maui`（引用 `FlyScreen.Core`）  
+**TFM：** 默认含 android/ios/maccatalyst；Windows 主机自动追加 `net10.0-windows*`  
+**进度：** 双轨 beta 能力接线（Win DesktopFull + Android 触控板/剪贴板/直传）+ **UI 与 Win 同构**。说明：[runbooks/build-maui.md](runbooks/build-maui.md)。
+
+#### 目标
+
+| 项 | 说明 |
+|----|------|
+| 单一 UI 工程 | Windows / Android / Mac Catalyst（可选 TFM）；发布见 `build/Publish-FlyScreenMaui.ps1` |
+| 用户体验 | 侧栏七页 + Path 彩标；安全密钥 / 电脑布局 / 网络 / 共享 / 高级 / 关于 / 帮助，与 Win **同一信息架构**；窄屏抽屉导航 |
+| 业务 | 经 Core + `Platforms/Windows|Android` 适配；**禁止**引用 `App.Windows` |
+| 分发 | 独立包 / `beta` 通道；**禁止**默认替换 WPF stable |
+
+#### 做
+
+1. ~~新建 `FlyScreen.App.Maui`，配色与导航对齐 Win。~~ ✅
+2. ~~`MauiAppHost`：设置、发现、布局、FileTransfer、消息分发。~~ ✅
+3. ~~Windows：钩子/注入/托盘/自启/文本剪贴板（对照移植，不耦合 WPF 工程）。~~ ✅
+4. ~~Android：触控板 AbsPointer + 文本剪贴板 + 直传；Phone 启动分流。~~ ✅
+5. ~~侧栏 Path 彩标、安全/关于/帮助页、窄屏抽屉与 Android 侧栏可点。~~ ✅
+6. ~~触控板左键/中键、键盘直发；AbsPointer 门控对齐 Win/MAUI/Linux/Mac；无障碍被控；Signed APK 兜底。~~ ✅（2026-10-16）
+7. ⏳ Windows / Android 与 WPF 真机交叉联调打磨；文件剪贴板 OLE；无障碍键码完整度  
+
+
+#### 不做
+
+- 删除或停更 WPF / Avalonia 工程。  
+- 为迁就 MAUI 改 Win **钩子/Caps 语义**或破坏兼容。  
+- 让 MAUI **依赖** `FlyScreen.App.Windows` 实现细节（WPF 自身 UI 改进可并行，不经本工程引用）。  
+
+#### 不影响 Win
+
+- 独立工程与 RID；CI 中 `build-maui` 失败不 fail `build-win`。  
+- 禁止引用 `FlyScreen.App.Windows` 实现细节。  
+
+#### 验收
+
+- Windows 目标：可编译运行；密钥/槽位/发现/应用后与 Win 端握手成功。  
+- Android 目标：可安装；发现与连接状态可见；窄屏侧栏可切换页面。  
+- UI 分区与 Win 一致：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助。  
 
 ---
 
@@ -369,7 +447,8 @@ src/
 1. Android / 鸿蒙一期是否接受「只控 PC、PC 不控手机」？（规划默认：**接受**）
 2. Linux Wayland 是否接受长期降级？（规划默认：**接受**）
 3. 鸿蒙电脑与 Mac 的优先级？（规划默认：Mac W1 → 鸿蒙电脑 W5b）
-4. Win UI 是否在 v2 前保持 WPF？（规划默认：**保持**，W6 双轨）
+4. Win UI 是否在 v2 前保持 WPF？（规划默认：**保持**，W6 Avalonia / W7 MAUI 均为双轨，stable 仍 WPF）
+5. W7 MAUI 是否作为长期统一壳，还是仅移动+实验桌面？（规划默认：**跨平台壳候选**，与 Avalonia 并存至回归通过）
 
 确认结果请回写本节并更新日期。
 
@@ -380,3 +459,6 @@ src/
 | 日期 | 版本 | 说明 |
 |------|------|------|
 | 2026-10-13 | 1.0 | 首版：多端路线图与 Win 零回退门禁 |
+| 2026-10-14 | 1.1 | 增补 W7：.NET MAUI 跨平台 UI（`FlyScreen.App.Maui`） |
+| 2026-10-14 | 1.1.1 | W7 TFM 对齐 net10 + 补装 macos workload，消除 MSB4019 AutoImport |
+| 2026-10-15 | 1.2 | 三端 UI 同构：七页导航、安全页密钥、关于/帮助页内化、Path 侧栏；W6/W7 进度与验收更新 |

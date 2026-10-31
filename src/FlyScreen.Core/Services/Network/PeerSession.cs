@@ -28,7 +28,12 @@ public sealed class PeerSession : IAsyncDisposable
     public string PeerIp { get; }
     public bool IsOutbound { get; }
     public bool Authenticated { get; private set; }
+    /// <summary>是否为大块传输通道（与控制面键鼠分离）。</summary>
+    public bool IsBulkChannel { get; private set; }
+    /// <summary>对端握手身份（认证后填写）。</summary>
+    public PeerRemoteInfo RemoteInfo { get; private set; } = new();
     public DateTime LastRecvUtc => _lastRecvUtc;
+    public DateTime LastSendUtc => _lastSendUtc;
     public bool IsAlive => Volatile.Read(ref _disposed) == 0 && _client.Connected;
 
     public event Action<PeerSession, NetMessage>? MessageReceived;
@@ -47,10 +52,13 @@ public sealed class PeerSession : IAsyncDisposable
         _recvLoop = Task.Run(RecvLoopAsync);
     }
 
-    public void SetPeerIdentity(string name)
+    public void SetPeerIdentity(string name, PeerRemoteInfo? remote = null, bool isBulkChannel = false)
     {
         PeerName = name;
         Authenticated = true;
+        IsBulkChannel = isBulkChannel;
+        if (remote != null)
+            RemoteInfo = remote;
     }
 
     public ValueTask SendAsync(MessageType type, byte[]? payload = null)

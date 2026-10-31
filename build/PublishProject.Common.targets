@@ -1,0 +1,25 @@
+<Project>
+  <Target Name="FlyScreenPublish" AfterTargets="Build">
+    <Error Condition="'$(FlyScreenPublishRequiresMac)' == 'true' AND !$([MSBuild]::IsOSPlatform('OSX'))"
+           Text="$(MSBuildProjectName)：须在 macOS 上右键生成。Windows 上请用对应 Win/Android/Linux 发布项目。" />
+    <Error Condition="'$(FlyScreenPublishRid)' == ''"
+           Text="$(MSBuildProjectName)：未设置 FlyScreenPublishRid。" />
+    <Error Condition="'$(FlyScreenPublishStagingDir)' == ''"
+           Text="$(MSBuildProjectName)：未设置 FlyScreenPublishStagingDir。" />
+
+    <PropertyGroup>
+      <_FsKind Condition="'$(FlyScreenPublishKind)' == ''">Exe</_FsKind>
+      <_FsKind Condition="'$(FlyScreenPublishKind)' != ''">$(FlyScreenPublishKind)</_FsKind>
+      <_FsArtifacts>$(FlyScreenRepoRoot)\artifacts\release</_FsArtifacts>
+      <_FsFinish>powershell -NoProfile -ExecutionPolicy Bypass -File &quot;build\Finish-PublishToArtifacts.ps1&quot; -SourceDir &quot;$(FlyScreenPublishStagingDir)&quot; -Rid &quot;$(FlyScreenPublishRid)&quot; -Kind $(_FsKind) -RepoRoot &quot;$(FlyScreenRepoRoot)&quot;</_FsFinish>
+    </PropertyGroup>
+
+    <Message Importance="High" Text="=== $(FlyScreenPublishTitle) ===" />
+    <Exec Command="$(FlyScreenPublishCommand)" WorkingDirectory="$(FlyScreenRepoRoot)" />
+    <Exec Command="$(FlyScreenPublishPostCommand)"
+          Condition="'$(FlyScreenPublishPostCommand)' != ''"
+          WorkingDirectory="$(FlyScreenRepoRoot)" />
+    <Exec Command="$(_FsFinish)" WorkingDirectory="$(FlyScreenRepoRoot)" />
+    <Message Importance="High" Text="最终包 → $(_FsArtifacts)\FlyScreen-*-$(FlyScreenPublishRid).*" />
+  </Target>
+</Project>

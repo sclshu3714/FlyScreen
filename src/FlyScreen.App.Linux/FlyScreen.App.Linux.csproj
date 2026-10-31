@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.LinuxApp</RootNamespace>
+    <AssemblyName>FlyScreen</AssemblyName>
+    <Product>玄鸟</Product>
+    <Description>玄鸟 Linux — 桌面 GUI / 无头 CLI·Daemon，复用同一业务宿主</Description>
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.5" />
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.1.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.Linux\FlyScreen.Linux.csproj" />
+    <ProjectReference Include="..\FlyScreen.App.Desktop\FlyScreen.App.Desktop.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.Version.targets" />
+
+</Project>

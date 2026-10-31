@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using FlyScreen.Helpers;
 using FlyScreen.Services;
 
@@ -12,7 +12,14 @@ public partial class App : System.Windows.Application
     {
         if (!SingleInstanceHelper.TryStartPrimary(out _singleInstance))
         {
-            // 已有实例：已发激活信号，本进程直接退出
+            // 已有实例：已发激活信号；本进程退出（勿走 StartupUri，避免调试器误报启动失败）
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            if (System.Diagnostics.Debugger.IsAttached)
+            {
+                System.Windows.MessageBox.Show(
+                    "玄鸟已在运行（请先退出托盘中的实例，或结束 FlyScreen.exe 后再调试）。",
+                    "玄鸟");
+            }
             Shutdown();
             return;
         }
@@ -37,6 +44,7 @@ public partial class App : System.Windows.Application
 
         DispatcherUnhandledException += (_, args) =>
         {
+            AppLog.Error(args.Exception, "未处理错误");
             System.Windows.MessageBox.Show("未处理错误: " + args.Exception.Message, "玄鸟");
             args.Handled = true;
         };
@@ -55,8 +63,10 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _singleInstance?.Dispose();
+        try { _singleInstance?.Dispose(); }
+        catch { /* 退出路径忽略 */ }
         _singleInstance = null;
         base.OnExit(e);
     }
 }
+
