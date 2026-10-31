@@ -36,6 +36,16 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
+    public EdgeFileDragService EdgeDrag { get; }
+    public bool CanFollowEdgeFileDrag => Injector is X11InputInjector x11 && x11.IsAvailable;
+
+    public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
+    {
+        IEdgeDragPointer? follow = Injector is X11InputInjector x11 && x11.IsAvailable
+            ? new X11EdgeDragPointer(x11)
+            : null;
+        EdgeDrag.OfferFromEdge(paths, exitSide, follow);
+    }
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
@@ -67,6 +77,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, DesktopDirectory);
+        EdgeDrag.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
@@ -104,6 +116,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
             }
         };
         ScreenExtend = new ScreenExtendService(Connections);
+        EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.GetSinkDisplayInfo = () =>
         {
             var d = DisplayInfo.GetLocalDisplayInfo?.Invoke();
@@ -272,6 +285,15 @@ public sealed class LinuxAppHost : IAsyncDisposable
         return _receivingRemote;
     }
 
+    private static string DesktopDirectory()
+    {
+        var dir = System.Environment.GetFolderPath(System.Environment.SpecialFolder.DesktopDirectory);
+        if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir)) return dir;
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        var desk = Path.Combine(home, "Desktop");
+        return Directory.Exists(desk) ? desk : home;
+    }
+
     private static bool IsLocalTarget(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -296,6 +318,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         ScreenExtend.Dispose();
+        EdgeDrag.Dispose();
         if (Injector is IDisposable d)
             d.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

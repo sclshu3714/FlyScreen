@@ -36,6 +36,11 @@ public sealed class MacAppHost : IAsyncDisposable
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
+    public EdgeFileDragService EdgeDrag { get; }
+    public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS && AccessibilityPermission.IsTrusted();
+
+    public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
+        => EdgeDrag.OfferFromEdge(paths, exitSide, CanFollowEdgeFileDrag ? new MacEdgeDragPointer(Injector) : null);
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
@@ -57,6 +62,8 @@ public sealed class MacAppHost : IAsyncDisposable
         ProgramShareService.Attach(Connections);
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, DesktopDirectory);
+        EdgeDrag.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
@@ -93,6 +100,7 @@ public sealed class MacAppHost : IAsyncDisposable
         Injector = new MacInputInjector();
         Capture = new MacInputCapture();
         ScreenExtend = new ScreenExtendService(Connections);
+        EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         ScreenExtend.GetSinkDisplayInfo = () =>
@@ -236,6 +244,15 @@ public sealed class MacAppHost : IAsyncDisposable
         return true;
     }
 
+    private static string DesktopDirectory()
+    {
+        var dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir)) return dir;
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var desk = Path.Combine(home, "Desktop");
+        return Directory.Exists(desk) ? desk : home;
+    }
+
     private static bool IsLocalTarget(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -250,6 +267,7 @@ public sealed class MacAppHost : IAsyncDisposable
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         ScreenExtend.Dispose();
+        EdgeDrag.Dispose();
         Capture.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         if (ReferenceEquals(_instance, this))

@@ -80,7 +80,12 @@ public enum MessageType : byte
     /// <summary>电脑扩展屏：任一方结束会话。</summary>
     ScreenExtendStop = 83,
     /// <summary>电脑扩展屏：JPEG 帧（Bulk；见 ScreenExtendFrameCodec）。</summary>
-    ScreenExtendFrame = 84
+    ScreenExtendFrame = 84,
+
+    /// <summary>穿边拖文件：光标所在机器请回报放下目录。</summary>
+    EdgeDragQuery = 85,
+    /// <summary>穿边拖文件：放下目录（接收端绝对路径）。</summary>
+    EdgeDragPlace = 86
 }
 
 public readonly struct NetMessage
@@ -597,6 +602,18 @@ public sealed class ScreenExtendRejectPayload
 {
     public string SessionId { get; set; } = "";
     public string Reason { get; set; } = "";
+}
+
+public sealed class EdgeDragQueryPayload
+{
+    public string SessionId { get; set; } = "";
+}
+
+public sealed class EdgeDragPlacePayload
+{
+    public string SessionId { get; set; } = "";
+    /// <summary>接收端上的绝对目录。空表示放不了。</summary>
+    public string Directory { get; set; } = "";
 }
 
 public sealed class ScreenExtendStopPayload

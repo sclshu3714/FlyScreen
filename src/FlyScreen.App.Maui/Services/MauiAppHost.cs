@@ -34,6 +34,7 @@ public sealed class MauiAppHost : IAsyncDisposable
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public FileTransferService Transfers { get; }
+    public EdgeFileDragService EdgeDrag { get; }
     public ScreenExtendService ScreenExtend { get; }
     public IMauiPlatformServices Platform => _platform;
 
@@ -63,7 +64,10 @@ public sealed class MauiAppHost : IAsyncDisposable
         ProgramShareService.Attach(Connections);
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, ResolveEdgeDropDirectory);
+        EdgeDrag.StatusMessage += PublishStatus;
         ScreenExtend = new ScreenExtendService(Connections);
+        EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.StatusMessage += PublishStatus;
 #if !WINDOWS
         ScreenExtend.ShouldAcceptOffer = (_, _) => false;
@@ -116,6 +120,15 @@ public sealed class MauiAppHost : IAsyncDisposable
         };
     }
 
+    private string ResolveEdgeDropDirectory()
+    {
+#if WINDOWS
+        return FlyScreen.Input.WindowsDropFolder.Resolve();
+#else
+        return Transfers.InboxDirectory;
+#endif
+    }
+
     /// <summary>由 MauiProgram / 平台启动代码注入 Windows/Android 实现。</summary>
     public void AttachPlatform(IMauiPlatformServices platform)
     {
@@ -124,6 +137,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         _platform.DisposeTray();
         _platform = platform ?? NullMauiPlatformServices.Instance;
         Transfers.SetClipboardSink(_platform.ClipboardSink);
+        _platform.AttachEdgeFileDrag(EdgeDrag);
         _platform.ControlTargetChanged += peer =>
         {
             if (peer == null)
@@ -690,6 +704,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         _platform.StopDesktopInput();
         _platform.DisposeTray();
         ScreenExtend.Dispose();
+        EdgeDrag.Dispose();
         LayoutSync.Detach();
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();

@@ -19,6 +19,9 @@ public interface IMauiPlatformServices
     /// </summary>
     void SetRemotePointerSuppressed(bool suppressed);
 
+    /// <summary>Windows 桌面：把穿边拖文件接到键鼠钩子。其它端忽略。</summary>
+    void AttachEdgeFileDrag(EdgeFileDragService drag) { }
+
     void StartDesktopInput();
     void StopDesktopInput();
     void SetEasyMouse(bool enabled);
