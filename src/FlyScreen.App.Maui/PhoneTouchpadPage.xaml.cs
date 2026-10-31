@@ -32,6 +32,14 @@ public partial class PhoneTouchpadPage : ContentPage
     private bool _keyboardWasComposing;
     private CancellationTokenSource? _keyboardCommitCts;
     private long _lastClickTick;
+    private Task _keyChain = Task.CompletedTask;
+    private long _kbSessionTick;
+    private string? _kbSessionPeer;
+    private bool _latchedShift;
+    private bool _latchedCtrl;
+    private CancellationTokenSource? _modReleaseCts;
+    /// <summary>选择模式下 Shift/Ctrl 按住一小段，连按方向键不必每次重新按下修饰键。</summary>
+    private const int ModHoldMs = 220;
 
     public PhoneTouchpadPage(string targetPeer)
     {
@@ -44,6 +52,11 @@ public partial class PhoneTouchpadPage : ContentPage
         AttachButtonZone(RightZone, button: 1);
         AttachWheelZone();
         KeyboardEntry.TextChanged += OnKeyboardTextChanged;
+        if (KeyboardEntry is PhoneImeEntry remoteKeys)
+        {
+            remoteKeys.RemoteText += OnRemoteImeText;
+            remoteKeys.RemoteKey += OnRemoteImeKey;
+        }
         KeyboardEntry.HandlerChanged += (_, _) => ApplyPhoneImeInputType();
         KeyboardEntry.Focused += (_, _) => ApplyPhoneImeInputType();
         Loaded += OnLoaded;
@@ -70,6 +83,8 @@ public partial class PhoneTouchpadPage : ContentPage
         _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
         _keyboardCommitCts?.Cancel();
+        _modReleaseCts?.Cancel();
+        EnqueueAlways(ReleaseLatchedModsAsync);
         _host.Platform.SetRemotePointerSuppressed(false);
     }
 
@@ -138,7 +153,11 @@ public partial class PhoneTouchpadPage : ContentPage
                 EntryX = _cursorNx,
                 EntryY = _cursorNy
             }));
-        StatusLabel.Text = $"控制目标：{_activePeer}";
+        var label = $"控制目标：{_activePeer}";
+        if (MainThread.IsMainThread)
+            StatusLabel.Text = label;
+        else
+            MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = label);
     }
 
     private void UpdateCursorDot(int dx, int dy)
@@ -181,6 +200,10 @@ public partial class PhoneTouchpadPage : ContentPage
         else
         {
             _keyboardCommitCts?.Cancel();
+            _modReleaseCts?.Cancel();
+            _kbSessionTick = 0;
+            _kbSessionPeer = null;
+            EnqueueAlways(ReleaseLatchedModsAsync);
             KeyboardEntry.Unfocus();
             RefreshStatus();
         }
@@ -333,7 +356,7 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private void OnKeyboardTextChanged(object? sender, TextChangedEventArgs e)
     {
-        if (_suppressKeyboardSync || !_keyboardOpen) return;
+        if (UsesRemoteImeConnection() || _suppressKeyboardSync || !_keyboardOpen) return;
 
         // 拼音组字中：绝不提交/清空，否则系统候选栏会被掐掉
         if (IsPhoneImeComposing())
@@ -359,7 +382,165 @@ public partial class PhoneTouchpadPage : ContentPage
     }
 
     private void KeyboardEntry_Completed(object? sender, EventArgs e)
-        => _ = FlushKeyboardNowAsync();
+    {
+        if (UsesRemoteImeConnection()) return;
+        _ = FlushKeyboardNowAsync();
+    }
+
+    private bool UsesRemoteImeConnection()
+    {
+#if ANDROID
+        return KeyboardEntry.Handler?.PlatformView is Platforms.Android.PhoneRemoteEditText;
+#else
+        return false;
+#endif
+    }
+
+    private void OnRemoteImeText(string text)
+    {
+        if (!_keyboardOpen || text.Length == 0) return;
+        Enqueue(() => SendRemoteTextAsync(text));
+    }
+
+    private void OnRemoteImeKey(ushort vk, bool extended, bool shift, bool ctrl)
+    {
+        if (!_keyboardOpen) return;
+        Enqueue(() => SendTapAsync(vk, extended, shift, ctrl));
+    }
+
+    private void Enqueue(Func<Task> work)
+    {
+        var previous = _keyChain;
+        _keyChain = RunAfterAsync(previous, work, requireKeyboard: true);
+    }
+
+    /// <summary>键盘已经关掉时也要执行，用来松开还按着的 Shift/Ctrl。</summary>
+    private void EnqueueAlways(Func<Task> work)
+    {
+        var previous = _keyChain;
+        _keyChain = RunAfterAsync(previous, work, requireKeyboard: false);
+    }
+
+    private async Task RunAfterAsync(Task previous, Func<Task> work, bool requireKeyboard)
+    {
+        try { await previous.ConfigureAwait(false); }
+        catch { /* 上一笔失败不堵住后续按键 */ }
+
+        if (requireKeyboard && !_keyboardOpen) return;
+        try { await work().ConfigureAwait(false); }
+        catch { /* 单次发送失败忽略 */ }
+    }
+
+    private async Task SendRemoteTextAsync(string text)
+    {
+        var chunk = new System.Text.StringBuilder();
+        foreach (var ch in text)
+        {
+            if (ch is '\n' or '\r')
+            {
+                await FlushRemoteChunkAsync(chunk);
+                if (ch == '\n')
+                    await SendTapAsync(0x0D, extended: false, shift: false, ctrl: false);
+                continue;
+            }
+
+            chunk.Append(ch);
+        }
+
+        await FlushRemoteChunkAsync(chunk);
+    }
+
+    private async Task FlushRemoteChunkAsync(System.Text.StringBuilder chunk)
+    {
+        if (chunk.Length == 0) return;
+        var text = chunk.ToString();
+        chunk.Clear();
+        await EnsureKeyboardSessionAsync();
+        if (string.IsNullOrEmpty(_activePeer)) return;
+        await _host.Connections.SendToAsync(_activePeer, MessageType.KeyEvent,
+            MessageCodec.JsonBytes(new KeyEventPayload { Text = text }));
+    }
+
+    private async Task SendTapAsync(ushort vk, bool extended, bool shift, bool ctrl)
+    {
+        await EnsureKeyboardSessionAsync();
+        if (string.IsNullOrEmpty(_activePeer)) return;
+
+        _modReleaseCts?.Cancel();
+        if (shift != _latchedShift)
+        {
+            await SendKeyStateAsync(0x10, shift);
+            _latchedShift = shift;
+        }
+
+        if (ctrl != _latchedCtrl)
+        {
+            await SendKeyStateAsync(0x11, ctrl);
+            _latchedCtrl = ctrl;
+        }
+
+        await SendKeyStateAsync(vk, down: true, extended);
+        await SendKeyStateAsync(vk, down: false, extended);
+        if (_latchedShift || _latchedCtrl)
+            ScheduleModRelease();
+    }
+
+    /// <summary>键盘会话里只在第一次把焦点切到电脑，避免每个方向键都发一遍 SwitchFocus。</summary>
+    private async Task EnsureKeyboardSessionAsync()
+    {
+        ResolveActivePeer();
+        if (string.IsNullOrEmpty(_activePeer)) return;
+        if (_kbSessionPeer == _activePeer && _kbSessionTick != 0)
+            return;
+
+        var ok = await _host.Connections.SendToAsync(_activePeer, MessageType.SwitchFocus,
+            MessageCodec.JsonBytes(new SwitchFocusPayload
+            {
+                TargetMachine = _activePeer,
+                EntryX = _cursorNx,
+                EntryY = _cursorNy
+            }));
+        if (!ok) return;
+        _kbSessionTick = Environment.TickCount64;
+        _kbSessionPeer = _activePeer;
+    }
+
+    private void ScheduleModRelease()
+    {
+        _modReleaseCts?.Cancel();
+        _modReleaseCts = new CancellationTokenSource();
+        var ct = _modReleaseCts.Token;
+        _ = ReleaseModsAfterAsync(ct);
+    }
+
+    private async Task ReleaseModsAfterAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(ModHoldMs, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        EnqueueAlways(ReleaseLatchedModsAsync);
+    }
+
+    private async Task ReleaseLatchedModsAsync()
+    {
+        if (_latchedCtrl)
+        {
+            _latchedCtrl = false;
+            await SendKeyStateAsync(0x11, down: false);
+        }
+
+        if (_latchedShift)
+        {
+            _latchedShift = false;
+            await SendKeyStateAsync(0x10, down: false);
+        }
+    }
 
     private async Task CommitKeyboardAfterIdleAsync(CancellationToken ct)
     {
@@ -411,8 +592,11 @@ public partial class PhoneTouchpadPage : ContentPage
         {
             if (KeyboardEntry.Handler?.PlatformView is not Android.Widget.EditText edit) return;
             edit.ShowSoftInputOnFocus = true;
+            var options = Platforms.Android.PhoneRemoteEditText.RemoteImeOptions();
+            if (edit.InputType == Android.Text.InputTypes.ClassText && edit.ImeOptions == options)
+                return;
             edit.InputType = Android.Text.InputTypes.ClassText;
-            edit.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
+            edit.ImeOptions = options;
             edit.SetSingleLine(true);
             try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
         }
@@ -573,11 +757,11 @@ public partial class PhoneTouchpadPage : ContentPage
         await SendKeyStateAsync(vk, down: false);
     }
 
-    private async Task SendKeyStateAsync(ushort vk, bool down)
+    private async Task SendKeyStateAsync(ushort vk, bool down, bool extended = false)
     {
         if (string.IsNullOrEmpty(_activePeer)) return;
         await _host.Connections.SendToAsync(_activePeer, MessageType.KeyEvent,
-            MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down }));
+            MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down, Extended = extended }));
     }
 
     private async void Back_Clicked(object? sender, EventArgs e)

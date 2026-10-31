@@ -82,6 +82,52 @@ public static class MauiInputInjector
         NativeMethods.SendInput(1, [input], System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
     }
 
+    /// <summary>按 UTF-16 码元注入字符（KEYEVENTF_UNICODE），不经过键盘布局和剪贴板。</summary>
+    public static void InsertText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var batch = new List<NativeMethods.INPUT>(text.Length * 2);
+        foreach (var ch in text)
+        {
+            if (ch == '\r') continue;
+            if (ch == '\n')
+            {
+                FlushUnicode(batch);
+                Key(new KeyEventPayload { VirtualKey = 0x0D, Down = true });
+                Key(new KeyEventPayload { VirtualKey = 0x0D, Down = false });
+                continue;
+            }
+
+            batch.Add(UnicodeInput(ch, up: false));
+            batch.Add(UnicodeInput(ch, up: true));
+        }
+
+        FlushUnicode(batch);
+    }
+
+    private static NativeMethods.INPUT UnicodeInput(char ch, bool up)
+        => new()
+        {
+            type = NativeMethods.INPUT_KEYBOARD,
+            U = new NativeMethods.InputUnion
+            {
+                ki = new NativeMethods.KEYBDINPUT
+                {
+                    wVk = 0,
+                    wScan = ch,
+                    dwFlags = NativeMethods.KEYEVENTF_UNICODE | (up ? NativeMethods.KEYEVENTF_KEYUP : 0u),
+                    dwExtraInfo = InjectMarker
+                }
+            }
+        };
+
+    private static void FlushUnicode(List<NativeMethods.INPUT> batch)
+    {
+        if (batch.Count == 0) return;
+        NativeMethods.SendInput((uint)batch.Count, batch.ToArray(), System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
+        batch.Clear();
+    }
+
     /// <summary>注入 Ctrl+V（或 Shift+Insert）完成粘贴。</summary>
     public static void InjectPaste(bool shiftInsert = false)
     {

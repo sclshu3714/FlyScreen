@@ -297,6 +297,12 @@ public sealed class KeyEventPayload
     public ushort VirtualKey { get; set; }
     public bool Down { get; set; }
     public bool Extended { get; set; }
+
+    /// <summary>
+    /// 非空时按 Unicode 插入到焦点处，忽略 VirtualKey。
+    /// 不经剪贴板，避免盖掉对端剪贴板，也避免字母被对端输入法再组字。
+    /// </summary>
+    public string? Text { get; set; }
 }
 
 /// <summary>跨屏中文组字：拼音行 + 候选列表（手机置顶展示）。</summary>

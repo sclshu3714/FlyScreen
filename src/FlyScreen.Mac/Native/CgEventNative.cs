@@ -43,6 +43,9 @@ internal static class CgEventNative
     public static extern IntPtr CGEventCreateKeyboardEvent(IntPtr source, ushort virtualKey, [MarshalAs(UnmanagedType.I1)] bool keyDown);
 
     [DllImport(CoreGraphics)]
+    public static extern void CGEventKeyboardSetUnicodeString(IntPtr evt, nuint length, ushort[] characters);
+
+    [DllImport(CoreGraphics)]
     public static extern IntPtr CGEventCreateScrollWheelEvent(IntPtr source, uint units, int wheelCount, int wheel1);
 
     [DllImport(CoreGraphics)]

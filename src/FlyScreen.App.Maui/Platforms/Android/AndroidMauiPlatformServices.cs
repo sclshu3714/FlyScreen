@@ -520,6 +520,10 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
                 }
             }
 
+            // 输入法编辑条用的占位符，不能当成用户剪贴板同步到电脑
+            if (PhoneRemoteEditText.IsRemoteOnlyText(text))
+                text = null;
+
             var data = new ClipboardInlineData { Text = text, Html = html, Png = png };
             return data.IsEmpty ? null : data;
         }
