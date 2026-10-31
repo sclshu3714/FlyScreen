@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:FlyScreen.AppMaui"
              x:Class="FlyScreen.AppMaui.PhoneTouchpadPage"
              Title="触控板"
              NavigationPage.HasNavigationBar="False"
@@ -101,12 +102,12 @@
               Padding="10,8" ColumnDefinitions="*,Auto" ColumnSpacing="8"
               BackgroundColor="{StaticResource SubtleBg}">
           <!-- StyleClass=PhoneIme：Android 固定 ClassText，避免 Entry 默认 NoSuggestions 掐掉拼音候选 -->
-          <Entry x:Name="KeyboardEntry"
+          <local:PhoneImeEntry x:Name="KeyboardEntry"
                  StyleClass="PhoneIme"
                  Placeholder="输入法/手写 → 直接发到电脑（本地不保留）"
                  FontSize="15"
                  HeightRequest="40"
-                 ReturnType="Done"
+                 ReturnType="Default"
                  IsTextPredictionEnabled="True"
                  IsSpellCheckEnabled="True"
                  BackgroundColor="Transparent"

@@ -16,6 +16,9 @@ public static class MauiProgram
         // 日志/程序/收件箱 → Android/data/com.xuanniao.flyscreen/files（无需所有文件访问）
         Platforms.Android.AndroidPublicDataRoot.TryBootstrap();
 
+        builder.ConfigureMauiHandlers(handlers =>
+            handlers.AddHandler<PhoneImeEntry, Platforms.Android.PhoneImeEntryHandler>());
+
         // 触控板「键盘」条：允许系统拼音候选（勿用 NoSuggestions）
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenPhoneIme", (handler, view) =>
         {
@@ -24,7 +27,7 @@ public static class MauiProgram
             if (handler.PlatformView is not Android.Widget.EditText edit) return;
             edit.ShowSoftInputOnFocus = true;
             edit.InputType = Android.Text.InputTypes.ClassText;
-            edit.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
+            edit.ImeOptions = Platforms.Android.PhoneRemoteEditText.RemoteImeOptions();
             edit.SetSingleLine(true);
             try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
         });

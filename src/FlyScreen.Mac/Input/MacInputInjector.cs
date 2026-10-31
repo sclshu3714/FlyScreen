@@ -88,7 +88,13 @@ public sealed class MacInputInjector : IMacInputInjector
         if (!AccessibilityPermission.IsMacOS) return;
         try
         {
-            // VirtualKey 为 Windows VK；完整映射表后续补齐。常用字母区粗映射。
+            if (!string.IsNullOrEmpty(p.Text))
+            {
+                InsertText(p.Text);
+                return;
+            }
+
+            // VirtualKey 为 Windows VK
             var cgKey = MapVirtualKeyToCg(p.VirtualKey);
             var evt = CgEventNative.CGEventCreateKeyboardEvent(IntPtr.Zero, cgKey, p.Down);
             if (evt == IntPtr.Zero) return;
@@ -96,6 +102,44 @@ public sealed class MacInputInjector : IMacInputInjector
             CgEventNative.CFRelease(evt);
         }
         catch { /* ignore */ }
+    }
+
+    private void InsertText(string text)
+    {
+        var units = new List<ushort>(text.Length);
+        foreach (var ch in text)
+        {
+            if (ch == '\r') continue;
+            if (ch == '\n')
+            {
+                FlushUnicode(units);
+                Key(new KeyEventPayload { VirtualKey = 0x0D, Down = true });
+                Key(new KeyEventPayload { VirtualKey = 0x0D, Down = false });
+                continue;
+            }
+
+            units.Add(ch);
+        }
+
+        FlushUnicode(units);
+    }
+
+    private static void FlushUnicode(List<ushort> units)
+    {
+        if (units.Count == 0) return;
+        var chars = units.ToArray();
+        units.Clear();
+        PostUnicode(chars, down: true);
+        PostUnicode(chars, down: false);
+    }
+
+    private static void PostUnicode(ushort[] chars, bool down)
+    {
+        var evt = CgEventNative.CGEventCreateKeyboardEvent(IntPtr.Zero, 0, down);
+        if (evt == IntPtr.Zero) return;
+        CgEventNative.CGEventKeyboardSetUnicodeString(evt, (nuint)chars.Length, chars);
+        CgEventNative.CGEventPost(CgEventNative.kCGHIDEventTap, evt);
+        CgEventNative.CFRelease(evt);
     }
 
     private static void PostMouse(uint type, CgEventNative.CGPoint pt, uint button)
@@ -124,11 +168,49 @@ public sealed class MacInputInjector : IMacInputInjector
             0x09 => 48,  // Tab
             0x0D => 36,  // Return
             0x1B => 53,  // Escape
+            0x14 => 57,  // Caps Lock
             0x20 => 49,  // Space
+            0x21 => 116, // Page Up
+            0x22 => 121, // Page Down
+            0x23 => 119, // End
+            0x24 => 115, // Home
             0x25 => 123, // Left
             0x26 => 126, // Up
             0x27 => 124, // Right
             0x28 => 125, // Down
+            0x2E => 117, // Forward Delete
+            0x10 or 0xA0 => 56, // Shift
+            0xA1 => 60, // Right Shift
+            0x11 or 0xA2 => 59, // Control
+            0xA3 => 62, // Right Control
+            0x12 or 0xA4 => 58, // Option
+            0xA5 => 61, // Right Option
+            0x41 => 0,  // A
+            0x42 => 11, // B
+            0x43 => 8,  // C
+            0x44 => 2,  // D
+            0x45 => 14, // E
+            0x46 => 3,  // F
+            0x47 => 5,  // G
+            0x48 => 4,  // H
+            0x49 => 34, // I
+            0x4A => 38, // J
+            0x4B => 40, // K
+            0x4C => 37, // L
+            0x4D => 46, // M
+            0x4E => 45, // N
+            0x4F => 31, // O
+            0x50 => 35, // P
+            0x51 => 12, // Q
+            0x52 => 15, // R
+            0x53 => 1,  // S
+            0x54 => 17, // T
+            0x55 => 32, // U
+            0x56 => 9,  // V
+            0x57 => 13, // W
+            0x58 => 7,  // X
+            0x59 => 16, // Y
+            0x5A => 6,  // Z
             _ => vk
         };
     }

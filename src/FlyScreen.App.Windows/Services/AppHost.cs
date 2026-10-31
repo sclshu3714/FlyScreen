@@ -430,7 +430,10 @@ public sealed class AppHost : IAsyncDisposable
                 if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
-                InputInjector.Key(p);
+                if (!string.IsNullOrEmpty(p.Text))
+                    InputInjector.InsertText(p.Text);
+                else
+                    InputInjector.Key(p);
                 break;
             }
             case MessageType.SwitchFocus:

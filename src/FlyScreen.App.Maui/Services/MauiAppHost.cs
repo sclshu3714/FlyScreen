@@ -605,7 +605,10 @@ public sealed class MauiAppHost : IAsyncDisposable
                 if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
-                _platform.InjectKey(p.VirtualKey, p.Down, p.Extended);
+                if (!string.IsNullOrEmpty(p.Text))
+                    _platform.InjectText(p.Text);
+                else
+                    _platform.InjectKey(p.VirtualKey, p.Down, p.Extended);
                 break;
             }
             case MessageType.CompositionUpdate:
