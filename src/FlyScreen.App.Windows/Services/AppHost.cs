@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
@@ -16,6 +17,7 @@ public sealed class AppHost : IAsyncDisposable
     public ConnectionManager Connections { get; }
     public InputRouter Input { get; }
     public FileTransferService Transfers { get; }
+    public EdgeFileDragService EdgeDrag { get; }
     public ClipboardMonitor Clipboard { get; }
     public ScreenExtendService ScreenExtend { get; }
     public ScreenExtendController ScreenExtendUi { get; }
@@ -41,8 +43,12 @@ public sealed class AppHost : IAsyncDisposable
         ProgramShareService.Attach(Connections);
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, WindowsDropFolder.Resolve);
+        EdgeDrag.StatusMessage += PublishStatus;
+        Input.EdgeFileDrag = EdgeDrag;
         Clipboard = new ClipboardMonitor(Settings, Transfers);
         ScreenExtend = new ScreenExtendService(Connections);
+        EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtendUi = new ScreenExtendController(ScreenExtend, Dispatcher.CurrentDispatcher);
         ScreenExtend.StatusMessage += PublishStatus;
         Input.IsEdgeCrossExcluded = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
@@ -541,6 +547,7 @@ public sealed class AppHost : IAsyncDisposable
         ScreenExtendUi.Dispose();
         ScreenExtend.Dispose();
         Clipboard.Dispose();
+        EdgeDrag.Dispose();
         Input.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         Settings.Save();

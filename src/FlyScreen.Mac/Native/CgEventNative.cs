@@ -63,6 +63,19 @@ internal static class CgEventNative
     [DllImport(CoreGraphics)]
     public static extern void CGWarpMouseCursorPosition(CGPoint newCursorPosition);
 
+    [DllImport(CoreGraphics)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool CGEventSourceButtonState(int stateId, uint button);
+
+    [DllImport(CoreGraphics)]
+    public static extern uint CGMainDisplayID();
+
+    [DllImport(CoreGraphics)]
+    public static extern nuint CGDisplayPixelsWide(uint display);
+
+    [DllImport(CoreGraphics)]
+    public static extern nuint CGDisplayPixelsHigh(uint display);
+
     [DllImport(ApplicationServices)]
     public static extern bool AXIsProcessTrusted();
 

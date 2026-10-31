@@ -66,6 +66,7 @@ public partial class MainWindow : Window
     private bool _logToolModeUpdating;
     private bool _logToolsCompact;
     private bool _openProgramLog;
+    private EdgeFileDragOverlay? _edgeFileDrag;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -280,6 +281,7 @@ public partial class MainWindow : Window
 
     private async void OnOpened(object? sender, EventArgs e)
     {
+        _edgeFileDrag = new EdgeFileDragOverlay(this, _host);
         // 应用层可能已写入含 CJK 的 UiFont
         if (Application.Current?.Resources.TryGetResource("UiFont", null, out var font) == true
             && font is FontFamily ff)
@@ -340,6 +342,8 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         _refreshTimer?.Stop();
+        _edgeFileDrag?.Dispose();
+        _edgeFileDrag = null;
     }
 
     private void BuildPlatformActions()

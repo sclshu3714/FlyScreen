@@ -113,4 +113,15 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
 
     public bool GetAutoStartEnabled() => false;
     public void SetAutoStartEnabled(bool enabled) { }
+
+    public bool CanFollowEdgeFileDrag => _host.CanFollowEdgeFileDrag;
+
+    public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
+        => _host.OfferEdgeFileDrag(paths, exitSide);
+
+    public event Action<bool>? EdgeFileDragActiveChanged
+    {
+        add => _host.EdgeDrag.ActiveChanged += value;
+        remove => _host.EdgeDrag.ActiveChanged -= value;
+    }
 }

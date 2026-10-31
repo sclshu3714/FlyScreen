@@ -17,6 +17,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private readonly ScreenExtendService _screenExtend;
     private readonly MauiClipboardApplySink _clipSink = new();
     private MauiInputRouter? _router;
+    private EdgeFileDragService? _edgeDrag;
     private MauiTextClipboardMonitor? _clipMonitor;
     private MauiTrayService? _tray;
     private MauiScreenExtendController? _screenExtendUi;
@@ -53,10 +54,18 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void SetRemotePointerSuppressed(bool suppressed) { /* 桌面不需要触控板屏蔽 */ }
 
+    public void AttachEdgeFileDrag(EdgeFileDragService drag)
+    {
+        _edgeDrag = drag;
+        if (_router != null)
+            _router.EdgeFileDrag = drag;
+    }
+
     public void StartDesktopInput()
     {
         _router?.Dispose();
         _router = new MauiInputRouter(_settings, _connections);
+        _router.EdgeFileDrag = _edgeDrag;
         _router.EasyMouseEnabled = _settings.EasyMouse;
         _router.IsEdgeCrossExcluded = peer => _screenExtend.IsExcludedFromEdgeCross(peer);
         _router.ShouldPauseEasyMouseForExtend = () => _screenExtend.ShouldPauseLocalEasyMouse;

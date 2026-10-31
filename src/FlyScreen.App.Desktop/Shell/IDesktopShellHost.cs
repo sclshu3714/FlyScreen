@@ -54,4 +54,13 @@ public interface IDesktopShellHost
     void SetAutoStartEnabled(bool enabled);
 
     ObservableCollection<TransferItem> TransferItems { get; }
+
+    /// <summary>能在拖住文件时继续读本机指针，从而按布局穿到再下一台。</summary>
+    bool CanFollowEdgeFileDrag => false;
+
+    /// <summary>屏幕边缘收到文件拖拽。exitSide：-1 左、+1 右、-2 上、+2 下。</summary>
+    void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide) { }
+
+    /// <summary>穿边拖拽开始或结束，用来收起挡住屏幕边缘的接收条。</summary>
+    event Action<bool>? EdgeFileDragActiveChanged { add { } remove { } }
 }

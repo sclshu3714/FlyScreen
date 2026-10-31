@@ -115,6 +115,43 @@ public sealed class X11InputInjector : ILinuxInputInjector, IDisposable
         catch { /* ignore */ }
     }
 
+    public bool TryReadPointer(out int x, out int y, out bool leftDown, out int screenW, out int screenH)
+    {
+        x = y = screenW = screenH = 0;
+        leftDown = false;
+        if (!IsAvailable) return false;
+        try
+        {
+            if (XQueryPointer(_display, _root, out _, out _, out var rx, out var ry, out _, out _, out var mask) == 0)
+                return false;
+            var screen = XDefaultScreen(_display);
+            screenW = Math.Max(1, XDisplayWidth(_display, screen));
+            screenH = Math.Max(1, XDisplayHeight(_display, screen));
+            x = rx;
+            y = ry;
+            leftDown = (mask & 256) != 0;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public void WarpToCenter()
+    {
+        if (!IsAvailable) return;
+        try
+        {
+            var screen = XDefaultScreen(_display);
+            var x = Math.Max(0, XDisplayWidth(_display, screen) / 2);
+            var y = Math.Max(0, XDisplayHeight(_display, screen) / 2);
+            _ = XWarpPointer(_display, IntPtr.Zero, _root, 0, 0, 0, 0, x, y);
+            _ = XFlush(_display);
+        }
+        catch { /* ignore */ }
+    }
+
     public bool TryGetPointerNormalized(out double nx, out double ny)
     {
         nx = ny = 0;

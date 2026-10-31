@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.Native;
+using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
 
@@ -38,6 +40,10 @@ public sealed class MauiInputRouter : IDisposable
     /// <summary>切换控制权后的短冷却，避免落在边缘时立刻被环形逻辑甩回。</summary>
     private long _switchCooldownUntilTick;
     private const int SwitchCooldownMs = 900;
+    private long _edgeFileWaitStart;
+
+    /// <summary>按住文件拖过屏幕边缘时，把路径交给布局里的下一台。</summary>
+    public EdgeFileDragService? EdgeFileDrag { get; set; }
     private const int LocalActivityGuardMs = 1000;
     private const int BriefRemoteMs = 450;
     /// <summary>本机是否为当前活动电脑（显示操作光标的那一台）。</summary>
@@ -152,6 +158,7 @@ public sealed class MauiInputRouter : IDisposable
 
         BecomeCursorOwner(broadcast: true);
         ControlTargetChanged?.Invoke(null);
+        EdgeFileDrag?.SetHover(null);
     }
 
     /// <summary>对端 SwitchFocus 到本机：显示光标并进入「被远程控制」状态。</summary>
@@ -247,6 +254,7 @@ public sealed class MauiInputRouter : IDisposable
         ControlTargetChanged?.Invoke(peer);
         var (sx, sy) = _remoteCursor.Clamped01();
         _ = SendSwitchAsync(peer, sx, sy);
+        EdgeFileDrag?.SetHover(peer);
     }
 
     /// <summary>控远端时将本机光标钉在虚拟桌面中部，用相对位移驱动对端虚拟坐标。</summary>
@@ -289,6 +297,14 @@ public sealed class MauiInputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
+        if (msg == NativeMethods.WM_LBUTTONUP && EdgeFileDrag?.IsActive == true)
+        {
+            EdgeFileDragCapture.Disarm();
+            EdgeFileDrag.Finish();
+            if (_controllingRemote)
+                return (IntPtr)1;
+        }
+
         VirtualScreen.GetBounds(out var screenL, out var screenT, out var screenW, out var screenH);
         var centerX = screenL + screenW / 2;
         var centerY = screenT + screenH / 2;
@@ -326,12 +342,35 @@ public sealed class MauiInputRouter : IDisposable
             var onEdge = info.pt.X <= screenL || info.pt.X >= rightObs || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
+            var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            if (leftDown)
+                EdgeFileDragCapture.Arm();
+            if (leftDown && onEdge && !EdgeFileDragCapture.HasPaths)
+            {
+                if (_edgeFileWaitStart == 0)
+                    _edgeFileWaitStart = Environment.TickCount64;
+                if (Environment.TickCount64 - _edgeFileWaitStart < 100)
+                    return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+            }
+            else if (!onEdge)
+            {
+                _edgeFileWaitStart = 0;
+            }
+
             var pauseExtend = ShouldPauseEasyMouseForExtend?.Invoke() == true;
             if (EasyMouseEnabled && _settings.EasyMouse && !pauseExtend && !InSwitchCooldown())
             {
                 if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                         out var peer, out var entryX, out var entryY, out var peerSide))
                 {
+                    if (leftDown
+                        && EdgeFileDragCapture.TryCopyPaths(out var dragged)
+                        && EdgeFileDrag?.TryBegin(dragged) == true)
+                    {
+                        EdgeFileDragCapture.DismissLocalDrag();
+                        EdgeFileDragCapture.Disarm();
+                    }
+
                     SwitchToPeer(peer!, entryX, entryY, peerSide);
                     return (IntPtr)1;
                 }
