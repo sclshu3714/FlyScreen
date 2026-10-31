@@ -105,7 +105,7 @@
                  StyleClass="PhoneIme"
                  Placeholder="输入法/手写 → 直接发到电脑（本地不保留）"
                  FontSize="15"
-                 HeightRequest="35"
+                 HeightRequest="40"
                  ReturnType="Done"
                  IsTextPredictionEnabled="True"
                  IsSpellCheckEnabled="True"
