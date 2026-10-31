@@ -5,3 +5,5 @@ obj/
 *.suo
 *.swp
 Thumbs.db
+/artifacts/release
+/build
