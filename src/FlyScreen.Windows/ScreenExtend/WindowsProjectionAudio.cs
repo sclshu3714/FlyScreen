@@ -53,6 +53,8 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
     public void StopCapture()
     {
         _captureRun = false;
+        lock (_capGate)
+            _mute?.Disarm();
         var thread = _thread;
         _thread = null;
         try { thread?.Join(5000); } catch { /* ignore */ }
@@ -747,6 +749,9 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
                 return null;
             }
         }
+
+        /// <summary>先停掉“保持静音”。采集线程退出前若先恢复音量，回调还会把静音设回去。</summary>
+        public void Disarm() => _keepMuted = false;
 
         public void Restore()
         {

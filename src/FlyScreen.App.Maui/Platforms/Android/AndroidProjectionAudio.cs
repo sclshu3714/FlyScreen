@@ -91,6 +91,7 @@ public sealed class AndroidProjectionAudio : IProjectionAudioEngine
     public void StopCapture()
     {
         _run = false;
+        _holdDuck = false;
         try { _record?.Stop(); } catch { /* ignore */ }
         try { _thread?.Join(800); } catch { /* ignore */ }
         try { _record?.Release(); } catch { /* ignore */ }
@@ -180,6 +181,8 @@ public sealed class AndroidProjectionAudio : IProjectionAudioEngine
     {
         _holdDuck = false;
         UnwatchVolume();
+        for (var i = 0; i < 40 && Volatile.Read(ref _applyingDuck) != 0; i++)
+            Thread.Sleep(5);
         if (_savedMusic < 0) return;
         var saved = _savedMusic;
         _savedMusic = -1;
@@ -199,9 +202,11 @@ public sealed class AndroidProjectionAudio : IProjectionAudioEngine
 
     private void ForceMusicZero(bool remember)
     {
+        if (!_holdDuck) return;
         if (Interlocked.Exchange(ref _applyingDuck, 1) == 1) return;
         try
         {
+            if (!_holdDuck) return;
             var am = Audio();
             if (am == null) return;
             var cur = am.GetStreamVolume(global::Android.Media.Stream.Music);

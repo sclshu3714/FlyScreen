@@ -234,7 +234,8 @@ public sealed class LinuxProjectionAudio : IProjectionAudioEngine
         if (!_holdSink) return;
         if (!string.Equals(cur, "flyscreen_proj", StringComparison.Ordinal))
             Run("pactl", "set-default-sink flyscreen_proj");
-        if (_holdSink) MoveInputsTo("flyscreen_proj");
+        if (!_holdSink) return;
+        MoveInputsTo("flyscreen_proj");
     }
 
     private static void MoveInputsTo(string sink)
