@@ -146,8 +146,13 @@ public sealed class ScreenExtendService : IDisposable
             try
             {
                 var stop = new ScreenExtendStopPayload { SessionId = sid.ToString("D"), Reason = reason };
-                await _connections.SendToAsync(peer, MessageType.ScreenExtendStop,
-                    MessageCodec.JsonBytes(stop)).ConfigureAwait(false);
+                var bytes = MessageCodec.JsonBytes(stop);
+                var sent = await _connections.SendToAsync(peer, MessageType.ScreenExtendStop, bytes)
+                    .ConfigureAwait(false);
+                // 画面在 bulk 上。控制面没写出去时，把停止再写到 bulk，接收端才会关播放器。
+                if (!sent)
+                    await _connections.SendOnBulkAsync(peer, MessageType.ScreenExtendStop, bytes)
+                        .ConfigureAwait(false);
             }
             catch { /* ignore */ }
         }
@@ -155,14 +160,15 @@ public sealed class ScreenExtendService : IDisposable
         EndSessionLocal("stopped");
     }
 
-    public async Task SendFrameAsync(ReadOnlyMemory<byte> jpeg, int width, int height, CancellationToken ct = default)
+    public Task SendFrameAsync(ReadOnlyMemory<byte> jpeg, int width, int height, CancellationToken ct = default)
     {
         string? peer;
         Guid sid;
         int seq;
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.Host || string.IsNullOrEmpty(Peer)) return;
+            if (Role != ScreenExtendRole.Host || string.IsNullOrEmpty(Peer))
+                return Task.CompletedTask;
             peer = Peer;
             sid = SessionId;
             seq = ++_frameSeq;
@@ -171,13 +177,14 @@ public sealed class ScreenExtendService : IDisposable
         var payload = ScreenExtendFrameCodec.Encode(sid, width, height, seq, jpeg.Span);
         try
         {
-            await _connections.SendToAsync(peer!, MessageType.ScreenExtendFrame, payload)
-                .ConfigureAwait(false);
+            _connections.SendLatest(peer!, MessageType.ScreenExtendFrame, payload);
         }
         catch
         {
             // 推流失败不立刻拆会话；由心跳/断连清理
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>主机把一块 PCM s16le 送给当前从机。积压过多时丢掉，避免声音把链路堵住。</summary>

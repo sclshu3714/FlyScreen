@@ -29,8 +29,10 @@ public sealed class FlyScreenMediaProjectionService : Service
     public const string ActionStop = "flyscreen.media.STOP";
     private const int NotifyId = 47;
     private const string ChannelId = "flyscreen.projection";
-    private const int JpegQuality = 75;
-    private const long MinFrameIntervalMs = 80;
+    /// <summary>未指定分辨率时的编码长边。用户所选分辨率更高时按所选值编码。</summary>
+    private const int EncodeLongEdge = 1920;
+    /// <summary>去黑边已稳住后，不必每帧重测边缘。</summary>
+    private const long CropMeasureIntervalMs = 500;
 
     public static FlyScreenMediaProjectionService? Instance { get; private set; }
 
@@ -41,6 +43,9 @@ public sealed class FlyScreenMediaProjectionService : Service
     private static int s_height = 1920;
     private static int s_dpi = 320;
     private static int s_capLong = 1920;
+    private static bool s_cropBlackBars;
+    private static int s_jpegQuality = ProjectionDisplayPresets.DefaultJpegQuality;
+    private static int s_frameIntervalMs = ProjectionDisplayPresets.FpsToIntervalMs(ProjectionDisplayPresets.DefaultFps);
     private static ScreenExtendService? s_screenExtend;
     private static TaskCompletionSource<bool>? s_started;
 
@@ -53,6 +58,8 @@ public sealed class FlyScreenMediaProjectionService : Service
     private MediaProjection.Callback? _projectionCb;
     private ImageReader.IOnImageAvailableListener? _imageListener;
     private long _lastFrameMs;
+    private int _encodeBusy;
+    private int[]? _lineBuf;
     private bool _foregrounded;
     private Bitmap? _scratchBitmap;
     private Bitmap? _frameBitmap;
@@ -64,6 +71,15 @@ public sealed class FlyScreenMediaProjectionService : Service
     /// <summary>编码长边上限。虚拟屏本身保持手机真实像素。</summary>
     private int _capLong;
     private bool _loggedCrop;
+    private bool _cropBlackBars;
+    private int _jpegQuality = ProjectionDisplayPresets.DefaultJpegQuality;
+    private int _frameIntervalMs = ProjectionDisplayPresets.FpsToIntervalMs(ProjectionDisplayPresets.DefaultFps);
+    private readonly ProjectionCropHold _cropHold = new();
+    private Bitmap? _scaledBitmap;
+    private Bitmap? _croppedBitmap;
+    private ProjectionBlackBorder _stableCrop;
+    private bool _hasStableCrop;
+    private long _lastMeasureMs;
     private int _closing;
     private ScreenExtendService? _extend;
     private DisplayManager? _displayManager;
@@ -77,7 +93,10 @@ public sealed class FlyScreenMediaProjectionService : Service
         int width,
         int height,
         int dpi,
-        int capLong)
+        int capLong,
+        bool cropBlackBars,
+        int fps = ProjectionDisplayPresets.DefaultFps,
+        int jpegQuality = ProjectionDisplayPresets.DefaultJpegQuality)
     {
         var ctx = global::Android.App.Application.Context
                   ?? throw new InvalidOperationException("无 Application Context");
@@ -91,6 +110,9 @@ public sealed class FlyScreenMediaProjectionService : Service
             s_height = Math.Max(160, height);
             s_dpi = Math.Max(1, dpi);
             s_capLong = Math.Max(160, capLong);
+            s_cropBlackBars = cropBlackBars;
+            s_jpegQuality = ProjectionDisplayPresets.ClampJpegQuality(jpegQuality);
+            s_frameIntervalMs = ProjectionDisplayPresets.FpsToIntervalMs(fps);
             s_started = tcs;
         }
 
@@ -208,6 +230,9 @@ public sealed class FlyScreenMediaProjectionService : Service
         Intent? data;
         int w, h, dpi;
         ScreenExtendService? extend;
+        bool cropBlackBars;
+        int jpegQuality;
+        int frameIntervalMs;
         lock (Gate)
         {
             resultCode = s_resultCode;
@@ -216,6 +241,9 @@ public sealed class FlyScreenMediaProjectionService : Service
             h = s_height;
             dpi = s_dpi;
             extend = s_screenExtend;
+            cropBlackBars = s_cropBlackBars;
+            jpegQuality = s_jpegQuality;
+            frameIntervalMs = s_frameIntervalMs;
         }
 
         if (data == null || extend == null)
@@ -247,6 +275,11 @@ public sealed class FlyScreenMediaProjectionService : Service
             _readerThread.Start();
             _readerHandler = new Handler(_readerThread.Looper!);
             _extend = extend;
+            _cropBlackBars = cropBlackBars;
+            _jpegQuality = jpegQuality;
+            _frameIntervalMs = frameIntervalMs;
+            ResetCropState();
+            _loggedCrop = false;
             Interlocked.Exchange(ref _closing, 0);
             var fitted = ResolveCaptureSize(w, h, dpi);
             w = fitted.W;
@@ -264,7 +297,8 @@ public sealed class FlyScreenMediaProjectionService : Service
 
             WatchDisplayRotation();
             s_started?.TrySetResult(true);
-            AppLog.Info($"投影采集已启动 {w}x{h}@{dpi}dpi");
+            AppLog.Info($"投影采集已启动 {w}x{h}@{dpi}dpi · {1000 / Math.Max(1, frameIntervalMs)}帧 · 画质 {jpegQuality}"
+                        + (cropBlackBars ? " · 去黑边" : ""));
             return true;
         }
         catch (Exception ex)
@@ -452,6 +486,7 @@ public sealed class FlyScreenMediaProjectionService : Service
             _height = h;
             _dpi = dpi;
             _loggedCrop = false;
+            ResetCropState();
             RecycleBitmaps();
             return _virtualDisplay != null;
         }
@@ -477,33 +512,52 @@ public sealed class FlyScreenMediaProjectionService : Service
     {
         try { _scratchBitmap?.Recycle(); } catch { /* ignore */ }
         try { _frameBitmap?.Recycle(); } catch { /* ignore */ }
+        try { _scaledBitmap?.Recycle(); } catch { /* ignore */ }
+        try { _croppedBitmap?.Recycle(); } catch { /* ignore */ }
         _scratchBitmap = null;
         _frameBitmap = null;
+        _scaledBitmap = null;
+        _croppedBitmap = null;
     }
 
     private void OnImage(ImageReader reader, ScreenExtendService extend, int width, int height)
     {
         Image? image = null;
+        var handedOff = false;
         try
         {
             image = reader.AcquireLatestImage();
             if (image == null) return;
+            if (Volatile.Read(ref _closing) != 0) return;
 
             var now = System.Environment.TickCount64;
-            if (now - _lastFrameMs < MinFrameIntervalMs)
+            if (now - _lastFrameMs < _frameIntervalMs)
                 return;
-            _lastFrameMs = now;
-
+            // 上一帧还在缩放/编码时丢掉新帧。编码耗时不稳时硬排会让接收端一顿一顿。
+            if (Interlocked.CompareExchange(ref _encodeBusy, 1, 0) != 0)
+                return;
             if (extend.Role != ScreenExtendRole.Host || !extend.IsActive)
+            {
+                Interlocked.Exchange(ref _encodeBusy, 0);
                 return;
+            }
 
-            var jpeg = EncodeJpeg(image, width, height, out var outW, out var outH);
-            if (jpeg is not { Length: > 0 }) return;
+            if (!CopyFrame(image, width, height))
+            {
+                Interlocked.Exchange(ref _encodeBusy, 0);
+                return;
+            }
 
-            _ = extend.SendFrameAsync(jpeg, outW, outH);
+            _lastFrameMs = now;
+            handedOff = true;
+            var frameW = width;
+            var frameH = height;
+            _ = Task.Run(() => EncodeAndSend(extend, frameW, frameH));
         }
         catch (Exception ex)
         {
+            if (!handedOff)
+                Interlocked.Exchange(ref _encodeBusy, 0);
             AppLog.Warn("投影帧编码失败: " + ex.Message);
         }
         finally
@@ -512,23 +566,39 @@ public sealed class FlyScreenMediaProjectionService : Service
         }
     }
 
-    private byte[]? EncodeJpeg(Image image, int width, int height, out int outW, out int outH)
+    private void EncodeAndSend(ScreenExtendService extend, int width, int height)
     {
-        outW = width;
-        outH = height;
+        try
+        {
+            var jpeg = FinishJpeg(width, height, out var outW, out var outH);
+            if (jpeg is { Length: > 0 })
+                extend.SendFrameAsync(jpeg, outW, outH).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("投影帧发送失败: " + ex.Message);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _encodeBusy, 0);
+        }
+    }
+
+    /// <summary>把 Image 像素拷进可复用位图。必须在关闭 Image 之前完成。</summary>
+    private bool CopyFrame(Image image, int width, int height)
+    {
         var planes = image.GetPlanes();
-        if (planes is not { Length: > 0 }) return null;
+        if (planes is not { Length: > 0 }) return false;
         var plane = planes[0];
         var buffer = plane.Buffer;
-        if (buffer == null) return null;
+        if (buffer == null) return false;
 
         var pixelStride = plane.PixelStride;
         var rowStride = plane.RowStride;
-        if (pixelStride <= 0) return null;
+        if (pixelStride <= 0) return false;
 
         var rowPadding = rowStride - pixelStride * width;
         var bmpW = width + (pixelStride > 0 ? rowPadding / pixelStride : 0);
-
         if (_scratchBitmap == null
             || _scratchBitmap.Width != bmpW
             || _scratchBitmap.Height != height
@@ -538,9 +608,19 @@ public sealed class FlyScreenMediaProjectionService : Service
             _scratchBitmap = Bitmap.CreateBitmap(bmpW, height, Bitmap.Config.Argb8888!);
         }
 
+        if (_scratchBitmap == null) return false;
         buffer.Rewind();
         _scratchBitmap.CopyPixelsFromBuffer(buffer);
+        return true;
+    }
 
+    private byte[]? FinishJpeg(int width, int height, out int outW, out int outH)
+    {
+        outW = width;
+        outH = height;
+        if (_scratchBitmap == null || _scratchBitmap.IsRecycled) return null;
+
+        var bmpW = _scratchBitmap.Width;
         Bitmap frame;
         if (bmpW != width)
         {
@@ -553,6 +633,7 @@ public sealed class FlyScreenMediaProjectionService : Service
                 _frameBitmap = Bitmap.CreateBitmap(width, height, Bitmap.Config.Argb8888!);
             }
 
+            if (_frameBitmap == null) return null;
             using var canvas = new Canvas(_frameBitmap);
             canvas.DrawBitmap(_scratchBitmap, 0, 0, null);
             frame = _frameBitmap;
@@ -562,99 +643,171 @@ public sealed class FlyScreenMediaProjectionService : Service
             frame = _scratchBitmap;
         }
 
-        var content = CropUniformBlackBorder(frame);
-        var output = ScaleToLongEdge(content, _capLong > 0 ? _capLong : s_capLong);
+        var picture = ProjectionDisplayPresets.DescribeQuality(_jpegQuality);
+        Bitmap scaled;
+        if (picture.Passthrough)
+            scaled = frame;
+        else
+        {
+            var cap = _capLong > 0 ? _capLong : s_capLong;
+            if (picture.ExtraLongEdgeCap > 0)
+                cap = Math.Min(cap, picture.ExtraLongEdgeCap);
+            scaled = ScaleToLongEdge(frame, cap);
+        }
+
+        var output = ApplyCrop(scaled);
         outW = output.Width;
         outH = output.Height;
-        try
-        {
-            using var ms = new MemoryStream(Math.Max(16 * 1024, outW * outH / 8));
-            if (!output.Compress(Bitmap.CompressFormat.Jpeg!, JpegQuality, ms))
-                return null;
-            return ms.ToArray();
-        }
-        finally
-        {
-            if (!ReferenceEquals(output, content) && !ReferenceEquals(output, frame) && !ReferenceEquals(output, _scratchBitmap))
-                output.Recycle();
-            if (!ReferenceEquals(content, frame) && !ReferenceEquals(content, _scratchBitmap))
-                content.Recycle();
-        }
+        using var ms = new MemoryStream(Math.Max(16 * 1024, outW * outH / 6));
+        if (!output.Compress(Bitmap.CompressFormat.Jpeg!, picture.EncodeQuality, ms))
+            return null;
+        return ms.ToArray();
+    }
+
+    private void ResetCropState()
+    {
+        _cropHold.Reset();
+        _hasStableCrop = false;
+        _lastMeasureMs = 0;
     }
 
     /// <summary>
-    /// 四边都是黑边时裁掉。这是虚拟屏把画面缩小后居中留下的，不是影片自己的上下黑边。
+    /// 裁掉虚拟屏四边缩进，以及播放器成对的宽黑边。状态栏这种单边细条留着。
     /// </summary>
-    private Bitmap CropUniformBlackBorder(Bitmap source)
+    private Bitmap ApplyCrop(Bitmap source)
     {
-        const int lumaMax = 10;
+        if (!_cropBlackBars)
+            return source;
+
         var w = source.Width;
         var h = source.Height;
         if (w < 32 || h < 32) return source;
 
-        var maxInsetX = w / 4;
-        var maxInsetY = h / 4;
-        var top = MeasureBorder(source, horizontal: true, fromStart: true, lumaMax, maxInsetY);
-        var bottom = MeasureBorder(source, horizontal: true, fromStart: false, lumaMax, maxInsetY);
-        var left = MeasureBorder(source, horizontal: false, fromStart: true, lumaMax, maxInsetX);
-        var right = MeasureBorder(source, horizontal: false, fromStart: false, lumaMax, maxInsetX);
-        if (top <= 2 || bottom <= 2 || left <= 2 || right <= 2)
+        var now = System.Environment.TickCount64;
+        ProjectionBlackBorder crop;
+        if (_hasStableCrop && now - _lastMeasureMs < CropMeasureIntervalMs)
+        {
+            crop = _stableCrop;
+        }
+        else
+        {
+            const int lumaMax = 10;
+            var top = MeasureBorder(source, horizontal: true, fromStart: true, lumaMax);
+            var bottom = MeasureBorder(source, horizontal: true, fromStart: false, lumaMax);
+            var left = MeasureBorder(source, horizontal: false, fromStart: true, lumaMax);
+            var right = MeasureBorder(source, horizontal: false, fromStart: false, lumaMax);
+            var measured = ProjectionBlackBorder.FromInsets(w, h, left, top, right, bottom);
+            crop = _cropHold.Stabilize(w, h, measured);
+            _lastMeasureMs = now;
+            if (!crop.IsFullFrame(w, h))
+            {
+                _stableCrop = crop;
+                _hasStableCrop = true;
+            }
+            else
+            {
+                _hasStableCrop = false;
+            }
+        }
+
+        if (crop.IsFullFrame(w, h) || crop.Width > w || crop.Height > h)
             return source;
 
-        var cw = w - left - right;
-        var ch = h - top - bottom;
-        if (cw < 160 || ch < 160)
-            return source;
+        if (_croppedBitmap == null
+            || _croppedBitmap.Width != crop.Width
+            || _croppedBitmap.Height != crop.Height
+            || _croppedBitmap.IsRecycled)
+        {
+            _croppedBitmap?.Recycle();
+            _croppedBitmap = Bitmap.CreateBitmap(crop.Width, crop.Height, Bitmap.Config.Argb8888!);
+        }
 
+        if (_croppedBitmap == null) return source;
         if (!_loggedCrop)
         {
             _loggedCrop = true;
-            AppLog.Info($"投影裁掉四边黑边 {w}x{h} → {cw}x{ch}");
+            AppLog.Info($"投影裁掉黑边 {w}x{h} → {crop.Width}x{crop.Height}");
         }
 
-        var cropped = Bitmap.CreateBitmap(cw, ch, Bitmap.Config.Argb8888!);
-        if (cropped == null) return source;
-        using (var canvas = new Canvas(cropped))
-            canvas.DrawBitmap(source, -left, -top, null);
-        return cropped;
+        using (var canvas = new Canvas(_croppedBitmap))
+            canvas.DrawBitmap(source, -crop.Left, -crop.Top, null);
+        return _croppedBitmap;
     }
 
-    private static int MeasureBorder(Bitmap bmp, bool horizontal, bool fromStart, int lumaMax, int maxInset)
+    /// <summary>
+    /// 从边缘向内找第一条不是黑的线。45% 以内碰不到画面就不动，避免把深色内容切掉。
+    /// </summary>
+    private int MeasureBorder(Bitmap bmp, bool horizontal, bool fromStart, int lumaMax)
     {
-        var limit = horizontal ? bmp.Height : bmp.Width;
-        var inset = 0;
-        while (inset < maxInset && inset < limit)
+        var span = horizontal ? bmp.Height : bmp.Width;
+        var maxInset = Math.Min(span * 45 / 100, span - 1);
+        if (maxInset <= 0) return 0;
+
+        var startPos = fromStart ? 0 : span - 1;
+        if (!LineIsBlack(bmp, horizontal, startPos, lumaMax))
+            return 0;
+
+        var far = maxInset - 1;
+        var farPos = fromStart ? far : span - 1 - far;
+        if (LineIsBlack(bmp, horizontal, farPos, lumaMax))
+            return 0;
+
+        var lo = 0;
+        var hi = far;
+        while (hi - lo > 1)
         {
-            var pos = fromStart ? inset : limit - 1 - inset;
-            if (!LineIsBlack(bmp, horizontal, pos, lumaMax))
-                break;
-            inset++;
+            var mid = (lo + hi) / 2;
+            var pos = fromStart ? mid : span - 1 - mid;
+            if (LineIsBlack(bmp, horizontal, pos, lumaMax))
+                lo = mid;
+            else
+                hi = mid;
         }
 
-        return inset;
+        return hi;
     }
 
-    private static bool LineIsBlack(Bitmap bmp, bool horizontal, int pos, int lumaMax)
+    private bool LineIsBlack(Bitmap bmp, bool horizontal, int pos, int lumaMax)
     {
         var length = horizontal ? bmp.Width : bmp.Height;
+        if (length <= 0) return true;
+        if (_lineBuf == null || _lineBuf.Length < length)
+            _lineBuf = new int[length];
+
+        try
+        {
+            if (horizontal)
+                bmp.GetPixels(_lineBuf, 0, length, 0, pos, length, 1);
+            else
+                bmp.GetPixels(_lineBuf, 0, 1, pos, 0, 1, length);
+        }
+        catch
+        {
+            return false;
+        }
+
         var step = Math.Max(1, length / 48);
+        var samples = 0;
+        var bright = 0;
         for (var i = 0; i < length; i += step)
         {
-            var color = horizontal ? bmp.GetPixel(i, pos) : bmp.GetPixel(pos, i);
+            samples++;
+            var color = _lineBuf[i];
             var r = (color >> 16) & 0xFF;
             var g = (color >> 8) & 0xFF;
             var b = color & 0xFF;
             var luma = (r * 54 + g * 183 + b * 19) >> 8;
             if (luma >= lumaMax)
-                return false;
+                bright++;
         }
 
-        return true;
+        // 弹幕扫过黑边时会有少量亮点，不能因此把整条边判成画面。
+        return samples == 0 || bright * 5 <= samples;
     }
 
-    private static Bitmap ScaleToLongEdge(Bitmap source, int capLong)
+    private Bitmap ScaleToLongEdge(Bitmap source, int capLong)
     {
-        if (capLong < 160) capLong = 1920;
+        if (capLong < 160) capLong = EncodeLongEdge;
         var longEdge = Math.Max(source.Width, source.Height);
         if (longEdge <= capLong)
             return source;
@@ -664,7 +817,21 @@ public sealed class FlyScreenMediaProjectionService : Service
         var dh = Math.Max(2, (int)Math.Round(source.Height * scale));
         if ((dw & 1) == 1) dw--;
         if ((dh & 1) == 1) dh--;
-        return Bitmap.CreateScaledBitmap(source, Math.Max(2, dw), Math.Max(2, dh), true) ?? source;
+        dw = Math.Max(2, dw);
+        dh = Math.Max(2, dh);
+        if (_scaledBitmap == null
+            || _scaledBitmap.Width != dw
+            || _scaledBitmap.Height != dh
+            || _scaledBitmap.IsRecycled)
+        {
+            _scaledBitmap?.Recycle();
+            _scaledBitmap = Bitmap.CreateBitmap(dw, dh, Bitmap.Config.Argb8888!);
+        }
+
+        if (_scaledBitmap == null) return source;
+        using (var canvas = new Canvas(_scaledBitmap))
+            canvas.DrawBitmap(source, null, new global::Android.Graphics.Rect(0, 0, dw, dh), null);
+        return _scaledBitmap;
     }
 
     private void TearDown()
@@ -674,6 +841,7 @@ public sealed class FlyScreenMediaProjectionService : Service
         _longEdge = 0;
         _shortEdge = 0;
         _capLong = 0;
+        ResetCropState();
         try
         {
             if (_displayManager != null && _displayListener != null)

@@ -11,6 +11,8 @@ public sealed class ScreenExtendDesktopController : IDisposable
     private readonly ScreenExtendService _service;
     private ScreenExtendSinkWindow? _sink;
     private bool _disposed;
+    private readonly LatestFrameSlot _frames = new();
+    private int _decodePosted;
 
     public ScreenExtendDesktopController(ScreenExtendService service)
     {
@@ -59,22 +61,65 @@ public sealed class ScreenExtendDesktopController : IDisposable
 
     private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h)
     {
-        var copy = jpeg.ToArray();
-        Dispatcher.UIThread.Post(() =>
+        if (!_frames.Offer(jpeg, w, h)) return;
+        KickDecode();
+    }
+
+    private void KickDecode()
+    {
+        if (_disposed) return;
+        if (Interlocked.CompareExchange(ref _decodePosted, 1, 0) != 0) return;
+        Task.Run(DecodeLoop);
+    }
+
+    private void DecodeLoop()
+    {
+        try
         {
-            try
+            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var gen))
             {
-                _sink ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
-                if (!_sink.IsVisible)
-                    _sink.ShowFullscreen();
-                _sink.PresentJpeg(copy);
+                var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
+                if (src == null || !_frames.IsCurrent(gen))
+                {
+                    src?.Dispose();
+                    continue;
+                }
+
+                var shown = src;
+                var g = gen;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g))
+                    {
+                        shown.Dispose();
+                        return;
+                    }
+
+                    try
+                    {
+                        _sink ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+                        if (!_sink.IsVisible)
+                            _sink.ShowFullscreen();
+                        _sink.Present(shown);
+                    }
+                    catch
+                    {
+                        shown.Dispose();
+                    }
+                });
             }
-            catch { /* ignore */ }
-        });
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _decodePosted, 0);
+            if (!_disposed && _frames.HasPending)
+                KickDecode();
+        }
     }
 
     private void OnSessionEnded()
     {
+        _frames.Clear();
         Dispatcher.UIThread.Post(() =>
         {
             try { _sink?.CloseFromSession(); } catch { /* ignore */ }

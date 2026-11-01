@@ -14,6 +14,9 @@ public sealed class AndroidScreenExtendHostController : IDisposable
     private readonly ScreenExtendService _service;
     private int _width = 1080;
     private int _height = 1920;
+    private bool _cropBlackBars;
+    private int _fps = ProjectionDisplayPresets.DefaultFps;
+    private int _jpegQuality = ProjectionDisplayPresets.DefaultJpegQuality;
     private bool _prepared;
     private bool _disposed;
     private readonly ProjectionAudioBridge _audio;
@@ -31,6 +34,9 @@ public sealed class AndroidScreenExtendHostController : IDisposable
         if (choice == null) return;
         if (choice.Width > 0) _width = choice.Width;
         if (choice.Height > 0) _height = choice.Height;
+        _cropBlackBars = choice.CropBlackBars;
+        _fps = ProjectionDisplayPresets.ClampFps(choice.Fps);
+        _jpegQuality = ProjectionDisplayPresets.ClampJpegQuality(choice.JpegQuality);
     }
 
     /// <summary>弹出系统「开始录制/投射」同意框并拉起采集服务。</summary>
@@ -46,7 +52,7 @@ public sealed class AndroidScreenExtendHostController : IDisposable
         var (screenW, screenH, dpi) = ReadPhoneScreen(activity);
         // 虚拟屏必须等于手机真实像素和真实 dpi。改小尺寸或调低 dpi 时，小米会把整帧按比例缩小后居中，四边同时留黑。
         // 弹窗分辨率只限制编码后的长边，缩放在采集端自己做。
-        var fitted = ProjectionCaptureSize.ForPhoneScreen(screenW, screenH, _width, _height);
+        var fitted = ProjectionCaptureSize.ForPhoneScreen(screenW, screenH, _width, _height, maxEdge: 0);
         var capLong = Math.Max(fitted.Width, fitted.Height);
         _width = screenW;
         _height = screenH;
@@ -58,13 +64,14 @@ public sealed class AndroidScreenExtendHostController : IDisposable
         ct.ThrowIfCancellationRequested();
 
         var started = await FlyScreenMediaProjectionService
-            .StartAsync(_service, grant.ResultCode, grant.Data, screenW, screenH, dpi, capLong)
+            .StartAsync(_service, grant.ResultCode, grant.Data, screenW, screenH, dpi, capLong, _cropBlackBars, _fps, _jpegQuality)
             .ConfigureAwait(false);
         if (!started)
             return (false, "无法启动屏幕采集服务");
 
         _prepared = true;
-        AppLog.Info($"手机投影采集就绪 {screenW}x{screenH} dpi {dpi} 输出长边 {capLong}");
+        AppLog.Info($"手机投影采集就绪 {screenW}x{screenH} dpi {dpi} 输出长边 {capLong} · {_fps}帧 · 画质 {_jpegQuality}"
+                    + (_cropBlackBars ? " · 去黑边" : ""));
         return (true, null);
     }
 

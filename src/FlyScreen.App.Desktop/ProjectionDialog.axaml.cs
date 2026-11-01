@@ -12,6 +12,7 @@ public partial class ProjectionDialog : Window
     private bool _busy;
     private bool _envReady;
     private int _envSeq;
+    private bool _displaySelectionReady;
 
     public ProjectionDialog() : this(null!) { }
 
@@ -34,7 +35,23 @@ public partial class ProjectionDialog : Window
             ScaleCombo.Items.Clear();
             foreach (var s in ProjectionDisplayPresets.ScalePercents)
                 ScaleCombo.Items.Add($"{s}%");
-            ScaleCombo.SelectedIndex = 0;
+            var savedScale = _host.Settings.ScreenExtendScalePercent > 0
+                ? ProjectionDisplayPresets.ClampScale(_host.Settings.ScreenExtendScalePercent)
+                : ProjectionDisplayPresets.ScalePercents[0];
+            ScaleCombo.SelectedIndex = IndexOf(ProjectionDisplayPresets.ScalePercents, savedScale);
+            FpsCombo.Items.Clear();
+            foreach (var fps in ProjectionDisplayPresets.FrameRates)
+                FpsCombo.Items.Add(ProjectionDisplayPresets.FpsLabel(fps));
+            FpsCombo.SelectedIndex = IndexOf(
+                ProjectionDisplayPresets.FrameRates, ProjectionDisplayPresets.RememberedFps(_host.Settings));
+            QualityCombo.Items.Clear();
+            foreach (var q in ProjectionDisplayPresets.JpegQualities)
+                QualityCombo.Items.Add(ProjectionDisplayPresets.JpegQualityLabel(q));
+            QualityCombo.SelectedIndex = IndexOf(
+                ProjectionDisplayPresets.JpegQualities, ProjectionDisplayPresets.RememberedJpegQuality(_host.Settings));
+            AudioSyncCheck.IsChecked = _host.Settings.ScreenExtendAudioSync;
+            CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
+            Closed += (_, _) => RememberChoices();
             RefreshTargets();
             RefreshDisplayPresets();
             UpdateHints();
@@ -44,14 +61,95 @@ public partial class ProjectionDialog : Window
 
     private void RefreshDisplayPresets()
     {
+        var previous = ResolutionCombo.SelectedIndex;
         ResolutionCombo.Items.Clear();
         ResolutionCombo.Items.Add("本机主屏（自动）");
         ResolutionCombo.Items.Add("目标电脑（自动）");
         foreach (var (w, h) in ProjectionDisplayPresets.Resolutions)
             ResolutionCombo.Items.Add($"{w}×{h}");
-        ResolutionCombo.SelectedIndex = ReadMode() == DisplayProjectionMode.Clone ? 0 : 1;
-        DisplayHint.Text = "Mac/Linux 本期不发起投影；分辨率选项与 Windows 对齐，供接收端应答查询。";
+        if (_displaySelectionReady && previous >= 0 && previous < ResolutionCombo.ItemCount)
+            ResolutionCombo.SelectedIndex = previous;
+        else if (!SelectRememberedResolution())
+            ResolutionCombo.SelectedIndex = ReadMode() == DisplayProjectionMode.Clone ? 0 : 1;
+        _displaySelectionReady = true;
+        DisplayHint.Text = "分辨率、帧率、画质会记住上次的选择。Mac/Linux 本期不发起投影。";
     }
+
+    private bool SelectRememberedResolution()
+    {
+        var settings = _host.Settings;
+        if (settings.ScreenExtendFps <= 0 && settings.ScreenExtendWidth <= 0)
+            return false;
+
+        if (settings.ScreenExtendWidth > 0 && settings.ScreenExtendHeight > 0)
+        {
+            var label = $"{settings.ScreenExtendWidth}×{settings.ScreenExtendHeight}";
+            for (var i = 0; i < ResolutionCombo.ItemCount; i++)
+            {
+                if (ResolutionCombo.Items[i]?.ToString() == label)
+                {
+                    ResolutionCombo.SelectedIndex = i;
+                    return true;
+                }
+            }
+        }
+
+        ResolutionCombo.SelectedIndex = settings.ScreenExtendDisplaySource == (int)ProjectionDisplaySource.TargetPeer
+            ? 1
+            : 0;
+        return true;
+    }
+
+    private static int IndexOf(IReadOnlyList<int> values, int value)
+    {
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] == value) return i;
+        }
+
+        return 0;
+    }
+
+    private void RememberChoices()
+    {
+        if (_host == null || ResolutionCombo == null || FpsCombo == null || QualityCombo == null || ScaleCombo == null)
+            return;
+        if (ResolutionCombo.SelectedIndex < 0 || FpsCombo.SelectedIndex < 0)
+            return;
+
+        var choice = new ProjectionDisplayChoice
+        {
+            ScalePercent = ValueAt(ProjectionDisplayPresets.ScalePercents, ScaleCombo.SelectedIndex, 100),
+            Fps = ValueAt(ProjectionDisplayPresets.FrameRates, FpsCombo.SelectedIndex, ProjectionDisplayPresets.DefaultFps),
+            JpegQuality = ValueAt(
+                ProjectionDisplayPresets.JpegQualities,
+                QualityCombo.SelectedIndex,
+                ProjectionDisplayPresets.DefaultJpegQuality),
+            CropBlackBars = CropBlackBarsCheck.IsChecked == true
+        };
+        var index = ResolutionCombo.SelectedIndex;
+        if (index <= 0)
+            choice.Source = ProjectionDisplaySource.HostPrimary;
+        else if (index == 1)
+            choice.Source = ProjectionDisplaySource.TargetPeer;
+        else
+        {
+            var presetIndex = index - 2;
+            if (presetIndex >= 0 && presetIndex < ProjectionDisplayPresets.Resolutions.Count)
+            {
+                var preset = ProjectionDisplayPresets.Resolutions[presetIndex];
+                choice.Source = ProjectionDisplaySource.Custom;
+                choice.Width = preset.W;
+                choice.Height = preset.H;
+            }
+        }
+
+        ProjectionDisplayPresets.WriteRemembered(_host.Settings, choice, AudioSyncCheck.IsChecked == true);
+        _host.Settings.Save();
+    }
+
+    private static int ValueAt(IReadOnlyList<int> values, int index, int fallback)
+        => index >= 0 && index < values.Count ? values[index] : fallback;
 
     private void TryApplyWindowIcon()
     {
@@ -188,7 +286,8 @@ public partial class ProjectionDialog : Window
         try
         {
             var (ok, msg) = await _host.StartProjectionAsync(
-                ReadTarget(), ReadMode(), AudioSyncCheck.IsChecked == true);
+                ReadTarget(), ReadMode(), AudioSyncCheck.IsChecked == true,
+                CropBlackBarsCheck.IsChecked == true);
             if (!ok)
             {
                 await ConfirmDialog.ShowAsync(this, "投影", msg ?? "投影失败", primaryText: "确定", cancelText: null);

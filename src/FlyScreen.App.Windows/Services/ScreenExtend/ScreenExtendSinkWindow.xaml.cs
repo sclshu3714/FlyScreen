@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FlyScreen.Native;
 
@@ -51,7 +52,14 @@ public partial class ScreenExtendSinkWindow : Window
     public void CloseFromSession()
     {
         _closingFromSession = true;
-        try { Close(); } catch { /* ignore */ }
+        try
+        {
+            Topmost = false;
+            WindowState = WindowState.Normal;
+            Hide();
+            Close();
+        }
+        catch { /* ignore */ }
     }
 
     public void ShowFullscreen()
@@ -106,22 +114,61 @@ public partial class ScreenExtendSinkWindow : Window
         public NativeMethods.POINT MaxTrackSize;
     }
 
-    public void PresentJpeg(byte[] jpeg)
+    public readonly record struct DecodedFrame(int Width, int Height, byte[] Bgra, int Stride);
+
+    /// <summary>在后台线程解 JPEG。界面线程只拷像素，避免解码把画面卡顿。</summary>
+    public static DecodedFrame? DecodeJpeg(byte[] jpeg)
     {
         try
         {
             using var ms = new MemoryStream(jpeg);
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.StreamSource = ms;
-            bmp.EndInit();
-            bmp.Freeze();
-            FrameImage.Source = bmp;
-            if (WaitingText.Visibility != Visibility.Collapsed)
-                WaitingText.Visibility = Visibility.Collapsed;
+            using var bmp = new System.Drawing.Bitmap(ms);
+            var rect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+            var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            try
+            {
+                var stride = data.Stride;
+                var abs = Math.Abs(stride);
+                var bytes = new byte[abs * bmp.Height];
+                if (stride >= 0)
+                {
+                    Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+                }
+                else
+                {
+                    for (var y = 0; y < bmp.Height; y++)
+                        Marshal.Copy(data.Scan0 + stride * (bmp.Height - 1 - y), bytes, y * abs, abs);
+                }
+
+                return new DecodedFrame(bmp.Width, bmp.Height, bytes, abs);
+            }
+            finally
+            {
+                bmp.UnlockBits(data);
+            }
         }
-        catch { /* ignore bad frame */ }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private WriteableBitmap? _frameBitmap;
+
+    public void Present(DecodedFrame frame)
+    {
+        if (_frameBitmap == null
+            || _frameBitmap.PixelWidth != frame.Width
+            || _frameBitmap.PixelHeight != frame.Height)
+        {
+            _frameBitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
+            FrameImage.Source = _frameBitmap;
+        }
+
+        _frameBitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Bgra, frame.Stride, 0);
+        if (WaitingText.Visibility != Visibility.Collapsed)
+            WaitingText.Visibility = Visibility.Collapsed;
     }
 
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
