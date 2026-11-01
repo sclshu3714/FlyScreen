@@ -147,12 +147,12 @@ public sealed class ScreenExtendService : IDisposable
             {
                 var stop = new ScreenExtendStopPayload { SessionId = sid.ToString("D"), Reason = reason };
                 var bytes = MessageCodec.JsonBytes(stop);
-                var sent = await _connections.SendToAsync(peer, MessageType.ScreenExtendStop, bytes)
+                // 控制面入队成功不等于对端已经读到。画面在 bulk 上，对端一定在读那条连接。
+                // 停止两路都写；后到的一份会因会话已结束被忽略。这样播放器 Esc 才能让投影端停采集并恢复音量。
+                await _connections.SendToAsync(peer, MessageType.ScreenExtendStop, bytes)
                     .ConfigureAwait(false);
-                // 画面在 bulk 上。控制面没写出去时，把停止再写到 bulk，接收端才会关播放器。
-                if (!sent)
-                    await _connections.SendOnBulkAsync(peer, MessageType.ScreenExtendStop, bytes)
-                        .ConfigureAwait(false);
+                await _connections.SendOnBulkAsync(peer, MessageType.ScreenExtendStop, bytes)
+                    .ConfigureAwait(false);
             }
             catch { /* ignore */ }
         }
@@ -385,10 +385,12 @@ public sealed class ScreenExtendService : IDisposable
         {
             if (!IsActive || SessionId != sid) return;
             if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+            // 控制面和 bulk 会各到一份。先清会话，另一份不能再进来把音量恢复做两遍。
+            ResetSessionFields();
         }
 
         Publish($"扩展屏已结束：{stop.Reason}");
-        EndSessionLocal("remote-stop");
+        FinishSession("remote-stop");
     }
 
     private void HandleFrame(string peer, byte[] payload)
@@ -434,6 +436,11 @@ public sealed class ScreenExtendService : IDisposable
     private void EndSessionLocal(string reason)
     {
         ClearSession();
+        FinishSession(reason);
+    }
+
+    private void FinishSession(string reason)
+    {
         try { SessionEnded?.Invoke(); } catch { /* ignore */ }
         Publish($"扩展屏会话结束（{reason}）");
     }
@@ -441,17 +448,20 @@ public sealed class ScreenExtendService : IDisposable
     private void ClearSession()
     {
         lock (_gate)
-        {
-            Role = ScreenExtendRole.None;
-            Peer = null;
-            SessionId = Guid.Empty;
-            _frameSeq = 0;
-            PeerSinkWidth = 0;
-            PeerSinkHeight = 0;
-            PeerSinkScalePercent = 0;
-            AudioSync = false;
-            _audioSeq = 0;
-        }
+            ResetSessionFields();
+    }
+
+    private void ResetSessionFields()
+    {
+        Role = ScreenExtendRole.None;
+        Peer = null;
+        SessionId = Guid.Empty;
+        _frameSeq = 0;
+        PeerSinkWidth = 0;
+        PeerSinkHeight = 0;
+        PeerSinkScalePercent = 0;
+        AudioSync = false;
+        _audioSeq = 0;
     }
 
     private void Publish(string msg)
