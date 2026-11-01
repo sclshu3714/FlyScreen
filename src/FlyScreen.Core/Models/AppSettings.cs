@@ -45,6 +45,14 @@ public sealed class AppSettings
     public int ScreenExtendHeight { get; set; }
     /// <summary>投影缩放百分比；0 表示跟随来源自动。</summary>
     public int ScreenExtendScalePercent { get; set; }
+    /// <summary>上次投影帧率；0 表示尚未选择，弹窗用默认档。</summary>
+    public int ScreenExtendFps { get; set; }
+    /// <summary>上次 JPEG 画质；0 表示尚未选择。</summary>
+    public int ScreenExtendJpegQuality { get; set; }
+    /// <summary>上次是否开启声音同步。</summary>
+    public bool ScreenExtendAudioSync { get; set; }
+    /// <summary>上次是否开启去黑边。</summary>
+    public bool ScreenExtendCropBlackBars { get; set; }
     /// <summary>
     /// 镜像：MTT/VDD 是否由本程序环境修复安装（权威标记见 Windows 侧 mtt-vdd-installed-by-app.flag）。
     /// </summary>

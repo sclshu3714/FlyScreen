@@ -18,6 +18,7 @@ public partial class ProjectionDialog : Window
     private bool _awaitingRepair;
     private int _displaySeq;
     private bool _suppressDisplayChange;
+    private bool _displaySelectionReady;
     private DisplayInfoPayload? _peerDisplay;
 
     public ProjectionDialog(AppHost host)
@@ -45,6 +46,9 @@ public partial class ProjectionDialog : Window
         var prefer = DisplayProjectionModeInfo.ClampForPicker(_host.Settings.ScreenExtendProjectionMode);
         ModeCombo.SelectedIndex = prefer == DisplayProjectionMode.Clone ? 0 : 1;
         BuildScaleCombo();
+        BuildRateCombos();
+        AudioSyncCheck.IsChecked = _host.Settings.ScreenExtendAudioSync;
+        CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
         RefreshTargets();
         _ = RefreshDisplayDefaultsAsync();
         RefreshUninstallPanel();
@@ -58,6 +62,7 @@ public partial class ProjectionDialog : Window
     {
         MttVddRepairSession.Changed -= OnRepairSessionChanged;
         MttVddRepairSession.DetachProgress(_repairProgress);
+        RememberChoices();
         // 不取消修复：后台继续安装
     }
 
@@ -155,6 +160,38 @@ public partial class ProjectionDialog : Window
             ScaleCombo.Items.Add(new ScaleItem(s));
     }
 
+    private void BuildRateCombos()
+    {
+        if (FpsCombo == null || QualityCombo == null) return;
+        FpsCombo.Items.Clear();
+        foreach (var fps in ProjectionDisplayPresets.FrameRates)
+            FpsCombo.Items.Add(new NamedIntItem(fps, ProjectionDisplayPresets.FpsLabel(fps)));
+        SelectNamed(FpsCombo, ProjectionDisplayPresets.RememberedFps(_host.Settings));
+
+        QualityCombo.Items.Clear();
+        foreach (var q in ProjectionDisplayPresets.JpegQualities)
+            QualityCombo.Items.Add(new NamedIntItem(q, ProjectionDisplayPresets.JpegQualityLabel(q)));
+        SelectNamed(QualityCombo, ProjectionDisplayPresets.RememberedJpegQuality(_host.Settings));
+    }
+
+    private static void SelectNamed(System.Windows.Controls.ComboBox combo, int value)
+    {
+        for (var i = 0; i < combo.Items.Count; i++)
+        {
+            if (combo.Items[i] is NamedIntItem item && item.Value == value)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        if (combo.Items.Count > 0)
+            combo.SelectedIndex = 0;
+    }
+
+    private static int ReadNamed(System.Windows.Controls.ComboBox? combo, int fallback)
+        => combo?.SelectedItem is NamedIntItem item ? item.Value : fallback;
+
     private async Task RefreshDisplayDefaultsAsync()
     {
         if (ResolutionCombo == null || ScaleCombo == null) return;
@@ -186,6 +223,7 @@ public partial class ProjectionDialog : Window
         _suppressDisplayChange = true;
         try
         {
+            var previous = ResolutionCombo.SelectedItem as ResItem;
             ResolutionCombo.Items.Clear();
             var hostItem = new ResItem(
                 ProjectionDisplaySource.HostPrimary,
@@ -220,23 +258,81 @@ public partial class ProjectionDialog : Window
                     ProjectionDisplaySource.Custom, w, h, 60, $"{w}×{h}"));
             }
 
-            if (mode == DisplayProjectionMode.Clone)
-                ResolutionCombo.SelectedItem = hostItem;
-            else if (peerItem != null)
-                ResolutionCombo.SelectedItem = peerItem;
-            else
-                ResolutionCombo.SelectedIndex = 0;
+            if (!SelectRememberedResolution(previous))
+            {
+                if (mode == DisplayProjectionMode.Clone)
+                    ResolutionCombo.SelectedItem = hostItem;
+                else if (peerItem != null)
+                    ResolutionCombo.SelectedItem = peerItem;
+                else
+                    ResolutionCombo.SelectedIndex = 0;
+            }
 
-            var scale = mode == DisplayProjectionMode.Clone
-                ? local.ScalePercent
-                : (peer?.ScalePercent > 0 ? peer.ScalePercent : local.ScalePercent);
+            var scale = _host.Settings.ScreenExtendScalePercent > 0
+                ? _host.Settings.ScreenExtendScalePercent
+                : mode == DisplayProjectionMode.Clone
+                    ? local.ScalePercent
+                    : (peer?.ScalePercent > 0 ? peer.ScalePercent : local.ScalePercent);
+            if (ScaleCombo.SelectedItem is ScaleItem current && _displaySelectionReady)
+                scale = current.Percent;
             scale = ProjectionDisplayPresets.ClampScale(scale);
             SelectScale(scale);
+            _displaySelectionReady = true;
         }
         finally
         {
             _suppressDisplayChange = false;
         }
+    }
+
+    private bool SelectRememberedResolution(ResItem? previous)
+    {
+        if (_displaySelectionReady && previous != null
+            && SelectResolution(previous.Source, previous.Width, previous.Height))
+            return true;
+
+        if (_displaySelectionReady)
+            return false;
+
+        var settings = _host.Settings;
+        return settings.ScreenExtendWidth > 0 && settings.ScreenExtendHeight > 0
+            && SelectResolution(
+                (ProjectionDisplaySource)settings.ScreenExtendDisplaySource,
+                settings.ScreenExtendWidth,
+                settings.ScreenExtendHeight);
+    }
+
+    private bool SelectResolution(ProjectionDisplaySource source, int width, int height)
+    {
+        var sizeMatch = -1;
+        for (var i = 0; i < ResolutionCombo.Items.Count; i++)
+        {
+            if (ResolutionCombo.Items[i] is not ResItem ri) continue;
+            if (ri.Width != width || ri.Height != height) continue;
+            if (ri.Source == source)
+            {
+                ResolutionCombo.SelectedIndex = i;
+                return true;
+            }
+
+            if (sizeMatch < 0)
+                sizeMatch = i;
+        }
+
+        if (sizeMatch < 0) return false;
+        ResolutionCombo.SelectedIndex = sizeMatch;
+        return true;
+    }
+
+    private void RememberChoices()
+    {
+        if (ResolutionCombo == null || ScaleCombo == null || FpsCombo == null || QualityCombo == null)
+            return;
+        if (ResolutionCombo.Items.Count == 0 || FpsCombo.SelectedIndex < 0)
+            return;
+        var choice = ReadDisplayChoice();
+        ProjectionDisplayPresets.WriteRemembered(_host.Settings, choice, AudioSyncCheck.IsChecked == true);
+        _host.Settings.Save();
     }
 
     private void SelectScale(int percent)
@@ -267,7 +363,10 @@ public partial class ProjectionDialog : Window
                 Width = local.Width,
                 Height = local.Height,
                 ScalePercent = scale,
-                RefreshHz = local.RefreshHz
+                RefreshHz = local.RefreshHz,
+                CropBlackBars = CropBlackBarsCheck.IsChecked == true,
+                Fps = ReadNamed(FpsCombo, ProjectionDisplayPresets.DefaultFps),
+                JpegQuality = ReadNamed(QualityCombo, ProjectionDisplayPresets.DefaultJpegQuality)
             };
         }
 
@@ -277,7 +376,10 @@ public partial class ProjectionDialog : Window
             Width = res.Width,
             Height = res.Height,
             ScalePercent = ProjectionDisplayPresets.ClampScale(scale),
-            RefreshHz = res.RefreshHz > 0 ? res.RefreshHz : 60
+            RefreshHz = res.RefreshHz > 0 ? res.RefreshHz : 60,
+            CropBlackBars = CropBlackBarsCheck.IsChecked == true,
+            Fps = ReadNamed(FpsCombo, ProjectionDisplayPresets.DefaultFps),
+            JpegQuality = ReadNamed(QualityCombo, ProjectionDisplayPresets.DefaultJpegQuality)
         };
     }
 
@@ -286,12 +388,13 @@ public partial class ProjectionDialog : Window
         if (DisplayHint == null) return;
         var mode = ReadMode();
         var choice = ReadDisplayChoice();
+        var rate = $"{choice.Fps} 帧 · {ProjectionDisplayPresets.JpegQualityLabel(choice.JpegQuality)}";
         if (mode == DisplayProjectionMode.Clone)
-            DisplayHint.Text = $"复制：默认本机主屏。当前 {choice.ResolutionLabel} · {choice.ScaleLabel}（不改主屏，仅影响推流偏好）。";
+            DisplayHint.Text = $"复制本机主屏，不改变主屏。当前 {choice.ResolutionLabel} · {choice.ScaleLabel} · {rate}。";
         else if (choice.Source == ProjectionDisplaySource.TargetPeer)
-            DisplayHint.Text = $"扩展：副屏将设为 {choice.ResolutionLabel}（目标电脑），主屏分辨率与缩放不变。";
+            DisplayHint.Text = $"扩展副屏设为目标电脑 {choice.ResolutionLabel} · {rate}，主屏不变。";
         else
-            DisplayHint.Text = $"扩展：副屏将设为 {choice.ResolutionLabel} · {choice.ScaleLabel}，主屏不变。";
+            DisplayHint.Text = $"扩展副屏设为 {choice.ResolutionLabel} · {choice.ScaleLabel} · {rate}，主屏不变。";
     }
 
     private void UpdateHints()
@@ -332,6 +435,12 @@ public partial class ProjectionDialog : Window
     {
         public int Percent { get; } = percent;
         public override string ToString() => $"{percent}%";
+    }
+
+    private sealed class NamedIntItem(int value, string label)
+    {
+        public int Value { get; } = value;
+        public override string ToString() => label;
     }
 
     private async Task RefreshUninstallPanelAsync()

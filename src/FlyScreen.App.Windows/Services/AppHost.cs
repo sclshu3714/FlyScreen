@@ -227,10 +227,7 @@ public sealed class AppHost : IAsyncDisposable
 
         var choice = ResolveDisplayChoice(mode, display, peer);
         Settings.ScreenExtendProjectionMode = (int)mode;
-        Settings.ScreenExtendDisplaySource = (int)choice.Source;
-        Settings.ScreenExtendWidth = choice.Width;
-        Settings.ScreenExtendHeight = choice.Height;
-        Settings.ScreenExtendScalePercent = choice.ScalePercent;
+        ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync);
         Settings.Save();
         ScreenExtendUi.SetProjectionMode(mode);
         ScreenExtendUi.SetDisplayChoice(choice);

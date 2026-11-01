@@ -65,25 +65,39 @@ public partial class ScreenExtendSinkWindow : Window
         Focus();
     }
 
-    public void PresentJpeg(byte[] jpeg)
+    public static Bitmap? DecodeJpeg(byte[] jpeg)
     {
         try
         {
             using var ms = new MemoryStream(jpeg);
-            var bmp = new Bitmap(ms);
-            var old = _current;
-            _current = bmp;
-            FrameImage.Source = bmp;
-            WaitingText.IsVisible = false;
-            old?.Dispose();
+            return new Bitmap(ms);
         }
-        catch { /* ignore */ }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void Present(Bitmap bmp)
+    {
+        var old = _current;
+        _current = bmp;
+        FrameImage.Source = bmp;
+        WaitingText.IsVisible = false;
+        old?.Dispose();
     }
 
     public void CloseFromSession()
     {
         _closingFromSession = true;
-        try { Close(); } catch { /* ignore */ }
+        try
+        {
+            Topmost = false;
+            WindowState = WindowState.Normal;
+            Hide();
+            Close();
+        }
+        catch { /* ignore */ }
     }
 
     private void DisposeBitmap()

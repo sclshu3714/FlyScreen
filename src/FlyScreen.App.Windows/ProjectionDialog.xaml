@@ -3,11 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="投影"
         Icon="pack://application:,,,/Assets/wlogo_tu.ico"
-        Width="460"
-        MinWidth="420"
+        Width="520"
+        MinWidth="480"
         SizeToContent="Height"
         MinHeight="320"
-        MaxHeight="640"
+        MaxHeight="720"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -242,28 +242,55 @@
 
         <Border Style="{StaticResource Card}">
           <StackPanel>
-            <TextBlock Text="分辨率与缩放" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <TextBlock Text="画面" FontWeight="SemiBold" Margin="0,0,0,8"/>
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="Auto" MinWidth="110"/>
+                <ColumnDefinition Width="*"/>
               </Grid.ColumnDefinitions>
-              <ComboBox x:Name="ResolutionCombo" Grid.Column="0" SelectionChanged="Display_Changed"/>
-              <ComboBox x:Name="ScaleCombo" Grid.Column="2" MinWidth="110" SelectionChanged="Display_Changed"/>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <TextBlock Text="分辨率" FontSize="12" Foreground="{DynamicResource Muted}"
+                         Grid.Row="0" Grid.Column="0" Margin="0,0,0,4"/>
+              <TextBlock Text="缩放" FontSize="12" Foreground="{DynamicResource Muted}"
+                         Grid.Row="0" Grid.Column="2" Margin="0,0,0,4"/>
+              <ComboBox x:Name="ResolutionCombo" Grid.Row="1" Grid.Column="0" SelectionChanged="Display_Changed"/>
+              <ComboBox x:Name="ScaleCombo" Grid.Row="1" Grid.Column="2" SelectionChanged="Display_Changed"/>
+              <TextBlock Text="帧率" FontSize="12" Foreground="{DynamicResource Muted}"
+                         Grid.Row="3" Grid.Column="0" Margin="0,0,0,4"/>
+              <TextBlock Text="画质" FontSize="12" Foreground="{DynamicResource Muted}"
+                         Grid.Row="3" Grid.Column="2" Margin="0,0,0,4"/>
+              <ComboBox x:Name="FpsCombo" Grid.Row="4" Grid.Column="0" SelectionChanged="Display_Changed"/>
+              <ComboBox x:Name="QualityCombo" Grid.Row="4" Grid.Column="2" SelectionChanged="Display_Changed"/>
             </Grid>
             <TextBlock x:Name="DisplayHint" Foreground="{DynamicResource Muted}" FontSize="12"
                        TextWrapping="Wrap" Margin="0,8,0,0"
-                       Text="复制默认本机主屏；扩展默认目标电脑。可选手动分辨率与缩放。"/>
+                       Text="复制默认本机主屏，扩展默认目标电脑。帧率和画质越高越清晰，也更吃编码和网络。"/>
           </StackPanel>
         </Border>
 
         <Border Style="{StaticResource Card}">
           <StackPanel>
-            <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold" IsChecked="False"/>
+            <TextBlock Text="选项" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold"
+                        IsChecked="False" Grid.Column="0"/>
+              <CheckBox x:Name="CropBlackBarsCheck" Content="去黑边" FontWeight="SemiBold"
+                        IsChecked="False" Grid.Column="1"/>
+            </Grid>
             <TextBlock Foreground="{DynamicResource Muted}" FontSize="12"
-                       TextWrapping="Wrap" Margin="22,6,0,0"
-                       Text="默认关闭。开启后本机不再播放声音，声音改由目标电脑播放。"/>
+                       TextWrapping="Wrap" Margin="0,8,0,0"
+                       Text="两项默认关闭。声音同步开启后本机静音，由目标电脑播放。去黑边开启后裁掉画面四周黑边。"/>
           </StackPanel>
         </Border>
 

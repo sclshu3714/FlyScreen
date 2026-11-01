@@ -17,17 +17,21 @@ public sealed class ProjectionDialogPage : ContentPage
     private readonly Picker _targetPicker = new();
     private readonly Picker _resolutionPicker = new();
     private readonly Picker _scalePicker = new();
+    private readonly Picker _fpsPicker = new();
+    private readonly Picker _qualityPicker = new();
+    private readonly List<Label> _fieldCaptions = [];
     private readonly Label _modeHint = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
     private readonly Label _targetHint = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
     private readonly Label _displayHint = new()
     {
         FontSize = 12,
         LineBreakMode = LineBreakMode.WordWrap,
-        Text = "复制默认本机主屏；扩展默认目标电脑。"
+        Text = "复制默认本机主屏，扩展默认目标电脑。帧率和画质越高越清晰，也更吃编码和网络。"
     };
     private readonly List<(ProjectionDisplaySource Source, int W, int H, int Hz)> _resOptions = [];
     private int _displaySeq;
     private bool _suppressDisplayChange;
+    private bool _displaySelectionReady;
     private DisplayInfoPayload? _peerDisplay;
     private readonly VerticalStackLayout _envPanel = new() { Spacing = 8 };
     private readonly VerticalStackLayout _uninstallPanel = new() { Spacing = 8, IsVisible = false };
@@ -51,10 +55,12 @@ public sealed class ProjectionDialogPage : ContentPage
     private Border _modeCard = null!;
     private Border _targetCard = null!;
     private Border _displayCard = null!;
-    private Border _audioCard = null!;
+    private Border _optionsCard = null!;
     private CheckBox _audioSyncCheck = null!;
     private Label _audioTitle = null!;
-    private Label _audioHint = null!;
+    private CheckBox _cropBlackBarsCheck = null!;
+    private Label _cropTitle = null!;
+    private Label _optionsHint = null!;
     private Border _envCard = null!;
     private Border _uninstallCard = null!;
     private Border _footerBar = null!;
@@ -103,6 +109,14 @@ public sealed class ProjectionDialogPage : ContentPage
         foreach (var s in ProjectionDisplayPresets.ScalePercents)
             _scalePicker.Items.Add($"{s}%");
         _scalePicker.SelectedIndex = 0;
+        foreach (var fps in ProjectionDisplayPresets.FrameRates)
+            _fpsPicker.Items.Add(ProjectionDisplayPresets.FpsLabel(fps));
+        _fpsPicker.SelectedIndex = IndexOfValue(
+            ProjectionDisplayPresets.FrameRates, ProjectionDisplayPresets.RememberedFps(host.Settings));
+        foreach (var q in ProjectionDisplayPresets.JpegQualities)
+            _qualityPicker.Items.Add(ProjectionDisplayPresets.JpegQualityLabel(q));
+        _qualityPicker.SelectedIndex = IndexOfValue(
+            ProjectionDisplayPresets.JpegQualities, ProjectionDisplayPresets.RememberedJpegQuality(host.Settings));
 
         _modePicker.SelectedIndexChanged += (_, _) =>
         {
@@ -123,6 +137,14 @@ public sealed class ProjectionDialogPage : ContentPage
             if (!_suppressDisplayChange) UpdateDisplayHint();
         };
         _scalePicker.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_suppressDisplayChange) UpdateDisplayHint();
+        };
+        _fpsPicker.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_suppressDisplayChange) UpdateDisplayHint();
+        };
+        _qualityPicker.SelectedIndexChanged += (_, _) =>
         {
             if (!_suppressDisplayChange) UpdateDisplayHint();
         };
@@ -229,6 +251,25 @@ public sealed class ProjectionDialogPage : ContentPage
 
         _modeCard = MakeCard("投影方式", _modePicker, _modeHint);
         _targetCard = MakeCard("目标", _targetPicker, _targetHint);
+        var pictureGrid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(new GridLength(12)),
+                new ColumnDefinition(GridLength.Star)
+            },
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(new GridLength(10)),
+                new RowDefinition(GridLength.Auto)
+            }
+        };
+        pictureGrid.Add(Field("分辨率", _resolutionPicker), 0, 0);
+        pictureGrid.Add(Field("缩放", _scalePicker), 2, 0);
+        pictureGrid.Add(Field("帧率", _fpsPicker), 0, 2);
+        pictureGrid.Add(Field("画质", _qualityPicker), 2, 2);
         _displayCard = new Border
         {
             StrokeThickness = 1,
@@ -239,45 +280,71 @@ public sealed class ProjectionDialogPage : ContentPage
                 Spacing = 8,
                 Children =
                 {
-                    new Label { Text = "分辨率与缩放", FontAttributes = FontAttributes.Bold },
-                    _resolutionPicker,
-                    _scalePicker,
+                    new Label { Text = "画面", FontAttributes = FontAttributes.Bold },
+                    pictureGrid,
                     _displayHint
                 }
             }
         };
-        _audioSyncCheck = new CheckBox { IsChecked = false };
+        _audioSyncCheck = new CheckBox
+        {
+            IsChecked = host.Settings.ScreenExtendAudioSync,
+            VerticalOptions = LayoutOptions.Center
+        };
         _audioTitle = new Label
         {
             Text = "声音同步",
             FontAttributes = FontAttributes.Bold,
             VerticalOptions = LayoutOptions.Center
         };
-        _audioHint = new Label
+        _cropBlackBarsCheck = new CheckBox
         {
-            Text = "默认关闭。开启后本机不再播放声音，声音改由目标电脑播放。",
-            FontSize = 12
+            IsChecked = host.Settings.ScreenExtendCropBlackBars,
+            VerticalOptions = LayoutOptions.Center
         };
-        _audioCard = new Border
+        _cropTitle = new Label
+        {
+            Text = "去黑边",
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center
+        };
+        _optionsHint = new Label
+        {
+            Text = "两项默认关闭。声音同步开启后本机静音，由目标电脑播放。去黑边开启后裁掉画面四周黑边。",
+            FontSize = 12,
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+        var optionsGrid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Star)
+            }
+        };
+        optionsGrid.Add(new HorizontalStackLayout
+        {
+            Spacing = 8,
+            Children = { _audioSyncCheck, _audioTitle }
+        }, 0, 0);
+        optionsGrid.Add(new HorizontalStackLayout
+        {
+            Spacing = 8,
+            Children = { _cropBlackBarsCheck, _cropTitle }
+        }, 1, 0);
+        _optionsCard = new Border
         {
             StrokeThickness = 1,
             Padding = new Thickness(14, 12),
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
             Content = new VerticalStackLayout
             {
-                Spacing = 4,
+                Spacing = 8,
                 Children =
                 {
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 8,
-                        Children =
-                        {
-                            _audioSyncCheck,
-                            _audioTitle
-                        }
-                    },
-                    _audioHint
+                    new Label { Text = "选项", FontAttributes = FontAttributes.Bold },
+                    optionsGrid,
+                    _optionsHint
                 }
             }
         };
@@ -306,7 +373,7 @@ public sealed class ProjectionDialogPage : ContentPage
         {
             Padding = new Thickness(16, 8, 16, 8),
             Spacing = 12,
-            Children = { _modeCard, _targetCard, _displayCard, _audioCard }
+            Children = { _modeCard, _targetCard, _displayCard, _optionsCard }
         };
         if (!_phoneOnlyClone)
         {
@@ -323,9 +390,9 @@ public sealed class ProjectionDialogPage : ContentPage
         _dialogShell = new Border
         {
             StrokeThickness = 1,
-            MaximumWidthRequest = 480,
+            MaximumWidthRequest = 520,
             MinimumWidthRequest = 320,
-            MaximumHeightRequest = 640,
+            MaximumHeightRequest = 720,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
             Padding = 0,
@@ -426,9 +493,14 @@ public sealed class ProjectionDialogPage : ContentPage
         StylePicker(_targetPicker, text, card);
         StylePicker(_resolutionPicker, text, card);
         StylePicker(_scalePicker, text, card);
+        StylePicker(_fpsPicker, text, card);
+        StylePicker(_qualityPicker, text, card);
+        foreach (var caption in _fieldCaptions)
+            caption.TextColor = muted;
         _modeHint.TextColor = muted;
         _targetHint.TextColor = muted;
         _displayHint.TextColor = muted;
+        _optionsHint.TextColor = muted;
         _envHint.TextColor = muted;
         _uninstallBody.TextColor = muted;
         _envStatus.TextColor = text;
@@ -444,9 +516,9 @@ public sealed class ProjectionDialogPage : ContentPage
         PaintCard(_modeCard, card, line, text);
         PaintCard(_targetCard, card, line, text);
         PaintCard(_displayCard, card, line, text);
-        PaintCard(_audioCard, card, line, text);
-        _audioHint.TextColor = muted;
+        PaintCard(_optionsCard, card, line, text);
         _audioTitle.TextColor = text;
+        _cropTitle.TextColor = text;
         PaintCard(_envCard, subtle, line, text);
         PaintCard(_uninstallCard, subtle, line, text);
         PaintPanelLabels(_envPanel, text);
@@ -622,6 +694,12 @@ public sealed class ProjectionDialogPage : ContentPage
         _suppressDisplayChange = true;
         try
         {
+            (ProjectionDisplaySource Source, int W, int H, int Hz)? previous = null;
+            if (_displaySelectionReady
+                && _resolutionPicker.SelectedIndex >= 0
+                && _resolutionPicker.SelectedIndex < _resOptions.Count)
+                previous = _resOptions[_resolutionPicker.SelectedIndex];
+
             _resOptions.Clear();
             _resolutionPicker.Items.Clear();
             _resOptions.Add((ProjectionDisplaySource.HostPrimary, local.Width, local.Height, local.RefreshHz));
@@ -647,13 +725,22 @@ public sealed class ProjectionDialogPage : ContentPage
                 _resolutionPicker.Items.Add($"{w}×{h}");
             }
 
-            _resolutionPicker.SelectedIndex = mode == DisplayProjectionMode.Clone ? 0
-                : (_resOptions.Count > 1 ? 1 : 0);
+            if (!SelectRememberedResolution(previous))
+            {
+                _resolutionPicker.SelectedIndex = mode == DisplayProjectionMode.Clone ? 0
+                    : (_resOptions.Count > 1 ? 1 : 0);
+            }
 
-            var scale = mode == DisplayProjectionMode.Clone
-                ? local.ScalePercent
-                : (peer?.ScalePercent > 0 ? peer.ScalePercent : local.ScalePercent);
+            var scale = _host.Settings.ScreenExtendScalePercent > 0
+                ? _host.Settings.ScreenExtendScalePercent
+                : mode == DisplayProjectionMode.Clone
+                    ? local.ScalePercent
+                    : (peer?.ScalePercent > 0 ? peer.ScalePercent : local.ScalePercent);
+            if (_displaySelectionReady && _scalePicker.SelectedIndex >= 0
+                && _scalePicker.SelectedIndex < ProjectionDisplayPresets.ScalePercents.Count)
+                scale = ProjectionDisplayPresets.ScalePercents[_scalePicker.SelectedIndex];
             scale = ProjectionDisplayPresets.ClampScale(scale);
+            _displaySelectionReady = true;
             var si = ProjectionDisplayPresets.ScalePercents.ToList().IndexOf(scale);
             _scalePicker.SelectedIndex = si >= 0 ? si : 0;
         }
@@ -679,7 +766,10 @@ public sealed class ProjectionDialogPage : ContentPage
                 Width = local?.Width ?? 1920,
                 Height = local?.Height ?? 1080,
                 ScalePercent = scale,
-                RefreshHz = local?.RefreshHz ?? 60
+                RefreshHz = local?.RefreshHz ?? 60,
+                CropBlackBars = _cropBlackBarsCheck.IsChecked == true,
+                Fps = ReadPickerValue(ProjectionDisplayPresets.FrameRates, _fpsPicker.SelectedIndex, ProjectionDisplayPresets.DefaultFps),
+                JpegQuality = ReadPickerValue(ProjectionDisplayPresets.JpegQualities, _qualityPicker.SelectedIndex, ProjectionDisplayPresets.DefaultJpegQuality)
             };
         }
 
@@ -690,7 +780,88 @@ public sealed class ProjectionDialogPage : ContentPage
             Width = opt.W,
             Height = opt.H,
             ScalePercent = scale,
-            RefreshHz = opt.Hz > 0 ? opt.Hz : 60
+            RefreshHz = opt.Hz > 0 ? opt.Hz : 60,
+            CropBlackBars = _cropBlackBarsCheck.IsChecked == true,
+            Fps = ReadPickerValue(ProjectionDisplayPresets.FrameRates, _fpsPicker.SelectedIndex, ProjectionDisplayPresets.DefaultFps),
+            JpegQuality = ReadPickerValue(ProjectionDisplayPresets.JpegQualities, _qualityPicker.SelectedIndex, ProjectionDisplayPresets.DefaultJpegQuality)
+        };
+    }
+
+    private static int ReadPickerValue(IReadOnlyList<int> values, int index, int fallback)
+        => index >= 0 && index < values.Count ? values[index] : fallback;
+
+    private static int IndexOfValue(IReadOnlyList<int> values, int value)
+    {
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] == value) return i;
+        }
+
+        return 0;
+    }
+
+    private bool SelectRememberedResolution(
+        (ProjectionDisplaySource Source, int W, int H, int Hz)? previous)
+    {
+        if (_displaySelectionReady && previous != null)
+            return SelectResolution(previous.Value.Source, previous.Value.W, previous.Value.H);
+
+        if (_displaySelectionReady)
+            return false;
+
+        var settings = _host.Settings;
+        return settings.ScreenExtendWidth > 0 && settings.ScreenExtendHeight > 0
+            && SelectResolution(
+                (ProjectionDisplaySource)settings.ScreenExtendDisplaySource,
+                settings.ScreenExtendWidth,
+                settings.ScreenExtendHeight);
+    }
+
+    private bool SelectResolution(ProjectionDisplaySource source, int width, int height)
+    {
+        var sizeMatch = -1;
+        for (var i = 0; i < _resOptions.Count; i++)
+        {
+            var opt = _resOptions[i];
+            if (opt.W != width || opt.H != height) continue;
+            if (opt.Source == source)
+            {
+                _resolutionPicker.SelectedIndex = i;
+                return true;
+            }
+
+            if (sizeMatch < 0)
+                sizeMatch = i;
+        }
+
+        if (sizeMatch < 0) return false;
+        _resolutionPicker.SelectedIndex = sizeMatch;
+        return true;
+    }
+
+    private void RememberChoices()
+    {
+        if (_resolutionPicker.SelectedIndex < 0 || _fpsPicker.SelectedIndex < 0)
+            return;
+        var choice = ReadDisplayChoice();
+        ProjectionDisplayPresets.WriteRemembered(_host.Settings, choice, _audioSyncCheck.IsChecked == true);
+        _host.Settings.Save();
+    }
+
+    protected override void OnDisappearing()
+    {
+        RememberChoices();
+        base.OnDisappearing();
+    }
+
+    private View Field(string caption, View input)
+    {
+        var label = new Label { Text = caption, FontSize = 12 };
+        _fieldCaptions.Add(label);
+        return new VerticalStackLayout
+        {
+            Spacing = 4,
+            Children = { label, input }
         };
     }
 
@@ -698,10 +869,15 @@ public sealed class ProjectionDialogPage : ContentPage
     {
         var mode = ReadMode();
         var c = ReadDisplayChoice();
+        var rate = $"{c.Fps} 帧 · {ProjectionDisplayPresets.JpegQualityLabel(c.JpegQuality)}";
         if (mode == DisplayProjectionMode.Clone)
-            _displayHint.Text = $"复制：当前 {c.ResolutionLabel} · {c.ScaleLabel}（不改主屏）。";
+        {
+            _displayHint.Text = _phoneOnlyClone
+                ? $"复制本机画面。{c.ResolutionLabel} · {c.ScaleLabel} · {rate}。"
+                : $"复制本机主屏。{c.ResolutionLabel} · {c.ScaleLabel} · {rate}。";
+        }
         else
-            _displayHint.Text = $"扩展：副屏 {c.ResolutionLabel} · {c.ScaleLabel}，主屏不变。";
+            _displayHint.Text = $"扩展副屏 {c.ResolutionLabel} · {c.ScaleLabel} · {rate}，主屏不变。";
     }
 
     private void UpdateHints()

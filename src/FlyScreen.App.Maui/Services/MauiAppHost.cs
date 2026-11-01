@@ -343,10 +343,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         choice.ScalePercent = ProjectionDisplayPresets.ClampScale(
             choice.ScalePercent > 0 ? choice.ScalePercent : 100);
         Settings.ScreenExtendProjectionMode = (int)mode;
-        Settings.ScreenExtendDisplaySource = (int)choice.Source;
-        Settings.ScreenExtendWidth = choice.Width;
-        Settings.ScreenExtendHeight = choice.Height;
-        Settings.ScreenExtendScalePercent = choice.ScalePercent;
+        ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync);
         Settings.Save();
         Platform.SetScreenExtendProjectionMode(mode);
         Platform.SetScreenExtendDisplayChoice(choice);
@@ -420,6 +417,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         PublishStatus(
             $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
             + (audioSync ? " · 声音同步" : "")
+            + (choice.CropBlackBars ? " · 去黑边" : "")
             + "）");
         return ProjectionStartResult.Success();
 #endif

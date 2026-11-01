@@ -19,6 +19,8 @@ public sealed class ScreenExtendController : IDisposable
     private bool _hostSessionActive;
     private bool _disposed;
     private readonly ProjectionAudioBridge _audio;
+    private readonly LatestFrameSlot _frames = new();
+    private int _decodePosted;
 
     public ScreenExtendController(ScreenExtendService service, Dispatcher dispatcher)
     {
@@ -153,9 +155,16 @@ public sealed class ScreenExtendController : IDisposable
                     continue;
                 }
 
+                var display = _display;
+                var interval = ProjectionDisplayPresets.FpsToIntervalMs(display.Fps);
+                var started = Environment.TickCount64;
                 try
                 {
-                    var frame = ScreenCaptureJpeg.Capture(target.Value);
+                    var picture = ProjectionDisplayPresets.DescribeQuality(display.JpegQuality);
+                    var maxEdge = picture.Passthrough ? 0 : Math.Max(display.Width, display.Height);
+                    if (!picture.Passthrough && picture.ExtraLongEdgeCap > 0)
+                        maxEdge = Math.Min(maxEdge, picture.ExtraLongEdgeCap);
+                    var frame = ScreenCaptureJpeg.Capture(target.Value, picture.EncodeQuality, maxEdge);
                     if (frame is { Jpeg.Length: > 0 })
                     {
                         await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height, token)
@@ -164,7 +173,9 @@ public sealed class ScreenExtendController : IDisposable
                 }
                 catch { /* ignore frame errors */ }
 
-                try { await Task.Delay(66, token).ConfigureAwait(false); }
+                var wait = interval - (int)(Environment.TickCount64 - started);
+                if (wait <= 0) continue;
+                try { await Task.Delay(wait, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
         }, token);
@@ -197,18 +208,47 @@ public sealed class ScreenExtendController : IDisposable
 
     private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h)
     {
-        var copy = jpeg.ToArray();
-        _dispatcher.BeginInvoke(() =>
+        if (!_frames.Offer(jpeg, w, h)) return;
+        KickDecode();
+    }
+
+    private void KickDecode()
+    {
+        if (_disposed) return;
+        if (Interlocked.CompareExchange(ref _decodePosted, 1, 0) != 0) return;
+        Task.Run(DecodeLoop);
+    }
+
+    private void DecodeLoop()
+    {
+        try
         {
-            try
+            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var gen))
             {
-                _sinkWindow ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
-                if (!_sinkWindow.IsVisible)
-                    _sinkWindow.ShowFullscreen();
-                _sinkWindow.PresentJpeg(copy);
+                var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
+                if (src == null || !_frames.IsCurrent(gen)) continue;
+                var shown = src.Value;
+                var g = gen;
+                _dispatcher.BeginInvoke(() =>
+                {
+                    if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g)) return;
+                    try
+                    {
+                        _sinkWindow ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+                        if (!_sinkWindow.IsVisible)
+                            _sinkWindow.ShowFullscreen();
+                        _sinkWindow.Present(shown);
+                    }
+                    catch { /* ignore */ }
+                });
             }
-            catch { /* ignore */ }
-        });
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _decodePosted, 0);
+            if (!_disposed && _frames.HasPending)
+                KickDecode();
+        }
     }
 
     private void OnSessionEnded()
@@ -217,6 +257,7 @@ public sealed class ScreenExtendController : IDisposable
         var releaseHost = _hostSessionActive || _wantDisplay || _vdd != null;
         _hostSessionActive = false;
         _wantDisplay = false;
+        _frames.Clear();
         _ = FinalizeAfterSessionEndedAsync(releaseHost);
         _dispatcher.BeginInvoke(() =>
         {

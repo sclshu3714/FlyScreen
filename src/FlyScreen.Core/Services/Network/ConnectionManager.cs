@@ -200,6 +200,59 @@ public sealed class ConnectionManager : IAsyncDisposable
         {
             return false;
         }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+    /// <summary>投影帧：队列里只留最新一张，避免停投影的信令被一长串旧画面挡住。</summary>
+    public bool SendLatest(string peerName, MessageType type, byte[]? payload = null)
+    {
+        if (!_links.TryGetValue(peerName, out var link))
+            return false;
+
+        var useBulk = BulkMessageTypes.IsBulk(type) && link.BulkAlive;
+        if (!useBulk && !link.ControlAlive)
+            return false;
+
+        try
+        {
+            if (useBulk)
+                link.SendLatestBulk(type, payload);
+            else
+                link.SendLatest(type, payload);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>控制面不可用时，把同一条信令写到 bulk，接收端两条连接都会分发。</summary>
+    public async Task<bool> SendOnBulkAsync(string peerName, MessageType type, byte[]? payload = null)
+    {
+        if (!_links.TryGetValue(peerName, out var link) || !link.BulkAlive)
+            return false;
+
+        try
+        {
+            await link.SendBulkAsync(type, payload).ConfigureAwait(false);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
         catch (OperationCanceledException)
         {
             return false;
@@ -1072,6 +1125,24 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 await secondary.SendAsync(type, payload).ConfigureAwait(false);
             }
+        }
+
+        public void SendLatest(MessageType type, byte[]? payload)
+            => SendLatestOn(Outbound, Inbound, type, payload);
+
+        public void SendLatestBulk(MessageType type, byte[]? payload)
+            => SendLatestOn(OutboundBulk, InboundBulk, type, payload);
+
+        private static void SendLatestOn(PeerSession? outbound, PeerSession? inbound, MessageType type, byte[]? payload)
+        {
+            var a = outbound is { IsAlive: true } ? outbound : null;
+            var b = inbound is { IsAlive: true } ? inbound : null;
+            PeerSession? primary;
+            if (a != null && b != null)
+                primary = a.LastRecvUtc >= b.LastRecvUtc ? a : b;
+            else
+                primary = a ?? b;
+            primary?.SendLatest(type, payload);
         }
 
         public async Task HeartbeatAsync(CancellationToken ct)

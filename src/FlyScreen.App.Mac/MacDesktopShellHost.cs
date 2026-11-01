@@ -95,8 +95,10 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public async Task<(bool Ok, string? Message)> StartProjectionAsync(
         ProjectionTarget? target,
         DisplayProjectionMode mode,
-        bool audioSync = false)
+        bool audioSync = false,
+        bool cropBlackBars = false)
     {
+        _ = cropBlackBars;
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
         _host.Settings.ScreenExtendProjectionMode = (int)mode;
         if (target?.Kind == ProjectionTargetKind.Peer && !string.IsNullOrEmpty(target.Id))

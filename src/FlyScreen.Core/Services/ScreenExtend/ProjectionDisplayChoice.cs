@@ -1,3 +1,5 @@
+using FlyScreen.Models;
+
 namespace FlyScreen.Services.ScreenExtend;
 
 /// <summary>投影弹窗中的分辨率来源。</summary>
@@ -20,6 +22,12 @@ public sealed class ProjectionDisplayChoice
     /// <summary>100=100%。副屏 DPI 受限时仍保存供 UI / 协商。</summary>
     public int ScalePercent { get; set; } = 100;
     public int RefreshHz { get; set; } = 60;
+    /// <summary>手机投影：裁掉画面四周黑边。默认关闭，按原画面发送。</summary>
+    public bool CropBlackBars { get; set; }
+    /// <summary>采集帧率。默认 20。</summary>
+    public int Fps { get; set; } = ProjectionDisplayPresets.DefaultFps;
+    /// <summary>JPEG 质量 1–100。默认 60。</summary>
+    public int JpegQuality { get; set; } = ProjectionDisplayPresets.DefaultJpegQuality;
 
     public string ResolutionLabel => $"{Width}×{Height}";
     public string ScaleLabel => $"{ScalePercent}%";
@@ -30,7 +38,10 @@ public sealed class ProjectionDisplayChoice
         Width = Width,
         Height = Height,
         ScalePercent = ScalePercent,
-        RefreshHz = RefreshHz
+        RefreshHz = RefreshHz,
+        CropBlackBars = CropBlackBars,
+        Fps = Fps,
+        JpegQuality = JpegQuality
     };
 }
 
@@ -52,6 +63,71 @@ public static class ProjectionDisplayPresets
     public static IReadOnlyList<int> ScalePercents { get; } =
         [100, 125, 150, 175, 200];
 
+    public const int DefaultFps = 30;
+    /// <summary>原画：0。不按画质档处理，采集到什么就送什么。</summary>
+    public const int OriginalJpegQuality = 0;
+    public const int DefaultJpegQuality = OriginalJpegQuality;
+
+    public static IReadOnlyList<int> FrameRates { get; } =
+        [12, 15, 20, 24, 30, 40, 50, 60, 75, 90, 120];
+
+    /// <summary>从上到下：高画质、清晰、原画、标准、流畅。0 是原画。</summary>
+    public static IReadOnlyList<int> JpegQualities { get; } = [100, 95, OriginalJpegQuality, 70, 45];
+
+    public static string FpsLabel(int fps)
+        => fps == DefaultFps ? $"{fps} 帧（推荐）" : $"{fps} 帧";
+
+    public static string JpegQualityLabel(int quality) => ClampJpegQuality(quality) switch
+    {
+        100 => "高画质",
+        95 => "清晰",
+        OriginalJpegQuality => "原画",
+        70 => "标准",
+        45 => "流畅",
+        _ => quality.ToString()
+    };
+
+    /// <summary>
+    /// 原画不缩放、不降质，采集画面按 JPEG 100 原样送出。
+    /// 高画质、清晰按所选分辨率编码（100 / 95），不再额外缩小。
+    /// 标准、流畅降低 JPEG 质量，并把长边限制在 1600 / 960。
+    /// </summary>
+    public readonly record struct ProjectionPictureQuality(int EncodeQuality, int ExtraLongEdgeCap, bool Passthrough);
+
+    public static ProjectionPictureQuality DescribeQuality(int quality)
+    {
+        var tier = ClampJpegQuality(quality);
+        return tier switch
+        {
+            100 => new(100, 0, false),
+            95 => new(95, 0, false),
+            OriginalJpegQuality => new(100, 0, true),
+            70 => new(70, 1600, false),
+            _ => new(45, 960, false)
+        };
+    }
+
+    public static int RememberedFps(AppSettings settings)
+        => settings.ScreenExtendFps > 0 ? ClampFps(settings.ScreenExtendFps) : DefaultFps;
+
+    public static int RememberedJpegQuality(AppSettings settings)
+        => settings.ScreenExtendJpegQuality > 0
+            ? ClampJpegQuality(settings.ScreenExtendJpegQuality)
+            : DefaultJpegQuality;
+
+    public static void WriteRemembered(AppSettings settings, ProjectionDisplayChoice choice, bool audioSync)
+    {
+        settings.ScreenExtendDisplaySource = (int)choice.Source;
+        if (choice.Width > 0) settings.ScreenExtendWidth = choice.Width;
+        if (choice.Height > 0) settings.ScreenExtendHeight = choice.Height;
+        settings.ScreenExtendScalePercent = ClampScale(choice.ScalePercent > 0 ? choice.ScalePercent : 100);
+        settings.ScreenExtendFps = ClampFps(choice.Fps > 0 ? choice.Fps : DefaultFps);
+        settings.ScreenExtendJpegQuality = ClampJpegQuality(
+            choice.JpegQuality > 0 ? choice.JpegQuality : DefaultJpegQuality);
+        settings.ScreenExtendAudioSync = audioSync;
+        settings.ScreenExtendCropBlackBars = choice.CropBlackBars;
+    }
+
     public static int ClampScale(int percent)
     {
         if (percent < 50) return 100;
@@ -72,7 +148,34 @@ public static class ProjectionDisplayPresets
         return best;
     }
 
+    public static int ClampFps(int fps) => Nearest(FrameRates, fps, DefaultFps);
+
+    public static int ClampJpegQuality(int quality)
+        => quality <= 0 ? OriginalJpegQuality : Nearest(JpegQualities, quality, 100);
+
+    /// <summary>两帧之间的最短间隔。采集更慢时由编码自然拉长。</summary>
+    public static int FpsToIntervalMs(int fps)
+        => Math.Clamp(1000 / Math.Max(1, ClampFps(fps)), 8, 250);
+
     public static double ScaleToFactor(int percent) => Math.Max(0.5, percent / 100.0);
+
+    private static int Nearest(IReadOnlyList<int> values, int value, int fallback)
+    {
+        if (values.Count == 0) return fallback;
+        var best = values[0];
+        var bestDiff = Math.Abs(value - best);
+        foreach (var v in values)
+        {
+            var d = Math.Abs(value - v);
+            if (d < bestDiff)
+            {
+                best = v;
+                bestDiff = d;
+            }
+        }
+
+        return best;
+    }
 }
 
 /// <summary>手机投影采集缓冲尺寸。宽高比跟手机屏幕走，只把所选分辨率当作长边上限。</summary>

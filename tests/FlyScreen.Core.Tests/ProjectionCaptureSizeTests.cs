@@ -43,4 +43,23 @@ public class ProjectionCaptureSizeTests
         Assert.Equal(576, size.Width);
         Assert.Equal(1280, size.Height);
     }
+
+    [Fact]
+    public void Frame_rate_maps_to_the_capture_interval()
+    {
+        Assert.Equal(12, ProjectionDisplayPresets.ClampFps(0));
+        Assert.Equal(20, ProjectionDisplayPresets.ClampFps(21));
+        Assert.Equal(24, ProjectionDisplayPresets.ClampFps(24));
+        Assert.Equal(120, ProjectionDisplayPresets.ClampFps(120));
+        Assert.Equal(83, ProjectionDisplayPresets.FpsToIntervalMs(12));
+        Assert.Equal(50, ProjectionDisplayPresets.FpsToIntervalMs(20));
+        Assert.Equal(33, ProjectionDisplayPresets.FpsToIntervalMs(30));
+        Assert.Equal(8, ProjectionDisplayPresets.FpsToIntervalMs(120));
+        Assert.Equal(45, ProjectionDisplayPresets.ClampJpegQuality(55));
+        Assert.Equal(70, ProjectionDisplayPresets.ClampJpegQuality(80));
+        Assert.Equal(0, ProjectionDisplayPresets.ClampJpegQuality(0));
+        Assert.Equal(100, ProjectionDisplayPresets.ClampJpegQuality(100));
+        Assert.True(ProjectionDisplayPresets.DescribeQuality(0).Passthrough);
+        Assert.False(ProjectionDisplayPresets.DescribeQuality(100).Passthrough);
+    }
 }
