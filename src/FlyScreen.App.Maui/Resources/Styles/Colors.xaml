@@ -18,4 +18,7 @@
   <Color x:Key="ListBg">#F9FAFB</Color>
   <Color x:Key="Primary">#2563EB</Color>
   <Color x:Key="White">White</Color>
+  <Color x:Key="ScrollThumb">#CBD5E1</Color>
+  <Color x:Key="ScrollThumbHover">#94A3B8</Color>
+  <Color x:Key="ScrollThumbDrag">#64748B</Color>
 </ResourceDictionary>

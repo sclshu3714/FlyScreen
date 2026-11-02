@@ -12,6 +12,7 @@
   <Application.Styles>
     <FluentTheme />
     <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+    <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/ScrollBar.axaml" />
     <Style Selector="Window">
       <Setter Property="FontFamily" Value="{DynamicResource UiFont}"/>
     </Style>

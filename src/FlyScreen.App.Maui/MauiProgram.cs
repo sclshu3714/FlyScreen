@@ -45,6 +45,11 @@ public static class MauiProgram
             }
         });
 
+        Microsoft.Maui.Handlers.ScrollViewHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (handler, _) =>
+            Platforms.Android.MauiAndroidScrollChrome.Apply(handler.PlatformView));
+        Microsoft.Maui.Handlers.EditorHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (handler, _) =>
+            Platforms.Android.MauiAndroidScrollChrome.Apply(handler.PlatformView));
+
         // StyleClass=Mono → 系统等宽；勿用 FontFamily=Consolas（Win 未打包会炸 FontManager）
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenMono", (handler, view) =>
         {
@@ -66,7 +71,11 @@ public static class MauiProgram
         {
             if (handler.VirtualView is Window window)
                 Services.MauiWindowIcon.Apply(window);
+            Helpers.MauiScrollChrome.ApplyCurrentTheme();
         });
+
+        Microsoft.Maui.Handlers.ScrollViewHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (_, _) =>
+            Helpers.MauiScrollChrome.ApplyCurrentTheme());
 
         // WinUI CheckBox 默认 MinWidth 很大；只清 MinWidth，勿强设 Width（会裁掉勾选图标）
         Microsoft.Maui.Handlers.CheckBoxHandler.Mapper.AppendToMapping("FlyScreenCompact", (handler, _) =>

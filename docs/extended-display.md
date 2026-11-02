@@ -46,7 +46,7 @@
 按优先级：
 
 1. 若本机已有 **非主显示器**（真副屏），扩展时可直接采集，不强制 MTT。
-2. 否则 **MTT Virtual Display Driver** 管道 `\\.\pipe\MTTVirtualDisplayPipe`：`PING` → `SETDISPLAYCOUNT N`。安装：**静默优先**——`VddOffline\*setup*.exe`（`/VERYSILENT`）→ `winget --silent` →（按需）Driver.Only + pnputil/nefcon → 启动 `VDDControl` 拉管道。发布进包仅 **setup + VDDControl**（共用 `tools/VddOffline/`；清单在 `docs/mtt_vdd/`）。**仅管道真正就绪**才写入 `%AppData%/FlyScreen/mtt-vdd-installed-by-app.flag`。
+2. 否则 **MTT Virtual Display Driver** 管道 `\\.\pipe\MTTVirtualDisplayPipe`：`PING` → `SETDISPLAYCOUNT N`。安装：**静默优先**——离线 `v25.05.03` setup（`/VERYSILENT`）→ `winget --silent` → 启动 `VDDControl-v25.05.03` 拉管道。发布进包仅 **setup + VDDControl**（共用 `tools/VddOffline/`；清单在 `docs/mtt_vdd/`）。**不再下载**已放弃的 `Driver.Only`。**仅管道真正就绪**才写入 `%AppData%/FlyScreen/mtt-vdd-installed-by-app.flag`。
 3. 仅一块物理屏且管道不可用 → 返回 `NeedEnvironmentRepair`。25.7 起官方改为便携 Control、不再发 setup；静默离线包因此保留 25.5.2 setup-x64（详见 `docs/mtt_vdd/README.md`）。
 4. 「卸载并清理」仅在**本程序安装标记且环境检查已通过（管道就绪）**时显示；无内容时不显示空卡片。
 
@@ -59,7 +59,7 @@
 | 设置 → 系统 → 显示 | 扩展后应出现额外显示器 |
 | 开始菜单 | 打开 Virtual Display Driver / VDD.Control（管道常由此进程提供） |
 
-> 说明：官方 `VirtualDisplayDriver-x86.Driver.Only.zip` 文件名带 x86，但是 **x64 Windows（Intel/AMD）的正确包**；ARM64 用 `…-ARM64.Driver.Only.zip`。控制台用离线 `VDDControl*.exe` 即可（大包 `VDD.Control.*.zip` 不进发布）。
+> 说明：统一使用离线包 **v25.05.03**（`Virtual.Display.Driver-v25.05.03-setup-x64.exe` + `VDDControl-v25.05.03.exe`）。历史误下的 `VirtualDisplayDriver-*-Driver.Only.zip` 会在检测/修复时自动清理。
 
 虚拟副屏创建后会：写入 `vdd_settings.xml`（主屏分辨率置顶、`HardwareCursor=false`）→ `SETDISPLAYCOUNT` → 必要时 `DisplaySwitch /extend` → **仅临时**调整副屏分辨率/方位（不写注册表、不改主屏 DPI）。
 

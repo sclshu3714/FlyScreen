@@ -346,7 +346,26 @@ public sealed class EdgeFileDragService : IDisposable
     {
         var query = MessageCodec.DecodeJson<EdgeDragQueryPayload>(payload);
         if (query == null || string.IsNullOrEmpty(query.SessionId)) return;
-        if (!_settings.TransferFile) return;
+        if (!_settings.TransferFile)
+        {
+            // 必须回 Place，否则源端一直等到「穿边拖放超时」
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _connections.SendToAsync(peer, MessageType.EdgeDragPlace,
+                        MessageCodec.JsonBytes(new EdgeDragPlacePayload
+                        {
+                            SessionId = query.SessionId,
+                            Directory = "",
+                            Action = (int)EdgeDragConflictAction.Cancel
+                        })).ConfigureAwait(false);
+                }
+                catch { /* 源端超时 */ }
+            });
+            return;
+        }
+
         // 替换确认会停在界面上。不能占着收包线程，否则心跳和鼠标都过不去。
         _ = Task.Run(() => ReplyToQueryAsync(peer, query));
     }

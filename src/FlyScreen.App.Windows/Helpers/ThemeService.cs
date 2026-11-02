@@ -49,9 +49,16 @@ public static class ThemeService
         Set(rd, "Placeholder", dark ? "#64748B" : "#9CA3AF");
         Set(rd, "MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set(rd, "ListBg", dark ? "#0B1220" : "#F9FAFB");
+        // 细圆角滚动条：与卡片 UI 同色系，避免系统粗箭头条
+        Set(rd, "ScrollTrack", dark ? "#00000000" : "#00000000");
+        Set(rd, "ScrollThumb", dark ? "#64748B" : "#CBD5E1");
+        Set(rd, "ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
+        Set(rd, "ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
 
         // 覆盖窗口级 SystemColors，避免 ListView/ScrollViewer 默认白底
         OverrideSystemColorsOn(rd, dark);
+        // Application 级样式里的 DynamicResource 也要跟着变
+        SyncAppScrollBrushes(dark);
 
         if (root is Window win)
         {
@@ -173,6 +180,16 @@ public static class ThemeService
 
     /// <summary>将当前主题应用到子窗口。</summary>
     public static void ApplyToChildWindow(Window child) => Apply(Current, child);
+
+    private static void SyncAppScrollBrushes(bool dark)
+    {
+        var app = Application.Current?.Resources;
+        if (app == null) return;
+        Set(app, "ScrollTrack", "#00000000");
+        Set(app, "ScrollThumb", dark ? "#64748B" : "#CBD5E1");
+        Set(app, "ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
+        Set(app, "ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
+    }
 
     private static void Set(ResourceDictionary rd, string key, string hex)
     {

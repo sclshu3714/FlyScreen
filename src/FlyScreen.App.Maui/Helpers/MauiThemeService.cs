@@ -39,11 +39,15 @@ public static class MauiThemeService
         Set("MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set("ListBg", dark ? "#0B1220" : "#F9FAFB");
         Set("Primary", dark ? "#3B82F6" : "#2563EB");
+        Set("ScrollThumb", dark ? "#64748B" : "#CBD5E1");
+        Set("ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
+        Set("ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
 
         page ??= TryGetMainPage();
         if (page != null && ColorOf("WinBg") is { } winBg)
             page.BackgroundColor = winBg;
 
+        MauiScrollChrome.Apply(dark);
 #if WINDOWS
         Platforms.Windows.MauiWindowChrome.ApplyTheme(dark);
 #endif

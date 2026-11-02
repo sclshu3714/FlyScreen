@@ -125,15 +125,34 @@ public static class WindowsDropFolder
     private static IntPtr HitWindow(NativeMethods.POINT pt)
     {
         var hwnd = WindowFromPoint(pt);
-        if (!IsOwnWindow(hwnd)) return hwnd;
-        ShowWindow(hwnd, 0);
-        var under = WindowFromPoint(pt);
-        ShowWindow(hwnd, 8);
-        return under;
+        // 本进程窗口（主界面 / 提示条 / WinUI）会挡住桌面与资源管理器；
+        // 穿边放下时先藏起来再命中，否则 Win→Maui 常得到空目录并取消。
+        var hidden = new List<IntPtr>();
+        try
+        {
+            while (hwnd != IntPtr.Zero && IsOwnWindow(hwnd) && hidden.Count < 8)
+            {
+                ShowWindow(hwnd, 0);
+                hidden.Add(hwnd);
+                hwnd = WindowFromPoint(pt);
+            }
+
+            return hwnd;
+        }
+        finally
+        {
+            for (var i = hidden.Count - 1; i >= 0; i--)
+                ShowWindow(hidden[i], 8);
+        }
     }
 
     private static bool IsOwnWindow(IntPtr hwnd)
     {
+        if (hwnd == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid != 0 && pid == (uint)Environment.ProcessId)
+            return true;
+
         var buf = new StringBuilder(64);
         for (var h = hwnd; h != IntPtr.Zero; h = GetParent(h))
         {
@@ -327,6 +346,9 @@ public static class WindowsDropFolder
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hwnd, StringBuilder name, int count);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
     [DllImport("oleacc.dll")]
     private static extern int AccessibleObjectFromPoint(

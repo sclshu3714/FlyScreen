@@ -1,34 +1,28 @@
 using System.Diagnostics;
-using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32;
 
 namespace FlyScreen.ScreenExtend;
 
 /// <summary>
 /// 按需安装 / 卸载 MTT Virtual Display Driver。
-/// 安装：离线包优先，其次 winget，再尝试在线下载控制台/驱动包。
+/// 统一使用离线包 v25.05.03（setup + VDDControl），其次 winget；不再下载已放弃的 25.7 Driver.Only。
 /// 仅当本程序成功安装后写入 <see cref="MttVddInstallRecord"/>，卸载清理才开放。
 /// </summary>
 public static class MttVddInstaller
 {
     public const string OfflineFolderName = "VddOffline";
 
-    /// <summary>官方便携控制台（含安装/卸载与管道）；优先于纯驱动包。</summary>
-    public const string OnlineControlZipUrl =
-        "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/25.7.23/VDD.Control.25.7.23.zip";
-
-    /// <summary>
-    /// 25.7.23 官方对 Intel/AMD（含 x64 Windows）发布的 Driver.Only 文件名即带 x86，
-    /// 并非「仅 32 位系统」；ARM64 机器应改用 <see cref="OnlineDriverZipUrlArm64"/>。
-    /// </summary>
-    public const string OnlineDriverZipUrl =
-        "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/25.7.23/VirtualDisplayDriver-x86.Driver.Only.zip";
-
-    public const string OnlineDriverZipUrlArm64 =
-        "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/25.7.23/VirtualDisplayDriver-ARM64.Driver.Only.zip";
-
     public const string WingetId = "VirtualDrivers.Virtual-Display-Driver";
+
+    /// <summary>历史误下的包名（25.7 Driver.Only / Control 大包），启动修复时清理。</summary>
+    private static readonly string[] AbandonedOfflineNames =
+    [
+        "VirtualDisplayDriver-x86.Driver.Only.zip",
+        "VirtualDisplayDriver-ARM64.Driver.Only.zip",
+        "VDD.Control.25.7.23.zip"
+    ];
 
     public static string OfflineDirectory
     {
@@ -66,32 +60,6 @@ public static class MttVddInstaller
         if (!arm && fileName.Contains("x64", StringComparison.OrdinalIgnoreCase)) return 3;
         if (!arm && fileName.Contains("x86", StringComparison.OrdinalIgnoreCase)) return 1;
         return 2;
-    }
-
-    public static string? FindOfflineDriverZip()
-    {
-        var dir = OfflineDirectory;
-        if (!Directory.Exists(dir)) return null;
-        var arm = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
-        // Signed-Driver / Driver.Only；排除控制台大包与音频包
-        return Directory.EnumerateFiles(dir, "*Driver*.zip", SearchOption.TopDirectoryOnly)
-            .Concat(Directory.EnumerateFiles(dir, "*VDD*.zip", SearchOption.TopDirectoryOnly))
-            .Where(f =>
-            {
-                var n = Path.GetFileName(f);
-                return n.Contains("Driver", StringComparison.OrdinalIgnoreCase)
-                       && !n.Contains("Control", StringComparison.OrdinalIgnoreCase)
-                       && !n.Contains("Audio", StringComparison.OrdinalIgnoreCase);
-            })
-            .OrderByDescending(f =>
-            {
-                var n = Path.GetFileName(f)!;
-                if (arm && n.Contains("ARM64", StringComparison.OrdinalIgnoreCase)) return 3;
-                if (!arm && (n.Contains("x64", StringComparison.OrdinalIgnoreCase)
-                             || n.Contains("x86", StringComparison.OrdinalIgnoreCase))) return 3;
-                return 1;
-            })
-            .FirstOrDefault();
     }
 
     public static string? FindOfflineNefcon()
@@ -138,10 +106,11 @@ public static class MttVddInstaller
             return (true, "环境已就绪，无需安装");
 
         Directory.CreateDirectory(OfflineDirectory);
+        PurgeAbandonedOfflineDownloads();
         var attemptedInstall = false;
         var productAlready = MttVddEnvironment.IsProductInstalled();
 
-        // 0) 软件已装但管道未起：先启设备 + 控制台，避免重复安装仍不可用
+        // 0) 软件已装但管道未起：自动修黄叹号设备 → 拉控制台；仍失败再静默重建设备（用户无需开设备管理器）。
         if (productAlready)
         {
             progress?.Report("检测到已安装 Virtual Display Driver，正在启用设备并启动控制台…");
@@ -150,17 +119,65 @@ public static class MttVddInstaller
                 MttVddInstallRecord.MarkInstalledByApp();
                 return (true, "已启动虚拟显示驱动，管道就绪");
             }
+
+            progress?.Report("首次拉起未成功，正在自动修复异常显示设备…");
+            await TryHealFaultyVddDeviceAsync(progress, ct).ConfigureAwait(false);
+            if (await TryActivateDriverAsync(progress, ct, waitAttempts: 16).ConfigureAwait(false))
+            {
+                MttVddInstallRecord.MarkInstalledByApp();
+                return (true, "已修复虚拟显示设备并启动管道");
+            }
+
+            progress?.Report("设备仍异常，正在移除并重新创建虚拟显示适配器…");
+            await TryRecreateVddDeviceAsync(progress, ct).ConfigureAwait(false);
+            if (await TryActivateDriverAsync(progress, ct, waitAttempts: 18).ConfigureAwait(false))
+            {
+                MttVddInstallRecord.MarkInstalledByApp();
+                return (true, "已重建虚拟显示设备并启动管道");
+            }
+
+            // 设备节点修不好时，用离线 setup / winget 静默重装（仍尽量 /VERYSILENT，不弹设备管理器）
+            var setup = FindOfflineSetupExecutables().FirstOrDefault();
+            if (setup != null)
+            {
+                attemptedInstall = true;
+                progress?.Report("正在静默重装离线驱动包以恢复设备…");
+                await RunProcessAsync(setup,
+                        "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-", ct).ConfigureAwait(false);
+                await TryHealFaultyVddDeviceAsync(progress, ct).ConfigureAwait(false);
+                if (await TryActivateDriverAsync(progress, ct, waitAttempts: 16).ConfigureAwait(false))
+                {
+                    MttVddInstallRecord.MarkInstalledByApp();
+                    return (true, "静默重装完成，驱动已就绪");
+                }
+            }
+
+            progress?.Report("正在通过 winget 静默重装…");
+            if (await TryWingetInstallAsync(ct).ConfigureAwait(false))
+            {
+                attemptedInstall = true;
+                await TryHealFaultyVddDeviceAsync(progress, ct).ConfigureAwait(false);
+                if (await TryActivateDriverAsync(progress, ct, waitAttempts: 16).ConfigureAwait(false))
+                {
+                    MttVddInstallRecord.MarkInstalledByApp();
+                    return (true, "winget 静默重装完成，驱动已就绪");
+                }
+            }
+
+            return (false,
+                "已自动尝试修复/重建虚拟显示设备并重装驱动，但仍无控制台管道。"
+                + "请重启电脑后再打开投影点「重新检测」（部分黄叹号设备需重启才能加载）。");
         }
 
         // 1) 离线 setup.exe —— 仅静默参数（Inno：/VERYSILENT；禁止无参弹窗）
-        var setup = FindOfflineSetupExecutables().FirstOrDefault();
-        if (setup != null)
+        var setupFresh = FindOfflineSetupExecutables().FirstOrDefault();
+        if (setupFresh != null)
         {
             attemptedInstall = true;
             progress?.Report("正在静默安装离线包…");
-            var code = await RunProcessAsync(setup,
+            var code = await RunProcessAsync(setupFresh,
                            "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-", ct).ConfigureAwait(false)
-                       ?? await RunProcessAsync(setup, "/S /NORESTART", ct).ConfigureAwait(false);
+                       ?? await RunProcessAsync(setupFresh, "/S /NORESTART", ct).ConfigureAwait(false);
             progress?.Report(code == 0
                 ? "静默安装已完成，正在启用驱动…"
                 : "静默安装已请求（请确认 UAC），正在等待驱动…");
@@ -185,33 +202,11 @@ public static class MttVddInstaller
             }
         }
 
-        // 3) 离线/在线 Signed-Driver 或 Driver.Only —— pnputil/nefcon 静默装驱动
-        var zip = FindOfflineDriverZip();
-        if (zip == null)
-        {
-            progress?.Report(RuntimeInformation.ProcessArchitecture == Architecture.Arm64
-                ? "正在下载 ARM64 驱动包…"
-                : "正在下载驱动包（官方 x86 命名适用于 x64 Windows）…");
-            zip = await TryDownloadDriverZipAsync(ct).ConfigureAwait(false);
-        }
-
-        if (zip != null)
-        {
-            attemptedInstall = true;
-            progress?.Report("正在静默安装驱动包…");
-            var silent = await TrySilentDriverInstallAsync(zip, FindOfflineNefcon(), ct).ConfigureAwait(false);
-            if (silent && await TryActivateDriverAsync(progress, ct).ConfigureAwait(false))
-            {
-                MttVddInstallRecord.MarkInstalledByApp();
-                return (true, "驱动静默安装完成");
-            }
-        }
-
-        // 4) 仅启动离线控制台拉起管道（非安装 UI；安装应已由上面静默完成）
+        // 3) 仅启动离线 v25.05.03 控制台拉起管道（不再下载已放弃的 25.7 Driver.Only / Control 大包）
         var offlineControls = FindOfflineControlExecutables().ToList();
         if (offlineControls.Count > 0)
         {
-            progress?.Report("正在启动离线控制台以创建管道…");
+            progress?.Report("正在启动离线控制台（v25.05.03）以创建管道…");
             foreach (var exe in offlineControls.Take(3))
             {
                 try
@@ -233,28 +228,13 @@ public static class MttVddInstaller
                 return (true, "控制台已启动，驱动管道就绪");
             }
         }
-        else
-        {
-            // 无离线控制台时再尝试解压/下载 VDD.Control（体积大，非首选）
-            progress?.Report("离线控制台缺失，尝试准备 VDD.Control…");
-            var controlDir = await TryDownloadAndExtractControlAsync(progress, ct).ConfigureAwait(false);
-            if (controlDir != null)
-            {
-                await TryStartExecutablesUnderAsync(controlDir, ct).ConfigureAwait(false);
-                if (await TryActivateDriverAsync(progress, ct).ConfigureAwait(false))
-                {
-                    MttVddInstallRecord.MarkInstalledByApp();
-                    return (true, "Virtual Driver Control 已就绪");
-                }
-            }
-        }
 
         // 5) 打开离线 README / 下载页指引
         var readme = Path.Combine(OfflineDirectory, "README.txt");
         if (!File.Exists(readme))
             await WriteOfflineReadmeAsync(readme).ConfigureAwait(false);
 
-        if (!attemptedInstall && !productAlready && setup == null)
+        if (!attemptedInstall && !productAlready && setupFresh == null)
         {
             return (false,
                 "自动静默安装未完成。请将安装包放入程序目录 VddOffline\\ 后重试，或执行：winget install VirtualDrivers.Virtual-Display-Driver --silent");
@@ -274,9 +254,9 @@ public static class MttVddInstaller
         var foundControl = FindVddControlExecutables().Any();
         return (false, pkg
             ? foundControl
-                ? "软件包已安装且已尝试启动控制台，但仍无 MTTVirtualDisplayPipe。驱动设备可能需注销或重启后才能加载。请注销/重启后点「重新检测」；或在开始菜单打开「Virtual Display Driver」确认虚拟屏已创建。"
-                : "软件包已安装，但未找到控制台程序（管道由其提供）。请从开始菜单打开「Virtual Display Driver」；若没有该程序，请重新安装完整包：winget install VirtualDrivers.Virtual-Display-Driver，然后注销或重启。"
-            : "安装步骤已执行，但未检测到驱动。请确认 UAC 已允许安装，并在「设置 → 应用」中查看是否出现 Virtual Display Driver；必要时注销或重启后重试。");
+                ? "已自动修复/重建虚拟显示设备并尝试启动控制台，但仍无管道。请重启电脑后再打开投影点「重新检测」。"
+                : "软件包已安装，但未找到控制台程序。请确认程序目录 VddOffline\\ 含 VDDControl-v25.05.03.exe 后重试；仍失败请重启电脑。"
+            : "安装步骤已执行，但未检测到驱动。请确认 UAC 已允许安装；必要时重启后再试。");
     }
 
     /// <summary>启用设备 → 启动控制台 → 轮询管道 → 创建虚拟屏并切到扩展。</summary>
@@ -289,8 +269,16 @@ public static class MttVddInstaller
         await TryEnableDriverDeviceAsync(ct).ConfigureAwait(false);
         progress?.Report("正在启动 Virtual Display Driver 控制台…");
         await TryStartVddControlAsync(ct).ConfigureAwait(false);
-        if (!await WaitForDriverReadyAsync(progress, ct, attempts: waitAttempts).ConfigureAwait(false))
-            return false;
+        if (!await WaitForDriverReadyAsync(progress, ct, attempts: Math.Max(4, waitAttempts / 2), delayMs: 1200)
+                .ConfigureAwait(false))
+        {
+            // 黄叹号等异常：先自动修设备再拉一次控制台
+            await TryHealFaultyVddDeviceAsync(progress, ct).ConfigureAwait(false);
+            await TryStartVddControlAsync(ct).ConfigureAwait(false);
+            if (!await WaitForDriverReadyAsync(progress, ct, attempts: waitAttempts, delayMs: 1500)
+                    .ConfigureAwait(false))
+                return false;
+        }
 
         // 管道就绪仍可能 count=0 / 复制模式，导致「设置→显示」看不到独立副屏
         if (await MttVddEnvironment.EnsureVirtualMonitorVisibleAsync(progress, ct).ConfigureAwait(false))
@@ -316,20 +304,44 @@ public static class MttVddInstaller
         return await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>离线包或已装目录里是否找得到控制台 exe（可用来拉管道）。</summary>
+    public static bool HasAnyControlExecutable()
+    {
+        try
+        {
+            return FindOfflineControlExecutables().Any()
+                   || FindVddControlExecutables().Any()
+                   || FindVddControlShortcuts().Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// 软件已装但管道未监听时拉起控制台。不修改显示器数量，也不调用 DisplaySwitch。
+    /// SETDISPLAYCOUNT / 停投后驱动重载常把 VDDControl 打掉，必须轮询等待管道回来，
+    /// 否则下次打开投影会误判成「需要自动修复」并走重装。
     /// </summary>
-    public static async Task<bool> TryEnsureConsoleAsync(CancellationToken ct = default)
+    public static async Task<bool> TryEnsureConsoleAsync(
+        CancellationToken ct = default,
+        int waitAttempts = 10,
+        int delayMs = 700)
     {
         if (await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false))
             return true;
-        if (!MttVddEnvironment.IsProductInstalled()
-            && !FindOfflineControlExecutables().Any()
-            && !FindVddControlExecutables().Any())
+        if (!MttVddEnvironment.IsProductInstalled() && !HasAnyControlExecutable())
             return false;
 
+        PurgeAbandonedOfflineDownloads();
         await TryStartVddControlAsync(ct).ConfigureAwait(false);
-        return await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false);
+        if (await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false))
+            return true;
+
+        // 驱动重载后控制台可能晚几秒才绑上管道
+        return await WaitForDriverReadyAsync(null, ct, attempts: waitAttempts, delayMs: delayMs)
+            .ConfigureAwait(false);
     }
 
     /// <summary>尽力启动 VDD 控制台，使命名管道开始监听。</summary>
@@ -404,12 +416,15 @@ public static class MttVddInstaller
         {
             await RunProcessAsync("pnputil", "/enable-device \"Root\\MttVDD\"", ct).ConfigureAwait(false);
             await RunProcessAsync("pnputil", "/restart-device \"Root\\MttVDD\"", ct).ConfigureAwait(false);
-            // 常见硬件 ID / 实例路径变体
-            await RunProcessAsync("pnputil", "/enum-devices /class Display", ct).ConfigureAwait(false);
+            foreach (var id in await EnumerateVddDeviceInstanceIdsAsync(ct).ConfigureAwait(false))
+            {
+                await RunProcessAsync("pnputil", $"/enable-device \"{id}\"", ct).ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/restart-device \"{id}\"", ct).ConfigureAwait(false);
+            }
+
             var nef = FindOfflineNefcon();
             if (nef != null)
             {
-                // 若设备不存在，尝试用已有 inf 再装一次（失败忽略）
                 var offlineInf = Directory.Exists(OfflineDirectory)
                     ? Directory.EnumerateFiles(OfflineDirectory, "MttVDD.inf", SearchOption.AllDirectories)
                         .FirstOrDefault()
@@ -419,11 +434,252 @@ public static class MttVddInstaller
                         .ConfigureAwait(false);
             }
 
+            await Task.Delay(1200, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>
+    /// 对应设备管理器里对黄叹号设备的：禁用→启用→重启，以及扫描硬件。
+    /// 用户无需打开设备管理器。
+    /// </summary>
+    private static async Task TryHealFaultyVddDeviceAsync(IProgress<string>? progress, CancellationToken ct)
+    {
+        try
+        {
+            progress?.Report("正在自动修复异常的虚拟显示设备…");
+            TryKillVddControlProcesses();
+
+            var ids = await EnumerateVddDeviceInstanceIdsAsync(ct).ConfigureAwait(false);
+            if (ids.Count == 0)
+                ids = ["Root\\MttVDD", "ROOT\\MTTVDD\\0000"];
+
+            foreach (var id in ids.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                ct.ThrowIfCancellationRequested();
+                progress?.Report($"正在重置设备 {ShortInstance(id)}…");
+                await RunProcessAsync("pnputil", $"/disable-device \"{id}\"", ct).ConfigureAwait(false);
+                await Task.Delay(700, ct).ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/enable-device \"{id}\"", ct).ConfigureAwait(false);
+                await Task.Delay(700, ct).ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/restart-device \"{id}\"", ct).ConfigureAwait(false);
+            }
+
+            // PowerShell 再兜一层（FriendlyName 匹配），覆盖 InstanceId 枚举不全的情况
+            await RunPowerShellAsync(
+                    """
+                    Get-PnpDevice -ErrorAction SilentlyContinue |
+                      Where-Object {
+                        $_.FriendlyName -match 'Virtual Display|MttVDD' -or
+                        $_.InstanceId -match 'MttVDD|VirtualDisplay'
+                      } |
+                      ForEach-Object {
+                        try { Disable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+                        Start-Sleep -Milliseconds 600
+                        try { Enable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+                      }
+                    """,
+                    ct)
+                .ConfigureAwait(false);
+
+            await RunProcessAsync("pnputil", "/scan-devices", ct).ConfigureAwait(false);
             await Task.Delay(1500, ct).ConfigureAwait(false);
         }
         catch
         {
             // ignore
+        }
+    }
+
+    /// <summary>移除异常设备节点并重新创建（仍不弹设备管理器）。</summary>
+    private static async Task TryRecreateVddDeviceAsync(IProgress<string>? progress, CancellationToken ct)
+    {
+        try
+        {
+            progress?.Report("正在移除异常虚拟显示设备…");
+            TryKillVddControlProcesses();
+
+            var nef = FindOfflineNefcon();
+            if (nef != null)
+                await RunProcessAsync(nef, "remove Root\\MttVDD", ct).ConfigureAwait(false);
+
+            foreach (var id in await EnumerateVddDeviceInstanceIdsAsync(ct).ConfigureAwait(false))
+                await RunProcessAsync("pnputil", $"/remove-device \"{id}\" /force", ct).ConfigureAwait(false);
+
+            await RunProcessAsync("pnputil", "/remove-device \"Root\\MttVDD\" /force", ct)
+                .ConfigureAwait(false);
+            await Task.Delay(1000, ct).ConfigureAwait(false);
+
+            progress?.Report("正在重新创建虚拟显示设备…");
+            var offlineInf = Directory.Exists(OfflineDirectory)
+                ? Directory.EnumerateFiles(OfflineDirectory, "MttVDD.inf", SearchOption.AllDirectories)
+                    .FirstOrDefault()
+                : null;
+            if (nef != null && offlineInf != null)
+                await RunProcessAsync(nef, $"install \"{offlineInf}\" Root\\MttVDD", ct).ConfigureAwait(false);
+            else
+                await RunProcessAsync("pnputil", "/scan-devices", ct).ConfigureAwait(false);
+
+            await Task.Delay(1500, ct).ConfigureAwait(false);
+            await TryHealFaultyVddDeviceAsync(progress, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void TryKillVddControlProcesses()
+    {
+        try
+        {
+            foreach (var p in Process.GetProcesses())
+            {
+                try
+                {
+                    var n = p.ProcessName;
+                    if (n.Contains("VDDControl", StringComparison.OrdinalIgnoreCase)
+                        || n.Contains("VDD.Control", StringComparison.OrdinalIgnoreCase)
+                        || (n.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
+                            && n.Contains("Display", StringComparison.OrdinalIgnoreCase)
+                            && n.Contains("Control", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        p.Kill(entireProcessTree: true);
+                        p.WaitForExit(3000);
+                    }
+                }
+                catch { /* ignore */ }
+                finally
+                {
+                    try { p.Dispose(); } catch { /* ignore */ }
+                }
+            }
+        }
+        catch { /* ignore */ }
+    }
+
+    private static async Task<List<string>> EnumerateVddDeviceInstanceIdsAsync(CancellationToken ct)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var ps = await RunProcessCaptureAsync(
+                    "powershell",
+                    "-NoProfile -ExecutionPolicy Bypass -Command \"Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Virtual Display|MttVDD' -or $_.InstanceId -match 'MttVDD|VirtualDisplay' } | Select-Object -ExpandProperty InstanceId\"",
+                    ct)
+                .ConfigureAwait(false);
+            foreach (var line in (ps ?? "").Split('\r', '\n'))
+            {
+                var id = line.Trim();
+                if (id.Length > 3 && id.Contains('\\'))
+                    ids.Add(id);
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var enumOut = await RunProcessCaptureAsync("pnputil", "/enum-devices /class Display", ct)
+                .ConfigureAwait(false);
+            foreach (var id in ParsePnputilInstanceIds(enumOut, vddOnly: true))
+                ids.Add(id);
+
+            var problemOut = await RunProcessCaptureAsync("pnputil", "/enum-devices /problem", ct)
+                .ConfigureAwait(false);
+            foreach (var id in ParsePnputilInstanceIds(problemOut, vddOnly: true))
+                ids.Add(id);
+        }
+        catch { /* ignore */ }
+
+        return ids.ToList();
+    }
+
+    private static IEnumerable<string> ParsePnputilInstanceIds(string? text, bool vddOnly)
+    {
+        if (string.IsNullOrWhiteSpace(text)) yield break;
+        string? pendingId = null;
+        var related = false;
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("Instance ID:", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("实例 ID:", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("实例ID:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (pendingId != null && (!vddOnly || related))
+                    yield return pendingId;
+                pendingId = line.Split(':', 2) is { Length: 2 } parts ? parts[1].Trim() : null;
+                related = pendingId != null && LooksLikeVddInstance(pendingId);
+                continue;
+            }
+
+            if (pendingId == null) continue;
+            if (line.Contains("Virtual Display", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("MttVDD", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("MTT VDD", StringComparison.OrdinalIgnoreCase))
+                related = true;
+
+            if (string.IsNullOrEmpty(line))
+            {
+                if (!vddOnly || related)
+                    yield return pendingId;
+                pendingId = null;
+                related = false;
+            }
+        }
+
+        if (pendingId != null && (!vddOnly || related))
+            yield return pendingId;
+    }
+
+    private static bool LooksLikeVddInstance(string instanceId)
+        => instanceId.Contains("MttVDD", StringComparison.OrdinalIgnoreCase)
+           || instanceId.Contains("MTTVDD", StringComparison.OrdinalIgnoreCase)
+           || instanceId.Contains("VirtualDisplay", StringComparison.OrdinalIgnoreCase);
+
+    private static string ShortInstance(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return id;
+        return id.Length <= 42 ? id : "…" + id[^36..];
+    }
+
+    private static async Task RunPowerShellAsync(string script, CancellationToken ct)
+    {
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        await RunProcessAsync("powershell",
+                $"-NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded}", ct)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<string?> RunProcessCaptureAsync(string fileName, string args, CancellationToken ct)
+    {
+        try
+        {
+            using var p = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            if (!p.Start()) return null;
+            var stdout = await p.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+            try { await p.StandardError.ReadToEndAsync(ct).ConfigureAwait(false); }
+            catch { /* ignore */ }
+            await p.WaitForExitAsync(ct).ConfigureAwait(false);
+            return stdout;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -679,13 +935,13 @@ public static class MttVddInstaller
             完整清单与说明见仓库 docs\mtt_vdd\README.md。
             开发机请运行 docs\mtt_vdd\fetch-offline-pack.ps1，写入 tools\VddOffline\。
 
+            统一版本：v25.05.03（对应官方 25.5.2 标签）
             静默优先顺序：
-              1) Virtual.Display.Driver-*-setup-x64.exe  (/VERYSILENT)
+              1) Virtual.Display.Driver-v25.05.03-setup-x64.exe  (/VERYSILENT)
               2) winget --silent
-              3) 按需下载 Driver.Only + pnputil/nefcon
-              4) 启动 VDDControl*.exe 拉起管道
+              3) 启动 VDDControl-v25.05.03.exe 拉起管道
 
-            注意：25.7 起官方不再提供 setup；本离线包保留 25.5.2 setup-x64 用于静默安装。
+            不再下载 VirtualDisplayDriver-*-Driver.Only.zip（已放弃）。
 
             """;
         await File.WriteAllTextAsync(path, text).ConfigureAwait(false);
@@ -910,159 +1166,44 @@ public static class MttVddInstaller
             }
         }
 
-        // 清理本程序下载到 VddOffline 的临时驱动 zip（保留 README）
+        removed += PurgeAbandonedOfflineDownloads();
+        return removed;
+    }
+
+    /// <summary>删除历史误下的 25.7 Driver.Only / Control 大包，避免占用磁盘或被误用。</summary>
+    public static int PurgeAbandonedOfflineDownloads()
+    {
+        var removed = 0;
         try
         {
-            var downloaded = Path.Combine(OfflineDirectory, "VirtualDisplayDriver-x86.Driver.Only.zip");
-            if (File.Exists(downloaded))
+            var dir = OfflineDirectory;
+            if (!Directory.Exists(dir)) return 0;
+            foreach (var name in AbandonedOfflineNames)
             {
-                File.Delete(downloaded);
-                removed++;
+                var path = Path.Combine(dir, name);
+                if (!File.Exists(path)) continue;
+                try
+                {
+                    File.Delete(path);
+                    removed++;
+                }
+                catch { /* 占用则跳过 */ }
+            }
+
+            // 通配：任何 *Driver.Only*.zip
+            foreach (var f in Directory.EnumerateFiles(dir, "*Driver.Only*.zip", SearchOption.TopDirectoryOnly))
+            {
+                try
+                {
+                    File.Delete(f);
+                    removed++;
+                }
+                catch { /* ignore */ }
             }
         }
         catch { /* ignore */ }
 
         return removed;
-    }
-
-    private static async Task<string?> TryDownloadAndExtractControlAsync(
-        IProgress<string>? progress,
-        CancellationToken ct)
-    {
-        try
-        {
-            var zipPath = Path.Combine(OfflineDirectory, "VDD.Control.25.7.23.zip");
-            var extractDir = Path.Combine(OfflineDirectory, "VDD.Control");
-            if (!File.Exists(zipPath) || new FileInfo(zipPath).Length < 1000)
-            {
-                progress?.Report("正在下载 VDD.Control（约 70MB）…");
-                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-                await using var net = await http.GetStreamAsync(OnlineControlZipUrl, ct).ConfigureAwait(false);
-                await using var fs = File.Create(zipPath);
-                await net.CopyToAsync(fs, ct).ConfigureAwait(false);
-            }
-
-            if (!Directory.Exists(extractDir)
-                || !Directory.EnumerateFiles(extractDir, "*.exe", SearchOption.AllDirectories).Any())
-            {
-                progress?.Report("正在解压 Virtual Driver Control…");
-                if (Directory.Exists(extractDir))
-                {
-                    try { Directory.Delete(extractDir, recursive: true); }
-                    catch { /* ignore */ }
-                }
-
-                Directory.CreateDirectory(extractDir);
-                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, extractDir, overwriteFiles: true);
-            }
-
-            return extractDir;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static async Task TryStartExecutablesUnderAsync(string root, CancellationToken ct)
-    {
-        try
-        {
-            var exes = Directory.EnumerateFiles(root, "*.exe", SearchOption.AllDirectories)
-                .Where(f =>
-                {
-                    var n = Path.GetFileName(f).ToLowerInvariant();
-                    return !n.Contains("uninstall") && !n.Contains("setup") && !n.Contains("nefcon")
-                           && (n.Contains("vdd") || n.Contains("control") || n.Contains("virtual")
-                               || n.Contains("console") || n == "vdc.exe");
-                })
-                .Take(6)
-                .ToList();
-
-            foreach (var exe in exes)
-            {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = exe,
-                        WorkingDirectory = Path.GetDirectoryName(exe) ?? root,
-                        UseShellExecute = true,
-                        WindowStyle = ProcessWindowStyle.Normal
-                    });
-                    await Task.Delay(3000, ct).ConfigureAwait(false);
-                    if (await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false))
-                        return;
-                }
-                catch
-                {
-                    // try next
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private static async Task<string?> TryDownloadDriverZipAsync(CancellationToken ct)
-    {
-        try
-        {
-            var arm = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
-            var url = arm ? OnlineDriverZipUrlArm64 : OnlineDriverZipUrl;
-            var fileName = arm
-                ? "VirtualDisplayDriver-ARM64.Driver.Only.zip"
-                : "VirtualDisplayDriver-x86.Driver.Only.zip";
-            var dest = Path.Combine(OfflineDirectory, fileName);
-            if (File.Exists(dest) && new FileInfo(dest).Length > 1000)
-                return dest;
-
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            await using var net = await http.GetStreamAsync(url, ct).ConfigureAwait(false);
-            await using var fs = File.Create(dest);
-            await net.CopyToAsync(fs, ct).ConfigureAwait(false);
-            return dest;
-        }
-        catch
-        {
-            return FindOfflineDriverZip();
-        }
-    }
-
-    private static async Task<bool> TrySilentDriverInstallAsync(
-        string zipPath,
-        string? nefconPath,
-        CancellationToken ct)
-    {
-        try
-        {
-            var work = Path.Combine(Path.GetTempPath(), "FlyScreenVdd_" + Guid.NewGuid().ToString("N")[..8]);
-            Directory.CreateDirectory(work);
-            System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, work, overwriteFiles: true);
-
-            var inf = Directory.EnumerateFiles(work, "MttVDD.inf", SearchOption.AllDirectories).FirstOrDefault()
-                      ?? Directory.EnumerateFiles(work, "*.inf", SearchOption.AllDirectories).FirstOrDefault();
-            if (inf == null) return false;
-
-            // 优先 nefcon 创建 Root\MttVDD；否则 pnputil 静默装驱动包
-            if (!string.IsNullOrWhiteSpace(nefconPath) && File.Exists(nefconPath))
-            {
-                var code = await RunProcessAsync(nefconPath, $"install \"{inf}\" Root\\MttVDD", ct)
-                    .ConfigureAwait(false);
-                if (code == 0) return true;
-            }
-
-            var pnpu = await RunProcessAsync("pnputil", $"/add-driver \"{inf}\" /install", ct)
-                .ConfigureAwait(false);
-            return pnpu == 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static async Task<int?> RunProcessAsync(string fileName, string args, CancellationToken ct)
