@@ -294,8 +294,20 @@ public static class MttVddEnvironment
             return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
         }
 
+        // 停止投影时驱动重载会把 VDDControl 打退出，管道消失，但软件仍显示已安装。
+        // 这里只拉起控制台，不改数量、不切显示拓扑。
         if (IsProductInstalled())
         {
+            await MttVddInstaller.TryEnsureConsoleAsync(ct).ConfigureAwait(false);
+            if (HasSecondaryMonitor())
+            {
+                var again = DisplayMonitorEnum.FindBestExtendTarget()!.Value;
+                return (true, $"已有副屏 {again.Width}x{again.Height}");
+            }
+
+            if (await IsDriverReadyAsync(ct).ConfigureAwait(false))
+                return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
+
             return (false,
                 "已安装 Virtual Display Driver，但未检测到控制台管道。请运行 VddOffline\\VDDControl*.exe（或开始菜单控制程序）并添加虚拟显示器；若刚装完驱动请先注销/重启");
         }

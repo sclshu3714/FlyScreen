@@ -33,6 +33,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private string? _lastOverlayWarn;
     private long _lastOverlayWarnTicks;
     private bool? _a11yDrawCursor;
+    private EdgeFileDragService? _edgeDrag;
 
     public AndroidMauiPlatformServices(
         AppSettings settings,
@@ -59,6 +60,29 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool AcceptsRemoteInput => _receiving && !_remotePointerSuppressed;
 
     public event Action<string?>? ControlTargetChanged;
+
+    public void AttachEdgeFileDrag(EdgeFileDragService drag)
+    {
+        if (_edgeDrag != null)
+            _edgeDrag.CueChanged -= OnEdgeDragCue;
+        _edgeDrag = drag;
+        drag.CueChanged += OnEdgeDragCue;
+    }
+
+    private static void OnEdgeDragCue(EdgeDragCue? cue)
+    {
+        if (cue == null || cue.Count <= 0)
+        {
+            FlyScreenCursorOverlay.SetDragHint(null);
+            return;
+        }
+
+        var names = string.Join("、", cue.Names.Where(n => !string.IsNullOrWhiteSpace(n)).Take(3));
+        var text = cue.Count > 1 ? $"松开复制 {cue.Count} 项到收件箱" : "松开复制 1 项到收件箱";
+        if (names.Length > 0)
+            text += "\n" + names;
+        FlyScreenCursorOverlay.SetDragHint(text);
+    }
 
     public void SetRemotePointerSuppressed(bool suppressed)
     {

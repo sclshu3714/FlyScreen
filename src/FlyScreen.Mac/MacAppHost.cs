@@ -1,5 +1,6 @@
 using FlyScreen.Mac.Audio;
 using FlyScreen.Mac.Input;
+using FlyScreen.Mac.Native;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Models;
 using FlyScreen.Services;
@@ -43,6 +44,33 @@ public sealed class MacAppHost : IAsyncDisposable
 
     public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
         => EdgeDrag.OfferFromEdge(paths, exitSide, CanFollowEdgeFileDrag ? new MacEdgeDragPointer(Injector) : null);
+
+    public string EdgeDropLabel => "桌面";
+
+    public bool TryGetPointerPixels(out int x, out int y)
+    {
+        x = y = 0;
+        if (!OperatingSystem.IsMacOS()) return false;
+        var pointer = new MacEdgeDragPointer(Injector);
+        if (!pointer.TryRead(out var px, out var py, out _)) return false;
+        var scale = 1.0;
+        try
+        {
+            var id = CgEventNative.CGMainDisplayID();
+            var bounds = CgEventNative.CGDisplayBounds(id);
+            var pixels = CgEventNative.CGDisplayPixelsWide(id);
+            if (bounds.Size.Width > 1)
+                scale = pixels / bounds.Size.Width;
+        }
+        catch
+        {
+            scale = 1;
+        }
+
+        x = (int)Math.Round(px * scale);
+        y = (int)Math.Round(py * scale);
+        return true;
+    }
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;

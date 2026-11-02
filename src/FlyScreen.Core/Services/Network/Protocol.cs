@@ -88,7 +88,10 @@ public enum MessageType : byte
     EdgeDragPlace = 86,
 
     /// <summary>投影声音：PCM s16le 分块（Bulk）。</summary>
-    ScreenExtendAudio = 87
+    ScreenExtendAudio = 87,
+
+    /// <summary>穿边拖文件：光标所在机器显示或收起拖拽提示。</summary>
+    EdgeDragHover = 88
 }
 
 public readonly struct NetMessage
@@ -620,6 +623,18 @@ public sealed class EdgeDragPlacePayload
     public string SessionId { get; set; } = "";
     /// <summary>接收端上的绝对目录。空表示放不了。</summary>
     public string Directory { get; set; } = "";
+}
+
+/// <summary>拖拽经过某台机器时，让那台画出跟手的文件提示。</summary>
+public sealed class EdgeDragHoverPayload
+{
+    public string SessionId { get; set; } = "";
+    /// <summary>false：收起这台机器上的提示。</summary>
+    public bool Active { get; set; }
+    /// <summary>源端选中的文件和文件夹个数。</summary>
+    public int Count { get; set; }
+    /// <summary>展示用名称，不含路径。</summary>
+    public string[] Names { get; set; } = [];
 }
 
 public sealed class ScreenExtendStopPayload

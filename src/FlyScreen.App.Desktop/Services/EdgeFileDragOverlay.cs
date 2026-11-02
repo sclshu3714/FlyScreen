@@ -14,27 +14,36 @@ public sealed class EdgeFileDragOverlay : IDisposable
 {
     private readonly IDesktopShellHost _host;
     private readonly List<Window> _strips = [];
+    private readonly EdgeFileDragCueWindow _cue;
 
     public EdgeFileDragOverlay(Window owner, IDesktopShellHost host)
     {
         _host = host;
-        var screen = owner.Screens?.Primary ?? owner.Screens?.All.FirstOrDefault();
+        _cue = new EdgeFileDragCueWindow(host);
+        _host.EdgeDragCueChanged += _cue.OnCue;
+        var screens = owner.Screens?.All?.ToList();
+        var screen = owner.Screens?.Primary ?? screens?.FirstOrDefault();
         if (screen == null) return;
-        var bounds = screen.Bounds;
         var scale = screen.Scaling <= 0 ? 1 : screen.Scaling;
-        var width = bounds.Width / scale;
-        var height = bounds.Height / scale;
+        var left = screens is { Count: > 0 } ? screens.Min(s => s.Bounds.X) : screen.Bounds.X;
+        var top = screens is { Count: > 0 } ? screens.Min(s => s.Bounds.Y) : screen.Bounds.Y;
+        var right = screens is { Count: > 0 } ? screens.Max(s => s.Bounds.X + s.Bounds.Width) : screen.Bounds.X + screen.Bounds.Width;
+        var bottom = screens is { Count: > 0 } ? screens.Max(s => s.Bounds.Y + s.Bounds.Height) : screen.Bounds.Y + screen.Bounds.Height;
+        var width = Math.Max(8, (right - left) / scale);
+        var height = Math.Max(8, (bottom - top) / scale);
         const double strip = 14;
-        Add(owner, -1, bounds.X, bounds.Y, strip, height);
-        Add(owner, 1, bounds.X + bounds.Width - (int)(strip * scale), bounds.Y, strip, height);
-        Add(owner, -2, bounds.X, bounds.Y, width, strip);
-        Add(owner, 2, bounds.X, bounds.Y + bounds.Height - (int)(strip * scale), width, strip);
+        Add(owner, -1, left, top, strip, height);
+        Add(owner, 1, right - (int)(strip * scale), top, strip, height);
+        Add(owner, -2, left, top, width, strip);
+        Add(owner, 2, left, bottom - (int)(strip * scale), width, strip);
         _host.EdgeFileDragActiveChanged += OnActiveChanged;
     }
 
     public void Dispose()
     {
         _host.EdgeFileDragActiveChanged -= OnActiveChanged;
+        _host.EdgeDragCueChanged -= _cue.OnCue;
+        _cue.Dispose();
         foreach (var strip in _strips)
         {
             try { strip.Close(); }

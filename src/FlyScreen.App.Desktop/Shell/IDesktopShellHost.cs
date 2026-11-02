@@ -64,4 +64,17 @@ public interface IDesktopShellHost
 
     /// <summary>穿边拖拽开始或结束，用来收起挡住屏幕边缘的接收条。</summary>
     event Action<bool>? EdgeFileDragActiveChanged { add { } remove { } }
+
+    /// <summary>对端把文件拖到本机时，显示或收起跟手提示。</summary>
+    event Action<EdgeDragCue?>? EdgeDragCueChanged { add { } remove { } }
+
+    /// <summary>本机指针的屏幕像素坐标。拖拽提示跟着它走。</summary>
+    bool TryGetEdgeDragPointer(out int x, out int y)
+    {
+        x = y = 0;
+        return false;
+    }
+
+    /// <summary>松开后文件会落到的位置说明。</summary>
+    string EdgeDragDropLabel => "桌面";
 }

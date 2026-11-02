@@ -127,6 +127,17 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
         remove => _host.EdgeDrag.ActiveChanged -= value;
     }
 
+    public event Action<EdgeDragCue?>? EdgeDragCueChanged
+    {
+        add => _host.EdgeDrag.CueChanged += value;
+        remove => _host.EdgeDrag.CueChanged -= value;
+    }
+
+    public bool TryGetEdgeDragPointer(out int x, out int y)
+        => _host.TryGetPointerPixels(out x, out y);
+
+    public string EdgeDragDropLabel => _host.EdgeDropLabel;
+
     private void OnReceivingRemote(bool active)
     {
         if (!_host.Settings.DrawMouseCursor)

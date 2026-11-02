@@ -6,7 +6,8 @@ using FlyScreen.Services.Network;
 namespace FlyScreen.Services.Clipboard;
 
 /// <summary>
-/// 拖文件穿边：源端拿着路径，光标按布局穿过多台机器，松开时落到当前那台的目录。
+/// 拖文件穿边：源端拿着路径，光标按布局穿过多台机器。
+/// 松开左键时，若停在另一台可放下的目录上，才开始把文件复制过去。
 /// </summary>
 public sealed class EdgeFileDragService : IDisposable
 {
@@ -18,7 +19,10 @@ public sealed class EdgeFileDragService : IDisposable
     private int _phase;
     private string _session = "";
     private string[] _paths = [];
+    private string[] _names = [];
     private string? _hoverPeer;
+    private string? _cuePeer;
+    private string _shownCueSession = "";
     private string? _awaitingPeer;
     private TaskCompletionSource<string?>? _placeTcs;
     private int _followGeneration;
@@ -37,6 +41,9 @@ public sealed class EdgeFileDragService : IDisposable
     }
 
     public event Action<string>? StatusMessage;
+
+    /// <summary>本机正作为拖放目标时，画出或收起跟手提示。null 表示收起。</summary>
+    public event Action<EdgeDragCue?>? CueChanged;
 
     public bool IsActive
     {
@@ -67,21 +74,40 @@ public sealed class EdgeFileDragService : IDisposable
             _phase = 1;
             _session = Guid.NewGuid().ToString("N");
             _paths = list;
+            _names = DisplayNames(list);
             _hoverPeer = null;
+            _cuePeer = null;
             _awaitingPeer = null;
         }
 
+        Report($"正在拖 {list.Length} 项");
         NotifyActive(true);
         return true;
     }
 
     public void SetHover(string? peerOrNullIfLocal)
     {
+        var peer = string.IsNullOrWhiteSpace(peerOrNullIfLocal) ? null : peerOrNullIfLocal;
+        string? previous;
+        string session;
+        string[] names;
+        int count;
         lock (_gate)
         {
             if (_phase != 1) return;
-            _hoverPeer = string.IsNullOrWhiteSpace(peerOrNullIfLocal) ? null : peerOrNullIfLocal;
+            _hoverPeer = peer;
+            previous = _cuePeer;
+            if (SamePeer(previous, peer)) return;
+            _cuePeer = peer;
+            session = _session;
+            names = _names;
+            count = _paths.Length;
         }
+
+        if (!string.IsNullOrEmpty(previous) && !IsSelf(previous))
+            _ = SendHoverAsync(previous, session, false, 0, []);
+        if (!string.IsNullOrEmpty(peer) && !IsSelf(peer))
+            _ = SendHoverAsync(peer, session, true, count, names);
     }
 
     /// <summary>
@@ -125,9 +151,11 @@ public sealed class EdgeFileDragService : IDisposable
             paths = _paths;
         }
 
+        EndCue();
+
         if (string.IsNullOrWhiteSpace(hover) || IsSelf(hover))
         {
-            PlaceHere(paths);
+            Report("已回到本机，取消拖放");
             Clear();
             return;
         }
@@ -258,6 +286,9 @@ public sealed class EdgeFileDragService : IDisposable
             case MessageType.EdgeDragPlace:
                 AcceptPlace(peer, msg.Payload);
                 break;
+            case MessageType.EdgeDragHover:
+                ApplyHover(msg.Payload);
+                break;
         }
     }
 
@@ -313,6 +344,7 @@ public sealed class EdgeFileDragService : IDisposable
             var dir = await tcs.Task.ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(dir))
             {
+                Report("这里不能放下文件");
                 Clear();
                 return;
             }
@@ -354,96 +386,97 @@ public sealed class EdgeFileDragService : IDisposable
         catch { /* ignore */ }
     }
 
-    private void PlaceHere(string[] paths)
+    private void ApplyHover(byte[] payload)
     {
-        string dir;
-        try { dir = _resolveDropDirectory() ?? ""; }
-        catch { dir = ""; }
-        if (string.IsNullOrWhiteSpace(dir)) return;
+        var hover = MessageCodec.DecodeJson<EdgeDragHoverPayload>(payload);
+        if (hover == null || string.IsNullOrEmpty(hover.SessionId)) return;
+
+        EdgeDragCue? cue = null;
+        lock (_gate)
+        {
+            if (!hover.Active)
+            {
+                if (!string.Equals(_shownCueSession, hover.SessionId, StringComparison.Ordinal))
+                    return;
+                _shownCueSession = "";
+            }
+            else
+            {
+                _shownCueSession = hover.SessionId;
+                var names = hover.Names ?? [];
+                cue = new EdgeDragCue
+                {
+                    SessionId = hover.SessionId,
+                    Count = hover.Count > 0 ? hover.Count : names.Length,
+                    Names = names
+                };
+            }
+        }
+
+        NotifyCue(cue);
+    }
+
+    private void EndCue()
+    {
+        string? peer;
+        string session;
+        lock (_gate)
+        {
+            peer = _cuePeer;
+            session = _session;
+            _cuePeer = null;
+        }
+
+        if (!string.IsNullOrEmpty(peer) && !IsSelf(peer) && session.Length > 0)
+            _ = SendHoverAsync(peer, session, false, 0, []);
+    }
+
+    private async Task SendHoverAsync(string peer, string session, bool active, int count, string[] names)
+    {
         try
         {
-            Directory.CreateDirectory(dir);
-            var n = CopyInto(paths, dir);
-            if (n > 0)
-                Report($"穿边拖放 {n} 项 → {dir}");
+            await _connections.SendToAsync(peer, MessageType.EdgeDragHover,
+                MessageCodec.JsonBytes(new EdgeDragHoverPayload
+                {
+                    SessionId = session,
+                    Active = active,
+                    Count = count,
+                    Names = names
+                })).ConfigureAwait(false);
         }
         catch
         {
-            Report("穿边拖放失败");
+            // 提示丢失不影响随后的放下
         }
     }
 
-    private static int CopyInto(IReadOnlyList<string> paths, string destDir)
+    private static string[] DisplayNames(IReadOnlyList<string> paths)
     {
-        var destRoot = Path.GetFullPath(destDir);
-        var count = 0;
+        var list = new List<string>();
         foreach (var raw in paths)
         {
+            if (list.Count >= 8) break;
             if (string.IsNullOrWhiteSpace(raw)) continue;
-            string src;
-            try { src = Path.GetFullPath(raw); }
-            catch { continue; }
-
-            if (Directory.Exists(src))
-            {
-                var name = Path.GetFileName(src.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                if (string.IsNullOrEmpty(name)) continue;
-                var destFull = Path.GetFullPath(destRoot);
-                var srcFull = src.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (destFull.Equals(srcFull, StringComparison.OrdinalIgnoreCase)
-                    || destFull.StartsWith(srcFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                CopyDirectory(src, UniquePath(Path.Combine(destRoot, name)));
-                count++;
-            }
-            else if (File.Exists(src))
-            {
-                var target = UniquePath(Path.Combine(destRoot, Path.GetFileName(src)));
-                File.Copy(src, target);
-                count++;
-            }
+            var trimmed = raw.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var name = Path.GetFileName(trimmed);
+            if (string.IsNullOrEmpty(name)) name = trimmed;
+            if (name.Length > 64) name = name[..64];
+            list.Add(name);
         }
 
-        return count;
+        return list.ToArray();
     }
 
-    private static void CopyDirectory(string src, string dest)
-    {
-        Directory.CreateDirectory(dest);
-        foreach (var file in Directory.EnumerateFiles(src))
-            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite: false);
-        foreach (var sub in Directory.EnumerateDirectories(src))
-            CopyDirectory(sub, Path.Combine(dest, Path.GetFileName(sub)));
-    }
-
-    private static string UniquePath(string path)
-    {
-        if (!File.Exists(path) && !Directory.Exists(path)) return path;
-        var dir = Path.GetDirectoryName(path) ?? "";
-        var file = Path.GetFileName(path);
-        var ext = Path.GetExtension(file);
-        var stem = Path.GetFileNameWithoutExtension(file);
-        if (string.IsNullOrEmpty(ext) && Directory.Exists(path))
-        {
-            ext = "";
-            stem = file;
-        }
-
-        for (var i = 2; i < 1000; i++)
-        {
-            var candidate = Path.Combine(dir, $"{stem} ({i}){ext}");
-            if (!File.Exists(candidate) && !Directory.Exists(candidate))
-                return candidate;
-        }
-
-        return Path.Combine(dir, stem + "_" + Guid.NewGuid().ToString("N")[..6] + ext);
-    }
+    private static bool SamePeer(string? a, string? b)
+        => string.Equals(a ?? "", b ?? "", StringComparison.OrdinalIgnoreCase);
 
     private void Report(string message) => UiMarshal.Post(() => StatusMessage?.Invoke(message));
 
     public event Action<bool>? ActiveChanged;
 
     private void NotifyActive(bool active) => UiMarshal.Post(() => ActiveChanged?.Invoke(active));
+
+    private void NotifyCue(EdgeDragCue? cue) => UiMarshal.Post(() => CueChanged?.Invoke(cue));
 
     private void AnnounceOwner(string owner)
     {
@@ -525,22 +558,38 @@ public sealed class EdgeFileDragService : IDisposable
 
     private void Clear()
     {
+        EndCue();
         bool ended;
+        bool hideCue;
         lock (_gate)
         {
             ended = _phase != 0;
+            hideCue = _shownCueSession.Length > 0;
             _phase = 0;
             _session = "";
             _paths = [];
+            _names = [];
             _hoverPeer = null;
+            _cuePeer = null;
+            _shownCueSession = "";
             _awaitingPeer = null;
             _placeTcs?.TrySetResult(null);
             _placeTcs = null;
         }
 
+        if (hideCue)
+            NotifyCue(null);
         if (ended)
             NotifyActive(false);
     }
+}
+
+/// <summary>目标机器上跟着手势走的拖拽提示。</summary>
+public sealed class EdgeDragCue
+{
+    public string SessionId { get; init; } = "";
+    public int Count { get; init; }
+    public IReadOnlyList<string> Names { get; init; } = [];
 }
 
 /// <summary>拖拽期间读取本机指针。Mac / Linux 在没有全局钩子时用它把光标继续带到下一台。</summary>

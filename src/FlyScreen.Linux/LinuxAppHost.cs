@@ -49,6 +49,16 @@ public sealed class LinuxAppHost : IAsyncDisposable
         EdgeDrag.OfferFromEdge(paths, exitSide, follow);
     }
 
+    public string EdgeDropLabel => "桌面";
+
+    public bool TryGetPointerPixels(out int x, out int y)
+    {
+        if (Injector is X11InputInjector x11 && x11.TryReadPointer(out x, out y, out _, out _, out _))
+            return true;
+        x = y = 0;
+        return false;
+    }
+
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;

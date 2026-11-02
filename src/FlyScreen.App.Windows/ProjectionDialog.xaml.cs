@@ -25,6 +25,9 @@ public partial class ProjectionDialog : Window
     {
         _host = host;
         InitializeComponent();
+        var icon = AppIconImage.Load();
+        if (icon != null)
+            Icon = icon;
         ThemeService.ApplyToChildWindow(this);
         StartBtn.IsEnabled = false;
         _repairProgress = new Progress<string>(s =>

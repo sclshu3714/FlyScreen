@@ -1,5 +1,6 @@
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers;
+using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
@@ -56,9 +57,20 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void AttachEdgeFileDrag(EdgeFileDragService drag)
     {
+        if (_edgeDrag != null)
+            _edgeDrag.CueChanged -= OnEdgeDragCue;
         _edgeDrag = drag;
+        drag.CueChanged += OnEdgeDragCue;
         if (_router != null)
             _router.EdgeFileDrag = drag;
+    }
+
+    private static void OnEdgeDragCue(EdgeDragCue? cue)
+    {
+        if (cue == null || cue.Count <= 0)
+            EdgeFileDragCue.Hide();
+        else
+            EdgeFileDragCue.Show(cue.Count, cue.Names, WindowsDropFolder.Resolve);
     }
 
     public void StartDesktopInput()
