@@ -65,12 +65,13 @@
                 BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
           <StackPanel Spacing="8">
             <TextBlock Text="选项" FontWeight="SemiBold"/>
-            <Grid ColumnDefinitions="*,*">
+            <Grid ColumnDefinitions="*,*,*">
               <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold" IsChecked="False" Grid.Column="0"/>
-              <CheckBox x:Name="CropBlackBarsCheck" Content="去黑边" FontWeight="SemiBold" IsChecked="False" Grid.Column="1"/>
+              <CheckBox x:Name="RemoteControlCheck" Content="远程控制" FontWeight="SemiBold" IsChecked="False" Grid.Column="1"/>
+              <CheckBox x:Name="CropBlackBarsCheck" Content="去黑边" FontWeight="SemiBold" IsChecked="False" Grid.Column="2"/>
             </Grid>
             <TextBlock FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
-                       Text="两项默认关闭。声音同步开启后投影端静音，由目标电脑播放。去黑边开启后裁掉画面四周黑边。"/>
+                       Text="默认关闭。声音同步：投影端静音由目标播放。远程控制：仅本机全屏播放器内键鼠可回控投影端（接收时生效）。去黑边：裁掉四周黑边。"/>
           </StackPanel>
         </Border>
         <Border x:Name="EnvPanel" Padding="14,12" Background="{DynamicResource SubtleBg}"

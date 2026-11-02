@@ -91,7 +91,10 @@ public enum MessageType : byte
     ScreenExtendAudio = 87,
 
     /// <summary>穿边拖文件：光标所在机器显示或收起拖拽提示。</summary>
-    EdgeDragHover = 88
+    EdgeDragHover = 88,
+
+    /// <summary>投影回控：从机播放器 → 主机采集区键鼠（勿与普通 MouseMove/KeyEvent 混用）。</summary>
+    ScreenExtendInput = 89
 }
 
 public readonly struct NetMessage
@@ -586,6 +589,32 @@ public sealed class ScreenExtendOfferPayload
     public int Fps { get; set; } = 12;
     /// <summary>为 true 时主机静音，把正在播放的声音送到从机播放。旧端忽略。</summary>
     public bool AudioSync { get; set; }
+    /// <summary>为 true 时从机全屏播放器内键鼠可回控主机采集区。旧端忽略。</summary>
+    public bool RemoteControl { get; set; }
+}
+
+/// <summary>
+/// 投影回控输入。Kind：0 移动，1 按键（鼠标），2 滚轮，3 键盘。
+/// Nx/Ny 相对播放器画面内容区 0..1。
+/// </summary>
+public sealed class ScreenExtendInputPayload
+{
+    public const int KindMove = 0;
+    public const int KindButton = 1;
+    public const int KindWheel = 2;
+    public const int KindKey = 3;
+
+    public string SessionId { get; set; } = "";
+    public int Kind { get; set; }
+    public double Nx { get; set; }
+    public double Ny { get; set; }
+    public int Button { get; set; }
+    public bool Down { get; set; }
+    public int Delta { get; set; }
+    public bool Horizontal { get; set; }
+    public ushort VirtualKey { get; set; }
+    public bool Extended { get; set; }
+    public string? Text { get; set; }
 }
 
 public sealed class ScreenExtendAcceptPayload

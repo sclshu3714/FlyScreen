@@ -53,6 +53,7 @@ public sealed class ScreenExtendDesktopController : IDisposable
             try
             {
                 _sink ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+                _sink.BindSession(_service);
                 _sink.ShowFullscreen();
             }
             catch { /* ignore */ }
@@ -98,6 +99,7 @@ public sealed class ScreenExtendDesktopController : IDisposable
                     try
                     {
                         _sink ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+                        _sink.BindSession(_service);
                         if (!_sink.IsVisible)
                             _sink.ShowFullscreen();
                         _sink.Present(shown);

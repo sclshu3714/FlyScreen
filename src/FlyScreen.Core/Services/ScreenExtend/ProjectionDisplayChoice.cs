@@ -115,7 +115,11 @@ public static class ProjectionDisplayPresets
             ? ClampJpegQuality(settings.ScreenExtendJpegQuality)
             : DefaultJpegQuality;
 
-    public static void WriteRemembered(AppSettings settings, ProjectionDisplayChoice choice, bool audioSync)
+    public static void WriteRemembered(
+        AppSettings settings,
+        ProjectionDisplayChoice choice,
+        bool audioSync,
+        bool remoteControl = false)
     {
         settings.ScreenExtendDisplaySource = (int)choice.Source;
         if (choice.Width > 0) settings.ScreenExtendWidth = choice.Width;
@@ -125,6 +129,7 @@ public static class ProjectionDisplayPresets
         settings.ScreenExtendJpegQuality = ClampJpegQuality(
             choice.JpegQuality > 0 ? choice.JpegQuality : DefaultJpegQuality);
         settings.ScreenExtendAudioSync = audioSync;
+        settings.ScreenExtendRemoteControl = remoteControl;
         settings.ScreenExtendCropBlackBars = choice.CropBlackBars;
     }
 

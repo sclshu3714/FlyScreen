@@ -24,6 +24,9 @@ public sealed class AppHost : IAsyncDisposable
     public ScreenExtendController ScreenExtendUi { get; }
 
     public event Action<string>? StatusMessage;
+
+    /// <summary>投影冲突/被拒等需弹窗提示。</summary>
+    public event Action<string>? ProjectionUserNotice;
     /// <summary>收到对端布局并已写入设置（UI 需刷新矩阵）。</summary>
     public event Action<string>? LayoutSyncedFromPeer;
     /// <summary>收到对端功能/行为并已写入设置（UI 需刷新选项）。</summary>
@@ -54,6 +57,7 @@ public sealed class AppHost : IAsyncDisposable
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtendUi = new ScreenExtendController(ScreenExtend, Dispatcher.CurrentDispatcher);
         ScreenExtend.StatusMessage += PublishStatus;
+        ScreenExtend.UserNotice += OnProjectionUserNotice;
         Input.IsEdgeCrossExcluded = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         Input.ShouldPauseEasyMouseForExtend = () => ScreenExtend.ShouldPauseLocalEasyMouse;
         ScreenExtend.SessionEnded += () =>
@@ -141,6 +145,12 @@ public sealed class AppHost : IAsyncDisposable
         StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
+    private void OnProjectionUserNotice(string message)
+    {
+        PublishStatus(message);
+        try { ProjectionUserNotice?.Invoke(message); } catch { /* ignore */ }
+    }
+
     public static AppHost EnsureCreated()
     {
         Instance ??= new AppHost();
@@ -216,7 +226,8 @@ public sealed class AppHost : IAsyncDisposable
         ProjectionTarget? target,
         DisplayProjectionMode mode,
         ProjectionDisplayChoice? display = null,
-        bool audioSync = false)
+        bool audioSync = false,
+        bool remoteControl = false)
     {
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
         if (target == null)
@@ -247,9 +258,17 @@ public sealed class AppHost : IAsyncDisposable
                 return ProjectionStartResult.Fail("已选本机副屏，但仍需至少一台双向已连接电脑作为接收端");
         }
 
+        var sameHostPeer = ScreenExtend.Role == ScreenExtendRole.Host
+            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase);
+        if (ScreenExtend.IsActive && !sameHostPeer)
+        {
+            return ProjectionStartResult.Fail(
+                ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+        }
+
         var choice = ResolveDisplayChoice(mode, display, peer);
         Settings.ScreenExtendProjectionMode = (int)mode;
-        ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync);
+        ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync, remoteControl);
         Settings.Save();
         ScreenExtendUi.SetProjectionMode(mode);
         ScreenExtendUi.SetDisplayChoice(choice);
@@ -295,18 +314,28 @@ public sealed class AppHost : IAsyncDisposable
             FlyScreen.ScreenExtend.DisplayProjection.TryApply(DisplayProjectionMode.Clone);
         }
 
-        if (ScreenExtend.Role == ScreenExtendRole.Host
-            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase)
-            && ScreenExtend.AudioSync == audioSync)
+        if (sameHostPeer
+            && ScreenExtend.AudioSync == audioSync
+            && ScreenExtend.RemoteControl == remoteControl)
         {
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
         }
 
+        // 仅允许对同一接收端重开（改声音/回控）；接收中或投向其他端一律冲突
         if (ScreenExtend.IsActive)
-            await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
+        {
+            if (!sameHostPeer)
+            {
+                return ProjectionStartResult.Fail(
+                    ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            }
 
-        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height, audioSync: audioSync)
+            await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
+        }
+
+        var (ok, err) = await ScreenExtend.StartHostAsync(
+                peer, choice.Width, choice.Height, audioSync: audioSync, remoteControl: remoteControl)
             .ConfigureAwait(false);
         if (!ok)
             return ProjectionStartResult.Fail(err ?? "发起投影失败");
@@ -314,6 +343,7 @@ public sealed class AppHost : IAsyncDisposable
         PublishStatus(
             $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
             + (audioSync ? " · 声音同步" : "")
+            + (remoteControl ? " · 远程控制" : "")
             + "）");
         return ProjectionStartResult.Success();
     }

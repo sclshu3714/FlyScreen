@@ -51,6 +51,8 @@ public sealed class AppSettings
     public int ScreenExtendJpegQuality { get; set; }
     /// <summary>上次是否开启声音同步。</summary>
     public bool ScreenExtendAudioSync { get; set; }
+    /// <summary>上次是否开启投影远程控制（从机播放器回控主机）。</summary>
+    public bool ScreenExtendRemoteControl { get; set; }
     /// <summary>上次是否开启去黑边。</summary>
     public bool ScreenExtendCropBlackBars { get; set; }
     /// <summary>

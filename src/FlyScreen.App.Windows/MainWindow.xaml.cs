@@ -109,6 +109,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Sink)
+        {
+            MessageBox.Show(this,
+                ScreenExtendConflict.DescribeLocalBusy(
+                    ScreenExtendRole.Sink, _host.ScreenExtend.Peer),
+                "投影", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var dlg = new ProjectionDialog(_host) { Owner = this };
         dlg.ShowDialog();
         RefreshTitleProjectButton();
@@ -179,6 +188,8 @@ public partial class MainWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Loaded);
 
         _host.StatusMessage += msg => Dispatcher.Invoke(() => StatusText.Text = msg);
+        _host.ProjectionUserNotice += msg => Dispatcher.Invoke(() =>
+            MessageBox.Show(this, msg, "投影", MessageBoxButton.OK, MessageBoxImage.Warning));
         _host.ScreenExtend.HostSessionReady += () => Dispatcher.Invoke(RefreshTitleProjectButton);
         _host.ScreenExtend.SessionEnded += () => Dispatcher.Invoke(RefreshTitleProjectButton);
         RefreshTitleProjectButton();

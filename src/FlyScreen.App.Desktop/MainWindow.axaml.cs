@@ -235,6 +235,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Sink)
+        {
+            await ConfirmDialog.ShowAsync(this, "投影",
+                ScreenExtendConflict.DescribeLocalBusy(
+                    ScreenExtendRole.Sink, _host.ScreenExtend.Peer),
+                primaryText: "确定", cancelText: null);
+            return;
+        }
+
         var dlg = new ProjectionDialog(_host);
         await dlg.ShowDialog(this);
         RefreshTitleProjectButton();
@@ -299,6 +308,14 @@ public partial class MainWindow : Window
         ApplyLayoutGrid();
 
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
+        _host.ScreenExtend.UserNotice += msg => Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                await ConfirmDialog.ShowAsync(this, "投影", msg, primaryText: "确定", cancelText: null);
+            }
+            catch { /* ignore */ }
+        });
         AppLog.Changed += () => Dispatcher.UIThread.Post(() =>
         {
             if (PageLog.IsVisible && _logPageFromLatest == 0)

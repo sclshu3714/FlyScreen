@@ -39,6 +39,9 @@ public sealed class MauiAppHost : IAsyncDisposable
     public IMauiPlatformServices Platform => _platform;
 
     public event Action<string>? StatusMessage;
+
+    /// <summary>投影冲突/被拒等需弹窗提示。</summary>
+    public event Action<string>? ProjectionUserNotice;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
     public event Action<string>? SecurityKeySyncedFromPeer;
@@ -70,6 +73,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         ScreenExtend = new ScreenExtendService(Connections);
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.StatusMessage += PublishStatus;
+        ScreenExtend.UserNotice += OnProjectionUserNotice;
 #if !WINDOWS
         ScreenExtend.ShouldAcceptOffer = (_, _) => false;
 #endif
@@ -255,6 +259,12 @@ public sealed class MauiAppHost : IAsyncDisposable
         StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
+    private void OnProjectionUserNotice(string message)
+    {
+        PublishStatus(message);
+        try { ProjectionUserNotice?.Invoke(message); } catch { /* ignore */ }
+    }
+
     public async Task StartAsync()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
@@ -368,7 +378,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         ProjectionTarget? target,
         DisplayProjectionMode mode,
         ProjectionDisplayChoice? display = null,
-        bool audioSync = false)
+        bool audioSync = false,
+        bool remoteControl = false)
     {
 #if !WINDOWS && !ANDROID
         await Task.CompletedTask;
@@ -408,6 +419,14 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
         }
 
+        var sameHostPeer = ScreenExtend.Role == ScreenExtendRole.Host
+            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase);
+        if (ScreenExtend.IsActive && !sameHostPeer)
+        {
+            return ProjectionStartResult.Fail(
+                ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+        }
+
         var choice = display ?? new ProjectionDisplayChoice
         {
             Source = mode == DisplayProjectionMode.Clone
@@ -432,7 +451,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         choice.ScalePercent = ProjectionDisplayPresets.ClampScale(
             choice.ScalePercent > 0 ? choice.ScalePercent : 100);
         Settings.ScreenExtendProjectionMode = (int)mode;
-        ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync);
+        ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync, remoteControl);
         Settings.Save();
         Platform.SetScreenExtendProjectionMode(mode);
         Platform.SetScreenExtendDisplayChoice(choice);
@@ -482,18 +501,27 @@ public sealed class MauiAppHost : IAsyncDisposable
             return ProjectionStartResult.Fail(capErr ?? "屏幕录制授权失败");
 #endif
 
-        if (ScreenExtend.Role == ScreenExtendRole.Host
-            && string.Equals(ScreenExtend.Peer, peer, StringComparison.OrdinalIgnoreCase)
-            && ScreenExtend.AudioSync == audioSync)
+        if (sameHostPeer
+            && ScreenExtend.AudioSync == audioSync
+            && ScreenExtend.RemoteControl == remoteControl)
         {
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
         }
 
         if (ScreenExtend.IsActive)
-            await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
+        {
+            if (!sameHostPeer)
+            {
+                return ProjectionStartResult.Fail(
+                    ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            }
 
-        var (ok, err) = await ScreenExtend.StartHostAsync(peer, choice.Width, choice.Height, audioSync: audioSync)
+            await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
+        }
+
+        var (ok, err) = await ScreenExtend.StartHostAsync(
+                peer, choice.Width, choice.Height, audioSync: audioSync, remoteControl: remoteControl)
             .ConfigureAwait(false);
         if (!ok)
         {
@@ -506,6 +534,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         PublishStatus(
             $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
             + (audioSync ? " · 声音同步" : "")
+            + (remoteControl ? " · 远程控制" : "")
             + (choice.CropBlackBars ? " · 去黑边" : "")
             + "）");
         return ProjectionStartResult.Success();

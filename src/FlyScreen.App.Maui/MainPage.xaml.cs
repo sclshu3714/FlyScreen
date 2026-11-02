@@ -53,6 +53,7 @@ public partial class MainPage : ContentPage
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
     private Action<string>? _onStatusMessage;
+    private Action<string>? _onProjectionNotice;
     private Action? _onAppLogChanged;
     private Action<string>? _onLayoutSynced;
     private Action<string>? _onBehaviorSynced;
@@ -131,6 +132,11 @@ public partial class MainPage : ContentPage
         _pageAlive = true;
 
         _onStatusMessage = msg => RunOnUi(() => StatusLabel.Text = msg);
+        _onProjectionNotice = msg => RunOnUi(async () =>
+        {
+            try { await DisplayAlert("投影", msg, "确定"); }
+            catch { /* ignore */ }
+        });
         _onAppLogChanged = () => RunOnUi(() =>
         {
             if (PageLog.IsVisible && _logPageFromLatest == 0)
@@ -156,6 +162,8 @@ public partial class MainPage : ContentPage
         _onPeerLinkChanged = (_, _, _) => RunOnUi(RefreshSlotStatuses);
 
         _host.StatusMessage += _onStatusMessage;
+        if (_onProjectionNotice != null)
+            _host.ProjectionUserNotice += _onProjectionNotice;
         AppLog.Changed += _onAppLogChanged;
         _host.LayoutSyncedFromPeer += _onLayoutSynced;
         _host.BehaviorSyncedFromPeer += _onBehaviorSynced;
@@ -185,6 +193,8 @@ public partial class MainPage : ContentPage
 
         if (_onStatusMessage != null)
             _host.StatusMessage -= _onStatusMessage;
+        if (_onProjectionNotice != null)
+            _host.ProjectionUserNotice -= _onProjectionNotice;
         if (_onAppLogChanged != null)
             AppLog.Changed -= _onAppLogChanged;
         if (_onLayoutSynced != null)
@@ -201,6 +211,7 @@ public partial class MainPage : ContentPage
         _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
 
         _onStatusMessage = null;
+        _onProjectionNotice = null;
         _onAppLogChanged = null;
         _onLayoutSynced = null;
         _onBehaviorSynced = null;
@@ -2637,6 +2648,18 @@ public partial class MainPage : ContentPage
 
     public async Task OpenProjectionDialogAsync()
     {
+        if (_host.ScreenExtend.IsActive
+            && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
+        {
+            await DisplayAlert(
+                "投影",
+                FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
+                    FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
+                    _host.ScreenExtend.Peer),
+                "确定");
+            return;
+        }
+
         // 无 NavigationPage，避免系统顶栏白条；页内自定义标题 + 居中卡片
         await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
     }
