@@ -35,6 +35,16 @@ public static class InputInjector
             absX, absY, 0);
     }
 
+    /// <summary>虚拟桌面像素坐标 → 绝对移动（带 InjectMarker）。</summary>
+    public static void MoveAbsoluteDesktopPixels(int screenX, int screenY)
+    {
+        VirtualScreen.GetBounds(out var left, out var top, out var width, out var height);
+        if (width <= 0 || height <= 0) return;
+        var nx = width <= 1 ? 0 : (screenX - left) / (double)(width - 1);
+        var ny = height <= 1 ? 0 : (screenY - top) / (double)(height - 1);
+        MoveAbsoluteNormalized(nx, ny);
+    }
+
     public static void MoveRelative(int dx, int dy)
     {
         SendMouse(NativeMethods.MOUSEEVENTF_MOVE, dx, dy, 0);

@@ -15,6 +15,10 @@ public partial class ScreenExtendSinkWindow : Window
     private readonly SinkLocalCursorIdleHide _cursorIdle = new();
     private bool _closingFromSession;
     private bool _userCloseRaised;
+    private ScreenExtendService? _session;
+    private bool _captureBound;
+    private int _contentW;
+    private int _contentH;
 
     public ScreenExtendSinkWindow(Action onCloseRequest)
     {
@@ -24,6 +28,7 @@ public partial class ScreenExtendSinkWindow : Window
         Closing += (_, _) => NotifyUserClose();
         Closed += (_, _) =>
         {
+            DetachCapture();
             _cursorIdle.EndSession();
             _cursorIdle.Dispose();
             NotifyUserClose();
@@ -33,7 +38,12 @@ public partial class ScreenExtendSinkWindow : Window
             var hwnd = new WindowInteropHelper(this).Handle;
             HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
         };
-        Activated += (_, _) => Focus();
+        Activated += (_, _) =>
+        {
+            Focus();
+            TryAttachCapture();
+        };
+        Deactivated += (_, _) => DetachCapture();
         MouseMove += (_, _) => _cursorIdle.NotifyLocalMouseMoved();
         _cursorIdle.ShowLocalCursorChanged += show =>
         {
@@ -41,6 +51,115 @@ public partial class ScreenExtendSinkWindow : Window
                 Cursor = show ? System.Windows.Input.Cursors.Arrow : System.Windows.Input.Cursors.None);
         };
     }
+
+    public void BindSession(ScreenExtendService service)
+    {
+        _session = service;
+        if (IsActive)
+            TryAttachCapture();
+        else
+            DetachCapture();
+    }
+
+    private void TryAttachCapture()
+    {
+        if (_captureBound) return;
+        if (_session?.CanSendReverseInput != true) return;
+        _captureBound = true;
+        PreviewMouseMove += OnPreviewMouseMove;
+        PreviewMouseDown += OnPreviewMouseDown;
+        PreviewMouseUp += OnPreviewMouseUp;
+        PreviewMouseWheel += OnPreviewMouseWheel;
+        PreviewKeyDown += OnPreviewKeyDown;
+        PreviewKeyUp += OnPreviewKeyUp;
+    }
+
+    private void DetachCapture()
+    {
+        if (!_captureBound) return;
+        _captureBound = false;
+        PreviewMouseMove -= OnPreviewMouseMove;
+        PreviewMouseDown -= OnPreviewMouseDown;
+        PreviewMouseUp -= OnPreviewMouseUp;
+        PreviewMouseWheel -= OnPreviewMouseWheel;
+        PreviewKeyDown -= OnPreviewKeyDown;
+        PreviewKeyUp -= OnPreviewKeyUp;
+    }
+
+    private bool TryMap(MouseEventArgs e, out double nx, out double ny)
+    {
+        var p = e.GetPosition(this);
+        return ScreenExtendReverseInput.TryMapUniformContent(
+            ActualWidth, ActualHeight, _contentW, _contentH, p.X, p.Y, out nx, out ny);
+    }
+
+    private void OnPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        _cursorIdle.NotifyLocalMouseMoved();
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        _ = _session.SendReverseMoveAsync(nx, ny);
+    }
+
+    private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        var button = MapButton(e.ChangedButton);
+        if (button < 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseButtonAsync(nx, ny, button, down: true);
+    }
+
+    private void OnPreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        var button = MapButton(e.ChangedButton);
+        if (button < 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseButtonAsync(nx, ny, button, down: false);
+    }
+
+    private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        e.Handled = true;
+        _ = _session.SendReverseWheelAsync(nx, ny, e.Delta, horizontal: false);
+    }
+
+    private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) return; // Window_KeyDown 停投影
+        if (_session?.CanSendReverseInput != true) return;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var vk = (ushort)KeyInterop.VirtualKeyFromKey(key);
+        if (vk == 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseKeyAsync(vk, down: true, extended: IsExtended(key));
+    }
+
+    private void OnPreviewKeyUp(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) return;
+        if (_session?.CanSendReverseInput != true) return;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var vk = (ushort)KeyInterop.VirtualKeyFromKey(key);
+        if (vk == 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseKeyAsync(vk, down: false, extended: IsExtended(key));
+    }
+
+    private static int MapButton(MouseButton button) => button switch
+    {
+        MouseButton.Left => 0,
+        MouseButton.Right => 1,
+        MouseButton.Middle => 2,
+        _ => -1
+    };
+
+    private static bool IsExtended(Key key)
+        => key is Key.Left or Key.Right or Key.Up or Key.Down
+            or Key.Insert or Key.Delete or Key.Home or Key.End
+            or Key.PageUp or Key.PageDown or Key.NumLock
+            or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt;
 
     private void NotifyUserClose()
     {
@@ -52,6 +171,7 @@ public partial class ScreenExtendSinkWindow : Window
     public void CloseFromSession()
     {
         _closingFromSession = true;
+        DetachCapture();
         try
         {
             Topmost = false;
@@ -74,6 +194,7 @@ public partial class ScreenExtendSinkWindow : Window
         WindowState = WindowState.Maximized;
         Activate();
         Focus();
+        TryAttachCapture();
     }
 
     /// <summary>无边框最大化默认停在工作区。把最大尺寸设成整块显示器，画面才能贴到屏幕边缘。</summary>
@@ -158,6 +279,8 @@ public partial class ScreenExtendSinkWindow : Window
 
     public void Present(DecodedFrame frame)
     {
+        _contentW = frame.Width;
+        _contentH = frame.Height;
         if (_frameBitmap == null
             || _frameBitmap.PixelWidth != frame.Width
             || _frameBitmap.PixelHeight != frame.Height)

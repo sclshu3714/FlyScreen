@@ -51,6 +51,9 @@ public sealed class ScreenExtendService : IDisposable
     /// <summary>本会话是否把主机声音送到从机，并让主机不再本地播放。</summary>
     public bool AudioSync { get; private set; }
 
+    /// <summary>本会话是否允许从机播放器键鼠回控主机采集区。</summary>
+    public bool RemoteControl { get; private set; }
+
     /// <summary>主机侧：对端已 Accept，应创建第二输出并开始推流。</summary>
     public event Action? HostSessionReady;
 
@@ -66,7 +69,13 @@ public sealed class ScreenExtendService : IDisposable
     /// <summary>从机收到一块 PCM s16le。</summary>
     public event Action<byte[], int, int>? AudioReceived;
 
+    /// <summary>主机收到从机播放器回控输入（已校验会话）。</summary>
+    public event Action<ScreenExtendInputPayload>? ReverseInputReceived;
+
     public event Action<string>? StatusMessage;
+
+    /// <summary>需要弹窗/打断用户的投影提示（冲突、对端拒绝等）。</summary>
+    public event Action<string>? UserNotice;
 
     /// <summary>穿边拓扑：该对端名是否应被排除（主机排除从机；从机排除所有穿边目标）。</summary>
     public bool IsExcludedFromEdgeCross(string? peerName)
@@ -77,18 +86,73 @@ public sealed class ScreenExtendService : IDisposable
         return string.Equals(peerName, Peer, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>从机是否应暂停本机 EasyMouse。</summary>
-    public bool ShouldPauseLocalEasyMouse => Role == ScreenExtendRole.Sink && IsActive;
+    /// <summary>
+    /// 是否应暂停本机 EasyMouse：从机收流时；主机开启回控时（避免与从机播放器键鼠打架）。
+    /// </summary>
+    public bool ShouldPauseLocalEasyMouse
+        => IsActive && (Role == ScreenExtendRole.Sink
+                        || (Role == ScreenExtendRole.Host && RemoteControl));
+
+    /// <summary>从机播放器是否应采集并回传键鼠。</summary>
+    public bool CanSendReverseInput
+        => IsActive && Role == ScreenExtendRole.Sink && RemoteControl
+           && !string.IsNullOrEmpty(Peer);
+
+    public Task SendReverseMoveAsync(double nx, double ny)
+    {
+        if (!TryBeginReverse(out var peer, out var sid)) return Task.CompletedTask;
+        return ScreenExtendReverseInput.SendMoveAsync(_connections, peer, sid, nx, ny);
+    }
+
+    public Task SendReverseButtonAsync(double nx, double ny, int button, bool down)
+    {
+        if (!TryBeginReverse(out var peer, out var sid)) return Task.CompletedTask;
+        return ScreenExtendReverseInput.SendButtonAsync(_connections, peer, sid, nx, ny, button, down);
+    }
+
+    public Task SendReverseWheelAsync(double nx, double ny, int delta, bool horizontal)
+    {
+        if (!TryBeginReverse(out var peer, out var sid)) return Task.CompletedTask;
+        return ScreenExtendReverseInput.SendWheelAsync(_connections, peer, sid, nx, ny, delta, horizontal);
+    }
+
+    public Task SendReverseKeyAsync(ushort virtualKey, bool down, bool extended = false, string? text = null)
+    {
+        if (!TryBeginReverse(out var peer, out var sid)) return Task.CompletedTask;
+        return ScreenExtendReverseInput.SendKeyAsync(_connections, peer, sid, virtualKey, down, extended, text);
+    }
+
+    private bool TryBeginReverse(out string peer, out Guid sid)
+    {
+        lock (_gate)
+        {
+            if (!CanSendReverseInput)
+            {
+                peer = "";
+                sid = Guid.Empty;
+                return false;
+            }
+
+            peer = Peer!;
+            sid = SessionId;
+            return true;
+        }
+    }
 
     public async Task<(bool Ok, string? Error)> StartHostAsync(string peer,
         int preferredWidth = 1920, int preferredHeight = 1080, int fps = 12,
         bool audioSync = false,
+        bool remoteControl = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(peer))
             return (false, "未指定对端");
-        if (IsActive)
-            return (false, "已有扩展屏会话");
+        lock (_gate)
+        {
+            if (Role != ScreenExtendRole.None)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(Role, Peer));
+        }
+
         // 旧端可能无 ScreenExtendSink 能力位；双向可达的电脑/大屏仍允许发起（对端忽略未知消息即可）
         if (!_connections.PeerSupports(peer, PeerCaps.ScreenExtendSink)
             && !ScreenExtendTargets.IsEligiblePeer(_connections, peer))
@@ -99,12 +163,15 @@ public sealed class ScreenExtendService : IDisposable
         var sessionId = Guid.NewGuid();
         lock (_gate)
         {
+            if (Role != ScreenExtendRole.None)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(Role, Peer));
             Role = ScreenExtendRole.Host;
             Peer = peer;
             SessionId = sessionId;
             _frameSeq = 0;
             _audioSeq = 0;
             AudioSync = audioSync;
+            RemoteControl = remoteControl;
         }
 
         var offer = new ScreenExtendOfferPayload
@@ -113,7 +180,8 @@ public sealed class ScreenExtendService : IDisposable
             PreferredWidth = preferredWidth,
             PreferredHeight = preferredHeight,
             Fps = fps,
-            AudioSync = audioSync
+            AudioSync = audioSync,
+            RemoteControl = remoteControl
         };
 
         try
@@ -252,6 +320,9 @@ public sealed class ScreenExtendService : IDisposable
             case MessageType.ScreenExtendAudio:
                 HandleAudio(peer, msg.Payload);
                 break;
+            case MessageType.ScreenExtendInput:
+                HandleReverseInput(peer, msg.Payload);
+                break;
         }
     }
 
@@ -261,27 +332,61 @@ public sealed class ScreenExtendService : IDisposable
         if (offer == null || !Guid.TryParse(offer.SessionId, out var sid))
             return;
 
-        if (IsActive)
+        ScreenExtendRole busyRole;
+        string? busyPeer;
+        lock (_gate)
         {
-            await RejectAsync(peer, offer.SessionId, "busy").ConfigureAwait(false);
+            busyRole = Role;
+            busyPeer = Peer;
+        }
+
+        if (busyRole != ScreenExtendRole.None)
+        {
+            var reason = ScreenExtendConflict.ReasonForRole(busyRole);
+            var notice = ScreenExtendConflict.DescribeLocalRejectOffer(peer, busyRole, busyPeer);
+            Publish(notice);
+            NotifyUser(notice);
+            await RejectAsync(peer, offer.SessionId, reason).ConfigureAwait(false);
             return;
         }
 
         var accept = ShouldAcceptOffer?.Invoke(peer, offer) ?? true;
         if (!accept)
         {
-            await RejectAsync(peer, offer.SessionId, "declined").ConfigureAwait(false);
+            await RejectAsync(peer, offer.SessionId, ScreenExtendConflict.ReasonDeclined).ConfigureAwait(false);
             return;
         }
 
         lock (_gate)
         {
-            Role = ScreenExtendRole.Sink;
-            Peer = peer;
-            SessionId = sid;
-            _frameSeq = 0;
-            _audioSeq = 0;
-            AudioSync = offer.AudioSync;
+            // 竞态：Accept 前又进了别的会话
+            if (Role != ScreenExtendRole.None)
+            {
+                busyRole = Role;
+                busyPeer = Peer;
+            }
+            else
+            {
+                Role = ScreenExtendRole.Sink;
+                Peer = peer;
+                SessionId = sid;
+                _frameSeq = 0;
+                _audioSeq = 0;
+                AudioSync = offer.AudioSync;
+                RemoteControl = offer.RemoteControl;
+                busyRole = ScreenExtendRole.None;
+                busyPeer = null;
+            }
+        }
+
+        if (busyRole != ScreenExtendRole.None)
+        {
+            var reason = ScreenExtendConflict.ReasonForRole(busyRole);
+            var notice = ScreenExtendConflict.DescribeLocalRejectOffer(peer, busyRole, busyPeer);
+            Publish(notice);
+            NotifyUser(notice);
+            await RejectAsync(peer, offer.SessionId, reason).ConfigureAwait(false);
+            return;
         }
 
         var sinkW = offer.PreferredWidth;
@@ -373,8 +478,15 @@ public sealed class ScreenExtendService : IDisposable
             if (Role != ScreenExtendRole.Host || SessionId != sid) return;
         }
 
-        Publish($"扩展屏被拒绝：{rej.Reason}");
+        var notice = ScreenExtendConflict.DescribeRemoteReject(peer, rej.Reason);
+        Publish(notice);
+        NotifyUser(notice);
         EndSessionLocal("rejected");
+    }
+
+    private void NotifyUser(string message)
+    {
+        try { UserNotice?.Invoke(message); } catch { /* ignore */ }
     }
 
     private void HandleStop(string peer, byte[] payload)
@@ -424,6 +536,20 @@ public sealed class ScreenExtendService : IDisposable
         try { AudioReceived?.Invoke(pcm.ToArray(), rate, channels); } catch { /* ignore */ }
     }
 
+    private void HandleReverseInput(string peer, byte[] payload)
+    {
+        var input = MessageCodec.DecodeJson<ScreenExtendInputPayload>(payload);
+        if (input == null || !Guid.TryParse(input.SessionId, out var sid)) return;
+        lock (_gate)
+        {
+            if (Role != ScreenExtendRole.Host || !RemoteControl) return;
+            if (SessionId != sid) return;
+            if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+        }
+
+        try { ReverseInputReceived?.Invoke(input); } catch { /* ignore */ }
+    }
+
     private void OnPeerLinkChanged(string peer, bool outbound, bool inbound)
     {
         if (!IsActive) return;
@@ -461,6 +587,7 @@ public sealed class ScreenExtendService : IDisposable
         PeerSinkHeight = 0;
         PeerSinkScalePercent = 0;
         AudioSync = false;
+        RemoteControl = false;
         _audioSeq = 0;
     }
 

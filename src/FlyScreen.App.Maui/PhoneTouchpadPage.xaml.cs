@@ -789,6 +789,18 @@ public partial class PhoneTouchpadPage : ContentPage
                 return;
             }
 
+            if (_host.ScreenExtend.IsActive
+                && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
+            {
+                await DisplayAlert(
+                    "投影",
+                    FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
+                        FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
+                        _host.ScreenExtend.Peer),
+                    "确定");
+                return;
+            }
+
             await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
             RefreshProjectButton();
         }

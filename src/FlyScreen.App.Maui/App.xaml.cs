@@ -59,6 +59,21 @@ public partial class App : Application
                         return;
                     }
 
+                    if (host.ScreenExtend.IsActive
+                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
+                    {
+                        if (Current?.Windows.FirstOrDefault()?.Page is Page sinkPage)
+                        {
+                            await sinkPage.DisplayAlert(
+                                "投影",
+                                FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
+                                    FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
+                                    host.ScreenExtend.Peer),
+                                "确定");
+                        }
+                        return;
+                    }
+
                     if (Current?.Windows.FirstOrDefault()?.Page is not Page root) return;
                     var main = FindMainPage(root);
                     if (main != null)

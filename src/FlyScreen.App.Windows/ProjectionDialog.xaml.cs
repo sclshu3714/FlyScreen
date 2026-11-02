@@ -51,6 +51,7 @@ public partial class ProjectionDialog : Window
         BuildScaleCombo();
         BuildRateCombos();
         AudioSyncCheck.IsChecked = _host.Settings.ScreenExtendAudioSync;
+        RemoteControlCheck.IsChecked = _host.Settings.ScreenExtendRemoteControl;
         CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
         RefreshTargets();
         _ = RefreshDisplayDefaultsAsync();
@@ -334,7 +335,10 @@ public partial class ProjectionDialog : Window
         if (ResolutionCombo.Items.Count == 0 || FpsCombo.SelectedIndex < 0)
             return;
         var choice = ReadDisplayChoice();
-        ProjectionDisplayPresets.WriteRemembered(_host.Settings, choice, AudioSyncCheck.IsChecked == true);
+        ProjectionDisplayPresets.WriteRemembered(
+            _host.Settings, choice,
+            AudioSyncCheck.IsChecked == true,
+            RemoteControlCheck.IsChecked == true);
         _host.Settings.Save();
     }
 
@@ -595,7 +599,9 @@ public partial class ProjectionDialog : Window
         try
         {
             var result = await _host.StartProjectionAsync(
-                ReadTarget(), ReadMode(), ReadDisplayChoice(), AudioSyncCheck.IsChecked == true)
+                ReadTarget(), ReadMode(), ReadDisplayChoice(),
+                AudioSyncCheck.IsChecked == true,
+                RemoteControlCheck.IsChecked == true)
                 .ConfigureAwait(true);
             if (result.NeedEnvironmentRepair)
             {

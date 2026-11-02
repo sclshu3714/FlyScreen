@@ -1,5 +1,6 @@
 using FlyScreen.Native;
 using FlyScreen.ScreenExtend;
+using FlyScreen.Services.Network;
 using FlyScreen.Services.ScreenExtend;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml.Input;
@@ -34,6 +35,7 @@ public sealed class MauiScreenExtendController : IDisposable
         _service.SinkSessionReady += OnSinkReady;
         _service.SessionEnded += OnSessionEnded;
         _service.FrameReceived += OnFrame;
+        _service.ReverseInputReceived += OnReverseInput;
         _service.ShouldAcceptOffer = (_, _) => true;
         _service.GetSinkDisplayInfo = () =>
         {
@@ -195,11 +197,59 @@ public sealed class MauiScreenExtendController : IDisposable
         return _vdd?.Target;
     }
 
+    private void OnReverseInput(ScreenExtendInputPayload input)
+    {
+        try
+        {
+            var target = ResolveCaptureTarget();
+            if (target == null) return;
+            var rect = target.Value;
+            var px = rect.Left + (int)Math.Round(Math.Clamp(input.Nx, 0, 1) * Math.Max(0, rect.Width - 1));
+            var py = rect.Top + (int)Math.Round(Math.Clamp(input.Ny, 0, 1) * Math.Max(0, rect.Height - 1));
+
+            switch (input.Kind)
+            {
+                case ScreenExtendInputPayload.KindMove:
+                    MauiInputInjector.MoveAbsoluteDesktopPixels(px, py);
+                    break;
+                case ScreenExtendInputPayload.KindButton:
+                    MauiInputInjector.MoveAbsoluteDesktopPixels(px, py);
+                    MauiInputInjector.MouseButton(new MouseButtonPayload
+                    {
+                        Button = input.Button,
+                        Down = input.Down
+                    });
+                    break;
+                case ScreenExtendInputPayload.KindWheel:
+                    MauiInputInjector.MoveAbsoluteDesktopPixels(px, py);
+                    MauiInputInjector.MouseWheel(new MouseWheelPayload
+                    {
+                        Delta = input.Delta,
+                        Horizontal = input.Horizontal
+                    });
+                    break;
+                case ScreenExtendInputPayload.KindKey:
+                    if (!string.IsNullOrEmpty(input.Text))
+                        MauiInputInjector.InsertText(input.Text);
+                    else
+                        MauiInputInjector.Key(new KeyEventPayload
+                        {
+                            VirtualKey = input.VirtualKey,
+                            Down = input.Down,
+                            Extended = input.Extended
+                        });
+                    break;
+            }
+        }
+        catch { /* ignore inject errors */ }
+    }
+
     private void OnSinkReady()
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
             _sink ??= new MauiScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+            _sink.BindSession(_service);
             _sink.ShowFullscreen();
         });
     }
@@ -247,6 +297,7 @@ public sealed class MauiScreenExtendController : IDisposable
                     try
                     {
                         _sink ??= new MauiScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+                        _sink.BindSession(_service);
                         if (!_sink.IsVisible)
                             _sink.ShowFullscreen();
                         _sink.PresentBgra(shown.Width, shown.Height, shown.Pixels);
@@ -340,6 +391,7 @@ public sealed class MauiScreenExtendController : IDisposable
         _service.SinkSessionReady -= OnSinkReady;
         _service.SessionEnded -= OnSessionEnded;
         _service.FrameReceived -= OnFrame;
+        _service.ReverseInputReceived -= OnReverseInput;
         try
         {
             if (_service.IsActive)
@@ -362,11 +414,17 @@ public sealed class MauiScreenExtendSinkWindow
     private readonly Action _onUserClose;
     private readonly SinkLocalCursorIdleHide _cursorIdle = new();
     private readonly Microsoft.UI.Xaml.Window _window;
+    private readonly Microsoft.UI.Xaml.Controls.Grid _root;
     private readonly Microsoft.UI.Xaml.Controls.Image _image;
     private readonly Microsoft.UI.Xaml.Controls.TextBlock _waiting;
     private bool _closingFromSession;
     private bool _userCloseRaised;
     private int _showCursorHideDepth;
+    private ScreenExtendService? _session;
+    private bool _captureBound;
+    private bool _windowActive;
+    private int _contentW;
+    private int _contentH;
 
     public MauiScreenExtendSinkWindow(Action onUserClose)
     {
@@ -386,12 +444,12 @@ public sealed class MauiScreenExtendSinkWindow
             HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
         };
-        var root = new Microsoft.UI.Xaml.Controls.Grid
+        _root = new Microsoft.UI.Xaml.Controls.Grid
         {
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Black)
         };
         // Viewbox 按窗口等比放大/缩小。Image 自身在部分 WinUI 版本上会停在像素尺寸，高和宽都填不满。
-        root.Children.Add(new Microsoft.UI.Xaml.Controls.Viewbox
+        _root.Children.Add(new Microsoft.UI.Xaml.Controls.Viewbox
         {
             Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
             StretchDirection = Microsoft.UI.Xaml.Controls.StretchDirection.Both,
@@ -399,7 +457,7 @@ public sealed class MauiScreenExtendSinkWindow
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch,
             Child = _image
         });
-        root.Children.Add(_waiting);
+        _root.Children.Add(_waiting);
         var tip = new Microsoft.UI.Xaml.Controls.TextBlock
         {
             Text = "Esc 退出投影",
@@ -409,15 +467,31 @@ public sealed class MauiScreenExtendSinkWindow
             HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top
         };
-        root.Children.Add(tip);
-        root.IsTabStop = true;
-        root.KeyDown += Root_KeyDown;
-        root.PointerMoved += (_, _) => _cursorIdle.NotifyLocalMouseMoved();
+        _root.Children.Add(tip);
+        _root.IsTabStop = true;
+        _root.KeyDown += Root_KeyDown;
+        _root.KeyUp += Root_KeyUp;
+        _root.PointerMoved += (_, _) => _cursorIdle.NotifyLocalMouseMoved();
         _cursorIdle.ShowLocalCursorChanged += ApplyLocalCursor;
 
-        _window = new Microsoft.UI.Xaml.Window { Title = "玄鸟投影", Content = root };
+        _window = new Microsoft.UI.Xaml.Window { Title = "玄鸟投影", Content = _root };
+        _window.Activated += (_, args) =>
+        {
+            _windowActive = args.WindowActivationState
+                != Microsoft.UI.Xaml.WindowActivationState.Deactivated;
+            if (_windowActive)
+            {
+                try { _root.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
+                TryAttachCapture();
+            }
+            else
+            {
+                DetachCapture();
+            }
+        };
         _window.Closed += (_, _) =>
         {
+            DetachCapture();
             ForceShowLocalCursor();
             _cursorIdle.EndSession();
             _cursorIdle.Dispose();
@@ -435,6 +509,96 @@ public sealed class MauiScreenExtendSinkWindow
             };
         }
         catch { /* Activate 后再绑 Closing 亦可 */ }
+    }
+
+    public void BindSession(ScreenExtendService service)
+    {
+        _session = service;
+        if (_windowActive)
+            TryAttachCapture();
+        else
+            DetachCapture();
+    }
+
+    private void TryAttachCapture()
+    {
+        if (_captureBound) return;
+        if (_session?.CanSendReverseInput != true) return;
+        _captureBound = true;
+        _root.PointerMoved += OnPointerMoved;
+        _root.PointerPressed += OnPointerPressed;
+        _root.PointerReleased += OnPointerReleased;
+        _root.PointerWheelChanged += OnPointerWheel;
+    }
+
+    private void DetachCapture()
+    {
+        if (!_captureBound) return;
+        _captureBound = false;
+        _root.PointerMoved -= OnPointerMoved;
+        _root.PointerPressed -= OnPointerPressed;
+        _root.PointerReleased -= OnPointerReleased;
+        _root.PointerWheelChanged -= OnPointerWheel;
+    }
+
+    private bool TryMap(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e, out double nx, out double ny)
+    {
+        var pt = e.GetCurrentPoint(_root).Position;
+        return ScreenExtendReverseInput.TryMapUniformContent(
+            _root.ActualWidth, _root.ActualHeight, _contentW, _contentH, pt.X, pt.Y, out nx, out ny);
+    }
+
+    private void OnPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        _cursorIdle.NotifyLocalMouseMoved();
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        _ = _session.SendReverseMoveAsync(nx, ny);
+    }
+
+    private void OnPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        var button = MapButton(e);
+        if (button < 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseButtonAsync(nx, ny, button, down: true);
+    }
+
+    private void OnPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        var button = MapButton(e);
+        if (button < 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseButtonAsync(nx, ny, button, down: false);
+    }
+
+    private void OnPointerWheel(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        var props = e.GetCurrentPoint(_root).Properties;
+        var delta = props.MouseWheelDelta;
+        if (delta == 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseWheelAsync(nx, ny, delta, horizontal: false);
+    }
+
+    private static int MapButton(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var props = e.GetCurrentPoint(null).Properties;
+        if (props.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed
+            || props.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased)
+            return 0;
+        if (props.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed
+            || props.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased)
+            return 1;
+        if (props.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed
+            || props.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased)
+            return 2;
+        if (props.IsLeftButtonPressed) return 0;
+        if (props.IsRightButtonPressed) return 1;
+        if (props.IsMiddleButtonPressed) return 2;
+        return -1;
     }
 
     private void ApplyLocalCursor(bool show)
@@ -482,8 +646,35 @@ public sealed class MauiScreenExtendSinkWindow
             e.Handled = true;
             NotifyUserClose();
             try { _window.Close(); } catch { /* ignore */ }
+            return;
         }
+
+        if (_session?.CanSendReverseInput != true) return;
+        var vk = (ushort)e.Key;
+        if (vk == 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseKeyAsync(vk, down: true, extended: IsExtended(e.Key));
     }
+
+    private void Root_KeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == global::Windows.System.VirtualKey.Escape) return;
+        if (_session?.CanSendReverseInput != true) return;
+        var vk = (ushort)e.Key;
+        if (vk == 0) return;
+        e.Handled = true;
+        _ = _session.SendReverseKeyAsync(vk, down: false, extended: IsExtended(e.Key));
+    }
+
+    private static bool IsExtended(global::Windows.System.VirtualKey key)
+        => key is global::Windows.System.VirtualKey.Left or global::Windows.System.VirtualKey.Right
+            or global::Windows.System.VirtualKey.Up or global::Windows.System.VirtualKey.Down
+            or global::Windows.System.VirtualKey.Insert or global::Windows.System.VirtualKey.Delete
+            or global::Windows.System.VirtualKey.Home or global::Windows.System.VirtualKey.End
+            or global::Windows.System.VirtualKey.PageUp or global::Windows.System.VirtualKey.PageDown
+            or global::Windows.System.VirtualKey.NumberKeyLock
+            or global::Windows.System.VirtualKey.LeftControl or global::Windows.System.VirtualKey.RightControl
+            or global::Windows.System.VirtualKey.LeftMenu or global::Windows.System.VirtualKey.RightMenu;
 
     public bool IsVisible
     {
@@ -499,6 +690,7 @@ public sealed class MauiScreenExtendSinkWindow
         _cursorIdle.BeginSession();
         ForceHideLocalCursor();
         _window.Activate();
+        try { _root.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
         try
         {
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
@@ -527,6 +719,9 @@ public sealed class MauiScreenExtendSinkWindow
                 _window.Activate();
             }
         }
+
+        _windowActive = true;
+        TryAttachCapture();
     }
 
     private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _bitmap;
@@ -536,6 +731,8 @@ public sealed class MauiScreenExtendSinkWindow
         if (width <= 0 || height <= 0 || pixels.Length < width * 4 * height)
             return;
 
+        _contentW = width;
+        _contentH = height;
         if (_bitmap == null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
         {
             _bitmap = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(width, height);
@@ -555,6 +752,7 @@ public sealed class MauiScreenExtendSinkWindow
     public void CloseFromSession()
     {
         _closingFromSession = true;
+        DetachCapture();
         ForceShowLocalCursor();
         try
         {

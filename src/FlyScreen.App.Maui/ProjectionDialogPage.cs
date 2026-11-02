@@ -58,6 +58,8 @@ public sealed class ProjectionDialogPage : ContentPage
     private Border _optionsCard = null!;
     private CheckBox _audioSyncCheck = null!;
     private Label _audioTitle = null!;
+    private CheckBox _remoteControlCheck = null!;
+    private Label _remoteControlTitle = null!;
     private CheckBox _cropBlackBarsCheck = null!;
     private Label _cropTitle = null!;
     private Label _optionsHint = null!;
@@ -297,6 +299,17 @@ public sealed class ProjectionDialogPage : ContentPage
             FontAttributes = FontAttributes.Bold,
             VerticalOptions = LayoutOptions.Center
         };
+        _remoteControlCheck = new CheckBox
+        {
+            IsChecked = host.Settings.ScreenExtendRemoteControl,
+            VerticalOptions = LayoutOptions.Center
+        };
+        _remoteControlTitle = new Label
+        {
+            Text = "远程控制",
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center
+        };
         _cropBlackBarsCheck = new CheckBox
         {
             IsChecked = host.Settings.ScreenExtendCropBlackBars,
@@ -310,7 +323,7 @@ public sealed class ProjectionDialogPage : ContentPage
         };
         _optionsHint = new Label
         {
-            Text = "两项默认关闭。声音同步开启后本机静音，由目标电脑播放。去黑边开启后裁掉画面四周黑边。",
+            Text = "默认关闭。声音同步：本机静音由目标播放。远程控制：仅目标端全屏播放器内键鼠可操作本机投影画面。去黑边：裁掉四周黑边。",
             FontSize = 12,
             LineBreakMode = LineBreakMode.WordWrap
         };
@@ -318,6 +331,7 @@ public sealed class ProjectionDialogPage : ContentPage
         {
             ColumnDefinitions =
             {
+                new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star)
             }
@@ -330,8 +344,13 @@ public sealed class ProjectionDialogPage : ContentPage
         optionsGrid.Add(new HorizontalStackLayout
         {
             Spacing = 8,
-            Children = { _cropBlackBarsCheck, _cropTitle }
+            Children = { _remoteControlCheck, _remoteControlTitle }
         }, 1, 0);
+        optionsGrid.Add(new HorizontalStackLayout
+        {
+            Spacing = 8,
+            Children = { _cropBlackBarsCheck, _cropTitle }
+        }, 2, 0);
         _optionsCard = new Border
         {
             StrokeThickness = 1,
@@ -844,7 +863,10 @@ public sealed class ProjectionDialogPage : ContentPage
         if (_resolutionPicker.SelectedIndex < 0 || _fpsPicker.SelectedIndex < 0)
             return;
         var choice = ReadDisplayChoice();
-        ProjectionDisplayPresets.WriteRemembered(_host.Settings, choice, _audioSyncCheck.IsChecked == true);
+        ProjectionDisplayPresets.WriteRemembered(
+            _host.Settings, choice,
+            _audioSyncCheck.IsChecked == true,
+            _remoteControlCheck.IsChecked == true);
         _host.Settings.Save();
     }
 
@@ -1040,7 +1062,9 @@ public sealed class ProjectionDialogPage : ContentPage
         try
         {
             var result = await _host.StartProjectionAsync(
-                ReadTarget(), ReadMode(), ReadDisplayChoice(), _audioSyncCheck.IsChecked == true);
+                ReadTarget(), ReadMode(), ReadDisplayChoice(),
+                _audioSyncCheck.IsChecked == true,
+                _remoteControlCheck.IsChecked == true);
             if (result.NeedEnvironmentRepair)
             {
                 SetEnvUi(result.Message ?? "需要安装虚拟显示驱动", false, true, "请点击「自动修复环境」");

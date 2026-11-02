@@ -50,6 +50,7 @@ public partial class ProjectionDialog : Window
             QualityCombo.SelectedIndex = IndexOf(
                 ProjectionDisplayPresets.JpegQualities, ProjectionDisplayPresets.RememberedJpegQuality(_host.Settings));
             AudioSyncCheck.IsChecked = _host.Settings.ScreenExtendAudioSync;
+            RemoteControlCheck.IsChecked = _host.Settings.ScreenExtendRemoteControl;
             CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
             Closed += (_, _) => RememberChoices();
             RefreshTargets();
@@ -144,7 +145,10 @@ public partial class ProjectionDialog : Window
             }
         }
 
-        ProjectionDisplayPresets.WriteRemembered(_host.Settings, choice, AudioSyncCheck.IsChecked == true);
+        ProjectionDisplayPresets.WriteRemembered(
+            _host.Settings, choice,
+            AudioSyncCheck.IsChecked == true,
+            RemoteControlCheck.IsChecked == true);
         _host.Settings.Save();
     }
 
@@ -287,7 +291,8 @@ public partial class ProjectionDialog : Window
         {
             var (ok, msg) = await _host.StartProjectionAsync(
                 ReadTarget(), ReadMode(), AudioSyncCheck.IsChecked == true,
-                CropBlackBarsCheck.IsChecked == true);
+                CropBlackBarsCheck.IsChecked == true,
+                RemoteControlCheck.IsChecked == true);
             if (!ok)
             {
                 await ConfirmDialog.ShowAsync(this, "投影", msg ?? "投影失败", primaryText: "确定", cancelText: null);

@@ -97,9 +97,12 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         ProjectionTarget? target,
         DisplayProjectionMode mode,
         bool audioSync = false,
-        bool cropBlackBars = false)
+        bool cropBlackBars = false,
+        bool remoteControl = false)
     {
         _ = cropBlackBars;
+        _ = audioSync;
+        _ = remoteControl;
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
         _host.Settings.ScreenExtendProjectionMode = (int)mode;
         if (target?.Kind == ProjectionTargetKind.Peer && !string.IsNullOrEmpty(target.Id))

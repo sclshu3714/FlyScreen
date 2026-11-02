@@ -33,6 +33,10 @@
 | `ScreenExtendReject` | 82 | Control | B→A 拒绝 |
 | `ScreenExtendStop` | 83 | Control | 任一方结束 |
 | `ScreenExtendFrame` | 84 | **Bulk** | 二进制帧：16B SessionId + w/h/seq + JPEG |
+| `ScreenExtendAudio` | 87 | Bulk | PCM（声音同步） |
+| `ScreenExtendInput` | 89 | Control | 从机播放器→主机回控（不复用穿边 MouseMove/KeyEvent） |
+
+`ScreenExtendOffer` 可选字段：`AudioSync`、`RemoteControl`（旧端忽略）。
 
 能力位（桌面 `DesktopFull` 等宣告）：
 
@@ -95,15 +99,40 @@
 | Maui 手机 Host | `Platforms/Android`：`FlyScreenMediaProjectionService` + `AndroidScreenExtendHostController` |
 | Mac / Linux UI | `FlyScreen.App.Desktop` + `FlyScreen.App.Mac` / `FlyScreen.App.Linux`（可收流；本期不发起） |
 
-## 7. 非目标（本期）
+## 7. 会话互斥（1 对 1）
 
-- 手机当扩展屏（Sink）、有线 USB 扩展协议、HDR、多路扩展、从机键鼠回控扩展屏内容（键鼠仍在主机扩展桌面上本地操作）。
+同一时刻每台电脑最多参与 **一条** 投影会话（作 Host 或 Sink）：
+
+| 本机状态 | 再发起投影 | 再接收 Offer |
+|----------|------------|--------------|
+| 空闲 | 允许 | 允许 |
+| 正在投影（Host） | 禁止（可对**同一**接收端改选项后重开）；不可被别人投过来 | 拒绝 `busy-host` |
+| 正在接收（Sink） | 禁止 | 拒绝 `busy-sink` |
+
+发起端收到拒绝或本机冲突时弹窗/状态栏中文提示（如「对方正在接收其他投影」）。旧端 `busy` 仍兼容。
+
+## 8. 远程控制（Sink→Host 回控）
+
+投影弹窗「远程控制」与「声音同步」同级；Offer 带 `RemoteControl`。开启后：
+
+- **仅从机全屏播放器**在激活/焦点内采集键鼠，坐标相对 Uniform 画面内容区归一化；黑边不转发；Esc 只停投影。
+- 主机把 `ScreenExtendInput` 映射到**当前采集监视器矩形**后注入（InjectMarker）；**不**走穿边 `EnsureAcceptsRemoteInput`。
+- Host 回控会话期间与 Sink 收流一样 **暂停 EasyMouse/穿边**，避免两端键鼠互抢。
+- 中途改开关需停投重开。Android 无播放器 Sink，本期不做。Mac/Linux 可作 Sink 回控采集；发起 Host 仍以 Win/Maui-Win 为主。
+
+## 9. 非目标（本期）
+
+- 手机当扩展屏（Sink）、有线 USB 扩展协议、HDR、多路扩展。
 - 设置页勾选扩展；「仅电脑屏幕 / 仅第二屏幕」作为发起方式（Internal 仅停止时系统侧使用）。
+- 投影中途动态改远程控制；用普通 `MouseMove` 冒充穿边被控。
+- 多路并发投影 / 链式转投。
 
-## 8. 修订记录
+## 10. 修订记录
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-02 | 投影 1 对 1 互斥：Busy Host/Sink 拒绝与中文提示；禁止接收中再发起、禁止投向忙端 |
+| 2026-11-02 | 投影弹窗远程控制：Offer.RemoteControl + ScreenExtendInput；播放器内回控；Host 暂停 EasyMouse |
 | 2026-10-29 | 首版；对齐产品「真扩展 + 会话摘除穿边」；启动 E1 Win/Maui-Win |
 | 2026-10-29 | UI：行为勾选 + 目标下拉 + 四种系统投影；点应用生效 |
 | 2026-10-30 | 应用后立刻 Ensure 本机第二输出；缺 MTT 时明确提示 winget 安装；不依赖对端 Accept |

@@ -1,5 +1,7 @@
 using System.Windows.Threading;
 using FlyScreen.ScreenExtend;
+using FlyScreen.Services.Input;
+using FlyScreen.Services.Network;
 using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.Services.ScreenExtend;
@@ -31,6 +33,7 @@ public sealed class ScreenExtendController : IDisposable
         _service.SinkSessionReady += OnSinkReady;
         _service.SessionEnded += OnSessionEnded;
         _service.FrameReceived += OnFrame;
+        _service.ReverseInputReceived += OnReverseInput;
         _service.ShouldAcceptOffer = (_, _) => true;
         _service.GetSinkDisplayInfo = () =>
         {
@@ -197,11 +200,59 @@ public sealed class ScreenExtendController : IDisposable
         return _vdd?.Target;
     }
 
+    private void OnReverseInput(ScreenExtendInputPayload input)
+    {
+        try
+        {
+            var target = ResolveCaptureTarget();
+            if (target == null) return;
+            var rect = target.Value;
+            var px = rect.Left + (int)Math.Round(Math.Clamp(input.Nx, 0, 1) * Math.Max(0, rect.Width - 1));
+            var py = rect.Top + (int)Math.Round(Math.Clamp(input.Ny, 0, 1) * Math.Max(0, rect.Height - 1));
+
+            switch (input.Kind)
+            {
+                case ScreenExtendInputPayload.KindMove:
+                    InputInjector.MoveAbsoluteDesktopPixels(px, py);
+                    break;
+                case ScreenExtendInputPayload.KindButton:
+                    InputInjector.MoveAbsoluteDesktopPixels(px, py);
+                    InputInjector.MouseButton(new MouseButtonPayload
+                    {
+                        Button = input.Button,
+                        Down = input.Down
+                    });
+                    break;
+                case ScreenExtendInputPayload.KindWheel:
+                    InputInjector.MoveAbsoluteDesktopPixels(px, py);
+                    InputInjector.MouseWheel(new MouseWheelPayload
+                    {
+                        Delta = input.Delta,
+                        Horizontal = input.Horizontal
+                    });
+                    break;
+                case ScreenExtendInputPayload.KindKey:
+                    if (!string.IsNullOrEmpty(input.Text))
+                        InputInjector.InsertText(input.Text);
+                    else
+                        InputInjector.Key(new KeyEventPayload
+                        {
+                            VirtualKey = input.VirtualKey,
+                            Down = input.Down,
+                            Extended = input.Extended
+                        });
+                    break;
+            }
+        }
+        catch { /* ignore inject errors */ }
+    }
+
     private void OnSinkReady()
     {
         _dispatcher.BeginInvoke(() =>
         {
             _sinkWindow ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+            _sinkWindow.BindSession(_service);
             _sinkWindow.ShowFullscreen();
         });
     }
@@ -235,6 +286,7 @@ public sealed class ScreenExtendController : IDisposable
                     try
                     {
                         _sinkWindow ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
+                        _sinkWindow.BindSession(_service);
                         if (!_sinkWindow.IsVisible)
                             _sinkWindow.ShowFullscreen();
                         _sinkWindow.Present(shown);
@@ -308,6 +360,7 @@ public sealed class ScreenExtendController : IDisposable
         _service.SinkSessionReady -= OnSinkReady;
         _service.SessionEnded -= OnSessionEnded;
         _service.FrameReceived -= OnFrame;
+        _service.ReverseInputReceived -= OnReverseInput;
         try
         {
             if (_service.IsActive)
