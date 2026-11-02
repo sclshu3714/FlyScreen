@@ -21,11 +21,10 @@ public static class AutoStartHelper
     {
         try
         {
-            if (TaskExists()) return true;
-
-            // 兼容旧版：若仍留着 Run 项也算“已开启”，但实际往往启动失败
-            using var key = Registry.CurrentUser.OpenSubKey(LegacyRunKeyPath, writable: false);
-            return !string.IsNullOrWhiteSpace(key?.GetValue(LegacyValueName) as string);
+            if (HasLegacyRunKey()) return true;
+            if (!TaskExists()) return false;
+            // 已禁用的任务不算开启（删除失败时会走 /DISABLE 兜底）
+            return !IsTaskDisabled();
         }
         catch
         {
@@ -41,11 +40,15 @@ public static class AutoStartHelper
             RemoveLegacyRunKey();
 
             if (!enabled)
-                return DeleteTask();
+                return DisableAndDeleteTask();
 
             var exe = ResolveExecutablePath();
             if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
                 return false;
+
+            // 任务已正确指向当前 exe 时跳过删建，避免启动/应用时反复 schtasks 卡住 UI/钩子
+            if (IsEnabled() && TaskRunsExecutable(exe))
+                return true;
 
             return CreateElevatedLogonTask(exe);
         }
@@ -71,10 +74,10 @@ public static class AutoStartHelper
             File.WriteAllText(xmlPath, xml, Encoding.Unicode);
 
             // 先删旧任务再创建，保证路径更新（发布新目录后重开自启）
-            DeleteTask();
+            DisableAndDeleteTask();
 
             var (ok, _) = RunSchTasks($"/Create /TN \"{TaskName}\" /XML \"{xmlPath}\" /F");
-            return ok && TaskExists();
+            return ok && IsEnabled();
         }
         finally
         {
@@ -138,17 +141,114 @@ public static class AutoStartHelper
         return ok;
     }
 
-    private static bool DeleteTask()
+    /// <summary>关闭自启：先禁用再删除，降低「删不掉但仍会跑」的概率。</summary>
+    private static bool DisableAndDeleteTask()
     {
-        // 不存在时也视为成功
-        var (ok, output) = RunSchTasks($"/Delete /TN \"{TaskName}\" /F");
-        if (ok) return true;
-        if (output.Contains("cannot find", StringComparison.OrdinalIgnoreCase)
-            || output.Contains("找不到", StringComparison.Ordinal)
-            || output.Contains("ERROR: The system cannot find", StringComparison.OrdinalIgnoreCase))
+        if (!TaskExists())
             return true;
-        // 查询不存在
+
+        // 禁用：即便删除因权限失败，登录后也不会再拉起
+        RunSchTasks($"/Change /TN \"{TaskName}\" /DISABLE");
+
+        var (ok, output) = RunSchTasks($"/Delete /TN \"{TaskName}\" /F");
+        if (ok || IsTaskMissingOutput(output))
+            return !TaskExists() || IsTaskDisabled();
+
+        // 删除失败但已禁用 → 仍视为关闭成功
+        if (IsTaskDisabled())
+            return true;
+
         return !TaskExists();
+    }
+
+    private static bool IsTaskDisabled()
+    {
+        if (!TryReadTaskListVerbose(out var output))
+            return false;
+
+        // 只看「计划任务状态」行；勿匹配其它字段里的 Disabled（如 Delete Task If Not Rescheduled）
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = line.Trim();
+            var isStateLine =
+                t.StartsWith("Scheduled Task State", StringComparison.OrdinalIgnoreCase)
+                || t.StartsWith("计划任务状态", StringComparison.Ordinal)
+                || t.StartsWith("工作狀態", StringComparison.Ordinal) // 部分繁中
+                || t.StartsWith("工作状态", StringComparison.Ordinal);
+            if (!isStateLine) continue;
+
+            var idx = t.IndexOf(':');
+            var value = idx >= 0 ? t[(idx + 1)..].Trim() : t;
+            return value.Contains("Disabled", StringComparison.OrdinalIgnoreCase)
+                   || value.Contains("已禁用", StringComparison.Ordinal)
+                   || value.Equals("停用", StringComparison.Ordinal);
+        }
+
+        return false;
+    }
+
+    /// <summary>计划任务「要运行的任务」是否已是当前 exe（含 --autostart）。</summary>
+    private static bool TaskRunsExecutable(string exePath)
+    {
+        if (!TryReadTaskListVerbose(out var output))
+            return false;
+
+        var full = Path.GetFullPath(exePath).Trim().Trim('"');
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = line.Trim();
+            var isRunLine =
+                t.StartsWith("Task To Run", StringComparison.OrdinalIgnoreCase)
+                || t.StartsWith("要运行的任务", StringComparison.Ordinal)
+                || t.StartsWith("要執行的工作", StringComparison.Ordinal);
+            if (!isRunLine) continue;
+
+            var idx = t.IndexOf(':');
+            var value = idx >= 0 ? t[(idx + 1)..].Trim() : t;
+            if (value.Contains(full, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // 兼容短路径 / 大小写
+            try
+            {
+                var cmd = value.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries)[0].Trim('"');
+                if (File.Exists(cmd)
+                    && string.Equals(Path.GetFullPath(cmd), full, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryReadTaskListVerbose(out string output)
+    {
+        var (ok, text) = RunSchTasks($"/Query /TN \"{TaskName}\" /FO LIST /V");
+        output = text;
+        return ok && !string.IsNullOrWhiteSpace(text);
+    }
+
+    private static bool IsTaskMissingOutput(string output)
+        => output.Contains("cannot find", StringComparison.OrdinalIgnoreCase)
+           || output.Contains("找不到", StringComparison.Ordinal)
+           || output.Contains("ERROR: The system cannot find", StringComparison.OrdinalIgnoreCase)
+           || output.Contains("系统找不到指定的文件", StringComparison.Ordinal);
+
+    private static bool HasLegacyRunKey()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(LegacyRunKeyPath, writable: false);
+            return !string.IsNullOrWhiteSpace(key?.GetValue(LegacyValueName) as string);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void RemoveLegacyRunKey()

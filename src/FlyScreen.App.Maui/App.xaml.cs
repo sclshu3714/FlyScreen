@@ -42,6 +42,8 @@ public partial class App : Application
 
 #if WINDOWS
         Services.MauiWindowIcon.Apply(window);
+        // 开机自启：尽早藏主窗，避免托盘已起、主界面却是未渲染黑块
+        Platforms.Windows.MauiAutostartUi.Hook(window);
         Platforms.Windows.MauiCloseToTray.TryHook(window);
         Platforms.Windows.MauiProjectionTitleBar.OpenProjection = () =>
             MainThread.BeginInvokeOnMainThread(async () =>
@@ -74,6 +76,8 @@ public partial class App : Application
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
                 Platforms.Windows.MauiCloseToTray.TryHook(window);
                 Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                    Platforms.Windows.MauiAutostartUi.TryHideNative(window);
             });
         window.Created += (_, _) =>
             MainThread.BeginInvokeOnMainThread(() =>
@@ -81,11 +85,15 @@ public partial class App : Application
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
                 Platforms.Windows.MauiCloseToTray.TryHook(window);
                 Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                    Platforms.Windows.MauiAutostartUi.TryHideNative(window);
                 window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), () =>
                 {
                     Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
                     Platforms.Windows.MauiCloseToTray.TryHook(window);
                     Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                    if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                        Platforms.Windows.MauiAutostartUi.TryHideNative(window);
                 });
             });
 #endif
@@ -125,6 +133,9 @@ public partial class App : Application
             try
             {
 #if WINDOWS
+                // 自启隐藏期间不要 Move（部分机型会把已 Hide 的窗重新露出成黑块）
+                if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                    return;
                 if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
                 {
                     var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);

@@ -2580,6 +2580,7 @@ public partial class MainPage : ContentPage
         var prevIp = _host.Settings.PreferredLocalIp ?? "";
         var prevKey = _host.Settings.SecurityKey ?? "";
 
+        var wantAutoStart = AutoStartCheck.IsChecked == true;
         _host.ApplyFromUi(
             KeyEntry.Text ?? "",
             newSlots,
@@ -2594,7 +2595,7 @@ public partial class MainPage : ContentPage
             HideMouseCheck.IsChecked == true,
             DrawCursorCheck.IsChecked == true,
             ShowStatusCheck.IsChecked == true,
-            AutoStartCheck.IsChecked == true,
+            wantAutoStart,
             BlockSaverCheck.IsChecked == true,
             RelativeMouseCheck.IsChecked == true,
             BlockCornersCheck.IsChecked == true,
@@ -2623,7 +2624,15 @@ public partial class MainPage : ContentPage
         await _host.BroadcastBehaviorSyncAsync();
         // 默认保持连接；仅端口/网卡/密钥变化才整网重启
         await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
-        StatusLabel.Text = Loc.T("Sys.Applied");
+        if (_host.Platform.SupportsAutoStart
+            && _host.Platform.GetAutoStartEnabled() != wantAutoStart)
+        {
+            StatusLabel.Text = wantAutoStart
+                ? "开机自启设置失败（需权限创建计划任务）"
+                : "关闭开机自启失败";
+        }
+        else
+            StatusLabel.Text = Loc.T("Sys.Applied");
     }
 
     public async Task OpenProjectionDialogAsync()

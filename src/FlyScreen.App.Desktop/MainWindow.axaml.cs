@@ -385,12 +385,13 @@ public partial class MainWindow : Window
         EasyMouseCheck.IsChecked = s.EasyMouse;
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
 
-        var autoStart = _host.SupportsAutoStart && (_host.GetAutoStartEnabled() || s.AutoStart);
+        // 以实际自启状态为准，禁止 settings OR 强制写回
+        var autoStart = _host.SupportsAutoStart && _host.GetAutoStartEnabled();
         AutoStartCheck.IsChecked = autoStart;
-        if (_host.SupportsAutoStart)
+        if (_host.SupportsAutoStart && s.AutoStart != autoStart)
         {
             s.AutoStart = autoStart;
-            _host.SetAutoStartEnabled(autoStart);
+            s.Save();
         }
 
         TcpPortBox.Text = s.TcpPort.ToString();
@@ -645,8 +646,11 @@ public partial class MainWindow : Window
 
         if (_host.SupportsAutoStart)
         {
-            s.AutoStart = AutoStartCheck.IsChecked == true;
-            _host.SetAutoStartEnabled(s.AutoStart);
+            var wantAuto = AutoStartCheck.IsChecked == true;
+            _host.SetAutoStartEnabled(wantAuto);
+            // 以实际写入结果为准（关闭失败时不要把设置落成 false）
+            s.AutoStart = _host.GetAutoStartEnabled();
+            AutoStartCheck.IsChecked = s.AutoStart;
         }
 
         s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;

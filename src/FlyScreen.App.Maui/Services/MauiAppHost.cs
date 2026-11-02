@@ -143,6 +143,18 @@ public sealed class MauiAppHost : IAsyncDisposable
             if (peer == null)
                 _platform.ArmRemoteClipboardForPaste();
         };
+
+        // 对齐 Win App：按设置同步开机自启（关闭则再清一次残留任务）
+        if (_platform.SupportsAutoStart)
+        {
+            _platform.SetAutoStartEnabled(Settings.AutoStart);
+            var actual = _platform.GetAutoStartEnabled();
+            if (Settings.AutoStart != actual)
+            {
+                Settings.AutoStart = actual;
+                Settings.Save();
+            }
+        }
     }
 
     private static (string Platform, string DeviceClass, string[] Caps) DetectIdentity()
@@ -579,10 +591,19 @@ public sealed class MauiAppHost : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(uiTheme)) Settings.UiTheme = uiTheme;
         if (!string.IsNullOrWhiteSpace(uiLanguage)) Settings.UiLanguage = uiLanguage;
         Settings.EnsureLocalMachineSlot();
-        Settings.Save();
 
         if (_platform.SupportsAutoStart)
-            _platform.SetAutoStartEnabled(autoStart);
+        {
+            if (_platform.SetAutoStartEnabled(autoStart))
+                Settings.AutoStart = autoStart;
+            else
+            {
+                // 写计划任务失败则与真实状态对齐，避免「取消了但下次又被 OR 写回」
+                Settings.AutoStart = _platform.GetAutoStartEnabled();
+            }
+        }
+
+        Settings.Save();
         _platform.SetEasyMouse(easyMouse);
         RestoreCursorIfLayoutSolo();
     }

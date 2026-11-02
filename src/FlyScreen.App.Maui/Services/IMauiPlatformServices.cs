@@ -43,7 +43,8 @@ public interface IMauiPlatformServices
     void ArmRemoteClipboardForPaste();
 
     bool GetAutoStartEnabled();
-    void SetAutoStartEnabled(bool enabled);
+    /// <summary>写入/清除开机自启；失败返回 false（调用方应回滚设置并提示）。</summary>
+    bool SetAutoStartEnabled(bool enabled);
 
     /// <summary>PC：仅确保托盘图标（对齐 Win InitTray，不隐藏主窗）。</summary>
     void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null);
@@ -105,7 +106,7 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void StopClipboardMonitor() { }
     public void ArmRemoteClipboardForPaste() { }
     public bool GetAutoStartEnabled() => false;
-    public void SetAutoStartEnabled(bool enabled) { }
+    public bool SetAutoStartEnabled(bool enabled) => !enabled;
     public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
     public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
     public void DisposeTray() { }
