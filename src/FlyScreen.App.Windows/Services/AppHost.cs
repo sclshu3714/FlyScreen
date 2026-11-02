@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Threading;
 using FlyScreen.Input;
 using FlyScreen.Models;
@@ -137,8 +138,16 @@ public sealed class AppHost : IAsyncDisposable
     {
         await EnsureWindowsFirewallAsync().ConfigureAwait(false);
         await Connections.StartAsync().ConfigureAwait(false);
-        Input.EasyMouseEnabled = Settings.EasyMouse;
-        Input.Start();
+
+        // LL 钩子必须装在带消息泵的 UI 线程（对齐 Maui MainThread.BeginInvokeOnMainThread）。
+        // ConfigureAwait(false) 后若在线程池 Start，钩子不回调 → 表现为完全不能穿边。
+        var easy = Settings.EasyMouse;
+        var dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        await dispatcher.InvokeAsync(() =>
+        {
+            Input.EasyMouseEnabled = easy;
+            Input.Start();
+        }).Task.ConfigureAwait(false);
     }
 
     /// <summary>强制整网重启（Stop+Start）。仅端口/网卡/密钥等监听参数变更时使用。</summary>

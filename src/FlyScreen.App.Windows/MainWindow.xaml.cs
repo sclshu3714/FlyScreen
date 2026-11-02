@@ -75,6 +75,13 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _host = AppHost.EnsureCreated();
+        // 开机自启：先藏主窗再挂托盘，避免未渲染完的黑块闪一下/卡住
+        if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
+        {
+            ShowInTaskbar = false;
+            Visibility = System.Windows.Visibility.Hidden;
+            WindowState = WindowState.Minimized;
+        }
         Loaded += OnLoaded;
         Closing += OnClosing;
         UpdateTitleMaxGlyph();
@@ -183,10 +190,11 @@ public partial class MainWindow : Window
         await _host.StartAsync();
         StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
 
-        // 开机自启：隐藏到托盘，后台已自动连接
+        // 开机自启：隐藏到托盘，后台已自动连接（构造时已 Hidden，此处再 Hide 一次兜底）
         if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
         {
             StatusText.Text = $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+            ShowInTaskbar = false;
             Hide();
         }
 
@@ -231,6 +239,7 @@ public partial class MainWindow : Window
 
     private void ShowFromTray()
     {
+        ShowInTaskbar = true;
         Show();
         WindowState = WindowState.Normal;
         Activate();
@@ -274,11 +283,14 @@ public partial class MainWindow : Window
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
-        // 注册表与设置任一为开则视为开启，并写回一致状态
-        var autoStart = AutoStartHelper.IsEnabled() || s.AutoStart;
+        // 以计划任务实际状态为准；禁止 settings OR 强制重建（否则取消失败后下次启动又写回开启）
+        var autoStart = AutoStartHelper.IsEnabled();
         AutoStartCheck.IsChecked = autoStart;
-        s.AutoStart = autoStart;
-        AutoStartHelper.SetEnabled(autoStart);
+        if (s.AutoStart != autoStart)
+        {
+            s.AutoStart = autoStart;
+            s.Save();
+        }
         TcpPortBox.Text = s.TcpPort.ToString();
         UdpPortBox.Text = s.UdpPort.ToString();
         HotF.IsChecked = s.SwitchHotkeyMode == 0;
@@ -390,13 +402,12 @@ public partial class MainWindow : Window
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
         s.EdgeCrossMode = ReadEdgeCrossModeUi();
-        s.AutoStart = AutoStartCheck.IsChecked == true;
-        if (!AutoStartHelper.SetEnabled(s.AutoStart))
-            StatusText.Text = s.AutoStart
-                ? "开机自启设置失败（需管理员权限创建计划任务）"
-                : "关闭开机自启失败";
-        else if (s.AutoStart)
-            StatusText.Text = "已启用开机自启（登录后约 15 秒以管理员启动）";
+        // 先落地穿边/键鼠，再处理后台自启（schtasks 不可挡 UI）
+        _host.Input.EasyMouseEnabled = s.EasyMouse;
+        _host.Input.RefreshEdgeCrossFromSettings();
+
+        var wantAutoStart = AutoStartCheck.IsChecked == true;
+        s.AutoStart = wantAutoStart;
         s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
         s.HotkeySettings = HkSettings.Text.Trim();
         s.HotkeyReconnect = HkReconnect.Text.Trim();
@@ -427,8 +438,30 @@ public partial class MainWindow : Window
         s.EnsureLocalMachineSlot();
         s.Save();
 
-        _host.Input.EasyMouseEnabled = s.EasyMouse;
-        _host.Input.RefreshEdgeCrossFromSettings();
+        // 开机自启改后台写入，完成后回写勾选/状态；失败不拖住「应用」与穿边
+        _ = ApplyAutoStartAsync(wantAutoStart);
+    }
+
+    private async Task ApplyAutoStartAsync(bool wantAutoStart)
+    {
+        var ok = await Task.Run(() => AutoStartHelper.SetEnabled(wantAutoStart)).ConfigureAwait(true);
+        var actual = AutoStartHelper.IsEnabled();
+        var s = _host.Settings;
+        if (s.AutoStart != actual)
+        {
+            s.AutoStart = actual;
+            s.Save();
+        }
+
+        AutoStartCheck.IsChecked = actual;
+        if (!ok || actual != wantAutoStart)
+        {
+            StatusText.Text = wantAutoStart
+                ? "开机自启设置失败（需管理员权限创建计划任务）"
+                : "关闭开机自启失败";
+        }
+        else if (wantAutoStart)
+            StatusText.Text = "已启用开机自启（登录后约 15 秒以管理员启动）";
     }
 
     private void ApplyLocalizedUi()
@@ -830,6 +863,7 @@ public partial class MainWindow : Window
     /// <summary>二次启动时激活已有窗口（含托盘隐藏状态）。</summary>
     public void BringToFront()
     {
+        ShowInTaskbar = true;
         Show();
         if (WindowState == WindowState.Minimized)
             WindowState = WindowState.Normal;

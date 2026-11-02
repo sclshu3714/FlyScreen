@@ -85,7 +85,8 @@ public sealed class InputRouter : IDisposable
 
     public void Start()
     {
-        // LL 钩子回调跑在安装线程；ShowCursor 计数也必须只在该线程调整
+        // LL 钩子回调跑在安装线程；该线程必须有消息泵（须在 WPF UI 线程调用）
+        Stop();
         _hookDispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         EnsureCompositionHost();
         _mouseProc = MouseHookCallback;
@@ -95,6 +96,11 @@ public sealed class InputRouter : IDisposable
         var hMod = NativeMethods.GetModuleHandle(mod.ModuleName);
         _mouseHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _mouseProc, hMod, 0);
         _keyHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _keyProc, hMod, 0);
+        if (_mouseHook == IntPtr.Zero || _keyHook == IntPtr.Zero)
+        {
+            var err = Marshal.GetLastWin32Error();
+            AppLog.Error($"键鼠钩子安装失败 mouse={_mouseHook} key={_keyHook} win32={err} thread={Environment.CurrentManagedThreadId}");
+        }
         ShowLocalCursor();
     }
 

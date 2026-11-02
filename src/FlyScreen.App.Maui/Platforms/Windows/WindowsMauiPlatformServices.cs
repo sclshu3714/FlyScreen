@@ -84,18 +84,13 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private static void ShowMainWindow()
     {
         var window = Application.Current?.Windows.FirstOrDefault();
-        if (window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
-        {
-            native.AppWindow.Show();
-            native.Activate();
-        }
+        MauiAutostartUi.TryShowNative(window);
     }
 
     private static void HideMainWindow()
     {
         var window = Application.Current?.Windows.FirstOrDefault();
-        if (window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
-            native.AppWindow.Hide();
+        MauiAutostartUi.TryHideNative(window);
     }
 
     public void StopDesktopInput()
@@ -156,7 +151,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public bool GetAutoStartEnabled() => AutoStartHelper.IsEnabled();
 
-    public void SetAutoStartEnabled(bool enabled)
+    public bool SetAutoStartEnabled(bool enabled)
         => AutoStartHelper.SetEnabled(enabled);
 
     public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
