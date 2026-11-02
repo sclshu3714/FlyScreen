@@ -116,9 +116,9 @@
 投影弹窗「远程控制」与「声音同步」同级；Offer 带 `RemoteControl`。开启后：
 
 - **仅从机全屏播放器**在激活/焦点内采集键鼠，坐标相对 Uniform 画面内容区归一化；黑边不转发；Esc 只停投影。
-- 主机把 `ScreenExtendInput` 映射到**当前采集监视器矩形**后注入（InjectMarker）；**不**走穿边 `EnsureAcceptsRemoteInput`。
-- Host 回控会话期间与 Sink 收流一样 **暂停 EasyMouse/穿边**，避免两端键鼠互抢。
-- 中途改开关需停投重开。Android 无播放器 Sink，本期不做。Mac/Linux 可作 Sink 回控采集；发起 Host 仍以 Win/Maui-Win 为主。
+- 主机把 `ScreenExtendInput` 映射到采集区后注入：**不**走穿边 `EnsureAcceptsRemoteInput`。Win/Maui-Win 注入采集监视器矩形；Android 手机 Host 走无障碍手势（需开启「玄鸟键鼠注入」）。开启「去黑边」时，回控坐标先按裁切矩形映射回全屏再注入。
+- Host 回控会话期间与 Sink 收流一样 **暂停 EasyMouse/穿边**，避免两端键鼠互抢；Android 回控期间也不被触控板页屏蔽。
+- 中途改开关需停投重开。Android 无播放器 Sink（不做手机收流回控）。Mac/Linux 可作 Sink 回控采集；Host 回控：Win / Maui-Win / Android 手机。
 
 ## 9. 非目标（本期）
 
@@ -133,6 +133,8 @@
 |------|------|
 | 2026-11-02 | 投影 1 对 1 互斥：Busy Host/Sink 拒绝与中文提示；禁止接收中再发起、禁止投向忙端 |
 | 2026-11-02 | 投影弹窗远程控制：Offer.RemoteControl + ScreenExtendInput；播放器内回控；Host 暂停 EasyMouse |
+| 2026-11-02 | Android 手机 Host 接入 ReverseInput：从机播放器键鼠经无障碍注入本机 |
+| 2026-11-02 | 去黑边回控：裁切画面 0..1 映射回原帧，避免指针与画面错位 |
 | 2026-10-29 | 首版；对齐产品「真扩展 + 会话摘除穿边」；启动 E1 Win/Maui-Win |
 | 2026-10-29 | UI：行为勾选 + 目标下拉 + 四种系统投影；点应用生效 |
 | 2026-10-30 | 应用后立刻 Ensure 本机第二输出；缺 MTT 时明确提示 winget 安装；不依赖对端 Accept |

@@ -1,5 +1,6 @@
 #if ANDROID
 using FlyScreen.Services;
+using FlyScreen.Services.Network;
 using FlyScreen.Services.ScreenExtend;
 using FlyScreen.AppMaui;
 
@@ -7,11 +8,15 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 
 /// <summary>
 /// 手机投影主机控制器：系统授权 → 前台采集服务 → HostSessionReady 后推流。
+/// 开启远程控制时接收从机播放器 ScreenExtendInput 并注入本机。
 /// 仅「复制」；不做 Sink / 扩展副屏。
 /// </summary>
 public sealed class AndroidScreenExtendHostController : IDisposable
 {
     private readonly ScreenExtendService _service;
+    private readonly Action _armReverse;
+    private readonly Action _disarmReverse;
+    private readonly Action<ScreenExtendInputPayload> _applyReverse;
     private int _width = 1080;
     private int _height = 1920;
     private bool _cropBlackBars;
@@ -21,12 +26,35 @@ public sealed class AndroidScreenExtendHostController : IDisposable
     private bool _disposed;
     private readonly ProjectionAudioBridge _audio;
 
-    public AndroidScreenExtendHostController(ScreenExtendService service)
+    public AndroidScreenExtendHostController(
+        ScreenExtendService service,
+        Action armReverse,
+        Action disarmReverse,
+        Action<ScreenExtendInputPayload> applyReverse)
     {
         _service = service;
+        _armReverse = armReverse;
+        _disarmReverse = disarmReverse;
+        _applyReverse = applyReverse;
         _audio = new ProjectionAudioBridge(service, new AndroidProjectionAudio());
+        _service.HostSessionReady += OnHostReady;
         _service.SessionEnded += OnSessionEnded;
+        _service.ReverseInputReceived += OnReverseInput;
         // 推流由 MediaProjection 服务在 ImageAvailable 时直接 SendFrame；无需 HostSessionReady 再启采集
+    }
+
+    private void OnHostReady()
+    {
+        if (_disposed || !_service.RemoteControl) return;
+        try { _armReverse(); }
+        catch { /* ignore */ }
+    }
+
+    private void OnReverseInput(ScreenExtendInputPayload input)
+    {
+        if (_disposed || !_service.RemoteControl) return;
+        try { _applyReverse(input); }
+        catch { /* ignore */ }
     }
 
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
@@ -131,6 +159,7 @@ public sealed class AndroidScreenExtendHostController : IDisposable
 
     private void OnSessionEnded()
     {
+        try { _disarmReverse(); } catch { /* ignore */ }
         _ = ReleaseAsync();
     }
 
@@ -139,7 +168,10 @@ public sealed class AndroidScreenExtendHostController : IDisposable
         if (_disposed) return;
         _disposed = true;
         _audio.Dispose();
+        _service.HostSessionReady -= OnHostReady;
         _service.SessionEnded -= OnSessionEnded;
+        _service.ReverseInputReceived -= OnReverseInput;
+        try { _disarmReverse(); } catch { /* ignore */ }
         FlyScreenMediaProjectionService.Stop();
     }
 }

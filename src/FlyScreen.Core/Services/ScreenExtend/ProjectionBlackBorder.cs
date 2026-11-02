@@ -7,6 +7,28 @@ public readonly record struct ProjectionBlackBorder(int Left, int Top, int Width
         Left == 0 && Top == 0 && Width == frameW && Height == frameH;
 
     /// <summary>
+    /// 把裁切后画面内的 0..1 映射回原帧 0..1（去黑边后的回控注入）。
+    /// </summary>
+    public void MapContentToFrame(
+        double contentNx, double contentNy, int frameW, int frameH,
+        out double frameNx, out double frameNy)
+    {
+        contentNx = Math.Clamp(contentNx, 0, 1);
+        contentNy = Math.Clamp(contentNy, 0, 1);
+        if (frameW <= 1 || frameH <= 1 || Width <= 0 || Height <= 0 || IsFullFrame(frameW, frameH))
+        {
+            frameNx = contentNx;
+            frameNy = contentNy;
+            return;
+        }
+
+        var px = Left + contentNx * Math.Max(0, Width - 1);
+        var py = Top + contentNy * Math.Max(0, Height - 1);
+        frameNx = Math.Clamp(px / Math.Max(1, frameW - 1), 0, 1);
+        frameNy = Math.Clamp(py / Math.Max(1, frameH - 1), 0, 1);
+    }
+
+    /// <summary>
     /// 四边都有黑边时按测量值裁掉（虚拟屏把画面缩小后居中）。
     /// 只有一对边又宽又对称时裁掉这一对（播放器为了片源比例留下的黑边）。
     /// 单边细条（状态栏、导航条）不裁。
