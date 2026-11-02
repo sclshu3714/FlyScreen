@@ -25,6 +25,7 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         _clipCoord = new DesktopClipboardCoordinator(host.Settings, host.Transfers, _clipSink);
         // 网络启动前挂好从机 UI，避免 Offer 已 Accept 却无全屏窗
         _screenExtendUi = new ScreenExtendDesktopController(host.ScreenExtend);
+        _host.EdgeDrag.ConfirmConflict = EdgeDragConflictPrompt.AskAsync;
     }
 
     public AppSettings Settings => _host.Settings;

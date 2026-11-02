@@ -65,6 +65,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, ResolveEdgeDropDirectory);
+        EdgeDrag.ConfirmConflict = ConfirmEdgeDragConflict;
         EdgeDrag.StatusMessage += PublishStatus;
         ScreenExtend = new ScreenExtendService(Connections);
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
@@ -119,6 +120,80 @@ public sealed class MauiAppHost : IAsyncDisposable
                 _platform.ArmRemoteClipboardForPaste();
         };
     }
+
+    private static async Task<EdgeDragConflictAction> ConfirmEdgeDragConflict(EdgeDragConflictRequest request)
+    {
+        if (request.Conflicts.Count == 0) return EdgeDragConflictAction.Proceed;
+#if WINDOWS
+        return await MainThread.InvokeOnMainThreadAsync(() =>
+            FlyScreen.Input.EdgeDragConflictDialog.Ask(request)).ConfigureAwait(false);
+#else
+        var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (page == null) return EdgeDragConflictAction.Replace;
+        var one = request.Conflicts.Count == 1;
+        var dest = string.IsNullOrWhiteSpace(request.Directory) ? "收件箱" : Path.GetFileName(
+            request.Directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var source = string.IsNullOrWhiteSpace(request.SourceFolder) ? "对端" : request.SourceFolder;
+        var title = $"正在将 {Math.Max(request.TotalCount, request.Conflicts.Count)} 个项目从 {source} 复制到 {dest}";
+        var instruction = one
+            ? $"目标已包含一个名为“{request.Conflicts[0]}”的文件"
+            : $"目标已包含 {request.Conflicts.Count} 个同名项目";
+        while (true)
+        {
+            var choice = await page.DisplayActionSheetAsync(
+                title + "\n" + instruction,
+                "取消",
+                null,
+                "替换目标中的文件",
+                one ? "跳过该文件" : "跳过这些文件",
+                "比较两个文件的信息").ConfigureAwait(true);
+            if (choice == "替换目标中的文件") return EdgeDragConflictAction.Replace;
+            if (choice is "跳过该文件" or "跳过这些文件") return EdgeDragConflictAction.Skip;
+            if (choice == "比较两个文件的信息")
+            {
+                await page.DisplayAlertAsync("比较两个文件的信息", BuildAndroidCompare(request), "关闭")
+                    .ConfigureAwait(true);
+                continue;
+            }
+
+            return EdgeDragConflictAction.Cancel;
+        }
+#endif
+    }
+
+#if !WINDOWS
+    private static string BuildAndroidCompare(EdgeDragConflictRequest request)
+    {
+        var lines = new List<string>();
+        foreach (var name in request.Conflicts.Take(8))
+        {
+            lines.Add(name);
+            var src = request.SourceItems.FirstOrDefault(i =>
+                string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+            lines.Add("  正在复制：" + (src == null
+                ? "未知"
+                : src.IsDirectory
+                    ? "文件夹"
+                    : src.Size >= 0 ? $"{src.Size} 字节" : "未知"));
+            try
+            {
+                var path = Path.Combine(request.Directory, name);
+                if (File.Exists(path))
+                    lines.Add($"  已有文件：{new FileInfo(path).Length} 字节");
+                else if (Directory.Exists(path))
+                    lines.Add("  已有：文件夹");
+                else
+                    lines.Add("  已有：未知");
+            }
+            catch
+            {
+                lines.Add("  已有：未知");
+            }
+        }
+
+        return string.Join("\n", lines);
+    }
+#endif
 
     private string ResolveEdgeDropDirectory()
     {

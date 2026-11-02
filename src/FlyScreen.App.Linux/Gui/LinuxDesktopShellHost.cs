@@ -27,6 +27,7 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
         _host.ReceivingRemoteControlChanged += OnReceivingRemote;
         _host.RemotePointerMoved += OnRemotePointer;
         _screenExtendUi = new ScreenExtendDesktopController(host.ScreenExtend);
+        _host.EdgeDrag.ConfirmConflict = EdgeDragConflictPrompt.AskAsync;
     }
 
     public AppSettings Settings => _host.Settings;

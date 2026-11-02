@@ -613,9 +613,24 @@ public sealed class ScreenExtendRejectPayload
     public string Reason { get; set; } = "";
 }
 
+/// <summary>穿边拖放时，源端一项的大小和日期，供对端「比较两个文件的信息」。</summary>
+public sealed class EdgeDragItemInfo
+{
+    public string Name { get; set; } = "";
+    public long Size { get; set; } = -1;
+    public long LastWriteUtcTicks { get; set; }
+    public bool IsDirectory { get; set; }
+}
+
 public sealed class EdgeDragQueryPayload
 {
     public string SessionId { get; set; } = "";
+    /// <summary>源端顶层文件名和文件夹名，供对端检查同名。</summary>
+    public string[] Names { get; set; } = [];
+    /// <summary>源端所在文件夹名，弹窗「从 xxx 复制到」用。</summary>
+    public string SourceFolder { get; set; } = "";
+    /// <summary>与 Names 对应的大小/日期；旧端可为空。</summary>
+    public EdgeDragItemInfo[] Items { get; set; } = [];
 }
 
 public sealed class EdgeDragPlacePayload
@@ -623,6 +638,10 @@ public sealed class EdgeDragPlacePayload
     public string SessionId { get; set; } = "";
     /// <summary>接收端上的绝对目录。空表示放不了。</summary>
     public string Directory { get; set; } = "";
+    /// <summary>0 直接传，1 替换同名，2 跳过同名，3 取消。</summary>
+    public int Action { get; set; }
+    /// <summary>Action 为跳过时，这些顶层名称不传。</summary>
+    public string[] SkipNames { get; set; } = [];
 }
 
 /// <summary>拖拽经过某台机器时，让那台画出跟手的文件提示。</summary>

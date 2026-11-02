@@ -300,6 +300,7 @@ public sealed class MauiInputRouter : IDisposable
         var msg = wParam.ToInt32();
         if (msg == NativeMethods.WM_LBUTTONUP)
         {
+            WindowsDragPaths.NoteButtonUp();
             EdgeFileDragCapture.Disarm();
             if (_edgeDragSwallowLeftUp)
             {
@@ -308,7 +309,7 @@ public sealed class MauiInputRouter : IDisposable
                     return (IntPtr)1;
             }
 
-            if (EdgeFileDrag?.IsActive == true)
+            if (EdgeFileDrag?.IsHolding == true)
             {
                 EdgeFileDrag.Finish();
                 if (_controllingRemote)
@@ -338,6 +339,9 @@ public sealed class MauiInputRouter : IDisposable
         {
             TryClaimPhysicalInput();
         }
+
+        if (msg == NativeMethods.WM_LBUTTONDOWN && !_controllingRemote)
+            WindowsDragPaths.NoteButtonDown();
         else if (msg == NativeMethods.WM_MOUSEMOVE && !_controllingRemote)
         {
             TryClaimPhysicalInput();
@@ -358,11 +362,14 @@ public sealed class MauiInputRouter : IDisposable
                 EdgeFileDragCapture.Arm();
             else
                 EdgeFileDragCapture.Disarm();
-            if (_settings.TransferFile && leftDown && onEdge && !EdgeFileDragCapture.HasPaths)
+            var dragged = Array.Empty<string>();
+            var haveDrag = _settings.TransferFile && leftDown && onEdge
+                           && WindowsDragPaths.TryGet(out dragged);
+            if (_settings.TransferFile && leftDown && onEdge && !haveDrag)
             {
                 if (_edgeFileWaitStart == 0)
                     _edgeFileWaitStart = Environment.TickCount64;
-                if (Environment.TickCount64 - _edgeFileWaitStart < 200)
+                if (Environment.TickCount64 - _edgeFileWaitStart < 400)
                     return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
             }
             else if (!onEdge || !leftDown)
@@ -376,9 +383,7 @@ public sealed class MauiInputRouter : IDisposable
                 if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                         out var peer, out var entryX, out var entryY, out var peerSide))
                 {
-                    if (_settings.TransferFile && leftDown
-                        && EdgeFileDragCapture.TryCopyPaths(out var dragged)
-                        && EdgeFileDrag?.TryBegin(dragged) == true)
+                    if (haveDrag && EdgeFileDrag?.TryBegin(dragged) == true)
                     {
                         EdgeFileDragCapture.DismissLocalDrag();
                         EdgeFileDragCapture.Disarm();
@@ -429,7 +434,7 @@ public sealed class MauiInputRouter : IDisposable
                 or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_RBUTTONUP
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MBUTTONUP)
             {
-                if (EdgeFileDrag?.IsActive == true)
+                if (EdgeFileDrag?.IsHolding == true)
                     return (IntPtr)1;
                 var (button, down) = msg switch
                 {
@@ -446,7 +451,7 @@ public sealed class MauiInputRouter : IDisposable
 
             if (msg is NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
             {
-                if (EdgeFileDrag?.IsActive == true)
+                if (EdgeFileDrag?.IsHolding == true)
                     return (IntPtr)1;
                 var delta = (short)((info.mouseData >> 16) & 0xFFFF);
                 _ = SendWheelAsync(_activePeer, delta, msg == NativeMethods.WM_MOUSEHWHEEL);
@@ -484,7 +489,7 @@ public sealed class MauiInputRouter : IDisposable
                 return (IntPtr)1;
         }
 
-        if (EdgeFileDrag?.IsActive == true && _controllingRemote)
+        if (EdgeFileDrag?.IsHolding == true && _controllingRemote)
         {
             if (down && info.vkCode == 0x1B)
             {
