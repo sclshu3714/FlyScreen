@@ -35,6 +35,8 @@ public sealed class FileTransferService
     private readonly Dictionary<Guid, CancellationTokenSource> _itemAbort = new();
     /// <summary>当前正在发送的块：TransferItem.Id → (peer, transferId)。</summary>
     private readonly Dictionary<Guid, (string Peer, Guid TransferId)> _activeSends = new();
+    /// <summary>发送端等待对端 FileAccept / FileAbort：null=已接受，非空=拒绝原因。</summary>
+    private readonly Dictionary<Guid, TaskCompletionSource<string?>> _acceptWaiters = new();
     private readonly string _inboxDir;
     private readonly string _pasteDir;
     private readonly string _historyPath;
@@ -774,6 +776,7 @@ public sealed class FileTransferService
         CancellationToken ct = default)
     {
         lock (_gate) _activeSends[uiItem.Id] = (peer, transferId);
+        var acceptWaiter = CreateAcceptWaiter(transferId);
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -797,6 +800,9 @@ public sealed class FileTransferService
             });
             if (!await _connections.SendToAsync(peer, MessageType.FileOffer, offer).ConfigureAwait(false))
                 throw new IOException($"对端未连接: {peer}");
+
+            // 必须等对端打开目标文件并 Accept，否则本机“已完成”、对端卡在 0%
+            await WaitPeerAcceptAsync(acceptWaiter, ct).ConfigureAwait(false);
 
             await using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
                 ChunkSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -838,6 +844,12 @@ public sealed class FileTransferService
         }
         catch (OperationCanceledException)
         {
+            if (uiItem.State is not (TransferState.Failed or TransferState.Cancelled or TransferState.Completed))
+            {
+                uiItem.State = TransferState.Cancelled;
+                uiItem.Status = "已取消";
+            }
+
             try
             {
                 var abort = MessageCodec.JsonBytes(new FileControlPayload
@@ -854,6 +866,7 @@ public sealed class FileTransferService
         {
             uiItem.State = TransferState.Failed;
             uiItem.Status = ex.Message;
+            NotifyStatus($"发送失败: {uiItem.FileName} — {ex.Message}");
             CompletePullWaiter(null);
             QueueSaveHistory();
             try
@@ -870,8 +883,58 @@ public sealed class FileTransferService
         }
         finally
         {
+            ClearAcceptWaiter(transferId);
             lock (_gate) _activeSends.Remove(uiItem.Id);
         }
+    }
+
+    private TaskCompletionSource<string?> CreateAcceptWaiter(Guid transferId)
+    {
+        var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            if (_acceptWaiters.TryGetValue(transferId, out var old))
+                old.TrySetCanceled();
+            _acceptWaiters[transferId] = tcs;
+        }
+
+        return tcs;
+    }
+
+    private void ClearAcceptWaiter(Guid transferId)
+    {
+        lock (_gate) _acceptWaiters.Remove(transferId);
+    }
+
+    private void CompleteAcceptWaiter(Guid transferId, string? abortReason)
+    {
+        TaskCompletionSource<string?>? tcs;
+        lock (_gate)
+        {
+            if (!_acceptWaiters.Remove(transferId, out tcs))
+                return;
+        }
+
+        tcs.TrySetResult(abortReason);
+    }
+
+    private static async Task WaitPeerAcceptAsync(TaskCompletionSource<string?> waiter, CancellationToken ct)
+    {
+        var completed = await Task.WhenAny(waiter.Task, Task.Delay(TimeSpan.FromSeconds(45), ct))
+            .ConfigureAwait(false);
+        if (completed != waiter.Task)
+            throw new IOException("对端未接受传输（超时）。目标文件可能正被占用或无法写入。");
+
+        var abortReason = await waiter.Task.ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(abortReason))
+            throw new IOException(abortReason);
+    }
+
+    private void HandleFileAccept(byte[] payload)
+    {
+        var ctrl = MessageCodec.DecodeJson<FileControlPayload>(payload);
+        if (ctrl == null) return;
+        CompleteAcceptWaiter(ctrl.TransferId, abortReason: null);
     }
 
     private CancellationToken GetItemAbortToken(TransferItem item)
@@ -1007,6 +1070,9 @@ public sealed class FileTransferService
                 break;
             case MessageType.FileOffer:
                 _ = HandleOfferAsync(peer, msg.Payload);
+                break;
+            case MessageType.FileAccept:
+                HandleFileAccept(msg.Payload);
                 break;
             case MessageType.FileChunk:
                 EnqueueChunkWrite(msg.Payload);
@@ -1571,7 +1637,35 @@ public sealed class FileTransferService
                 AddItem(item);
         }
 
-        var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read, ChunkSize, useAsync: true);
+        FileStream fs;
+        try
+        {
+            fs = OpenReceiveWriteStream(dest);
+        }
+        catch (Exception ex)
+        {
+            var reason = FormatReceiveWriteError(dest, ex);
+            if (!isDirMarker)
+            {
+                item.State = TransferState.Failed;
+                item.Status = reason;
+            }
+
+            NotifyStatus($"拒绝接收 {displayName}: {reason}");
+            QueueSaveHistory();
+            try
+            {
+                var abort = MessageCodec.JsonBytes(new FileControlPayload
+                {
+                    TransferId = offer.TransferId,
+                    Reason = reason
+                });
+                await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
+            }
+            catch { /* ignore */ }
+            return;
+        }
+
         lock (_gate)
         {
             _receiving[offer.TransferId] = new ReceiveState(
@@ -1599,6 +1693,63 @@ public sealed class FileTransferService
             : isFolderBatch
                 ? $"接收文件夹: {groupKey} ({offer.GroupIndex + 1}/{groupCount}) ← {peer}"
                 : $"接收中: {offer.FileName} ← {peer}");
+    }
+
+    /// <summary>打开接收落盘流；同名占用时给出可读错误，避免列表卡在 0%。</summary>
+    private static FileStream OpenReceiveWriteStream(string dest)
+    {
+        try
+        {
+            return new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read,
+                ChunkSize, useAsync: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new IOException(FormatReceiveWriteError(dest, ex), ex);
+        }
+    }
+
+    private static string FormatReceiveWriteError(string dest, Exception ex)
+    {
+        var name = Path.GetFileName(dest);
+        if (string.IsNullOrEmpty(name)) name = dest;
+        if (IsSharingOrLockError(ex))
+            return $"目标文件正被占用，无法覆盖「{name}」。请先关闭该文件后重试。";
+        if (ex is UnauthorizedAccessException || IsAccessDenied(ex))
+            return $"无权限写入「{name}」。";
+        var detail = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message.Trim();
+        return $"无法写入「{name}」：{detail}";
+    }
+
+    private static bool IsSharingOrLockError(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException!)
+        {
+            if (e is IOException io)
+            {
+                var code = io.HResult & 0xFFFF;
+                // ERROR_SHARING_VIOLATION=32, ERROR_LOCK_VIOLATION=33
+                if (code is 32 or 33) return true;
+                var msg = io.Message ?? "";
+                if (msg.Contains("being used by another process", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("正由另一进程使用", StringComparison.Ordinal)
+                    || msg.Contains("Sharing", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAccessDenied(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException!)
+        {
+            if (e is UnauthorizedAccessException) return true;
+            if (e is IOException io && (io.HResult & 0xFFFF) == 5) return true;
+        }
+
+        return false;
     }
 
     private TransferItem GetOrCreateFolderUiItem(
@@ -1750,11 +1901,39 @@ public sealed class FileTransferService
         }
         catch (Exception ex)
         {
-            state.Item.State = TransferState.Failed;
-            state.Item.Status = ex.Message;
-            CompletePullWaiter(null);
-            QueueSaveHistory();
+            var reason = FormatReceiveWriteError(state.DestPath, ex);
+            FailReceiveInProgress(id, state, reason);
         }
+    }
+
+    private void FailReceiveInProgress(Guid transferId, ReceiveState state, string reason)
+    {
+        ReceiveState? removed;
+        lock (_gate) _receiving.Remove(transferId, out removed);
+        try { removed?.Stream.Dispose(); } catch { /* ignore */ }
+
+        if (Items.Contains(state.Item))
+        {
+            state.Item.State = TransferState.Failed;
+            state.Item.Status = reason;
+        }
+
+        NotifyStatus($"接收失败: {state.Item.FileName} — {reason}");
+        CompletePullWaiter(null);
+        QueueSaveHistory();
+
+        var peer = state.Item.PeerName;
+        if (string.IsNullOrWhiteSpace(peer)) return;
+        try
+        {
+            var abort = MessageCodec.JsonBytes(new FileControlPayload
+            {
+                TransferId = transferId,
+                Reason = reason
+            });
+            _ = _connections.SendToAsync(peer, MessageType.FileAbort, abort);
+        }
+        catch { /* ignore */ }
     }
 
     private async Task HandleCompleteAsync(byte[] payload)
@@ -1851,10 +2030,31 @@ public sealed class FileTransferService
         }
         catch (Exception ex)
         {
-            state.Item.State = TransferState.Failed;
-            state.Item.Status = ex.Message;
+            var reason = FormatReceiveWriteError(state.DestPath, ex);
+            try { await state.Stream.DisposeAsync().ConfigureAwait(false); } catch { /* ignore */ }
+            if (Items.Contains(state.Item))
+            {
+                state.Item.State = TransferState.Failed;
+                state.Item.Status = reason;
+            }
+
+            NotifyStatus($"接收失败: {state.Item.FileName} — {reason}");
             CompletePullWaiter(null);
             QueueSaveHistory();
+            var peer = state.Item.PeerName;
+            if (!string.IsNullOrWhiteSpace(peer))
+            {
+                try
+                {
+                    var abort = MessageCodec.JsonBytes(new FileControlPayload
+                    {
+                        TransferId = ctrl.TransferId,
+                        Reason = reason
+                    });
+                    await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
+                }
+                catch { /* ignore */ }
+            }
         }
     }
 
@@ -1863,33 +2063,54 @@ public sealed class FileTransferService
         var ctrl = MessageCodec.DecodeJson<FileControlPayload>(payload);
         if (ctrl == null) return;
 
-        // 对端中止时，若本机正在发送同一 TransferId，取消发送循环
-        List<CancellationTokenSource> cancelSends = [];
+        var reason = string.IsNullOrWhiteSpace(ctrl.Reason) ? "对端中止" : ctrl.Reason.Trim();
+        // 发送端若还在等 Accept，先唤醒并带上失败原因
+        CompleteAcceptWaiter(ctrl.TransferId, reason);
+
+        // 对端中止时，若本机正在发送同一 TransferId，取消发送循环并标失败
+        List<(Guid ItemId, CancellationTokenSource Cts)> cancelSends = [];
         lock (_gate)
         {
             foreach (var kv in _activeSends)
             {
                 if (kv.Value.TransferId != ctrl.TransferId) continue;
                 if (_itemAbort.TryGetValue(kv.Key, out var cts))
-                    cancelSends.Add(cts);
+                    cancelSends.Add((kv.Key, cts));
             }
         }
 
-        foreach (var cts in cancelSends)
+        foreach (var (itemId, cts) in cancelSends)
         {
+            TransferItem? sendItem = null;
+            UiMarshal.Send(() => sendItem = Items.FirstOrDefault(i => i.Id == itemId));
+            if (sendItem != null
+                && sendItem.State is TransferState.Queued or TransferState.Transferring)
+            {
+                sendItem.State = TransferState.Failed;
+                sendItem.Status = reason;
+                NotifyStatus($"发送失败: {sendItem.FileName} — {reason}");
+            }
+
             try { cts.Cancel(); } catch { /* ignore */ }
         }
 
         ReceiveState? state;
         lock (_gate) _receiving.Remove(ctrl.TransferId, out state);
-        if (state == null) return;
+        if (state == null)
+        {
+            if (cancelSends.Count > 0)
+                QueueSaveHistory();
+            return;
+        }
+
         try { state.Stream.Dispose(); } catch { /* ignore */ }
         try { if (File.Exists(state.DestPath)) File.Delete(state.DestPath); } catch { /* ignore */ }
         // 本地已点删除移出列表时不再改状态
         if (Items.Contains(state.Item))
         {
             state.Item.State = TransferState.Failed;
-            state.Item.Status = ctrl.Reason ?? "对端中止";
+            state.Item.Status = reason;
+            NotifyStatus($"接收失败: {state.Item.FileName} — {reason}");
         }
 
         CompletePullWaiter(null);
@@ -2051,9 +2272,11 @@ public sealed class FileTransferService
                 var parent = Path.GetDirectoryName(dest);
                 if (!string.IsNullOrEmpty(parent))
                     Directory.CreateDirectory(parent);
-                if (!LinkOrCopy(inboxPath, dest))
+                if (!TryLinkOrCopy(inboxPath, dest, out var writeError))
                 {
-                    NotifyStatus($"写入粘贴文件失败: {relative}");
+                    var reason = writeError ?? $"写入粘贴文件失败: {relative}";
+                    NotifyStatus(reason);
+                    MarkReceiveItemFailedByPath(inboxPath, reason);
                     continue;
                 }
 
@@ -2192,15 +2415,16 @@ public sealed class FileTransferService
         return $"{stem}_{Guid.NewGuid():N}{ext}";
     }
 
-    private static bool LinkOrCopy(string source, string dest)
+    private static bool TryLinkOrCopy(string source, string dest, out string? error)
     {
+        Exception? last = null;
         for (var attempt = 0; attempt < 5; attempt++)
         {
             try
             {
                 if (Directory.Exists(dest))
                 {
-                    // 不应把文件写到目录路径上
+                    error = $"目标路径是文件夹，无法写入文件「{Path.GetFileName(dest)}」。";
                     return false;
                 }
 
@@ -2208,20 +2432,62 @@ public sealed class FileTransferService
                     File.Delete(dest);
 
                 File.Copy(source, dest, overwrite: true);
-                if (!File.Exists(dest)) return false;
+                if (!File.Exists(dest))
+                {
+                    error = $"无法写入「{Path.GetFileName(dest)}」。";
+                    return false;
+                }
 
                 var srcLen = new FileInfo(source).Length;
                 var dstLen = new FileInfo(dest).Length;
-                if (srcLen == dstLen) return true;
+                if (srcLen == dstLen)
+                {
+                    error = null;
+                    return true;
+                }
+
+                last = new IOException("复制后大小不一致");
             }
-            catch
+            catch (Exception ex)
             {
-                // 剪贴板占用占位文件时短暂重试
+                last = ex;
+                // 剪贴板占用占位文件时短暂重试；真占用则多试几次仍失败
                 Thread.Sleep(40 + attempt * 30);
             }
         }
 
+        error = last == null
+            ? $"无法写入「{Path.GetFileName(dest)}」。"
+            : FormatReceiveWriteError(dest, last);
         return false;
+    }
+
+    private void MarkReceiveItemFailedByPath(string inboxOrDestPath, string reason)
+    {
+        TransferItem? hit = null;
+        UiMarshal.Send(() =>
+        {
+            hit = Items.FirstOrDefault(i =>
+                i.Direction == TransferDirection.Receive
+                && i.State is TransferState.Completed or TransferState.Transferring
+                && string.Equals(i.FullPath, inboxOrDestPath, StringComparison.OrdinalIgnoreCase));
+            if (hit == null)
+            {
+                var name = Path.GetFileName(inboxOrDestPath);
+                hit = Items.FirstOrDefault(i =>
+                    i.Direction == TransferDirection.Receive
+                    && i.State is TransferState.Completed or TransferState.Transferring
+                    && (string.Equals(i.FileName, name, StringComparison.OrdinalIgnoreCase)
+                        || i.FileName.EndsWith("/" + name, StringComparison.OrdinalIgnoreCase)
+                        || i.FileName.EndsWith("\\" + name, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (hit == null) return;
+            hit.State = TransferState.Failed;
+            hit.Status = reason;
+        });
+        if (hit != null)
+            QueueSaveHistory();
     }
 
     public async Task BroadcastTextAsync(string text)
