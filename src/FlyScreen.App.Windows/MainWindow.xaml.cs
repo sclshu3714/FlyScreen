@@ -74,6 +74,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyWindowIcon();
         _host = AppHost.EnsureCreated();
         // 开机自启：先藏主窗再挂托盘，避免未渲染完的黑块闪一下/卡住
         if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
@@ -124,9 +125,18 @@ public partial class MainWindow : Window
             ? new System.Windows.Media.FontFamily("Segoe UI")
             : new System.Windows.Media.FontFamily("Segoe MDL2 Assets");
         TitleProjectBtn.FontSize = on ? 11 : 13;
-        TitleProjectBtn.Foreground = on
-            ? (System.Windows.Media.Brush)FindResource("Accent")
-            : (System.Windows.Media.Brush)FindResource("Text");
+        // Accent 只在投影弹窗里，主窗口用 Blue（同色 #2563EB）
+        TitleProjectBtn.Foreground = TryFindResource(on ? "Blue" : "Text") as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Black;
+    }
+
+    private void ApplyWindowIcon()
+    {
+        var icon = AppIconImage.Load();
+        if (icon == null) return;
+        Icon = icon;
+        if (TitleBarLogo != null)
+            TitleBarLogo.Source = icon;
     }
 
     private void TitleMin_Click(object sender, RoutedEventArgs e)

@@ -75,5 +75,9 @@ public static class FlyScreenCursorOverlay
 
     public static void End()
         => FlyScreenCursorOverlayService.RequestEnd();
+
+    /// <summary>穿边拖文件时画在指针旁。空字符串收起。</summary>
+    public static void SetDragHint(string? text)
+        => FlyScreenCursorOverlayService.SetDragHint(text);
 }
 #endif

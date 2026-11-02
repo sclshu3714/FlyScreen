@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using FlyScreen.Native;
+using FlyScreen.Services;
 
 namespace FlyScreen.Input;
 
@@ -18,6 +20,8 @@ public static class EdgeFileDragCapture
     private static string[] _paths = [];
     private static Thread? _thread;
     private static IntPtr _signal;
+    private static int _wantShown;
+    private static int _dropFailed;
     private static DropSink? _sink;
 
     public static bool HasPaths
@@ -27,6 +31,7 @@ public static class EdgeFileDragCapture
 
     public static void Arm()
     {
+        Interlocked.Exchange(ref _wantShown, 1);
         EnsureThread();
         if (_signal != IntPtr.Zero)
             PostMessage(_signal, WmArm, IntPtr.Zero, IntPtr.Zero);
@@ -34,6 +39,8 @@ public static class EdgeFileDragCapture
 
     public static void Disarm()
     {
+        if (Interlocked.Exchange(ref _wantShown, 0) == 0)
+            return;
         if (_signal != IntPtr.Zero)
             PostMessage(_signal, WmDisarm, IntPtr.Zero, IntPtr.Zero);
     }
@@ -102,7 +109,7 @@ public static class EdgeFileDragCapture
         for (var i = 0; i < hwnds.Length; i++)
         {
             hwnds[i] = CreateWindowEx(
-                0x00000080 | 0x08000000 | 0x00080000,
+                0x00000008 | 0x00000080 | 0x08000000 | 0x00080000,
                 cls.lpszClassName, "",
                 unchecked((int)0x80000000),
                 0, 0, Strip, Strip,
@@ -110,11 +117,15 @@ public static class EdgeFileDragCapture
             if (hwnds[i] != IntPtr.Zero)
             {
                 SetLayeredWindowAttributes(hwnds[i], 0, 1, 2);
-                RegisterDragDrop(hwnds[i], _sink);
+                var hr = RegisterDragDrop(hwnds[i], _sink);
+                if (hr < 0 && Interlocked.Exchange(ref _dropFailed, 1) == 0)
+                    AppLog.Warn($"穿边拖放接收条注册失败 0x{hr:X8}");
             }
         }
 
         _signal = hwnds.FirstOrDefault(h => h != IntPtr.Zero);
+        if (Volatile.Read(ref _wantShown) == 1)
+            Place(hwnds, show: true);
         var msg = new Msg();
         while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
         {
@@ -146,7 +157,7 @@ public static class EdgeFileDragCapture
     private static void Move(IntPtr[] hwnds, int index, int x, int y, int w, int h, bool show)
     {
         if ((uint)index >= (uint)hwnds.Length || hwnds[index] == IntPtr.Zero) return;
-        SetWindowPos(hwnds[index], new IntPtr(-1), x, y, w, h, 0x0010 | 0x0004);
+        SetWindowPos(hwnds[index], new IntPtr(-1), x, y, w, h, 0x0010);
         ShowWindow(hwnds[index], show ? 8 : 0);
     }
 
@@ -189,24 +200,35 @@ public static class EdgeFileDragCapture
         {
             if (data == IntPtr.Zero) return [];
             var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
-            var format = new FormatEtc
+            var format = new FORMATETC
             {
                 cfFormat = 15,
-                dwAspect = 1,
+                dwAspect = DVASPECT.DVASPECT_CONTENT,
                 lindex = -1,
-                tymed = 1
+                tymed = TYMED.TYMED_HGLOBAL
             };
-            if (obj.GetData(ref format, out var medium) != 0 || medium.union == IntPtr.Zero)
-                return [];
+            STGMEDIUM medium = default;
             try
             {
-                var count = DragQueryFile(medium.union, 0xFFFFFFFF, null, 0);
+                obj.GetData(ref format, out medium);
+            }
+            catch
+            {
+                Marshal.ReleaseComObject(obj);
+                return [];
+            }
+
+            try
+            {
+                if (medium.unionmember == IntPtr.Zero) return [];
+                var count = DragQueryFile(medium.unionmember, 0xFFFFFFFF, null, 0);
                 var list = new List<string>();
-                var buf = new StringBuilder(1024);
                 for (uint i = 0; i < count; i++)
                 {
-                    buf.Clear();
-                    if (DragQueryFile(medium.union, i, buf, (uint)buf.Capacity) == 0) continue;
+                    var need = DragQueryFile(medium.unionmember, i, null, 0);
+                    if (need == 0) continue;
+                    var buf = new StringBuilder((int)need + 1);
+                    if (DragQueryFile(medium.unionmember, i, buf, (uint)buf.Capacity) == 0) continue;
                     var path = buf.ToString();
                     if (File.Exists(path) || Directory.Exists(path))
                         list.Add(path);
@@ -220,24 +242,6 @@ public static class EdgeFileDragCapture
                 Marshal.ReleaseComObject(obj);
             }
         }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct FormatEtc
-    {
-        public ushort cfFormat;
-        public IntPtr ptd;
-        public uint dwAspect;
-        public int lindex;
-        public uint tymed;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct StgMedium
-    {
-        public uint tymed;
-        public IntPtr union;
-        public IntPtr unk;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -280,25 +284,9 @@ public static class EdgeFileDragCapture
         [PreserveSig] int Drop(IntPtr pDataObj, uint grfKeyState, long pt, ref uint pdwEffect);
     }
 
-    [ComImport]
-    [Guid("0000010e-0000-0000-C000-000000000046")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IDataObject
-    {
-        [PreserveSig] int GetData(ref FormatEtc pformatetcIn, out StgMedium medium);
-        [PreserveSig] int GetDataHere(ref FormatEtc pformatetc, ref StgMedium medium);
-        [PreserveSig] int QueryGetData(ref FormatEtc pformatetc);
-        [PreserveSig] int GetCanonicalFormatEtc(ref FormatEtc a, out FormatEtc b);
-        [PreserveSig] int SetData(ref FormatEtc a, ref StgMedium b, bool release);
-        [PreserveSig] int EnumFormatEtc(uint direction, out IntPtr enumerator);
-        [PreserveSig] int DAdvise(ref FormatEtc a, uint advf, IntPtr sink, out uint connection);
-        [PreserveSig] int DUnadvise(uint connection);
-        [PreserveSig] int EnumDAdvise(out IntPtr enumerator);
-    }
-
     [DllImport("ole32.dll")] private static extern int OleInitialize(IntPtr pvReserved);
     [DllImport("ole32.dll")] private static extern int RegisterDragDrop(IntPtr hwnd, IDropTarget target);
-    [DllImport("ole32.dll")] private static extern void ReleaseStgMedium(ref StgMedium medium);
+    [DllImport("ole32.dll")] private static extern void ReleaseStgMedium(ref STGMEDIUM medium);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder? name, uint cch);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]

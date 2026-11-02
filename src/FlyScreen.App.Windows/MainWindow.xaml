@@ -4,7 +4,6 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:FlyScreen"
         Title="玄鸟"
-        Icon="pack://application:,,,/Assets/wlogo_tu.ico"
         Height="640" Width="960"
         MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
@@ -787,8 +786,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                    <Image Width="16" Height="16" Margin="0,0,8,0"
-                           Source="pack://application:,,,/Assets/wlogo_tu.ico"
+                    <Image x:Name="TitleBarLogo" Width="16" Height="16" Margin="0,0,8,0"
                            RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock x:Name="TitleBarText"
                                Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}"

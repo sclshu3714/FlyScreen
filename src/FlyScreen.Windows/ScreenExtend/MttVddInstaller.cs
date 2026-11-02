@@ -316,6 +316,22 @@ public static class MttVddInstaller
         return await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 软件已装但管道未监听时拉起控制台。不修改显示器数量，也不调用 DisplaySwitch。
+    /// </summary>
+    public static async Task<bool> TryEnsureConsoleAsync(CancellationToken ct = default)
+    {
+        if (await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false))
+            return true;
+        if (!MttVddEnvironment.IsProductInstalled()
+            && !FindOfflineControlExecutables().Any()
+            && !FindVddControlExecutables().Any())
+            return false;
+
+        await TryStartVddControlAsync(ct).ConfigureAwait(false);
+        return await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false);
+    }
+
     /// <summary>尽力启动 VDD 控制台，使命名管道开始监听。</summary>
     private static async Task TryStartVddControlAsync(CancellationToken ct)
     {
@@ -544,6 +560,15 @@ public static class MttVddInstaller
             }
         }
         catch { /* ignore */ }
+
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MikeTheTech\VirtualDisplayDriver");
+            Add(key?.GetValue("VDDPATH") as string);
+        }
+        catch { /* ignore */ }
+
+        Add(@"C:\VirtualDisplayDriver");
 
         // 常见固定目录 + WinGet 包目录
         foreach (var folder in new[]

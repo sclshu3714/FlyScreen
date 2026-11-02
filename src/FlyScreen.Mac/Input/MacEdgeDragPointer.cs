@@ -51,9 +51,10 @@ public sealed class MacEdgeDragPointer : IEdgeDragPointer
         if (!OperatingSystem.IsMacOS()) return;
         try
         {
-            var id = CgEventNative.CGMainDisplayID();
-            width = Math.Max(1, (int)CgEventNative.CGDisplayPixelsWide(id));
-            height = Math.Max(1, (int)CgEventNative.CGDisplayPixelsHigh(id));
+            // 指针坐标是 point。像素宽高会让视网膜屏上的居中判断和回中错位。
+            var bounds = CgEventNative.CGDisplayBounds(CgEventNative.CGMainDisplayID());
+            width = Math.Max(1, (int)Math.Round(bounds.Size.Width));
+            height = Math.Max(1, (int)Math.Round(bounds.Size.Height));
         }
         catch { /* ignore */ }
     }

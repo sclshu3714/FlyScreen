@@ -127,4 +127,15 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         add => _host.EdgeDrag.ActiveChanged += value;
         remove => _host.EdgeDrag.ActiveChanged -= value;
     }
+
+    public event Action<EdgeDragCue?>? EdgeDragCueChanged
+    {
+        add => _host.EdgeDrag.CueChanged += value;
+        remove => _host.EdgeDrag.CueChanged -= value;
+    }
+
+    public bool TryGetEdgeDragPointer(out int x, out int y)
+        => _host.TryGetPointerPixels(out x, out y);
+
+    public string EdgeDragDropLabel => _host.EdgeDropLabel;
 }

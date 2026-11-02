@@ -8,7 +8,6 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
     public const string InstallHint =
         "请安装 Virtual Display Driver（winget install VirtualDrivers.Virtual-Display-Driver），或连接物理副屏后重试。";
 
-    private int _previousVirtualCount = -1;
     private bool _createdVirtual;
     private bool _manageVirtualCount;
     private MonitorRect? _target;
@@ -33,8 +32,6 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
             return (true, null);
 
         var existing = DisplayMonitorEnum.FindBestExtendTarget();
-        var before = DisplayMonitorEnum.Count;
-        _previousVirtualCount = Math.Max(0, before - (existing != null ? 1 : 0));
 
         var pipeOk = await MttVddPipeClient.IsPipePresentAsync(ct).ConfigureAwait(false)
                      || await MttVddPipeClient.PingAsync(ct).ConfigureAwait(false);
@@ -44,7 +41,7 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
                 "未检测到第二显示器，且本机未运行虚拟显示驱动（MTTVirtualDisplayPipe）。" + InstallHint);
         }
 
-        // 走管道 Ensure 时，停止会话必须把 count 收回（含「开始前已有 VDD 副屏」）
+        // 用过管道：停止时收拢拓扑，并在驱动重载后把控制台拉回来
         if (pipeOk)
             _manageVirtualCount = true;
 
@@ -82,29 +79,33 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        var shouldRestore = _createdVirtual || _manageVirtualCount;
+        var created = _createdVirtual;
+        var managed = _manageVirtualCount;
         _createdVirtual = false;
         _manageVirtualCount = false;
-        if (!shouldRestore)
-        {
-            _target = null;
-            return;
-        }
-
-        try
-        {
-            // 回到会话前虚拟数量（至少 0）
-            var restore = Math.Max(0, _previousVirtualCount);
-            await MttVddPipeClient.SetDisplayCountAsync(restore).ConfigureAwait(false);
-            for (var i = 0; i < 15; i++)
-            {
-                if (restore > 0 || DisplayMonitorEnum.FindBestExtendTarget() == null)
-                    break;
-                await Task.Delay(100).ConfigureAwait(false);
-            }
-        }
-        catch { /* ignore */ }
-
         _target = null;
+        if (!created && !managed)
+            return;
+
+        if (created)
+        {
+            // 只撤掉本会话新建的那块。SETDISPLAYCOUNT 会重载驱动，控制台经常因此退出。
+            MttVddEnvironment.TrySetXmlMonitorCount(0);
+            try
+            {
+                await MttVddPipeClient.SetDisplayCountAsync(0).ConfigureAwait(false);
+                for (var i = 0; i < 15; i++)
+                {
+                    if (DisplayMonitorEnum.FindBestExtendTarget() == null)
+                        break;
+                    await Task.Delay(100).ConfigureAwait(false);
+                }
+            }
+            catch { /* ignore */ }
+        }
+
+        // 管道由 VDDControl 提供。重载后把它拉回来，下次扩展检查才能通过；此处不新建副屏。
+        try { await MttVddInstaller.TryEnsureConsoleAsync().ConfigureAwait(false); }
+        catch { /* ignore */ }
     }
 }

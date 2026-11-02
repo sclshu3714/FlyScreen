@@ -41,6 +41,7 @@ public sealed class MauiInputRouter : IDisposable
     private long _switchCooldownUntilTick;
     private const int SwitchCooldownMs = 900;
     private long _edgeFileWaitStart;
+    private bool _edgeDragSwallowLeftUp;
 
     /// <summary>按住文件拖过屏幕边缘时，把路径交给布局里的下一台。</summary>
     public EdgeFileDragService? EdgeFileDrag { get; set; }
@@ -297,12 +298,22 @@ public sealed class MauiInputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
-        if (msg == NativeMethods.WM_LBUTTONUP && EdgeFileDrag?.IsActive == true)
+        if (msg == NativeMethods.WM_LBUTTONUP)
         {
             EdgeFileDragCapture.Disarm();
-            EdgeFileDrag.Finish();
-            if (_controllingRemote)
-                return (IntPtr)1;
+            if (_edgeDragSwallowLeftUp)
+            {
+                _edgeDragSwallowLeftUp = false;
+                if (_controllingRemote)
+                    return (IntPtr)1;
+            }
+
+            if (EdgeFileDrag?.IsActive == true)
+            {
+                EdgeFileDrag.Finish();
+                if (_controllingRemote)
+                    return (IntPtr)1;
+            }
         }
 
         VirtualScreen.GetBounds(out var screenL, out var screenT, out var screenW, out var screenH);
@@ -343,16 +354,18 @@ public sealed class MauiInputRouter : IDisposable
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
             var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
-            if (leftDown)
+            if (_settings.TransferFile && leftDown)
                 EdgeFileDragCapture.Arm();
-            if (leftDown && onEdge && !EdgeFileDragCapture.HasPaths)
+            else
+                EdgeFileDragCapture.Disarm();
+            if (_settings.TransferFile && leftDown && onEdge && !EdgeFileDragCapture.HasPaths)
             {
                 if (_edgeFileWaitStart == 0)
                     _edgeFileWaitStart = Environment.TickCount64;
-                if (Environment.TickCount64 - _edgeFileWaitStart < 100)
+                if (Environment.TickCount64 - _edgeFileWaitStart < 200)
                     return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
             }
-            else if (!onEdge)
+            else if (!onEdge || !leftDown)
             {
                 _edgeFileWaitStart = 0;
             }
@@ -363,7 +376,7 @@ public sealed class MauiInputRouter : IDisposable
                 if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                         out var peer, out var entryX, out var entryY, out var peerSide))
                 {
-                    if (leftDown
+                    if (_settings.TransferFile && leftDown
                         && EdgeFileDragCapture.TryCopyPaths(out var dragged)
                         && EdgeFileDrag?.TryBegin(dragged) == true)
                     {
@@ -416,6 +429,8 @@ public sealed class MauiInputRouter : IDisposable
                 or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_RBUTTONUP
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MBUTTONUP)
             {
+                if (EdgeFileDrag?.IsActive == true)
+                    return (IntPtr)1;
                 var (button, down) = msg switch
                 {
                     NativeMethods.WM_LBUTTONDOWN => (0, true),
@@ -431,6 +446,8 @@ public sealed class MauiInputRouter : IDisposable
 
             if (msg is NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
             {
+                if (EdgeFileDrag?.IsActive == true)
+                    return (IntPtr)1;
                 var delta = (short)((info.mouseData >> 16) & 0xFFFF);
                 _ = SendWheelAsync(_activePeer, delta, msg == NativeMethods.WM_MOUSEHWHEEL);
                 return (IntPtr)1;
@@ -465,6 +482,17 @@ public sealed class MauiInputRouter : IDisposable
         {
             if (HandleHotkey((int)info.vkCode))
                 return (IntPtr)1;
+        }
+
+        if (EdgeFileDrag?.IsActive == true && _controllingRemote)
+        {
+            if (down && info.vkCode == 0x1B)
+            {
+                EdgeFileDrag.Cancel();
+                _edgeDragSwallowLeftUp = true;
+            }
+
+            return (IntPtr)1;
         }
 
         // 本机懒粘贴：Ctrl+V / Shift+Insert 先拉取再重放

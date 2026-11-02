@@ -46,6 +46,7 @@ public sealed class AppHost : IAsyncDisposable
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, WindowsDropFolder.Resolve);
         EdgeDrag.StatusMessage += PublishStatus;
+        EdgeDrag.CueChanged += OnEdgeDragCue;
         Input.EdgeFileDrag = EdgeDrag;
         Clipboard = new ClipboardMonitor(Settings, Transfers);
         ScreenExtend = new ScreenExtendService(Connections);
@@ -120,6 +121,14 @@ public sealed class AppHost : IAsyncDisposable
             if (Input.IsFocusOnLocalMachine)
                 Clipboard.ArmRemoteClipboardForPaste();
         };
+    }
+
+    private void OnEdgeDragCue(EdgeDragCue? cue)
+    {
+        if (cue == null || cue.Count <= 0)
+            EdgeFileDragCue.Hide();
+        else
+            EdgeFileDragCue.Show(cue.Count, cue.Names, WindowsDropFolder.Resolve);
     }
 
     private void PublishStatus(string message)

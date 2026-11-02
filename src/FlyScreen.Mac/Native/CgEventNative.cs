@@ -33,6 +33,20 @@ internal static class CgEventNative
         public double Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CGSize
+    {
+        public double Width;
+        public double Height;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CGRect
+    {
+        public CGPoint Origin;
+        public CGSize Size;
+    }
+
     [DllImport(CoreGraphics)]
     public static extern IntPtr CGEventCreate(IntPtr source);
 
@@ -69,6 +83,9 @@ internal static class CgEventNative
 
     [DllImport(CoreGraphics)]
     public static extern uint CGMainDisplayID();
+
+    [DllImport(CoreGraphics)]
+    public static extern CGRect CGDisplayBounds(uint display);
 
     [DllImport(CoreGraphics)]
     public static extern nuint CGDisplayPixelsWide(uint display);
