@@ -9,6 +9,26 @@ namespace FlyScreen.Services.Clipboard;
 /// 拖文件穿边：源端拿着路径，光标按布局穿过多台机器。
 /// 松开左键时，若停在另一台可放下的目录上，才开始把文件复制过去。
 /// </summary>
+/// <summary>松开时目标里已有同名项，用户的选择。</summary>
+public enum EdgeDragConflictAction
+{
+    /// <summary>没有同名，或对端未询问，全部传输。</summary>
+    Proceed = 0,
+    Replace = 1,
+    Skip = 2,
+    Cancel = 3
+}
+
+/// <summary>接收端弹出「替换或跳过」时用的内容。</summary>
+public sealed class EdgeDragConflictRequest
+{
+    public string Directory { get; init; } = "";
+    public string SourceFolder { get; init; } = "";
+    public IReadOnlyList<string> Conflicts { get; init; } = [];
+    public int TotalCount { get; init; }
+    public IReadOnlyList<EdgeDragItemInfo> SourceItems { get; init; } = [];
+}
+
 public sealed class EdgeFileDragService : IDisposable
 {
     private readonly AppSettings _settings;
@@ -24,7 +44,7 @@ public sealed class EdgeFileDragService : IDisposable
     private string? _cuePeer;
     private string _shownCueSession = "";
     private string? _awaitingPeer;
-    private TaskCompletionSource<string?>? _placeTcs;
+    private TaskCompletionSource<EdgeDragPlacePayload?>? _placeTcs;
     private int _followGeneration;
 
     public EdgeFileDragService(
@@ -38,6 +58,7 @@ public sealed class EdgeFileDragService : IDisposable
         _transfers = transfers;
         _resolveDropDirectory = resolveDropDirectory;
         _connections.MessageReceived += OnMessage;
+        _connections.PeerLinkChanged += OnPeerLinkChanged;
     }
 
     public event Action<string>? StatusMessage;
@@ -52,6 +73,18 @@ public sealed class EdgeFileDragService : IDisposable
 
     /// <summary>扩展屏占用的对端不接收穿边拖拽。</summary>
     public Func<string, bool>? RejectPeer { get; set; }
+
+    /// <summary>
+    /// 目标目录里已有同名文件或文件夹时，在那台电脑上询问替换还是跳过。
+    /// 未设置时直接覆盖。
+    /// </summary>
+    public Func<EdgeDragConflictRequest, Task<EdgeDragConflictAction>>? ConfirmConflict { get; set; }
+
+    /// <summary>左键仍按着、还在拖。松开后等待替换确认时为 false，方便去点对话框。</summary>
+    public bool IsHolding
+    {
+        get { lock (_gate) return _phase == 1; }
+    }
 
     public bool CanAccept(string? peer)
     {
@@ -160,7 +193,7 @@ public sealed class EdgeFileDragService : IDisposable
             return;
         }
 
-        var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<EdgeDragPlacePayload?>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_gate)
         {
             _awaitingPeer = hover;
@@ -179,6 +212,7 @@ public sealed class EdgeFileDragService : IDisposable
     public void Dispose()
     {
         _connections.MessageReceived -= OnMessage;
+        _connections.PeerLinkChanged -= OnPeerLinkChanged;
         Cancel();
     }
 
@@ -276,6 +310,22 @@ public sealed class EdgeFileDragService : IDisposable
             Finish();
     }
 
+    private void OnPeerLinkChanged(string peer, bool outboundAlive, bool inboundAlive)
+    {
+        if (outboundAlive || inboundAlive) return;
+        string? waiting;
+        lock (_gate)
+        {
+            if (_phase == 0) return;
+            waiting = _phase == 2 ? _awaitingPeer : _hoverPeer;
+        }
+
+        if (waiting == null || !string.Equals(waiting, peer, StringComparison.OrdinalIgnoreCase))
+            return;
+        Report("对端已断开，取消拖放");
+        Cancel();
+    }
+
     private void OnMessage(string peer, NetMessage msg)
     {
         switch (msg.Type)
@@ -297,22 +347,95 @@ public sealed class EdgeFileDragService : IDisposable
         var query = MessageCodec.DecodeJson<EdgeDragQueryPayload>(payload);
         if (query == null || string.IsNullOrEmpty(query.SessionId)) return;
         if (!_settings.TransferFile) return;
+        // 替换确认会停在界面上。不能占着收包线程，否则心跳和鼠标都过不去。
+        _ = Task.Run(() => ReplyToQueryAsync(peer, query));
+    }
+
+    private async Task ReplyToQueryAsync(string peer, EdgeDragQueryPayload query)
+    {
         string dir;
         try { dir = _resolveDropDirectory() ?? ""; }
         catch { dir = ""; }
-        _ = _connections.SendToAsync(peer, MessageType.EdgeDragPlace,
-            MessageCodec.JsonBytes(new EdgeDragPlacePayload
+
+        var action = EdgeDragConflictAction.Proceed;
+        var skip = Array.Empty<string>();
+        if (!string.IsNullOrWhiteSpace(dir))
+        {
+            var conflicts = ConflictingNames(dir, query.Names);
+            if (conflicts.Count > 0)
             {
-                SessionId = query.SessionId,
-                Directory = dir
-            }));
+                var confirm = ConfirmConflict;
+                if (confirm == null)
+                {
+                    action = EdgeDragConflictAction.Replace;
+                }
+                else
+                {
+                    try
+                    {
+                        var request = new EdgeDragConflictRequest
+                        {
+                            Directory = dir,
+                            SourceFolder = query.SourceFolder ?? "",
+                            Conflicts = conflicts,
+                            TotalCount = Math.Max(query.Names?.Length ?? 0, conflicts.Count),
+                            SourceItems = query.Items ?? []
+                        };
+                        action = await confirm(request).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // 弹窗异常时不要悄悄取消；记日志，默认走替换以免「没弹窗却取消」
+                        try { global::FlyScreen.Services.AppLog.Error(ex, "替换确认弹窗失败"); } catch { /* ignore */ }
+                        action = EdgeDragConflictAction.Replace;
+                    }
+                }
+                if (action == EdgeDragConflictAction.Skip)
+                    skip = conflicts.ToArray();
+            }
+        }
+
+        try
+        {
+            await _connections.SendToAsync(peer, MessageType.EdgeDragPlace,
+                MessageCodec.JsonBytes(new EdgeDragPlacePayload
+                {
+                    SessionId = query.SessionId,
+                    Directory = dir,
+                    Action = (int)action,
+                    SkipNames = skip
+                })).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 答复失败时源端按超时取消
+        }
+    }
+
+    private static List<string> ConflictingNames(string directory, string[]? names)
+    {
+        var list = new List<string>();
+        if (names == null || names.Length == 0) return list;
+        foreach (var raw in names)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var name = raw.Trim();
+            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) continue;
+            string path;
+            try { path = Path.Combine(directory, name); }
+            catch { continue; }
+            if (File.Exists(path) || Directory.Exists(path))
+                list.Add(name);
+        }
+
+        return list;
     }
 
     private void AcceptPlace(string peer, byte[] payload)
     {
         var place = MessageCodec.DecodeJson<EdgeDragPlacePayload>(payload);
         if (place == null) return;
-        TaskCompletionSource<string?>? tcs;
+        TaskCompletionSource<EdgeDragPlacePayload?>? tcs;
         lock (_gate)
         {
             if (_phase != 2 || !string.Equals(_session, place.SessionId, StringComparison.Ordinal))
@@ -323,17 +446,24 @@ public sealed class EdgeFileDragService : IDisposable
             _placeTcs = null;
         }
 
-        tcs?.TrySetResult(place.Directory);
+        tcs?.TrySetResult(place);
     }
 
-    private async Task SendQueryAsync(string peer, string session, string[] paths, TaskCompletionSource<string?> tcs)
+    private async Task SendQueryAsync(string peer, string session, string[] paths, TaskCompletionSource<EdgeDragPlacePayload?> tcs)
     {
         try
         {
             await Task.Delay(80).ConfigureAwait(false);
             await _connections.SendToAsync(peer, MessageType.EdgeDragQuery,
-                MessageCodec.JsonBytes(new EdgeDragQueryPayload { SessionId = session })).ConfigureAwait(false);
-            var finished = await Task.WhenAny(tcs.Task, Task.Delay(4000)).ConfigureAwait(false);
+                MessageCodec.JsonBytes(new EdgeDragQueryPayload
+                {
+                    SessionId = session,
+                    Names = TopLevelNames(paths),
+                    SourceFolder = SourceFolderLabel(paths),
+                    Items = BuildItemInfos(paths)
+                })).ConfigureAwait(false);
+            // 对端可能弹出替换/跳过，留给用户点选
+            var finished = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromMinutes(2))).ConfigureAwait(false);
             if (finished != tcs.Task)
             {
                 Report("穿边拖放超时");
@@ -341,15 +471,35 @@ public sealed class EdgeFileDragService : IDisposable
                 return;
             }
 
-            var dir = await tcs.Task.ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(dir))
+            var place = await tcs.Task.ConfigureAwait(false);
+            if (place == null)
             {
-                Report("这里不能放下文件");
                 Clear();
                 return;
             }
 
-            await _transfers.StartDirectTransferAsync(peer, dir, paths).ConfigureAwait(false);
+            var dir = place.Directory;
+            if (string.IsNullOrWhiteSpace(dir) || place.Action == (int)EdgeDragConflictAction.Cancel)
+            {
+                Report(string.IsNullOrWhiteSpace(dir) ? "这里不能放下文件" : "已取消拖放");
+                Clear();
+                return;
+            }
+
+            var sending = paths;
+            if (place.Action == (int)EdgeDragConflictAction.Skip && place.SkipNames is { Length: > 0 })
+            {
+                var skip = new HashSet<string>(place.SkipNames, NameComparer);
+                sending = paths.Where(p => !skip.Contains(TopLevelName(p))).ToArray();
+                if (sending.Length == 0)
+                {
+                    Report("已跳过同名文件");
+                    Clear();
+                    return;
+                }
+            }
+
+            await _transfers.StartDirectTransferAsync(peer, dir, sending).ConfigureAwait(false);
         }
         catch
         {
@@ -360,6 +510,87 @@ public sealed class EdgeFileDragService : IDisposable
             Clear();
         }
     }
+
+    private static string[] TopLevelNames(IReadOnlyList<string> paths)
+    {
+        var list = new List<string>();
+        foreach (var raw in paths)
+        {
+            if (list.Count >= 500) break;
+            var name = TopLevelName(raw);
+            if (name.Length == 0) continue;
+            list.Add(name);
+        }
+
+        return list.ToArray();
+    }
+
+    private static string SourceFolderLabel(IReadOnlyList<string> paths)
+    {
+        foreach (var raw in paths)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            try
+            {
+                var trimmed = raw.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var parent = Path.GetDirectoryName(trimmed);
+                if (string.IsNullOrWhiteSpace(parent)) continue;
+                var name = Path.GetFileName(parent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (!string.IsNullOrWhiteSpace(name)) return name;
+            }
+            catch
+            {
+                // 下一项
+            }
+        }
+
+        return "";
+    }
+
+    private static EdgeDragItemInfo[] BuildItemInfos(IReadOnlyList<string> paths)
+    {
+        var list = new List<EdgeDragItemInfo>();
+        foreach (var raw in paths)
+        {
+            if (list.Count >= 500) break;
+            var name = TopLevelName(raw);
+            if (name.Length == 0) continue;
+            var info = new EdgeDragItemInfo { Name = name };
+            try
+            {
+                if (Directory.Exists(raw))
+                {
+                    info.IsDirectory = true;
+                    info.LastWriteUtcTicks = Directory.GetLastWriteTimeUtc(raw).Ticks;
+                }
+                else if (File.Exists(raw))
+                {
+                    var fi = new FileInfo(raw);
+                    info.Size = fi.Length;
+                    info.LastWriteUtcTicks = fi.LastWriteTimeUtc.Ticks;
+                }
+            }
+            catch
+            {
+                // 只带名称
+            }
+
+            list.Add(info);
+        }
+
+        return list.ToArray();
+    }
+
+    private static string TopLevelName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var trimmed = raw.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var name = Path.GetFileName(trimmed);
+        return string.IsNullOrEmpty(name) ? trimmed : name;
+    }
+
+    private static StringComparer NameComparer { get; } =
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private async Task SendSwitchAsync(string peer, double entryX, double entryY)
     {

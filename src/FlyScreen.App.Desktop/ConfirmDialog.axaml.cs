@@ -21,12 +21,18 @@ public partial class ConfirmDialog : Window
         string message,
         string? primaryText = null,
         string? secondaryText = null,
-        string? cancelText = null)
+        string? cancelText = null,
+        bool topmost = false)
     {
         var dlg = new ConfirmDialog
         {
             Title = title
         };
+        if (topmost)
+        {
+            dlg.Topmost = true;
+            dlg.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
         dlg.TitleText.Text = title;
         dlg.MessageText.Text = message;
         dlg.PrimaryBtn.Content = string.IsNullOrWhiteSpace(primaryText) ? Loc.T("Dlg.Ok") : primaryText;

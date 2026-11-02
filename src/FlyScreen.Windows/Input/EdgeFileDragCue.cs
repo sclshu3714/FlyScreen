@@ -202,7 +202,7 @@ public static class EdgeFileDragCue
         for (var i = 0; i < lines.Count; i++)
         {
             var size = g.MeasureString(lines[i], i == 0 ? fontBold : font);
-            width = Math.Max(width, size.Width);
+            width = Math.Max(width, size.Width + 18);
             height += size.Height + 2;
         }
 
@@ -226,6 +226,7 @@ public static class EdgeFileDragCue
             using var border = new Pen(Color.FromArgb(180, 190, 200));
             g.FillRectangle(back, 0, 0, rc.Right, rc.Bottom);
             g.DrawRectangle(border, 0, 0, Math.Max(1, rc.Right - 1), Math.Max(1, rc.Bottom - 1));
+            DrawFileIcon(g, 8, 8);
             var lines = Lines();
             using var font = CreateFont(bold: false);
             using var fontBold = CreateFont(bold: true);
@@ -235,8 +236,8 @@ public static class EdgeFileDragCue
             for (var i = 0; i < lines.Count; i++)
             {
                 var f = i == 0 ? fontBold : font;
-                var brush = i == lines.Count - 1 ? muted : text;
-                g.DrawString(lines[i], f, brush, 10, y);
+                var brush = i == 0 ? text : muted;
+                g.DrawString(lines[i], f, brush, 28, y);
                 y += g.MeasureString(lines[i], f).Height + 1;
             }
         }
@@ -258,12 +259,24 @@ public static class EdgeFileDragCue
             place = _place;
         }
 
-        var lines = new List<string> { count > 1 ? $"复制 {count} 项" : "复制 1 项" };
+        var lines = new List<string>
+        {
+            string.IsNullOrWhiteSpace(place) ? "松开取消" : $"复制到 {place}"
+        };
         lines.AddRange(names);
         if (count > names.Length && names.Length > 0)
             lines.Add($"以及其他 {count - names.Length} 项");
-        lines.Add(string.IsNullOrWhiteSpace(place) ? "松开取消" : $"到 {place}");
+        else if (names.Length == 0)
+            lines.Add(count > 1 ? $"{count} 项" : "1 项");
         return lines;
+    }
+
+    private static void DrawFileIcon(Graphics g, int x, int y)
+    {
+        using var page = new SolidBrush(Color.FromArgb(37, 99, 235));
+        using var fold = new SolidBrush(Color.FromArgb(191, 219, 254));
+        g.FillRectangle(page, x, y + 3, 14, 16);
+        g.FillPolygon(fold, [new PointF(x + 7, y + 3), new PointF(x + 14, y + 9), new PointF(x + 7, y + 9)]);
     }
 
     private static string Friendly(string? path)

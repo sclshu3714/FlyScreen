@@ -45,6 +45,7 @@ public sealed class AppHost : IAsyncDisposable
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, WindowsDropFolder.Resolve);
+        EdgeDrag.ConfirmConflict = ConfirmEdgeDragConflict;
         EdgeDrag.StatusMessage += PublishStatus;
         EdgeDrag.CueChanged += OnEdgeDragCue;
         Input.EdgeFileDrag = EdgeDrag;
@@ -122,6 +123,9 @@ public sealed class AppHost : IAsyncDisposable
                 Clipboard.ArmRemoteClipboardForPaste();
         };
     }
+
+    private static Task<EdgeDragConflictAction> ConfirmEdgeDragConflict(EdgeDragConflictRequest request)
+        => EdgeDragConflictPrompt.AskAsync(request);
 
     private void OnEdgeDragCue(EdgeDragCue? cue)
     {
