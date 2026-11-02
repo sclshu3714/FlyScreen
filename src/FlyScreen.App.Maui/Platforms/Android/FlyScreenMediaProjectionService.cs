@@ -79,6 +79,8 @@ public sealed class FlyScreenMediaProjectionService : Service
     private Bitmap? _croppedBitmap;
     private ProjectionBlackBorder _stableCrop;
     private bool _hasStableCrop;
+    private int _cropFrameW;
+    private int _cropFrameH;
     private long _lastMeasureMs;
     private int _closing;
     private ScreenExtendService? _extend;
@@ -668,7 +670,29 @@ public sealed class FlyScreenMediaProjectionService : Service
     {
         _cropHold.Reset();
         _hasStableCrop = false;
+        _cropFrameW = 0;
+        _cropFrameH = 0;
         _lastMeasureMs = 0;
+    }
+
+    /// <summary>
+    /// 把从机播放器内容区坐标映射到手机全屏 0..1。
+    /// 去黑边开启时，播放器看到的是裁切后画面，需加回黑边偏移。
+    /// </summary>
+    public static void MapReverseInputToScreen(double contentNx, double contentNy, out double screenNx, out double screenNy)
+    {
+        screenNx = contentNx;
+        screenNy = contentNy;
+        var svc = Instance;
+        if (svc == null || !svc._cropBlackBars || !svc._hasStableCrop)
+            return;
+
+        var fw = svc._cropFrameW;
+        var fh = svc._cropFrameH;
+        if (fw <= 1 || fh <= 1)
+            return;
+
+        svc._stableCrop.MapContentToFrame(contentNx, contentNy, fw, fh, out screenNx, out screenNy);
     }
 
     /// <summary>
@@ -685,7 +709,10 @@ public sealed class FlyScreenMediaProjectionService : Service
 
         var now = System.Environment.TickCount64;
         ProjectionBlackBorder crop;
-        if (_hasStableCrop && now - _lastMeasureMs < CropMeasureIntervalMs)
+        if (_hasStableCrop
+            && _cropFrameW == w
+            && _cropFrameH == h
+            && now - _lastMeasureMs < CropMeasureIntervalMs)
         {
             crop = _stableCrop;
         }
@@ -702,11 +729,15 @@ public sealed class FlyScreenMediaProjectionService : Service
             if (!crop.IsFullFrame(w, h))
             {
                 _stableCrop = crop;
+                _cropFrameW = w;
+                _cropFrameH = h;
                 _hasStableCrop = true;
             }
             else
             {
                 _hasStableCrop = false;
+                _cropFrameW = 0;
+                _cropFrameH = 0;
             }
         }
 

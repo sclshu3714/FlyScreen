@@ -71,4 +71,31 @@ public class ProjectionBlackBorderTests
 
         Assert.True(crop.IsFullFrame(400, 400));
     }
+
+    [Fact]
+    public void MapContentToFrame_centers_and_corners_of_cropped_content()
+    {
+        // 2400×1080 裁掉左右各 240 → 内容 1920×1080
+        var crop = new ProjectionBlackBorder(240, 0, 1920, 1080);
+
+        crop.MapContentToFrame(0, 0, 2400, 1080, out var tlX, out var tlY);
+        crop.MapContentToFrame(1, 1, 2400, 1080, out var brX, out var brY);
+        crop.MapContentToFrame(0.5, 0.5, 2400, 1080, out var cx, out var cy);
+
+        Assert.Equal(240.0 / 2399.0, tlX, 5);
+        Assert.Equal(0, tlY, 5);
+        Assert.Equal((240.0 + 1919.0) / 2399.0, brX, 5);
+        Assert.Equal(1, brY, 5);
+        Assert.Equal((240.0 + 0.5 * 1919.0) / 2399.0, cx, 5);
+        Assert.Equal(0.5, cy, 5);
+    }
+
+    [Fact]
+    public void MapContentToFrame_identity_when_full_frame()
+    {
+        var crop = new ProjectionBlackBorder(0, 0, 1080, 1920);
+        crop.MapContentToFrame(0.25, 0.75, 1080, 1920, out var nx, out var ny);
+        Assert.Equal(0.25, nx);
+        Assert.Equal(0.75, ny);
+    }
 }

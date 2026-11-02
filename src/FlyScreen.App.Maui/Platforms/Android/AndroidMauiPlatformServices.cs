@@ -15,6 +15,7 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// 2) 未加窗成功前绝不关掉无障碍/应用内箭头（避免「能点但看不见」）
 /// 3) 电脑主动穿入时解除触控板屏蔽
 /// 4) 手机→电脑复制投影（MediaProjection Host，不做 Sink）
+/// 5) 投影远程控制：接收从机播放器 ScreenExtendInput 并注入本机
 /// </summary>
 public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 {
@@ -26,6 +27,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private string? _lastInlineKey;
     private string? _lastFilesKey;
     private bool _receiving;
+    private bool _screenExtendReverse;
     private bool _promptedOverlay;
     private bool _promptedTouchInjection;
     private bool _remotePointerSuppressed;
@@ -42,7 +44,11 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         _settings = settings;
         _transfers = transfers;
-        _screenExtendHost = new AndroidScreenExtendHostController(screenExtend);
+        _screenExtendHost = new AndroidScreenExtendHostController(
+            screenExtend,
+            ArmScreenExtendReverse,
+            DisarmScreenExtendReverse,
+            ApplyScreenExtendReverseInput);
         // 用户程序运行：WakeLock；可选「通知注入」前台通知（无子程序则不占通知）
         ProgramService.Instance.Runner.RunningCountChanged += count =>
             AndroidProgramWakeLock.SetProgramsRunning(count);
@@ -107,6 +113,14 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     private void ApplySuppressState()
     {
+        // 投影回控期间：从机播放器键鼠优先，不因触控板页屏蔽
+        if (_screenExtendReverse)
+        {
+            if (_remotePointerSuppressed)
+                _remotePointerSuppressed = false;
+            return;
+        }
+
         // 触控板页优先：屏蔽电脑键鼠，避免双指针；离开触控板后再允许穿入
         var want = _touchpadWantsSuppress;
         if (_remotePointerSuppressed == want) return;
@@ -116,6 +130,58 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             EndRemoteCursor();
             ControlTargetChanged?.Invoke(null);
             AppLog.Info("触控板已启用：已断开电脑键鼠控制");
+        }
+    }
+
+    /// <summary>投影 Host 开启远程控制：准备无障碍会话与指针，供从机播放器回控。</summary>
+    private void ArmScreenExtendReverse()
+    {
+        if (_screenExtendReverse && _receiving) return;
+        _screenExtendReverse = true;
+        _remotePointerSuppressed = false;
+        // 不走触控板门闩：回控来自对端全屏播放器，与穿边 EasyMouse 无关
+        BeginReceivingRemoteControlCore(0.5, 0.5);
+        AppLog.Info("投影远程控制：已就绪，等待从机播放器键鼠");
+    }
+
+    private void DisarmScreenExtendReverse()
+    {
+        if (!_screenExtendReverse) return;
+        _screenExtendReverse = false;
+        if (_receiving)
+            EndRemoteCursor();
+        ApplySuppressState();
+        AppLog.Info("投影远程控制：已结束");
+    }
+
+    private void ApplyScreenExtendReverseInput(ScreenExtendInputPayload input)
+    {
+        if (!_screenExtendReverse || !_receiving)
+            ArmScreenExtendReverse();
+        if (!_receiving) return;
+
+        _remotePointerSuppressed = false;
+        // 去黑边时播放器坐标相对裁切画面，需映射回手机全屏
+        FlyScreenMediaProjectionService.MapReverseInputToScreen(input.Nx, input.Ny, out var nx, out var ny);
+        switch (input.Kind)
+        {
+            case ScreenExtendInputPayload.KindMove:
+                InjectMouseMoveAbsolute(nx, ny);
+                break;
+            case ScreenExtendInputPayload.KindButton:
+                InjectMouseMoveAbsolute(nx, ny);
+                InjectMouseButton(input.Button, input.Down);
+                break;
+            case ScreenExtendInputPayload.KindWheel:
+                InjectMouseMoveAbsolute(nx, ny);
+                InjectMouseWheel(input.Delta, input.Horizontal);
+                break;
+            case ScreenExtendInputPayload.KindKey:
+                if (!string.IsNullOrEmpty(input.Text))
+                    InjectText(input.Text);
+                else
+                    InjectKey(input.VirtualKey, input.Down, input.Extended);
+                break;
         }
     }
 
@@ -218,13 +284,18 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
-        // 触控板正在控制电脑时，拒绝被电脑反控
-        if (_touchpadWantsSuppress)
+        // 触控板正在控制电脑时，拒绝被电脑反控（投影回控走 ArmScreenExtendReverse）
+        if (_touchpadWantsSuppress && !_screenExtendReverse)
         {
             AppLog.Info("触控板模式：忽略电脑键鼠穿入");
             return;
         }
 
+        BeginReceivingRemoteControlCore(entryX, entryY);
+    }
+
+    private void BeginReceivingRemoteControlCore(double entryX, double entryY)
+    {
         _remotePointerSuppressed = false;
         _receiving = true;
         _a11yDrawCursor = null;
@@ -259,6 +330,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void OnCursorOwnerChanged(string ownerMachine)
     {
+        if (_screenExtendReverse) return; // 投影回控不走穿边 CursorOwner
         if (string.IsNullOrWhiteSpace(ownerMachine)) return;
         var local = string.Equals(ownerMachine, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(ownerMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
@@ -269,6 +341,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void RestoreCursorWhenLeavingCluster()
     {
+        if (_screenExtendReverse) return;
         if (!_receiving) return;
         EndRemoteCursor();
         ControlTargetChanged?.Invoke(null);
