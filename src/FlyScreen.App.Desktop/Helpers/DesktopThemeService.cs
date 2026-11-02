@@ -48,6 +48,10 @@ public static class DesktopThemeService
         Set("Placeholder", dark ? "#64748B" : "#9CA3AF");
         Set("MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set("ListBg", dark ? "#0B1220" : "#F9FAFB");
+        Set("ScrollTrack", "#00000000");
+        Set("ScrollThumb", dark ? "#64748B" : "#CBD5E1");
+        Set("ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
+        Set("ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
 
         window ??= TryGetMainWindow();
         if (window == null) return;

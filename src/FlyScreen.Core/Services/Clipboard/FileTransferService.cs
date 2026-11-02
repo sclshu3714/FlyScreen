@@ -1936,7 +1936,9 @@ public sealed class FileTransferService
             // _lastPasteEntries 由 PreparePastePaths 写入
         }
         NotifyStatus($"文件接收完成（{pastePaths.Count} 个）");
+        // 先放行粘贴等待，再迁路径并删 Inbox/seq_*（避免 UI 阻塞时 Send 死锁）
         CompletePullWaiter(pastePaths.Count > 0 ? pastePaths : null);
+        TryConsumeInboxSeqAfterPaste(sequence, pastePaths);
     }
 
     /// <summary>
@@ -2254,7 +2256,16 @@ public sealed class FileTransferService
         }
 
         if (deleteReceiveFiles)
+        {
             CleanupPasteDir();
+            CleanupInboxSeqDirs(onlyUnreferenced: false);
+        }
+        else
+        {
+            // 保留成品文件时仍回收已无引用的拉取缓存
+            CleanupInboxSeqDirs(onlyUnreferenced: true);
+        }
+
         SaveHistoryNow();
         NotifyStatus(removedReceiveCache > 0
             ? $"已清除记录，并删除 {removedReceiveCache} 个接收文件"
@@ -2482,6 +2493,217 @@ public sealed class FileTransferService
                 Directory.Delete(_pasteDir, recursive: true);
         }
         catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// 粘贴路径已就绪后：把仍指向 Inbox/seq_N 的列表项迁到 PasteStaging，再删除该批拉取缓存。
+    /// </summary>
+    private void TryConsumeInboxSeqAfterPaste(long sequence, IReadOnlyList<string> pastePaths)
+    {
+        if (sequence <= 0 || pastePaths.Count == 0) return;
+
+        string seqDir;
+        try { seqDir = Path.GetFullPath(Path.Combine(_inboxDir, $"seq_{sequence}")); }
+        catch { return; }
+
+        if (!Directory.Exists(seqDir)) return;
+
+        // 粘贴仍落在 seq 内（Prepare 失败回退）→ 不能删
+        if (pastePaths.Any(p => IsUnderDirectory(p, seqDir))) return;
+        if (pastePaths.All(p => IsUnderDirectory(p, _inboxDir))) return;
+
+        RelocateItemsUnderDirectory(seqDir, pastePaths);
+        TryDeleteDirectory(seqDir);
+    }
+
+    /// <summary>把 FullPath 仍在 <paramref name="seqDir"/> 下的列表项改到粘贴成品路径。</summary>
+    private void RelocateItemsUnderDirectory(string seqDir, IReadOnlyList<string> pasteTops)
+    {
+        string seqRoot;
+        try
+        {
+            seqRoot = Path.GetFullPath(seqDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+        }
+        catch
+        {
+            return;
+        }
+
+        UiMarshal.Send(() =>
+        {
+            var changed = false;
+            foreach (var item in Items)
+            {
+                if (item.Direction != TransferDirection.Receive) continue;
+                if (string.IsNullOrWhiteSpace(item.FullPath)) continue;
+                string full;
+                try { full = Path.GetFullPath(item.FullPath); }
+                catch { continue; }
+                if (!full.StartsWith(seqRoot, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var rel = full[seqRoot.Length..]
+                    .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                var dest = MapSeqRelativeToPaste(rel, pasteTops);
+                if (string.IsNullOrWhiteSpace(dest)) continue;
+                if (string.Equals(item.FullPath, dest, StringComparison.OrdinalIgnoreCase)) continue;
+                item.FullPath = dest;
+                changed = true;
+            }
+
+            if (changed)
+                QueueSaveHistory();
+        });
+    }
+
+    /// <summary>seq 内相对路径 → PasteStaging 顶层或合并根下的对应路径。</summary>
+    private static string? MapSeqRelativeToPaste(string relativeUnderSeq, IReadOnlyList<string> pasteTops)
+    {
+        if (string.IsNullOrWhiteSpace(relativeUnderSeq) || pasteTops.Count == 0)
+            return null;
+
+        var segments = relativeUnderSeq.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0) return null;
+
+        var topName = segments[0];
+        foreach (var top in pasteTops)
+        {
+            if (string.IsNullOrWhiteSpace(top)) continue;
+            string topFull;
+            try { topFull = Path.GetFullPath(top); }
+            catch { continue; }
+
+            var name = Path.GetFileName(
+                topFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.Equals(name, topName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (segments.Length == 1)
+                return topFull;
+
+            try
+            {
+                return Path.GetFullPath(Path.Combine(topFull, Path.Combine(segments.Skip(1).ToArray())));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // 单文件顶层：pasteTops 可能是 PasteStaging/guid/file.txt，相对路径也是 file.txt
+        if (segments.Length == 1)
+        {
+            foreach (var top in pasteTops)
+            {
+                try
+                {
+                    var topFull = Path.GetFullPath(top);
+                    if (string.Equals(Path.GetFileName(topFull), topName, StringComparison.OrdinalIgnoreCase))
+                        return topFull;
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 清理 Inbox/seq_*。
+    /// <paramref name="onlyUnreferenced"/> 为 true 时只删当前列表未引用的目录（保留接收文件时的扫尾）。
+    /// </summary>
+    private void CleanupInboxSeqDirs(bool onlyUnreferenced)
+    {
+        try
+        {
+            if (!Directory.Exists(_inboxDir)) return;
+            HashSet<string>? referenced = null;
+            if (onlyUnreferenced)
+            {
+                referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                UiMarshal.Send(() =>
+                {
+                    foreach (var item in Items)
+                    {
+                        if (string.IsNullOrWhiteSpace(item.FullPath)) continue;
+                        var seq = TryGetSeqDirOfPath(item.FullPath);
+                        if (seq != null)
+                            referenced.Add(seq);
+                    }
+                });
+            }
+
+            foreach (var dir in Directory.EnumerateDirectories(_inboxDir, "seq_*"))
+            {
+                string full;
+                try { full = Path.GetFullPath(dir); }
+                catch { continue; }
+
+                if (onlyUnreferenced && referenced != null && referenced.Contains(full))
+                    continue;
+
+                // 传输中仍写入该目录时不要删
+                if (IsSeqDirActivelyReceiving(full))
+                    continue;
+
+                TryDeleteDirectory(full);
+            }
+        }
+        catch
+        {
+            // 扫尾失败不影响主流程
+        }
+    }
+
+    private bool IsSeqDirActivelyReceiving(string seqDir)
+    {
+        lock (_gate)
+        {
+            return _receiving.Values.Any(r =>
+                !r.IsDirect
+                && IsUnderDirectory(r.DestPath, seqDir));
+        }
+    }
+
+    private string? TryGetSeqDirOfPath(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var inboxRoot = Path.GetFullPath(_inboxDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(inboxRoot, StringComparison.OrdinalIgnoreCase))
+                return null;
+            var rest = full[inboxRoot.Length..];
+            var first = rest.Split(
+                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (first == null || !first.StartsWith("seq_", StringComparison.OrdinalIgnoreCase))
+                return null;
+            return Path.GetFullPath(Path.Combine(_inboxDir, first));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch
+        {
+            // 文件占用时留给下次扫尾
+        }
     }
 
     private void AddItem(TransferItem item)

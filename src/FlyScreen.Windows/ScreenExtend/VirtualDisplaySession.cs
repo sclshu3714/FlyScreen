@@ -53,9 +53,26 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
                     secondaryRefreshHz: secondaryRefreshHz)
                 .ConfigureAwait(false))
         {
-            return (false,
-                "已连接虚拟显示驱动，但未能在扩展拓扑中出现副屏（请确认 VDDControl 显示器数量≥1，且「设置→系统→显示」为扩展）。"
-                + InstallHint);
+            // 检查刚通过、点开始却失败：多为 SETDISPLAYCOUNT 后管道瞬断。拉回控制台再试一次，勿直接逼用户重装。
+            try
+            {
+                await MttVddInstaller.TryEnsureConsoleAsync(ct, waitAttempts: 12, delayMs: 600)
+                    .ConfigureAwait(false);
+            }
+            catch { /* ignore */ }
+
+            if (!await MttVddEnvironment.EnsureVirtualMonitorVisibleAsync(
+                        ct: ct,
+                        layoutSide: layoutSide,
+                        secondaryWidth: secondaryWidth,
+                        secondaryHeight: secondaryHeight,
+                        secondaryRefreshHz: secondaryRefreshHz)
+                    .ConfigureAwait(false))
+            {
+                return (false,
+                    "已连接虚拟显示驱动，但未能在扩展拓扑中出现副屏（请确认 VDDControl 显示器数量≥1，且「设置→系统→显示」为扩展）。"
+                    + InstallHint);
+            }
         }
 
         if (existing == null)
@@ -104,8 +121,14 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
             catch { /* ignore */ }
         }
 
-        // 管道由 VDDControl 提供。重载后把它拉回来，下次扩展检查才能通过；此处不新建副屏。
-        try { await MttVddInstaller.TryEnsureConsoleAsync().ConfigureAwait(false); }
+        // 管道由 VDDControl 提供。重载后必须等到管道回来，否则下次打开投影又提示「自动修复」。
+        // 此处只拉控制台，不新建副屏、不跑安装包。
+        try
+        {
+            await Task.Delay(500).ConfigureAwait(false);
+            await MttVddInstaller.TryEnsureConsoleAsync(waitAttempts: 14, delayMs: 700)
+                .ConfigureAwait(false);
+        }
         catch { /* ignore */ }
     }
 }

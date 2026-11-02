@@ -125,8 +125,10 @@ public sealed class MauiAppHost : IAsyncDisposable
     {
         if (request.Conflicts.Count == 0) return EdgeDragConflictAction.Proceed;
 #if WINDOWS
+        // WinUI 主线程上 TaskDialog 常静默失败/返回怪码，表现成 Win→Maui「拖不过去」。
+        // 与 WPF 端自绘对话框同目标：必须能真正弹出让用户选。
         return await MainThread.InvokeOnMainThreadAsync(() =>
-            FlyScreen.Input.EdgeDragConflictDialog.Ask(request)).ConfigureAwait(false);
+            FlyScreen.Input.EdgeDragConflictDialog.AskMessageBox(request)).ConfigureAwait(false);
 #else
         var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
         if (page == null) return EdgeDragConflictAction.Replace;

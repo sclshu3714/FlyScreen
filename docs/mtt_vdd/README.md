@@ -23,18 +23,18 @@
 | `Virtual.Display.Driver-v25.05.03-setup-x64.exe` | 25.5.2 | **静默安装**（`/VERYSILENT`） |
 | `VDDControl-v25.05.03.exe` | 25.5.2 | 安装后拉起管道 |
 
-不随包：`Driver.Only` / Signed-Driver / 音频 / `VDD.Control` 大包（setup 或 winget 失败时，程序可按需在线下载 Driver.Only）。
+不随包、也不再在线下载：`Driver.Only`（含已放弃的 `VirtualDisplayDriver-x86.Driver.Only.zip`）/ Signed-Driver / 音频 / `VDD.Control` 大包。
 
 可选：将 `nefconw.exe` 放到 `tools\VddOffline\nefcon\`；缺失时回退 `pnputil`。
 
 ## 程序静默修复顺序（仅 Windows 主机）
 
-1. 离线 `*setup*.exe` → `/VERYSILENT`
+1. 离线 `Virtual.Display.Driver-v25.05.03-setup-x64.exe` → `/VERYSILENT`
 2. `winget install … --silent --disable-interactivity`
-3. 按需下载 `Driver.Only` → `nefcon` 或 `pnputil`
-4. 启动 `VDDControl*.exe`（必要时在线准备 `VDD.Control`）
-5. 管道就绪后 `SETDISPLAYCOUNT` + `DisplaySwitch /extend`
-6. **仅环境真正通过**才写入本程序安装标记
+3. 启动 `VDDControl-v25.05.03.exe` 拉起管道
+4. 管道就绪后 `SETDISPLAYCOUNT` + `DisplaySwitch /extend`
+5. **仅环境真正通过**才写入本程序安装标记
+6. 发现历史误下的 `*Driver.Only*.zip` 会自动删除
 
 ## 拉取
 

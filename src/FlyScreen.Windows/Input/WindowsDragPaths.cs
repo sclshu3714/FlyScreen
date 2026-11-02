@@ -10,9 +10,13 @@ namespace FlyScreen.Input;
 public static class WindowsDragPaths
 {
     private static readonly object Gate = new();
+    private static readonly object StaGate = new();
     private static string[] _snapshot = [];
     private static int _reading;
     private static int _generation;
+    private static Thread? _sta;
+    private static Action? _staWork;
+    private static readonly AutoResetEvent StaKick = new(false);
 
     public static void NoteButtonDown()
     {
@@ -68,15 +72,123 @@ public static class WindowsDragPaths
         // 左键仍按着、且按下时已记下选中项，就视为在拖文件；否则鼠标能穿边，文件却带不过去。
         lock (Gate)
         {
-            if (_snapshot.Length == 0)
+            if (_snapshot.Length > 0)
             {
-                paths = [];
-                return false;
+                paths = _snapshot.ToArray();
+                return true;
             }
+        }
 
-            paths = _snapshot.ToArray();
+        // 按下瞬间读选中可能还没完成（40ms 线程）；穿边时再同步扫一遍外壳窗口。
+        // 也覆盖「前台窗口判定失败但资源管理器里已有选中项」的情况（Win→Maui 常见）。
+        if (OnSta(TryReadAnyShellSelectionCore, out paths) && paths.Length > 0)
+        {
+            lock (Gate) _snapshot = paths;
             return true;
         }
+
+        paths = [];
+        return false;
+    }
+
+    private static bool OnSta(Func<string[]> work, out string[] paths)
+    {
+        paths = [];
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            try
+            {
+                paths = work() ?? [];
+                return paths.Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        EnsureSta();
+        string[] result = [];
+        using var done = new ManualResetEventSlim(false);
+        lock (StaGate)
+        {
+            _staWork = () =>
+            {
+                try { result = work() ?? []; }
+                catch { result = []; }
+                finally { done.Set(); }
+            };
+            StaKick.Set();
+        }
+
+        if (!done.Wait(TimeSpan.FromMilliseconds(400)))
+            return false;
+        paths = result;
+        return paths.Length > 0;
+    }
+
+    private static void EnsureSta()
+    {
+        lock (StaGate)
+        {
+            if (_sta != null) return;
+            _sta = new Thread(StaLoop) { IsBackground = true, Name = "FlyScreen.DragPaths.Sta" };
+            _sta.SetApartmentState(ApartmentState.STA);
+            _sta.Start();
+        }
+    }
+
+    private static void StaLoop()
+    {
+        while (true)
+        {
+            StaKick.WaitOne();
+            Action? work;
+            lock (StaGate)
+            {
+                work = _staWork;
+                _staWork = null;
+            }
+
+            try { work?.Invoke(); }
+            catch { /* 调用方超时 */ }
+        }
+    }
+
+    /// <summary>遍历外壳窗口，取第一个带选中项的文件夹/桌面。</summary>
+    private static string[] TryReadAnyShellSelectionCore()
+    {
+        var type = Type.GetTypeFromProgID("Shell.Application");
+        if (type == null) return [];
+        dynamic? shell = Activator.CreateInstance(type);
+        if (shell == null) return [];
+        var list = new List<string>();
+        foreach (dynamic window in shell.Windows())
+        {
+            try
+            {
+                dynamic items = window.Document.SelectedItems();
+                int count = items.Count;
+                if (count <= 0) continue;
+                for (var i = 0; i < count && list.Count < 500; i++)
+                {
+                    string path = items.Item(i).Path;
+                    if (string.IsNullOrWhiteSpace(path)) continue;
+                    if (path.StartsWith("::", StringComparison.Ordinal)) continue;
+                    if (!File.Exists(path) && !Directory.Exists(path)) continue;
+                    if (list.Contains(path, StringComparer.OrdinalIgnoreCase)) continue;
+                    list.Add(path);
+                }
+
+                if (list.Count > 0) break;
+            }
+            catch
+            {
+                // 单个窗口不是文件夹就跳过
+            }
+        }
+
+        return list.Count == 0 ? [] : list.ToArray();
     }
 
     private static bool IsShellFolder(IntPtr hwnd)

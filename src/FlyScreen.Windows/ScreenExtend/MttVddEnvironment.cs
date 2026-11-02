@@ -55,28 +55,33 @@ public static class MttVddEnvironment
                 // 部分构建无响应；仍继续尝试扩展拓扑
             }
 
+            // SETDISPLAYCOUNT 会重载驱动并弄掉控制台；先把管道拉回，再切扩展，否则会出现
+            // 「检查通过 → 点开始投影立刻失败」。
+            progress?.Report("正在恢复虚拟显示控制台…");
+            await Task.Delay(400, ct).ConfigureAwait(false);
+            await MttVddInstaller.TryEnsureConsoleAsync(ct, waitAttempts: 12, delayMs: 600)
+                .ConfigureAwait(false);
+
             // DisplaySwitch 至多一次：反复 /extend 会拖垮 DWM/显示栈直至整机卡死
             progress?.Report("正在切换为扩展显示…");
             DisplayProjection.TryApply(Services.ScreenExtend.DisplayProjectionMode.Extend);
 
-            for (var i = 0; i < 24; i++)
+            for (var i = 0; i < 36; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 await Task.Delay(200, ct).ConfigureAwait(false);
                 if (HasSecondaryMonitor())
                     break;
+                // 中途再补一次控制台，避免重载后管道又掉
+                if (i is 8 or 18)
+                    await MttVddInstaller.TryEnsureConsoleAsync(ct, waitAttempts: 4, delayMs: 400)
+                        .ConfigureAwait(false);
             }
         }
         else
         {
-            // 已有副屏：只发 count，不再反复 DisplaySwitch（检测/重入时极危险）
-            try
-            {
-                await MttVddPipeClient.SetDisplayCountAsync(1, ct).ConfigureAwait(false);
-            }
-            catch { /* ignore */ }
-
-            await Task.Delay(300, ct).ConfigureAwait(false);
+            // 已有副屏：不要再发 SETDISPLAYCOUNT（会重载驱动、弄掉管道，下一轮检查又失败）
+            await Task.Delay(150, ct).ConfigureAwait(false);
         }
 
         if (!HasSecondaryMonitor())
@@ -295,10 +300,12 @@ public static class MttVddEnvironment
         }
 
         // 停止投影时驱动重载会把 VDDControl 打退出，管道消失，但软件仍显示已安装。
-        // 这里只拉起控制台，不改数量、不切显示拓扑。
-        if (IsProductInstalled())
+        // 这里只拉起控制台并等待管道，不改数量、不切显示拓扑、不走重装。
+        if (IsProductInstalled()
+            || MttVddInstaller.HasAnyControlExecutable())
         {
-            await MttVddInstaller.TryEnsureConsoleAsync(ct).ConfigureAwait(false);
+            await MttVddInstaller.TryEnsureConsoleAsync(ct, waitAttempts: 12, delayMs: 700)
+                .ConfigureAwait(false);
             if (HasSecondaryMonitor())
             {
                 var again = DisplayMonitorEnum.FindBestExtendTarget()!.Value;
@@ -309,7 +316,7 @@ public static class MttVddEnvironment
                 return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
 
             return (false,
-                "已安装 Virtual Display Driver，但未检测到控制台管道。请运行 VddOffline\\VDDControl*.exe（或开始菜单控制程序）并添加虚拟显示器；若刚装完驱动请先注销/重启");
+                "已安装 Virtual Display Driver，但未检测到控制台管道。请稍候再点「重新检测」，或手动运行 VddOffline\\VDDControl*.exe；不必重复自动修复安装");
         }
 
         return (false, "未检测到真副屏，且未安装或未运行虚拟显示驱动（MTT VDD）");

@@ -52,7 +52,31 @@ public static class EdgeDragConflictDialog
             details);
         if (choice != null) return choice.Value;
 
-        // TaskDialog 在部分环境（无 comctl v6 / 结构体失败）会直接失败，绝不能静默当取消
+        // TaskDialog 在部分环境（无 comctl v6 / WinUI·Maui 主线程）会直接失败或返回怪按钮，绝不能静默当取消
+        return AskMessageBox(title, instruction, content, skipLabel);
+    }
+
+    /// <summary>
+    /// Maui-Win / 无 TaskDialog 环境：只用 MessageBox，避免「没弹窗却 Cancel」导致 Win→Maui 拖放失败。
+    /// </summary>
+    public static EdgeDragConflictAction AskMessageBox(EdgeDragConflictRequest request)
+    {
+        if (request.Conflicts.Count == 0) return EdgeDragConflictAction.Proceed;
+        var dest = FolderLabel(request.Directory);
+        var source = string.IsNullOrWhiteSpace(request.SourceFolder) ? "对端" : request.SourceFolder.Trim();
+        var one = request.Conflicts.Count == 1;
+        var title = "替换或跳过文件";
+        var content = $"正在将 {Math.Max(request.TotalCount, request.Conflicts.Count)} 个项目从 {source} 复制到 {dest}";
+        var instruction = one
+            ? $"目标已包含一个名为“{request.Conflicts[0]}”的文件"
+            : $"目标已包含 {request.Conflicts.Count} 个同名项目";
+        var skipLabel = one ? "跳过该文件" : "跳过这些文件";
+        return AskMessageBox(title, instruction, content, skipLabel);
+    }
+
+    private static EdgeDragConflictAction AskMessageBox(
+        string title, string instruction, string content, string skipLabel)
+    {
         var text = instruction + "\n\n" + content + "\n\n是 = 替换目标中的文件\n否 = " + skipLabel + "\n取消 = 取消本次拖放";
         var answer = MessageBox(GetForegroundWindow(), text, title,
             0x00000003 | 0x00000030 | 0x00010000 | 0x00040000);
@@ -245,12 +269,13 @@ public static class EdgeDragConflictDialog
             var hr = TaskDialogIndirect(ref config, out var button, out _, out _);
             GC.KeepAlive(callback);
             if (hr < 0) return null;
+            // 未识别的按钮码（含 0）视为失败，交给 MessageBox；只有明确点取消才 Cancel
             return button switch
             {
                 ReplaceId => EdgeDragConflictAction.Replace,
                 SkipId => EdgeDragConflictAction.Skip,
                 IdCancel => EdgeDragConflictAction.Cancel,
-                _ => EdgeDragConflictAction.Cancel
+                _ => null
             };
         }
         catch

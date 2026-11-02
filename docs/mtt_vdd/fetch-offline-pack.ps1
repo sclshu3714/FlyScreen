@@ -29,4 +29,4 @@ Get-File "$b255/VDDControl-v25.05.03.exe" "$dest\VDDControl-v25.05.03.exe"
 Write-Host ""
 Write-Host "Done. Shared folder: $dest"
 Get-ChildItem $dest -File | Sort-Object Name | Format-Table Name, Length -AutoSize
-Write-Host "Driver.Only 不离线随包；setup/winget 失败时由程序按需下载。"
+Write-Host "统一 v25.05.03；不再拉取 Driver.Only。"

@@ -5,11 +5,12 @@ FlyScreen 虚拟显示驱动离线包（共用）
 Win 主机（WPF / Maui-Win）构建时复制到程序输出 VddOffline\。
 Mac / Linux 仅复制本 README（本期不发起扩展、不装 MTT）。
 
-随包（Windows）：
-  Virtual.Display.Driver-*-setup-x64.exe
-  VDDControl-*.exe
+随包（Windows，统一 v25.05.03）：
+  Virtual.Display.Driver-v25.05.03-setup-x64.exe
+  VDDControl-v25.05.03.exe
 
 拉取：
   powershell -File docs\mtt_vdd\fetch-offline-pack.ps1
 
-顺序：setup → winget →（按需下载）Driver.Only → 启动 VDDControl
+顺序：setup → winget → 启动 VDDControl
+不再下载 VirtualDisplayDriver-*-Driver.Only.zip（已放弃）。

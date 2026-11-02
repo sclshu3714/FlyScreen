@@ -9,6 +9,15 @@
     覆盖 MauiAppTitleBarTemplate，使用与 Win 同源的 logo；右侧加投影按钮（最小化左侧）。
   -->
   <maui:MauiWinUIApplication.Resources>
+    <!-- 滚动条主题资源（与玄鸟细滑块色一致；切换主题时由 MauiScrollBarTheme 覆盖） -->
+    <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#CBD5E1"/>
+    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#94A3B8"/>
+    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#64748B"/>
+    <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent"/>
+    <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="Transparent"/>
+    <SolidColorBrush x:Key="ScrollBarBackground" Color="Transparent"/>
+    <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="Transparent"/>
+
     <DataTemplate x:Key="MauiAppTitleBarTemplate">
       <Border x:Name="AppTitleBarRoot" Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0"
               Background="#F7F8FA">
