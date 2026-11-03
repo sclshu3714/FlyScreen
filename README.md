@@ -248,11 +248,10 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 | [xUnit](https://github.com/xunit/xunit) | Core 单元测试 |
 | [Mouse without Borders](https://aka.ms/mm) | 产品灵感来源（未纳入其代码） |
 
-### 专有依赖（开源项目可合法使用，须遵守对方条款）
+### 专有依赖
 
 | 项 | 说明 |
 |----|------|
 | [Google ML Kit Text Recognition](https://developers.google.com/ml-kit/vision/text-recognition)（含中文） | **正式功能**，默认启用（Android `Fly.Ocr`）。SDK/模型为专有，受 [ML Kit Terms](https://developers.google.com/ml-kit/terms) 约束；**可以**用于开源应用，但不能把 ML Kit 本身再标成 Apache-2.0。可选 `-p:FlyEnableMlKit=false` 做无 Google ML 包构建 |
-| Windows 专有字体再分发（微软雅黑等） | **已屏蔽**；Linux 改随包 **Noto Sans SC**（SIL OFL，`Fonts/`）或系统 `fonts-noto-cjk` |
 
 若遗漏署名或许可说明有误，请通过 Issues / 邮件告知，我们会尽快更正。
