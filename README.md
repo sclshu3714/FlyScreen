@@ -1,6 +1,8 @@
 # 玄鸟 (FlyScreen)
 
-跨电脑键鼠与剪贴板共享工具。灵感来自 [Mouse without Borders](https://aka.ms/mm)，面向中文环境做了连接、布局同步与传输等增强；支持深色主题与多语言界面。
+跨电脑键鼠与剪贴板共享工具。灵感来自 [Mouse without Borders](https://www.microsoft.com/en-us/download/details.aspx?id=35460)，也可以搜索 [Mouse without Borders](https://aka.ms/mm)。
+
+默认简体中文界面，并支持多语言与淡色/深色主题。相对原作强化了双向连接与心跳保活、电脑布局同步、剪贴板与文件的按需传输（复制只宣告元数据，进入目标机后再拉取），以及直接推送、穿边拖文件、扩展屏/投影等能力。
 
 **最多 4 台电脑**共用一套键鼠；建议各机版本一致，并以**管理员身份**运行。
 
@@ -15,7 +17,10 @@
 - **[docs/README.md](docs/README.md)** — 文档索引  
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — 版本阶段与周期（W0–W7，含 MAUI）  
 - **[docs/status.md](docs/status.md)** — 各端完成情况（以 Win 为基准）  
-- **[docs/clipboard.md](docs/clipboard.md)** — 共享剪贴板各端格式对标
+- **[docs/clipboard.md](docs/clipboard.md)** — 共享剪贴板各端格式对标  
+- **[docs/edge-file-drag.md](docs/edge-file-drag.md)** — 穿边拖文件  
+- **[docs/extended-display.md](docs/extended-display.md)** — 电脑扩展屏 / 投影  
+- **[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)** — 第三方依赖与许可说明
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
 当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
@@ -34,6 +39,8 @@ MAUI Android：触控板/键盘控桌面；桌面控手机与**用户程序（Fl
 9. **开机自启** — 任务计划程序（最高权限）登录后启动；自启后托盘后台连接。
 10. **单实例** — 再次启动会激活已有窗口（含托盘隐藏）。
 11. **更新与诊断** — 侧栏「帮助」页可检查/自动更新（GitHub Release），以及连接一键检查/修复。
+12. **电脑扩展屏 / 投影** — 标题栏一键复制或扩展投到对端全屏；可选声音同步、远程回控、去黑边；1 对 1 互斥；手机可复制投到电脑（详见 [docs/extended-display.md](docs/extended-display.md)）。
+13. **穿边拖文件** — 拖着文件/文件夹穿边到另一台电脑松开即复制；同名冲突可替换/跳过；目标占用时双方失败提示一致（详见 [docs/edge-file-drag.md](docs/edge-file-drag.md)）。
 
 ## 环境要求
 
@@ -167,10 +174,16 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 | 文本 / HTML / RTF / CSV / 截图·图片 | 仅宣告；鼠标/焦点进入目标机后再拉取并写入该机系统剪贴板 |
 | 复制文件后移到目标机 | Win / Maui-Win：虚拟剪贴板，粘贴时再拉；接收中不卡键鼠 |
 | 直接传输 | 「共享」→「直接传输…」选路径与目标电脑 |
+| 穿边拖文件 | 拖文件穿边到对端松开后复制；同名冲突在目标机选择；投影占用对端时不可拖入 |
+| 目标文件被占用 | 接收失败并通知发送端，避免「发端完成、收端卡住」 |
 
-**各端格式对标**（完整 / 尽力 / 降级 / 半通）见 **[docs/clipboard.md](docs/clipboard.md)**。摘要：Win ↔ Maui-Win 内联与文件主路径已齐；Android 支持文本/HTML/图，RTF·CSV 粘贴降级；Mac/Linux Desktop 多格式尽力，文件粘贴靠「接收剪贴板文件」。
+**各端格式对标**（完整 / 尽力 / 降级 / 半通）见 **[docs/clipboard.md](docs/clipboard.md)**。摘要：Win ↔ Maui-Win 内联与文件主路径已齐；Android 支持文本/HTML/图，RTF·CSV 粘贴降级；Mac/Linux Desktop 多格式尽力，文件粘贴靠「接收剪贴板文件」。穿边拖见 **[docs/edge-file-drag.md](docs/edge-file-drag.md)**。
 
 进度与历史在 **共享**（传输列表）页，列与 Win/MAUI 对齐：方向、文件名、对端、大小、进度、状态、删除。「打开收件箱」打开本机 Inbox 目录；「清除已完成」与行内删除只删接收方收件箱缓存，不删发送方本地文件。
+
+### 投影（扩展屏）
+
+标题栏「投影」→ 选复制/扩展与目标电脑 → 开始。可选：**声音同步**、**远程控制**、**去黑边**。投影中标题栏变为「投影中」，再点或 Esc 停止。同一时刻每台最多一条投影会话。细节见 **[docs/extended-display.md](docs/extended-display.md)**。
 
 ### 快捷键（默认）
 
@@ -207,8 +220,38 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 - 跨机键鼠（边缘切换、热键、Easy Mouse、环形鼠标）
 - 电脑布局（拖拽互换、添加/移除、布局同步，最多 4 台）
 - 剪贴板：文本、HTML、RTF、CSV、图片/截图（跨端能力见 [docs/clipboard.md](docs/clipboard.md)）
-- 文件：粘贴按需拉取（Win/Maui-Win 虚拟剪贴板）+ 直接推送
+- 文件：粘贴按需拉取（Win/Maui-Win 虚拟剪贴板）+ 直接推送 + **穿边拖**
+- 电脑扩展屏 / 投影：复制或扩展、声音同步、远程回控、去黑边（见 [docs/extended-display.md](docs/extended-display.md)）
 - 局域网发现、多网卡、开机自启、托盘、单实例
 - 深色主题、多语言、GitHub 更新、连接诊断
 - 三端 UI 同构（WPF / Avalonia Desktop / MAUI）：七页导航 + 安全页密钥
-- MAUI Android：触控板控桌面（含中键/滚轮）、系统键盘直发对端；可选无障碍被桌面 Easy Mouse 控制
+- MAUI Android：触控板控桌面（含中键/滚轮）、远程 IME 直发对端；可选无障碍被桌面 Easy Mouse 控制；手机可复制投屏到电脑
+
+## 特别鸣谢
+
+本项目以 **Apache-2.0** 开源。许可与依赖明细见 **[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)**。
+
+### 开源组件（排名不分先后）
+
+| 项目 | 用途 |
+|------|------|
+| [.NET](https://dotnet.microsoft.com/) / [.NET MAUI](https://github.com/dotnet/maui) | 运行时与跨平台 UI（Win / Android 等） |
+| [Avalonia](https://github.com/AvaloniaUI/Avalonia) | macOS / Linux 桌面 UI |
+| [AvalonEdit](https://github.com/icsharpcode/AvalonEdit) / [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) | 用户程序源代码编辑器 |
+| [Monaco Editor](https://github.com/microsoft/monaco-editor) | MAUI 用户程序编辑器 |
+| [Jint](https://github.com/sebastienros/jint) | 用户程序 JavaScript 引擎 |
+| [Roslyn](https://github.com/dotnet/roslyn)（`Microsoft.CodeAnalysis.CSharp.Scripting`） | 用户程序 C# 脚本 |
+| [AndroidX](https://developer.android.com/jetpack/androidx) | Android 平台支持库 |
+| [System.Drawing.Common](https://www.nuget.org/packages/System.Drawing.Common) | Windows 图像与 GDI 相关能力 |
+| [Virtual Display Driver (VirtualDrivers / MikeTheTech)](https://github.com/VirtualDrivers/Virtual-Display-Driver) | Windows 虚拟副屏（MIT，离线包可再分发） |
+| [Noto Sans SC](https://github.com/notofonts/noto-cjk) | Linux 随包中文字体（SIL OFL，`Fonts/`） |
+| [xUnit](https://github.com/xunit/xunit) | Core 单元测试 |
+| [Mouse without Borders](https://aka.ms/mm) | 产品灵感来源（未纳入其代码） |
+
+### 专有依赖
+
+| 项 | 说明 |
+|----|------|
+| [Google ML Kit Text Recognition](https://developers.google.com/ml-kit/vision/text-recognition)（含中文） | **正式功能**，默认启用（Android `Fly.Ocr`）。SDK/模型为专有，受 [ML Kit Terms](https://developers.google.com/ml-kit/terms) 约束；**可以**用于开源应用，但不能把 ML Kit 本身再标成 Apache-2.0。可选 `-p:FlyEnableMlKit=false` 做无 Google ML 包构建 |
+
+若遗漏署名或许可说明有误，请通过 Issues / 邮件告知，我们会尽快更正。

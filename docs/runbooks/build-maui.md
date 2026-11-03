@@ -86,7 +86,8 @@ dotnet build src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release
 dotnet run --project src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release -f net10.0-windows10.0.19041.0
 ```
 
-版本号与 Win 同源：`build/FlyScreen.Version.targets`。
+版本号与 Win 同源：`build/FlyScreen.Version.targets`（最新 tag `vX.Y.Z` → 项目 `Version=X.Y.(Z+1)`）。  
+Android 系统「应用信息」中的版本来自 APK 的 `versionName`/`versionCode`，已与程序内版本对齐：生成清单前写入 `_AndroidVersionName`，并在 Manifest Merger 后二次校验补丁（见同文件 `FlyScreen_SetAndroidManifestVersion` / `Patch-AndroidManifestVersion.ps1`）。若仍见 `1.0.0`，请清 `obj` 后重新 `publish`/安装 **Signed** APK。
 
 ### Visual Studio 调试目标
 

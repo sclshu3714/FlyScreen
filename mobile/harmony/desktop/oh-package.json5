@@ -4,7 +4,7 @@
   "description": "玄鸟鸿蒙电脑（W5b）",
   "main": "",
   "author": "xuanniao",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
     "common": "file:../common"
   }

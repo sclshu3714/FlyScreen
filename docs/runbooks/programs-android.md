@@ -8,7 +8,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 |----|------|
 | 运行端 | **MAUI Android**（玄鸟 APK） |
 | 无障碍 | 系统设置 → 无障碍 → **「玄鸟键鼠注入」** 开启；`Fly.Ready == true` |
-| OCR | Android **11+**（API 30+）；部分全屏/安全层视频可能截屏失败 |
+| OCR | Android **11+**（API 30+）；默认启用 **Google ML Kit** 中文识别（正式功能；专有 SDK，开源 App 可合法使用，见 [THIRD_PARTY.md](../THIRD_PARTY.md)）。仅当 `-p:FlyEnableMlKit=false` 时关闭；部分全屏/安全层视频可能截屏失败 |
 | 调试红框 | `SetDebugRect` 可多框常驻；OCR 截屏前撤框。调试OCR：非目标红 / 目标蓝 / 命中绿；操作中操作区绿 |
 | 区域标定 | 设置页表格：竖/横各一行识别区+操作区；建议在**竖正/横正**下标定；竖反/横反共用对应键（见下） |
 | 设置持久化 | `Programs/{id}/settings.json`；重启玄鸟 / 再跑程序仍生效；升级内置源码**不覆盖**该文件 |

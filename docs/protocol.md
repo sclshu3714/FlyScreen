@@ -52,8 +52,8 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 
 | 通道 | 承载 |
 | --- | --- |
-| Control（`Channel=0`/缺省） | 键鼠、心跳、布局/行为同步、剪贴板宣告与拉取信令 |
-| Bulk（`Channel=1`） | `File*`、`ClipboardInlineChunk/Complete`、`ClipboardImageChunk/Complete`、`ScreenExtendFrame` |
+| Control（`Channel=0`/缺省） | 键鼠、心跳、布局/行为同步、剪贴板宣告与拉取信令、`EdgeDrag*`、`ScreenExtendOffer/Accept/Reject/Stop/Input`、`DisplayInfo*` |
+| Bulk（`Channel=1`） | `File*`、`ClipboardInlineChunk/Complete`、`ClipboardImageChunk/Complete`、`ScreenExtendFrame`、`ScreenExtendAudio` |
 
 旧端无 `BulkTransfer` / 忽略 `Channel`：大块消息仍走控制面（兼容）。建立 bulk 须对端 **Caps 显式含** `BulkTransfer`（不可用「空 Caps=legacy 全开」逻辑）。
 
@@ -71,20 +71,21 @@ Clipboard* / DirectTransfer → 按位启用（后续路径继续收紧）
 | 发现 UDP | 局域网 | 移动端注意省电与权限 |
 | 程序共享 | `ProgramShare`（64） | 用户程序源码推送到已连接对端；**同 Id 覆盖源码**，仅同名不同 Id 跳过。载荷见 `ProgramSharePayload` |
 
-## 5. 新增消息（规划，Version 2+）
+## 5. 扩展消息（Version 2+，已实现为主）
 
-仅在 Caps 需要时引入，示例：
+| 消息 | 值 | 用途 |
+|------|----|------|
+| `DisplayInfoQuery` / `DisplayInfoReply` | 66 / 67 | 查询对端主屏分辨率/缩放（投影弹窗） |
+| `CompositionUpdate` / `Cancel` / `TextInput` / `CompositionSelect` | 70–73 | 电脑↔手机组字浮层与候选点选 |
+| `ScreenExtendOffer/Accept/Reject/Stop/Frame` | 80–84 | 扩展屏会话与 Bulk JPEG；见 [extended-display.md](extended-display.md) |
+| `EdgeDragQuery` / `Place` | 85 / 86 | 穿边拖文件：询问放下目录 / 应答；见 [edge-file-drag.md](edge-file-drag.md) |
+| `ScreenExtendAudio` | 87 | Bulk PCM s16le（声音同步） |
+| `EdgeDragHover` | 88 | 穿边拖跟手提示 |
+| `ScreenExtendInput` | 89 | 投影回控：从机播放器→主机采集区键鼠 |
 
-| 消息 | 用途 |
-|------|------|
-| `PointerAbsolute` | 归一化坐标 0–1 或像素 + 屏索引（平板/触控板） |
-| `TouchpadDelta` | 相对位移 + 按钮状态 |
-| `CapsUpdate` | 运行时权限变化（如用户刚授予辅助功能） |
-| `ScreenExtendOffer/Accept/Reject/Stop/Frame`（80–84） | 电脑扩展屏会话与 Bulk JPEG 帧；详见 [extended-display.md](extended-display.md) |
+规划中、尚未单独落地的示例：`CapsUpdate`（运行时权限变化）。用户程序运行时控制**不走**跨端消息，仅在本机无障碍上执行（见 [programs-android.md](runbooks/programs-android.md)）。
 
-具体 opcode / JSON 字段在实现 PR 中更新本文与 `Protocol.cs` 注释。用户程序运行时控制**不走**跨端消息，仅在本机无障碍上执行（见 [programs-android.md](runbooks/programs-android.md)）。
-
-Caps：`ScreenExtendHost` / `ScreenExtendSink`（桌面双宣告；手机仅 Host 复制投屏）。
+Caps：`ScreenExtendHost` / `ScreenExtendSink`（桌面双宣告；手机仅 Host 复制投屏）。`ScreenExtendOffer` 可选字段：`AudioSync`、`RemoteControl`（旧端忽略）。
 
 ## 6. 安全
 
@@ -114,3 +115,4 @@ Caps：`ScreenExtendHost` / `ScreenExtendSink`（桌面双宣告；手机仅 Hos
 | 2026-10-27 | 文档同步：`ProgramShare`（同 Id 覆盖源码）；用户程序本机 Fly 控制不进协议 |
 | 2026-10-29 | 剪贴板内联格式说明链到 [clipboard.md](clipboard.md) |
 | 2026-10-29 | 扩展屏 `ScreenExtend*`（80–84）+ Caps；见 [extended-display.md](extended-display.md) |
+| 2026-11-03 | 同步已落地：`EdgeDrag*`（85/86/88）、`ScreenExtendAudio`（87）、`ScreenExtendInput`（89）、`DisplayInfo*`、组字 70–73；Bulk 含音频 |
