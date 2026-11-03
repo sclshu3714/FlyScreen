@@ -1,6 +1,8 @@
 # 玄鸟 (FlyScreen)
 
-跨电脑键鼠与剪贴板共享工具。灵感来自 [Mouse without Borders](https://aka.ms/mm)，面向中文环境做了连接、布局同步与传输等增强；支持深色主题与多语言界面。
+跨电脑键鼠与剪贴板共享工具。灵感来自 [Mouse without Borders](https://www.microsoft.com/en-us/download/details.aspx?id=35460)，也可以搜索 [Mouse without Borders](https://aka.ms/mm)。
+
+默认简体中文界面，并支持多语言与淡色/深色主题。相对原作强化了双向连接与心跳保活、电脑布局同步、剪贴板与文件的按需传输（复制只宣告元数据，进入目标机后再拉取），以及直接推送、穿边拖文件、扩展屏/投影等能力。
 
 **最多 4 台电脑**共用一套键鼠；建议各机版本一致，并以**管理员身份**运行。
 
@@ -17,7 +19,8 @@
 - **[docs/status.md](docs/status.md)** — 各端完成情况（以 Win 为基准）  
 - **[docs/clipboard.md](docs/clipboard.md)** — 共享剪贴板各端格式对标  
 - **[docs/edge-file-drag.md](docs/edge-file-drag.md)** — 穿边拖文件  
-- **[docs/extended-display.md](docs/extended-display.md)** — 电脑扩展屏 / 投影
+- **[docs/extended-display.md](docs/extended-display.md)** — 电脑扩展屏 / 投影  
+- **[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)** — 第三方依赖与许可说明
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
 当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
@@ -226,20 +229,30 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 
 ## 特别鸣谢
 
-感谢以下开源项目与组件（排名不分先后）：
+本项目以 **Apache-2.0** 开源。许可与依赖明细见 **[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)**。
+
+### 开源组件（排名不分先后）
 
 | 项目 | 用途 |
 |------|------|
 | [.NET](https://dotnet.microsoft.com/) / [.NET MAUI](https://github.com/dotnet/maui) | 运行时与跨平台 UI（Win / Android 等） |
 | [Avalonia](https://github.com/AvaloniaUI/Avalonia) | macOS / Linux 桌面 UI |
 | [AvalonEdit](https://github.com/icsharpcode/AvalonEdit) / [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) | 用户程序源代码编辑器 |
+| [Monaco Editor](https://github.com/microsoft/monaco-editor) | MAUI 用户程序编辑器 |
 | [Jint](https://github.com/sebastienros/jint) | 用户程序 JavaScript 引擎 |
 | [Roslyn](https://github.com/dotnet/roslyn)（`Microsoft.CodeAnalysis.CSharp.Scripting`） | 用户程序 C# 脚本 |
-| [Google ML Kit Text Recognition](https://developers.google.com/ml-kit/vision/text-recognition)（含中文模型） | Android OCR（用户程序 `Fly.Ocr`） |
 | [AndroidX](https://developer.android.com/jetpack/androidx) | Android 平台支持库 |
 | [System.Drawing.Common](https://www.nuget.org/packages/System.Drawing.Common) | Windows 图像与 GDI 相关能力 |
-| [Virtual Display Driver (VirtualDrivers / MikeTheTech)](https://github.com/VirtualDrivers/Virtual-Display-Driver) | Windows 虚拟副屏（扩展投影环境修复） |
-| [Mouse without Borders](https://aka.ms/mm) | 产品灵感来源 |
+| [Virtual Display Driver (VirtualDrivers / MikeTheTech)](https://github.com/VirtualDrivers/Virtual-Display-Driver) | Windows 虚拟副屏（MIT，离线包可再分发） |
+| [Noto Sans SC](https://github.com/notofonts/noto-cjk) | Linux 随包中文字体（SIL OFL，`Fonts/`） |
 | [xUnit](https://github.com/xunit/xunit) | Core 单元测试 |
+| [Mouse without Borders](https://aka.ms/mm) | 产品灵感来源（未纳入其代码） |
+
+### 专有依赖（开源项目可合法使用，须遵守对方条款）
+
+| 项 | 说明 |
+|----|------|
+| [Google ML Kit Text Recognition](https://developers.google.com/ml-kit/vision/text-recognition)（含中文） | **正式功能**，默认启用（Android `Fly.Ocr`）。SDK/模型为专有，受 [ML Kit Terms](https://developers.google.com/ml-kit/terms) 约束；**可以**用于开源应用，但不能把 ML Kit 本身再标成 Apache-2.0。可选 `-p:FlyEnableMlKit=false` 做无 Google ML 包构建 |
+| Windows 专有字体再分发（微软雅黑等） | **已屏蔽**；Linux 改随包 **Noto Sans SC**（SIL OFL，`Fonts/`）或系统 `fonts-noto-cjk` |
 
 若遗漏署名或许可说明有误，请通过 Issues / 邮件告知，我们会尽快更正。

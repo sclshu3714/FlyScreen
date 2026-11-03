@@ -8,6 +8,7 @@ Mac / Linux 仅复制本 README（本期不发起扩展、不装 MTT）。
 随包（Windows，统一 v25.05.03）：
   Virtual.Display.Driver-v25.05.03-setup-x64.exe
   VDDControl-v25.05.03.exe
+  LICENSE.txt（MIT，与 Virtual Display Driver 一致）
 
 拉取：
   powershell -File docs\mtt_vdd\fetch-offline-pack.ps1
