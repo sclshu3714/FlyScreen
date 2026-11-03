@@ -2097,10 +2097,54 @@ public partial class MainWindow : Window
 
     private void RefreshAboutPage()
     {
-        var ver = typeof(MainWindow).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
         AboutTitleText.Text = Loc.T("About.Title");
-        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
+        AboutBodyText.Inlines.Clear();
+        var docs = AboutDocument.Build(AppVersionDisplay.Current);
+        for (var i = 0; i < docs.Count; i++)
+        {
+            var para = docs[i];
+            if (para.Spans.Count == 0)
+            {
+                AboutBodyText.Inlines.Add(new LineBreak());
+                continue;
+            }
+
+            foreach (var span in para.Spans)
+            {
+                if (!string.IsNullOrEmpty(span.Url))
+                {
+                    var link = new Hyperlink(new Run(span.Text))
+                    {
+                        NavigateUri = new Uri(span.Url),
+                        Foreground = TryFindResource("Blue") as Media.Brush ?? Media.Brushes.DodgerBlue
+                    };
+                    link.RequestNavigate += (_, e) =>
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = e.Uri.AbsoluteUri,
+                                UseShellExecute = true
+                            });
+                        }
+                        catch { /* ignore */ }
+                        e.Handled = true;
+                    };
+                    AboutBodyText.Inlines.Add(link);
+                }
+                else
+                {
+                    var run = new Run(span.Text);
+                    if (para.IsHeading)
+                        run.FontWeight = FontWeights.SemiBold;
+                    AboutBodyText.Inlines.Add(run);
+                }
+            }
+
+            if (i < docs.Count - 1)
+                AboutBodyText.Inlines.Add(new LineBreak());
+        }
     }
 
     private void RefreshHelpToolbarLabels()
