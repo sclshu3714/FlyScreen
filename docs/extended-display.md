@@ -2,9 +2,10 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.1 |
-| 状态 | E1：标题栏投影 UX + MTT 按需环境修复 |
+| 文档版本 | 1.2 |
+| 状态 | E1 扩展：声音同步 · 远程回控 · 1 对 1 互斥 · 去黑边 |
 | 范围 | **电脑↔电脑**真扩展屏；**手机→电脑复制投屏**（MediaProjection Host）；手机不作接收端 |
+| 统计日 | 2026-11-03 |
 
 ## 1. 产品逻辑
 
@@ -82,9 +83,25 @@
 - 桌面端（Win / Maui-Win / Mac / Linux）默认 **自动 Accept** Offer；手机拒绝。
 - Accept 时上报本机主屏分辨率；打开 **置顶全屏** 窗，首帧前显示「等待投影画面…」。
 - 帧走 Bulk（无 bulk 时回退控制通道）；Esc / Alt+F4 / 关窗发送 `ScreenExtendStop`；进程退出尽力通知，杀进程靠断连。
-- 主机收到 Stop/断连：停采集、释放虚拟副屏并恢复主屏（与本机点「停止」同等）。
-- 会话中：**禁用本机 EasyMouse 穿边**；从机从穿边拓扑摘除。
+- 主机收到 Stop/断连：停采集、**恢复本机声音**（若开了声音同步）、释放虚拟副屏并恢复主屏（与本机点「停止」同等）。
+- 会话中：**禁用本机 EasyMouse 穿边**；从机从穿边拓扑摘除；穿边拖文件亦拒绝该对端（见 [edge-file-drag.md](edge-file-drag.md)）。
 - 断连视为 Stop。验证收流可不装 VDD：主机选「复制」推主屏即可。
+
+### 5.1 声音同步
+
+投影弹窗勾选「声音同步」→ Offer 带 `AudioSync`：
+
+| 角色 | 行为 |
+|------|------|
+| Host | `IProjectionAudioEngine.TryStartCapture`：采集本机播放 PCM，并尽量让本机扬声器静音；经 Bulk `ScreenExtendAudio` 推送 |
+| Sink | `TryStartPlayback` + `SubmitPlayback`：按采样率/声道播放 s16le |
+| 结束 | Host/Sink 停采集与播放；**Esc 退出时 Host 声音恢复**（Win / Maui-Win / Android / Mac / Linux 各有引擎） |
+
+实现：`ProjectionAudioBridge` + 各端 `*ProjectionAudio`（如 `WindowsProjectionAudio`、`AndroidProjectionAudio`、`MacProjectionAudio`、`LinuxProjectionAudio`）。
+
+### 5.2 去黑边
+
+弹窗「去黑边」：Sink 播放器裁掉帧四周黑边（`ProjectionBlackBorder` / `ProjectionCropHold`）。开启远程控制时，播放器归一化坐标先按裁切矩形映射回原帧再注入 Host。
 
 ## 6. 工程落点
 
@@ -131,6 +148,7 @@
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-03 | 文档补齐声音同步 / 去黑边 / Esc 恢复声音；链到穿边拖互斥 |
 | 2026-11-02 | 投影 1 对 1 互斥：Busy Host/Sink 拒绝与中文提示；禁止接收中再发起、禁止投向忙端 |
 | 2026-11-02 | 投影弹窗远程控制：Offer.RemoteControl + ScreenExtendInput；播放器内回控；Host 暂停 EasyMouse |
 | 2026-11-02 | Android 手机 Host 接入 ReverseInput：从机播放器键鼠经无障碍注入本机 |
