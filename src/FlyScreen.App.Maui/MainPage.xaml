@@ -542,7 +542,7 @@
                         <ScrollView>
                             <VerticalStackLayout Spacing="8">
                                 <Label x:Name="AboutTitleText" Text="关于" FontSize="15" FontAttributes="Bold" />
-                                <Label x:Name="AboutBodyText" FontSize="13" LineBreakMode="WordWrap" />
+                                <VerticalStackLayout x:Name="AboutBodyHost" Spacing="2" />
                             </VerticalStackLayout>
                         </ScrollView>
                     </Border>
