@@ -113,11 +113,19 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
   </ItemGroup>
 
-  <!-- Fly.Ocr：局部截屏 + 中英 OCR（仅 Android；捆绑模型）
-       与 ML Kit 对齐 AndroidX，避免 Fragment/Lifecycle 主包与 Ktx 版本错位导致 R8 duplicate class。 -->
+  <!-- Fly.Ocr：Google ML Kit 中英 OCR（专有条款，见 docs/THIRD_PARTY.md）。
+       纯净开源构建：-p:FlyEnableMlKit=false -->
+  <PropertyGroup>
+    <FlyEnableMlKit Condition="'$(FlyEnableMlKit)' == ''">true</FlyEnableMlKit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FlyEnableMlKit)' == 'true' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <DefineConstants>$(DefineConstants);FLY_ENABLE_MLKIT</DefineConstants>
+  </PropertyGroup>
+
+  <!-- 与 ML Kit 对齐 AndroidX，避免 Fragment/Lifecycle 主包与 Ktx 版本错位导致 R8 duplicate class。 -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <PackageReference Include="Xamarin.AndroidX.DocumentFile" Version="1.1.0.1" />
-    <PackageReference Include="Xamarin.Google.MLKit.TextRecognition.Chinese" Version="116.0.1.9" />
+    <PackageReference Include="Xamarin.Google.MLKit.TextRecognition.Chinese" Version="116.0.1.9" Condition="'$(FlyEnableMlKit)' == 'true'" />
     <PackageReference Include="Xamarin.AndroidX.Fragment" Version="1.9.0" />
     <PackageReference Include="Xamarin.AndroidX.Fragment.Ktx" Version="1.9.0" />
     <PackageReference Include="Xamarin.AndroidX.Activity" Version="1.13.0.1" />

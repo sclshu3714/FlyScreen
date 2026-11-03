@@ -601,7 +601,7 @@ public static class Loc
 
         ["About.Title"] = "关于 玄鸟",
         ["About.Body"] =
-            "玄鸟\n版本 {0}\n\n跨电脑键鼠与剪贴板共享工具。\n支持最多 4 台电脑共用一套键鼠，边缘切换控制；\n统一剪贴板（文本、图片、文件按需拉取）与直接文件传输。\n\n灵感来自 Microsoft Mouse without Borders，\n面向中文环境做了连接、布局同步与传输等增强。\n\n运行环境：Windows 10/11，建议管理员身份运行。\n\n联系邮箱：sclshu3714@163.com\n更新：https://github.com/sclshu3714/FlyScreen/releases\n反馈问题或建议欢迎邮件联系。",
+            "玄鸟\n版本 {0}\n\n跨电脑键鼠与剪贴板共享工具。\n最多 4 台电脑共用一套键鼠；统一剪贴板与按需文件传输，并支持布局同步、直接推送、穿边拖文件、扩展屏/投影等。\n默认简体中文，支持多语言与淡色/深色主题。\n\n灵感来自 Microsoft Mouse without Borders。\n本软件以 Apache-2.0 开源；第三方与专有依赖见仓库 docs/THIRD_PARTY.md（Linux 包内 Licenses/）。\nAndroid OCR（Fly.Ocr）使用 Google ML Kit（专有条款，可合法用于本应用）。\nLinux 中文界面随包使用 SIL OFL 的 Noto Sans SC（Fonts/）。\n\n运行环境：Windows 10/11，建议管理员身份运行。\n\n联系邮箱：sclshu3714@163.com\n更新：https://github.com/sclshu3714/FlyScreen/releases\n反馈问题或建议欢迎邮件联系。",
 
         ["Help.Title"] = "帮助",
         ["Help.ShowDoc"] = "帮助文本",
@@ -1015,7 +1015,7 @@ public static class Loc
 
         ["About.Title"] = "About XuanNiao",
         ["About.Body"] =
-            "XuanNiao\nVersion {0}\n\nShare keyboard, mouse and clipboard across PCs.\nUp to 4 PCs share one set of input devices with edge switching;\nunified clipboard (text, images, on-demand files) and direct file transfer.\n\nInspired by Microsoft Mouse without Borders,\nwith stronger connection, layout sync and transfer features.\n\nRequires Windows 10/11; run as administrator recommended.\n\nEmail: sclshu3714@163.com\nUpdates: https://github.com/sclshu3714/FlyScreen/releases\nFeedback welcome by email.",
+            "XuanNiao\nVersion {0}\n\nShare keyboard, mouse and clipboard across PCs.\nUp to 4 PCs; unified clipboard and on-demand file transfer, plus layout sync, direct push, edge file drag, and screen extend/projection.\nSimplified Chinese by default; multi-language and light/dark themes.\n\nInspired by Microsoft Mouse without Borders.\nLicensed under Apache-2.0; third-party notices: docs/THIRD_PARTY.md (Linux packages: Licenses/).\nAndroid OCR (Fly.Ocr) uses Google ML Kit (proprietary terms; allowed in this app).\nLinux UI ships Noto Sans SC (SIL OFL) under Fonts/.\n\nRequires Windows 10/11; run as administrator recommended.\n\nEmail: sclshu3714@163.com\nUpdates: https://github.com/sclshu3714/FlyScreen/releases\nFeedback welcome by email.",
 
         ["Help.Title"] = "Help",
         ["Help.ShowDoc"] = "Help text",

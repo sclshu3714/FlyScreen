@@ -40,18 +40,49 @@ GUI 与 CLI **共用** `LinuxAppHost`（设置、连接、发现、注入路由�
 Avalonia **默认必须用嵌入 Inter**（`fonts:Inter#Inter`），否则在无系统字体的 WSL 下会报：
 `Could not create glyphTypeface. Font family: $Default (key: )` 并回退 CLI。
 
-汉字靠 FontFallbacks（微软雅黑 / Noto CJK 等）。启动时会：
+### 汉字怎么解决（合法开源字体）
 
-1. 若存在 `/mnt/c/Windows/Fonts/msyh.ttc`，复制到用户（及 `SUDO_USER`）的 `~/.local/share/fonts/flyscreen/` 并 `fc-cache`
-2. 用 `fc-list` 探测已安装族名，只挂可用的 CJK 回退
+**不要**再复制 Windows 的雅黑/黑体。任选下面一种即可：
 
-仍乱码（能开窗但方框）时：
+| 方式 | 做法 | 适用 |
+|------|------|------|
+| **A. 系统包（推荐）** | 安装发行版自带的 Noto CJK | 本机开发、WSL、有包管理的桌面 |
+| **B. 随包 Fonts/** | 把 **SIL OFL** 的 Noto Sans SC 放进程序旁 `Fonts/` | 离线压缩包 / 无 root 环境 |
+
+**A — 系统安装：**
 
 ```bash
-sudo apt install -y fonts-noto-cjk fonts-wqy-zenhei
+# Debian / Ubuntu / WSL
+sudo apt install -y fonts-noto-cjk
+# 可选更小：fonts-wqy-zenhei / fonts-wqy-microhei
 fc-cache -fv
-# 或: cp /mnt/c/Windows/Fonts/msyh*.ttc ~/.local/share/fonts/flyscreen/ && fc-cache -fv
+
+# Fedora
+sudo dnf install -y google-noto-sans-cjk-fonts
+
+# Arch
+sudo pacman -S noto-fonts-cjk
 ```
+
+**B — 随发布包附带（默认已实施）：**
+
+仓库已包含 `tools/linux-fonts/NotoSansSC-Regular.otf`（约 8MB，SIL OFL）。  
+`dotnet build` / `publish` 会复制到输出 **`Fonts/`**，许可到 **`Licenses/`**。
+
+`build/FlyScreen.Publish.Linux`（或 `Finish-PublishToArtifacts.ps1 -Kind UnixBin`）在检测到 `Fonts/` 时，最终产物为 **zip**（可执行文件 + `Fonts/` + `Licenses/`），而不是裸二进制。
+
+```powershell
+# 若需重新拉取字体
+powershell -File docs\linux_fonts\fetch-noto-sc.ps1
+# 推荐：VS 右键生成 build\FlyScreen.Publish.Linux，或：
+dotnet publish src\FlyScreen.App.Linux\FlyScreen.App.Linux.csproj -c Release -r linux-x64 `
+  --self-contained true -p:PublishSingleFile=true -o src\FlyScreen.App.Linux\bin\publish\linux-x64
+# 确认暂存：...\bin\publish\linux-x64\Fonts\NotoSansSC-Regular.otf
+# 正式包：artifacts\release\FlyScreen-*-linux-x64.zip（含 Fonts/、Licenses/）
+```
+
+运行时查找顺序：`程序目录/Fonts/` → `/usr/share/fonts…` → `~/.local/share/fonts`。  
+说明见 [tools/linux-fonts/README.txt](../../tools/linux-fonts/README.txt)、[THIRD_PARTY.md](../THIRD_PARTY.md)。
 
 调试 GUI 建议 **不要 sudo**（`./FlyScreen --gui`），避免 X11/`$HOME`/DISPLAY 被清掉，且数据目录会落到 `/root/.config/FlyScreen/`。
 
@@ -112,7 +143,7 @@ WSL 与 Windows 宿主机默认共用同一个 `Environment.MachineName`（如 `
 3. 三台布局中应同时出现宿主机名与带后缀的 WSL 名；单向时点「刷新连接」
 4. 若仍撞名，可在 settings.json 写 `"MachineNameOverride": "my-wsl"` 后重启
 
-主窗已自绘标题栏后，任务栏/Alt-Tab 可用 ASCII 名；客户区内标题显示完整「玄鸟」。若仍见系统装饰乱码，确认未强制恢复系统标题栏。客户端内文字走 Avalonia 字体回退（见上文 apt / 拷贝雅黑）。
+主窗已自绘标题栏后，任务栏/Alt-Tab 可用 ASCII 名；客户区内标题显示完整「玄鸟」。若仍见系统装饰乱码，确认未强制恢复系统标题栏。客户端内文字走 Avalonia 字体回退（见上文：随包 `Fonts/` 或系统 Noto）。
 
 ## 编译
 

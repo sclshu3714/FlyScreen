@@ -26,5 +26,5 @@
   <SolidColorBrush x:Key="ScrollThumbDrag" Color="#64748B"/>
 
   <!-- Inter 嵌入保证可启动；CJK 由 FontManagerOptions.FontFallbacks / 系统字体补齐 -->
-  <FontFamily x:Key="UiFont">fonts:Inter#Inter, Inter, Microsoft YaHei UI, Microsoft YaHei, Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, sans-serif</FontFamily>
+  <FontFamily x:Key="UiFont">fonts:Inter#Inter, Inter, Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, WenQuanYi Zen Hei, sans-serif</FontFamily>
 </ResourceDictionary>

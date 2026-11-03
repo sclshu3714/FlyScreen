@@ -4,19 +4,35 @@
     Version = 最新 Git tag vX.Y.Z 的 patch + 1；与提交次数无关。
     可覆盖：dotnet build/publish -p:Version=1.1.0
     禁用：-p:IgnoreGitVersion=true
+
+    Android 注意：Microsoft.Android.Sdk 在 _GenerateJavaStubs → GenerateMainAndroidManifest
+    使用 $(_AndroidVersionName)/$(_AndroidVersionCode)。这些属性只在 Target 里赋值；
+    若未在生成清单前设好，会落到 versionName=1.0.0 / versionCode=1（系统「应用信息」显示错误）。
   -->
+
+  <!-- 评估期：优先读上次 Resolve 写入的 version.json，避免 ApplicationDisplayVersion 卡在默认 1.0.0 -->
+  <PropertyGroup Condition="'$(Version)' == '' And Exists('$(MSBuildThisFileDirectory)version.json')">
+    <_FsVersionJson>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)version.json'))</_FsVersionJson>
+    <_FsJsonVer>$([System.Text.RegularExpressions.Regex]::Match($(_FsVersionJson), '"version"\s*:\s*"([^"]+)"').Groups[1].Value)</_FsJsonVer>
+    <_FsJsonCode>$([System.Text.RegularExpressions.Regex]::Match($(_FsVersionJson), '"versionCode"\s*:\s*(\d+)').Groups[1].Value)</_FsJsonCode>
+    <Version Condition="'$(_FsJsonVer)' != ''">$(_FsJsonVer)</Version>
+    <FlyScreenVersionCode Condition="'$(_FsJsonCode)' != ''">$(_FsJsonCode)</FlyScreenVersionCode>
+  </PropertyGroup>
+
   <PropertyGroup>
     <Version Condition="'$(Version)' == ''">1.0.0</Version>
     <Product Condition="'$(Product)' == ''">玄鸟</Product>
     <Authors Condition="'$(Authors)' == ''">sclshu3714</Authors>
     <Company Condition="'$(Company)' == ''">玄鸟</Company>
     <Copyright Condition="'$(Copyright)' == ''">Copyright © 2026</Copyright>
-    <ApplicationDisplayVersion Condition="'$(UseMaui)' == 'true' and '$(ApplicationDisplayVersion)' == ''">$(Version)</ApplicationDisplayVersion>
-    <ApplicationVersion Condition="'$(UseMaui)' == 'true' and '$(ApplicationVersion)' == ''">1</ApplicationVersion>
+    <!-- MAUI/Android：评估期即对齐，供 SDK 与清单使用 -->
+    <ApplicationDisplayVersion Condition="'$(UseMaui)' == 'true'">$(Version)</ApplicationDisplayVersion>
+    <ApplicationVersion Condition="'$(UseMaui)' == 'true' And '$(FlyScreenVersionCode)' != ''">$(FlyScreenVersionCode)</ApplicationVersion>
+    <ApplicationVersion Condition="'$(UseMaui)' == 'true' And '$(ApplicationVersion)' == ''">1</ApplicationVersion>
   </PropertyGroup>
 
   <Target Name="ResolveVersionFromGitTag"
-          BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild"
+          BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild;_GetAndroidPackageName"
           Condition="'$(IgnoreGitVersion)' != 'true'">
     <Exec Command="git tag -l v*.*.* --sort=-v:refname"
           ConsoleToMSBuild="true"
@@ -40,7 +56,6 @@
       <Version>$(_TagMajor).$(_TagMinor).$(_NextPatch)</Version>
     </PropertyGroup>
 
-    <!-- VersionCode：major*10000+minor*100+patch，与 Android/鸿蒙一致 -->
     <PropertyGroup>
       <_VerMajor>$([System.Version]::Parse('$(Version)').Major)</_VerMajor>
       <_VerMinor>$([System.Version]::Parse('$(Version)').Minor)</_VerMinor>
@@ -55,6 +70,8 @@
       <InformationalVersion>$(Version)</InformationalVersion>
       <ApplicationDisplayVersion Condition="'$(UseMaui)' == 'true'">$(Version)</ApplicationDisplayVersion>
       <ApplicationVersion Condition="'$(UseMaui)' == 'true'">$(FlyScreenVersionCode)</ApplicationVersion>
+      <_AndroidVersionName Condition="'$(UseMaui)' == 'true'">$(Version)</_AndroidVersionName>
+      <_AndroidVersionCode Condition="'$(UseMaui)' == 'true'">$(FlyScreenVersionCode)</_AndroidVersionCode>
     </PropertyGroup>
 
     <WriteLinesToFile File="$(MSBuildThisFileDirectory)version.json"
@@ -66,9 +83,29 @@
              Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（code=$(FlyScreenVersionCode)；提交不改变此版本）" />
   </Target>
 
+  <!-- 生成 AndroidManifest 前强制写入 VersionName/Code（钩到 SDK 的 BeforeGenerateAndroidManifest） -->
+  <PropertyGroup Condition="'$(UseMaui)' == 'true'">
+    <BeforeGenerateAndroidManifest>
+      $(BeforeGenerateAndroidManifest);
+      FlyScreen_SetAndroidManifestVersion;
+    </BeforeGenerateAndroidManifest>
+  </PropertyGroup>
+
+  <Target Name="FlyScreen_SetAndroidManifestVersion"
+          DependsOnTargets="ResolveVersionFromGitTag"
+          Condition="'$(UseMaui)' == 'true' And $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PropertyGroup>
+      <ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
+      <ApplicationVersion>$(FlyScreenVersionCode)</ApplicationVersion>
+      <_AndroidVersionName>$(Version)</_AndroidVersionName>
+      <_AndroidVersionCode>$(FlyScreenVersionCode)</_AndroidVersionCode>
+    </PropertyGroup>
+    <Message Importance="High"
+             Text="Android 清单版本 → versionName=$(_AndroidVersionName) versionCode=$(_AndroidVersionCode)" />
+  </Target>
+
   <!--
-    _GenerateJavaStubs 的输入不含 ApplicationVersion。Git 版本变了清单仍显示 1.0.0，
-    右键存档就会写成 versionName=1.0.0 / versionCode=1。
+    增量：清单版本与当前 Version 不一致时清 stamp，迫使 _GenerateJavaStubs 重跑。
   -->
   <Target Name="FlyScreen_AndroidVersionInput"
           AfterTargets="ResolveVersionFromGitTag"
@@ -97,6 +134,23 @@
     <Message Importance="High"
              Condition="'$(_FsManifestStale)' == 'true'"
              Text="Android 清单版本与 $(Version)（code=$(FlyScreenVersionCode)）不一致，将重新生成" />
+  </Target>
+
+  <!-- Manifest Merger 之后再扫中间清单，避免 android/*.xml 仍残留 1.0.0 -->
+  <Target Name="FlyScreen_PatchAndroidManifestFiles"
+          AfterTargets="_ManifestMerger;_GenerateJavaStubs"
+          BeforeTargets="_CreateBaseApk;_CompileAndroidPackage;_BuildApkEmbed"
+          Condition="'$(UseMaui)' == 'true' And $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(Version)' != '' And '$(FlyScreenVersionCode)' != '' And '$(IntermediateOutputPath)' != ''">
+    <ItemGroup>
+      <_FsPatchManifest Include="$(IntermediateOutputPath)AndroidManifest.xml" Condition="Exists('$(IntermediateOutputPath)AndroidManifest.xml')" />
+      <_FsPatchManifest Include="$(IntermediateOutputPath)android\AndroidManifest.xml" Condition="Exists('$(IntermediateOutputPath)android\AndroidManifest.xml')" />
+      <_FsPatchManifest Include="$(IntermediateOutputPath)android\manifest\AndroidManifest.xml" Condition="Exists('$(IntermediateOutputPath)android\manifest\AndroidManifest.xml')" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_FsPatchArgs>@(_FsPatchManifest->'%(FullPath)', ';')</_FsPatchArgs>
+    </PropertyGroup>
+    <Exec Condition="'@(_FsPatchManifest)' != ''"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)Patch-AndroidManifestVersion.ps1&quot; -Version &quot;$(Version)&quot; -VersionCode &quot;$(FlyScreenVersionCode)&quot; -Files &quot;$(_FsPatchArgs)&quot;" />
   </Target>
 
   <Target Name="WritePublishVersion" AfterTargets="Publish">

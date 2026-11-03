@@ -7,11 +7,13 @@ using Android.OS;
 using Android.Util;
 using FlyScreen.Services;
 using Java.Util.Concurrent;
+#if FLY_ENABLE_MLKIT
 using Xamarin.Google.MLKit.Vision.Common;
 using Xamarin.Google.MLKit.Vision.Text;
 using Xamarin.Google.MLKit.Vision.Text.Chinese;
 using GmsTask = global::Android.Gms.Tasks.Task;
 using MlText = Xamarin.Google.MLKit.Vision.Text.Text;
+#endif
 using CompressFormat = Android.Graphics.Bitmap.CompressFormat;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
@@ -19,8 +21,10 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// <summary>无障碍截屏 + ML Kit 中英 OCR（供 <c>Fly.Ocr</c>）。</summary>
 public sealed partial class FlyScreenInputAccessibilityService
 {
+#if FLY_ENABLE_MLKIT
     private static readonly object OcrGate = new();
     private static ITextRecognizer? s_recognizer;
+#endif
     private static long _lastOcrGeomLogMs;
     private static long _lastShotFailLogMs;
 
@@ -742,6 +746,12 @@ public sealed partial class FlyScreenInputAccessibilityService
 
     private static string? RecognizeText(Bitmap bitmap, int rotationDegrees = 0)
     {
+#if !FLY_ENABLE_MLKIT
+        _ = bitmap;
+        _ = rotationDegrees;
+        Log.Warn("FlyOcr", "ML Kit 未启用（FlyEnableMlKit=false）；见 docs/THIRD_PARTY.md");
+        return null;
+#else
         InputImage? image = null;
         try
         {
@@ -767,8 +777,10 @@ public sealed partial class FlyScreenInputAccessibilityService
         {
             try { image?.Dispose(); } catch { /* ignore */ }
         }
+#endif
     }
 
+#if FLY_ENABLE_MLKIT
     private static ITextRecognizer GetRecognizer()
     {
         lock (OcrGate)
@@ -788,6 +800,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         gms.AddOnFailureListener(new FailureListener(_ => tcs.TrySetResult(null)));
         return tcs.Task.Wait(timeout) ? tcs.Task.Result : null;
     }
+#endif
 
     private static string NormalizeOcrText(string raw)
     {
@@ -897,6 +910,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
     }
 
+#if FLY_ENABLE_MLKIT
     private sealed class SuccessListener : Java.Lang.Object, global::Android.Gms.Tasks.IOnSuccessListener
     {
         private readonly Action<Java.Lang.Object?> _onSuccess;
@@ -910,5 +924,6 @@ public sealed partial class FlyScreenInputAccessibilityService
         public FailureListener(Action<Java.Lang.Exception> onFailure) => _onFailure = onFailure;
         public void OnFailure(Java.Lang.Exception e) => _onFailure(e);
     }
+#endif
 }
 #endif

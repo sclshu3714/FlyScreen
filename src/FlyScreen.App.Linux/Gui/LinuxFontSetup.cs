@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media;
@@ -7,7 +6,10 @@ using Avalonia.Media.Fonts;
 namespace FlyScreen.LinuxApp.Gui;
 
 /// <summary>
-/// 默认嵌入 Inter 保证可启动；把 Windows 雅黑 / 系统 CJK 挂进 FontManager 回退。
+/// 默认嵌入 Inter 保证可启动；CJK 使用开源字体：
+/// 1) 程序目录 <c>Fonts/</c>（可随包附带 SIL OFL 的 Noto Sans SC 等）；
+/// 2) 系统已安装的 Noto CJK / 文泉驿等。
+/// 不复制、不捆绑 Windows 专有字体（微软雅黑 / 黑体）。
 /// </summary>
 internal static class LinuxFontSetup
 {
@@ -17,9 +19,14 @@ internal static class LinuxFontSetup
     public static string UiFontFamily { get; private set; } =
         $"{InterFamilyKey}, Inter, sans-serif";
 
+    public static bool HasCjkFont { get; private set; }
+
     public static AppBuilder WithCjkFontSupport(this AppBuilder builder)
     {
         var cjkPaths = CollectCjkFontPaths();
+        HasCjkFont = cjkPaths.Count > 0;
+        string? loadedPath = null;
+        string loadedFamily = "Noto Sans SC";
 
         return builder
             .WithInterFont()
@@ -29,25 +36,51 @@ internal static class LinuxFontSetup
                 {
                     if (!TryAddFileFontCollection(fm, path))
                         continue;
-                    Console.WriteLine($"已加载 CJK 字体文件: {path}");
+                    loadedPath = path;
+                    loadedFamily = GuessFamilyName(path);
+                    Console.WriteLine($"已加载 CJK 字体文件: {path}（族名约 {loadedFamily}）");
                     break;
                 }
             })
             .AfterSetup(_ =>
             {
-                UiFontFamily = string.Join(", ",
-                [
-                    $"{CjkCollectionKey}#Microsoft YaHei",
-                    $"{CjkCollectionKey}#Microsoft YaHei UI",
-                    "Microsoft YaHei",
-                    "Microsoft YaHei UI",
-                    "Noto Sans CJK SC",
-                    "Noto Sans SC",
-                    "WenQuanYi Micro Hei",
-                    InterFamilyKey,
-                    "Inter",
-                    "sans-serif"
-                ]);
+                if (loadedPath != null)
+                {
+                    UiFontFamily = string.Join(", ",
+                    [
+                        $"{CjkCollectionKey}#{loadedFamily}",
+                        loadedFamily,
+                        "Noto Sans CJK SC",
+                        "Noto Sans SC",
+                        "WenQuanYi Micro Hei",
+                        "WenQuanYi Zen Hei",
+                        InterFamilyKey,
+                        "Inter",
+                        "sans-serif"
+                    ]);
+                }
+                else
+                {
+                    // 未找到字体文件时仍挂系统族名：用户 apt 安装后 fontconfig 可能已注册
+                    UiFontFamily = string.Join(", ",
+                    [
+                        "Noto Sans CJK SC",
+                        "Noto Sans SC",
+                        "WenQuanYi Micro Hei",
+                        "WenQuanYi Zen Hei",
+                        "Droid Sans Fallback",
+                        InterFamilyKey,
+                        "Inter",
+                        "sans-serif"
+                    ]);
+                    Console.WriteLine(
+                        "未找到 CJK 字体文件，汉字可能显示为方框。请任选其一：\n" +
+                        "  • Debian/Ubuntu: sudo apt install -y fonts-noto-cjk && fc-cache -fv\n" +
+                        "  • Fedora:        sudo dnf install -y google-noto-sans-cjk-fonts\n" +
+                        "  • Arch:          sudo pacman -S noto-fonts-cjk\n" +
+                        "  • 或将 OFL 字体放入程序旁 Fonts/（见 docs/runbooks/build-linux.md）");
+                }
+
                 Console.WriteLine($"字体 UI: {UiFontFamily}");
             })
             .With(new FontManagerOptions
@@ -55,16 +88,13 @@ internal static class LinuxFontSetup
                 DefaultFamilyName = InterFamilyKey,
                 FontFallbacks =
                 [
-                    new FontFallback { FontFamily = new FontFamily($"{CjkCollectionKey}#Microsoft YaHei") },
-                    new FontFallback { FontFamily = new FontFamily($"{CjkCollectionKey}#Microsoft YaHei UI") },
-                    new FontFallback { FontFamily = new FontFamily("Microsoft YaHei") },
-                    new FontFallback { FontFamily = new FontFamily("Microsoft YaHei UI") },
+                    new FontFallback { FontFamily = new FontFamily($"{CjkCollectionKey}#Noto Sans SC") },
+                    new FontFallback { FontFamily = new FontFamily($"{CjkCollectionKey}#Noto Sans CJK SC") },
                     new FontFallback { FontFamily = new FontFamily("Noto Sans CJK SC") },
                     new FontFallback { FontFamily = new FontFamily("Noto Sans SC") },
                     new FontFallback { FontFamily = new FontFamily("WenQuanYi Micro Hei") },
                     new FontFallback { FontFamily = new FontFamily("WenQuanYi Zen Hei") },
                     new FontFallback { FontFamily = new FontFamily("Droid Sans Fallback") },
-                    new FontFallback { FontFamily = new FontFamily("SimHei") },
                     new FontFallback { FontFamily = new FontFamily("sans-serif") }
                 ]
             });
@@ -74,7 +104,6 @@ internal static class LinuxFontSetup
     {
         try
         {
-            // file:///abs/path/font.ttc
             var full = Path.GetFullPath(path).Replace('\\', '/');
             if (!full.StartsWith('/'))
                 full = "/" + full;
@@ -91,6 +120,22 @@ internal static class LinuxFontSetup
         }
     }
 
+    private static string GuessFamilyName(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Contains("wqy-microhei", StringComparison.OrdinalIgnoreCase))
+            return "WenQuanYi Micro Hei";
+        if (name.Contains("wqy-zenhei", StringComparison.OrdinalIgnoreCase))
+            return "WenQuanYi Zen Hei";
+        if (name.Contains("CJK", StringComparison.OrdinalIgnoreCase))
+            return "Noto Sans CJK SC";
+        if (name.Contains("NotoSansSC", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("NotoSans-SC", StringComparison.OrdinalIgnoreCase))
+            return "Noto Sans SC";
+        return "Noto Sans SC";
+    }
+
+    /// <summary>程序旁 Fonts/ → 系统开源字体目录；不复制专有字体。</summary>
     private static List<string> CollectCjkFontPaths()
     {
         var list = new List<string>();
@@ -99,84 +144,98 @@ internal static class LinuxFontSetup
 
         try
         {
-            foreach (var home in CandidateHomeDirs())
+            foreach (var path in CandidateOpenCjkFontFiles())
             {
-                var destDir = Path.Combine(home, ".local", "share", "fonts", "flyscreen");
-                Directory.CreateDirectory(destDir);
-
-                foreach (var (src, fileName) in CandidateWindowsFonts())
-                {
-                    if (!File.Exists(src)) continue;
-                    var dest = Path.Combine(destDir, fileName);
-                    try
-                    {
-                        if (!File.Exists(dest) || new FileInfo(src).Length != new FileInfo(dest).Length)
-                        {
-                            File.Copy(src, dest, overwrite: true);
-                            Console.WriteLine($"已复制中文字体: {src} → {dest}");
-                        }
-
-                        list.Add(dest);
-                        list.Add(src);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"复制字体失败: {ex.Message}");
-                        if (File.Exists(src))
-                            list.Add(src);
-                    }
-                }
-
-                if (list.Count > 0)
-                    break;
-            }
-
-            try
-            {
-                using var p = Process.Start(new ProcessStartInfo
-                {
-                    FileName = "fc-cache",
-                    Arguments = "-f",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                });
-                p?.WaitForExit(20000);
-            }
-            catch
-            {
-                // ignore
+                if (File.Exists(path))
+                    list.Add(path);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"注册中文字体失败: {ex.Message}");
+            Console.WriteLine($"探测 CJK 字体失败: {ex.Message}");
         }
 
         return list.Distinct(StringComparer.Ordinal).ToList();
     }
 
-    private static IEnumerable<string> CandidateHomeDirs()
+    private static IEnumerable<string> CandidateOpenCjkFontFiles()
     {
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(profile))
-            yield return profile;
+        foreach (var dir in CandidateFontDirs())
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+                continue;
 
-        var sudoUser = Environment.GetEnvironmentVariable("SUDO_USER");
-        if (!string.IsNullOrWhiteSpace(sudoUser) && sudoUser != "root")
-            yield return Path.Combine("/home", sudoUser);
+            string[] patterns =
+            [
+                "NotoSansSC-Regular.otf",
+                "NotoSansSC-Regular.ttf",
+                "NotoSansSC-VF.ttf",
+                "NotoSansCJK-Regular.ttc",
+                "NotoSansCJKsc-Regular.otf",
+                "NotoSansCJKsc-Regular.ttf",
+                "wqy-microhei.ttc",
+                "wqy-zenhei.ttc",
+                "NotoSansSC*.otf",
+                "NotoSansSC*.ttf",
+                "NotoSansCJK*.ttc",
+                "NotoSansCJKsc*",
+                "wqy-*.ttc"
+            ];
 
-        yield return "/root";
+            foreach (var pattern in patterns)
+            {
+                IEnumerable<string> hits;
+                try
+                {
+                    hits = Directory.EnumerateFiles(dir, pattern, SearchOption.AllDirectories);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var hit in hits)
+                    yield return hit;
+            }
+        }
     }
 
-    private static IEnumerable<(string Path, string FileName)> CandidateWindowsFonts()
+    private static IEnumerable<string> CandidateFontDirs()
     {
-        foreach (var root in new[] { "/mnt/c/Windows/Fonts", "/mnt/c/windows/Fonts" })
+        var dirs = new List<string>();
+
+        // 1) 随包 / 旁路：可再分发的 OFL 字体放这里
+        var baseDir = AppContext.BaseDirectory;
+        if (!string.IsNullOrEmpty(baseDir))
+            dirs.Add(Path.Combine(baseDir, "Fonts"));
+
+        try
         {
-            yield return (Path.Combine(root, "msyh.ttc"), "msyh.ttc");
-            yield return (Path.Combine(root, "msyh.ttf"), "msyh.ttf");
-            yield return (Path.Combine(root, "simhei.ttf"), "simhei.ttf");
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exe))
+            {
+                var exeDir = Path.GetDirectoryName(exe);
+                if (!string.IsNullOrEmpty(exeDir))
+                    dirs.Add(Path.Combine(exeDir, "Fonts"));
+            }
         }
+        catch
+        {
+            // ignore
+        }
+
+        // 2) 系统包
+        dirs.Add("/usr/share/fonts");
+        dirs.Add("/usr/local/share/fonts");
+        dirs.Add("/usr/share/fonts/opentype");
+        dirs.Add("/usr/share/fonts/truetype");
+        dirs.Add("/usr/share/fonts/google-noto-cjk");
+        dirs.Add("/usr/share/fonts/noto-cjk");
+
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(profile))
+            dirs.Add(Path.Combine(profile, ".local", "share", "fonts"));
+
+        return dirs;
     }
 }
