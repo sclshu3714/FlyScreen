@@ -47,10 +47,10 @@ public interface IMauiPlatformServices
     bool SetAutoStartEnabled(bool enabled);
 
     /// <summary>PC：仅确保托盘图标（对齐 Win InitTray，不隐藏主窗）。</summary>
-    void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null);
+    void EnsureTray(Action showMain, Action? reconnect = null, Action? project = null, Action? about = null, Action? exit = null);
 
     /// <summary>PC：隐藏到托盘；Android：退到后台（无托盘）。</summary>
-    void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null);
+    void HideToBackground(Action showMain, Action? reconnect = null, Action? project = null, Action? about = null, Action? exit = null);
     void DisposeTray();
 
     /// <summary>Win 扩展屏：立刻准备本机第二输出（虚拟驱动/已有副屏）。
@@ -107,8 +107,8 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void ArmRemoteClipboardForPaste() { }
     public bool GetAutoStartEnabled() => false;
     public bool SetAutoStartEnabled(bool enabled) => !enabled;
-    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
-    public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
+    public void EnsureTray(Action showMain, Action? reconnect = null, Action? project = null, Action? about = null, Action? exit = null) { }
+    public void HideToBackground(Action showMain, Action? reconnect = null, Action? project = null, Action? about = null, Action? exit = null) { }
     public void DisposeTray() { }
 
     public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(

@@ -24,6 +24,7 @@ public sealed class TrayContextMenuWindow : Window
 
     private readonly Action _onOpen;
     private readonly Action _onReconnect;
+    private readonly Action _onProject;
     private readonly Action _onAbout;
     private readonly Action _onExit;
     private bool _closing;
@@ -31,11 +32,13 @@ public sealed class TrayContextMenuWindow : Window
     public TrayContextMenuWindow(
         Action onOpen,
         Action onReconnect,
+        Action onProject,
         Action onAbout,
         Action onExit)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
+        _onProject = onProject;
         _onAbout = onAbout;
         _onExit = onExit;
 
@@ -66,12 +69,13 @@ public sealed class TrayContextMenuWindow : Window
     public static void ShowNearCursor(
         Action onOpen,
         Action onReconnect,
+        Action onProject,
         Action onAbout,
         Action onExit)
     {
         try { _open?.CloseMenu(); } catch { /* ignore */ }
 
-        var w = new TrayContextMenuWindow(onOpen, onReconnect, onAbout, onExit);
+        var w = new TrayContextMenuWindow(onOpen, onReconnect, onProject, onAbout, onExit);
         _open = w;
         if (!w.IsVisible)
             w.Show();
@@ -108,6 +112,7 @@ public sealed class TrayContextMenuWindow : Window
         var stack = new StackPanel { Margin = new Thickness(4, 6, 4, 6) };
         stack.Children.Add(BuildItem(Loc.T("Tray.Open"), _onOpen));
         stack.Children.Add(BuildItem(Loc.T("Tray.Reconnect"), _onReconnect));
+        stack.Children.Add(BuildItem(Loc.T("Tray.Project"), _onProject));
         stack.Children.Add(BuildItem(Loc.T("Tray.About"), _onAbout));
         stack.Children.Add(BuildSeparator());
         stack.Children.Add(BuildItem(Loc.T("Tray.Exit"), _onExit));

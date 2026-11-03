@@ -596,6 +596,7 @@ public static class Loc
         ["Tray.Tip"] = "玄鸟",
         ["Tray.Open"] = "打开设置",
         ["Tray.Reconnect"] = "重新连接",
+        ["Tray.Project"] = "投影",
         ["Tray.About"] = "关于",
         ["Tray.Exit"] = "退出",
 
@@ -1037,6 +1038,7 @@ public static class Loc
         ["Tray.Tip"] = "XuanNiao",
         ["Tray.Open"] = "Open settings",
         ["Tray.Reconnect"] = "Reconnect",
+        ["Tray.Project"] = "Project",
         ["Tray.About"] = "About",
         ["Tray.Exit"] = "Exit",
 

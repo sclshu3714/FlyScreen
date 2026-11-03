@@ -100,7 +100,11 @@ public partial class MainWindow : Window
             DragMove();
     }
 
-    private async void TitleProject_Click(object sender, RoutedEventArgs e)
+    private void TitleProject_Click(object sender, RoutedEventArgs e)
+        => _ = OpenProjectionFromUiAsync();
+
+    /// <summary>标题栏 / 托盘「投影」：与主界面同一流程（进行中则停止，接收中则提示，否则弹窗）。</summary>
+    private async Task OpenProjectionFromUiAsync()
     {
         if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
         {
@@ -118,6 +122,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        ShowFromTray();
         var dlg = new ProjectionDialog(_host) { Owner = this };
         dlg.ShowDialog();
         RefreshTitleProjectButton();
@@ -271,6 +276,7 @@ public partial class MainWindow : Window
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            onProject: () => _ = OpenProjectionFromUiAsync(),
             onAbout: () =>
             {
                 ShowFromTray();

@@ -67,6 +67,20 @@ internal static class MauiCloseToTray
             host.Platform.HideToBackground(
                 showMain: () => { },
                 reconnect: () => _ = host.Connections.ReconnectNowAsync(),
+                project: () =>
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        try
+                        {
+                            var root = Application.Current?.Windows.FirstOrDefault()?.Page;
+                            var main = FindMainPage(root);
+                            if (main != null)
+                                _ = main.OpenProjectionFromTrayAsync();
+                        }
+                        catch { /* ignore */ }
+                    });
+                },
                 about: () =>
                 {
                     MainThread.BeginInvokeOnMainThread(() =>

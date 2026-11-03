@@ -41,11 +41,13 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private readonly Action _onOpen;
     private readonly Action _onReconnect;
+    private readonly Action _onProject;
     private readonly Action _onAbout;
     private readonly Action _onExit;
     private readonly string[] _labels;
     private readonly Action[] _actions;
     private readonly Rectangle[] _itemRects; // 相对窗口客户区（含 CardMargin）
+    private const int PrimaryItemCount = 4; // 打开 / 重连 / 投影 / 关于（退出单独在分隔线后）
 
     private IntPtr _hwnd;
     private WndProc? _proc;
@@ -56,20 +58,22 @@ internal sealed class MauiTrayPopup : IDisposable
     private int _cardW;
     private int _cardH;
 
-    private MauiTrayPopup(Action onOpen, Action onReconnect, Action onAbout, Action onExit)
+    private MauiTrayPopup(Action onOpen, Action onReconnect, Action onProject, Action onAbout, Action onExit)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
+        _onProject = onProject;
         _onAbout = onAbout;
         _onExit = onExit;
         _labels =
         [
             Loc.T("Tray.Open"),
             Loc.T("Tray.Reconnect"),
+            Loc.T("Tray.Project"),
             Loc.T("Tray.About"),
             Loc.T("Tray.Exit")
         ];
-        _actions = [_onOpen, _onReconnect, _onAbout, _onExit];
+        _actions = [_onOpen, _onReconnect, _onProject, _onAbout, _onExit];
         _itemRects = new Rectangle[_labels.Length];
         MeasureAndBuildHwnd();
     }
@@ -77,11 +81,12 @@ internal sealed class MauiTrayPopup : IDisposable
     public static void ShowNearCursor(
         Action onOpen,
         Action onReconnect,
+        Action onProject,
         Action onAbout,
         Action onExit)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
-        var popup = new MauiTrayPopup(onOpen, onReconnect, onAbout, onExit);
+        var popup = new MauiTrayPopup(onOpen, onReconnect, onProject, onAbout, onExit);
         _open = popup;
         popup.ShowAtCursor();
     }
@@ -101,10 +106,10 @@ internal sealed class MauiTrayPopup : IDisposable
         }
 
         _cardW = Math.Max(CardMinWidth, textW + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
-        // 3 项 + 分隔 + 退出
+        // 主项 + 分隔 + 退出
         var sepBlock = 1 + 6 * 2;
         _cardH = PanelPadY * 2
-                 + 3 * (ItemHeight + ItemMargin * 2)
+                 + PrimaryItemCount * (ItemHeight + ItemMargin * 2)
                  + sepBlock
                  + (ItemHeight + ItemMargin * 2);
 
@@ -113,7 +118,7 @@ internal sealed class MauiTrayPopup : IDisposable
         _height = _cardH + CardMargin * 2;
 
         var y = CardMargin + PanelPadY;
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < PrimaryItemCount; i++)
         {
             _itemRects[i] = new Rectangle(
                 CardMargin + PanelPadX + ItemMargin,
@@ -126,7 +131,7 @@ internal sealed class MauiTrayPopup : IDisposable
         y += 6; // sep top margin
         // sep itself 1px + bottom 6
         y += 1 + 6;
-        _itemRects[3] = new Rectangle(
+        _itemRects[PrimaryItemCount] = new Rectangle(
             CardMargin + PanelPadX + ItemMargin,
             y + ItemMargin,
             _cardW - PanelPadX * 2 - ItemMargin * 2,
@@ -205,10 +210,10 @@ internal sealed class MauiTrayPopup : IDisposable
 
             for (var i = 0; i < _labels.Length; i++)
             {
-                if (i == 3)
+                if (i == PrimaryItemCount)
                 {
                     // 分隔线（关于与退出之间）
-                    var sepY = _itemRects[2].Bottom + ItemMargin + 6;
+                    var sepY = _itemRects[PrimaryItemCount - 1].Bottom + ItemMargin + 6;
                     using var sepPen = new Pen(SepColor);
                     g.DrawLine(sepPen,
                         CardMargin + 12, sepY,

@@ -166,7 +166,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     public bool SetAutoStartEnabled(bool enabled)
         => AutoStartHelper.SetEnabled(enabled);
 
-    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    public void EnsureTray(Action showMain, Action? reconnect = null, Action? project = null, Action? about = null, Action? exit = null)
     {
         _tray ??= new MauiTrayService();
         _tray.Ensure(
@@ -180,6 +180,11 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 if (reconnect != null) reconnect();
                 else _ = _connections.ReconnectNowAsync();
             },
+            project: () =>
+            {
+                ShowMainWindow();
+                project?.Invoke();
+            },
             about: () => about?.Invoke(),
             exit: () =>
             {
@@ -188,9 +193,9 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
             });
     }
 
-    public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    public void HideToBackground(Action showMain, Action? reconnect = null, Action? project = null, Action? about = null, Action? exit = null)
     {
-        EnsureTray(showMain, reconnect, about, exit);
+        EnsureTray(showMain, reconnect, project, about, exit);
         HideMainWindow();
     }
 

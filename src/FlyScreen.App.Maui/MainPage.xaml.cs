@@ -276,6 +276,7 @@ public partial class MainPage : ContentPage
                 _host.Platform.HideToBackground(
                     showMain: () => { },
                     reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+                    project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
                     about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
                     exit: RequestAppExit);
             }
@@ -291,12 +292,16 @@ public partial class MainPage : ContentPage
         _host.Platform.EnsureTray(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: RequestAppExit);
     }
 
     /// <summary>托盘「关于」：显示关于页。</summary>
     public void ShowAboutFromTray() => ShowPage(5);
+
+    /// <summary>托盘「投影」：与主界面投影按钮同一流程。</summary>
+    public Task OpenProjectionFromTrayAsync() => RunProjectionEntryAsync();
 
     private static void RequestAppExit()
     {
@@ -2664,7 +2669,11 @@ public partial class MainPage : ContentPage
         await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
     }
 
-    private async void PhoneProject_Clicked(object? sender, EventArgs e)
+    private void PhoneProject_Clicked(object? sender, EventArgs e)
+        => _ = RunProjectionEntryAsync();
+
+    /// <summary>主界面 / 托盘投影入口：进行中则停止，接收中则提示，否则弹窗。</summary>
+    private async Task RunProjectionEntryAsync()
     {
         try
         {
@@ -3080,6 +3089,7 @@ public partial class MainPage : ContentPage
         _host.Platform.HideToBackground(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: RequestAppExit);
     }

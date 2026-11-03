@@ -67,6 +67,7 @@ public partial class MainWindow : Window
     private bool _logToolsCompact;
     private bool _openProgramLog;
     private EdgeFileDragOverlay? _edgeFileDrag;
+    private TrayIcon? _trayIcon;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -226,7 +227,11 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private async void TitleProject_Click(object? sender, RoutedEventArgs e)
+    private void TitleProject_Click(object? sender, RoutedEventArgs e)
+        => _ = OpenProjectionFromUiAsync();
+
+    /// <summary>标题栏 / 托盘「投影」：与主界面同一流程。</summary>
+    private async Task OpenProjectionFromUiAsync()
     {
         if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
         {
@@ -244,6 +249,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        ShowFromTray();
         var dlg = new ProjectionDialog(_host);
         await dlg.ShowDialog(this);
         RefreshTitleProjectButton();
@@ -354,6 +360,7 @@ public partial class MainWindow : Window
 
         HideTrayBtn.IsVisible = _host.SupportsTray;
         AutoStartCheck.IsEnabled = _host.SupportsAutoStart;
+        EnsureDesktopTray();
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -361,6 +368,98 @@ public partial class MainWindow : Window
         _refreshTimer?.Stop();
         _edgeFileDrag?.Dispose();
         _edgeFileDrag = null;
+        DisposeDesktopTray();
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void EnsureDesktopTray()
+    {
+        if (!_host.SupportsTray || Design.IsDesignMode) return;
+        if (_trayIcon != null)
+        {
+            ApplyTrayLocalized();
+            return;
+        }
+
+        try
+        {
+            _trayIcon = new TrayIcon
+            {
+                IsVisible = true,
+                ToolTipText = Loc.T("Tray.Tip"),
+                Icon = Icon,
+                Menu = BuildTrayMenu()
+            };
+            _trayIcon.Clicked += (_, _) => Dispatcher.UIThread.Post(ShowFromTray);
+            if (Application.Current != null)
+                TrayIcon.SetIcons(Application.Current, [_trayIcon]);
+        }
+        catch
+        {
+            try { _trayIcon?.Dispose(); } catch { /* ignore */ }
+            _trayIcon = null;
+        }
+    }
+
+    private NativeMenu BuildTrayMenu()
+    {
+        var menu = new NativeMenu();
+        menu.Add(TrayItem(Loc.T("Tray.Open"), ShowFromTray));
+        menu.Add(TrayItem(Loc.T("Tray.Reconnect"), () => _ = _host.Connections.ReconnectNowAsync()));
+        menu.Add(TrayItem(Loc.T("Tray.Project"), () => _ = OpenProjectionFromUiAsync()));
+        menu.Add(TrayItem(Loc.T("Tray.About"), () =>
+        {
+            ShowFromTray();
+            ShowPage(5);
+        }));
+        menu.Add(new NativeMenuItemSeparator());
+        menu.Add(TrayItem(Loc.T("Tray.Exit"), () => Exit_Click(null, new RoutedEventArgs())));
+        return menu;
+    }
+
+    private static NativeMenuItem TrayItem(string header, Action action)
+    {
+        var item = new NativeMenuItem(header);
+        item.Click += (_, _) =>
+        {
+            try { action(); } catch { /* ignore */ }
+        };
+        return item;
+    }
+
+    private void ApplyTrayLocalized()
+    {
+        if (_trayIcon == null) return;
+        _trayIcon.ToolTipText = Loc.T("Tray.Tip");
+        _trayIcon.Menu = BuildTrayMenu();
+    }
+
+    private void DisposeDesktopTray()
+    {
+        try
+        {
+            if (Application.Current != null)
+                TrayIcon.SetIcons(Application.Current, null);
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            if (_trayIcon != null)
+            {
+                _trayIcon.IsVisible = false;
+                _trayIcon.Dispose();
+            }
+        }
+        catch { /* ignore */ }
+
+        _trayIcon = null;
     }
 
     private void BuildPlatformActions()
@@ -516,6 +615,7 @@ public partial class MainWindow : Window
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
+        ApplyTrayLocalized();
         if (XferTitleText != null) XferTitleText.Text = Loc.T("Xfer.Title");
         if (XferHintText != null) XferHintText.Text = Loc.T("Xfer.Hint");
         if (DirectTransferBtn != null) DirectTransferBtn.Content = Loc.T("Xfer.Direct");
