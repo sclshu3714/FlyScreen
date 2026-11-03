@@ -45,6 +45,7 @@ public sealed class FlyScreenCursorOverlayService : Service
     private static int _hotspotX;
     private static int _hotspotY;
     private static bool _hotspotValid;
+    private static string _hint = "";
 
     private Handler? _ui;
     private Context? _windowCtx;
@@ -124,6 +125,13 @@ public sealed class FlyScreenCursorOverlayService : Service
             _wantVisible = false;
         if (Instance != null)
             StartOrSignal(ActionEnd);
+    }
+
+    public static void SetDragHint(string? text)
+    {
+        lock (Gate)
+            _hint = text ?? "";
+        Instance?.ScheduleFlush();
     }
 
     private static void StartOrSignal(string action)
@@ -315,7 +323,15 @@ public sealed class FlyScreenCursorOverlayService : Service
 
     private void PlaceWindow(double nx, double ny)
     {
-        var size = _cursorPx;
+        string hint;
+        lock (Gate)
+            hint = _hint;
+        if (_cursor != null)
+            _cursor.Hint = hint;
+        var width = _cursor?.PreferredWidth(_cursorPx) ?? _cursorPx;
+        var height = _cursor?.PreferredHeight(_cursorPx) ?? _cursorPx;
+        width = Math.Clamp(width, _cursorPx, Math.Max(_cursorPx, _screenW / 2));
+        height = Math.Clamp(height, _cursorPx, Math.Max(_cursorPx, _screenH / 3));
         // 热点在箭头左上角：必须能到达屏幕最底/最右像素。
         // 勿用 screen-size 钳位，否则底部会空出一块点不到的区域。
         var x = (int)Math.Round(nx * Math.Max(_screenW - 1, 1));
@@ -325,8 +341,8 @@ public sealed class FlyScreenCursorOverlayService : Service
         // 禁止用 GetLocationOnScreen 反推 bias 去改 lp：未布局完成时会得到巨大 biasX，指针卡死右缘
         _lp!.X = _intendedX;
         _lp.Y = _intendedY;
-        _lp.Width = size;
-        _lp.Height = size;
+        _lp.Width = width;
+        _lp.Height = height;
     }
 
     /// <summary>
@@ -593,7 +609,11 @@ public sealed class FlyScreenCursorOverlayService : Service
         private readonly global::Android.Graphics.Paint _fill;
         private readonly global::Android.Graphics.Paint _stroke;
         private readonly global::Android.Graphics.Paint _halo;
+        private readonly global::Android.Graphics.Paint _text;
+        private readonly global::Android.Graphics.Paint _chip;
         private readonly Path _arrow;
+
+        public string Hint { get; set; } = "";
 
         public PointerView(Context context, float density) : base(context)
         {
@@ -622,6 +642,17 @@ public sealed class FlyScreenCursorOverlayService : Service
             };
             _halo.SetStyle(global::Android.Graphics.Paint.Style.Fill);
 
+            _text = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
+            {
+                Color = global::Android.Graphics.Color.Rgb(32, 36, 40),
+                TextSize = 13f * _density
+            };
+            _chip = new global::Android.Graphics.Paint(PaintFlags.AntiAlias)
+            {
+                Color = global::Android.Graphics.Color.Argb(235, 248, 250, 252)
+            };
+            _chip.SetStyle(global::Android.Graphics.Paint.Style.Fill);
+
             _arrow = new Path();
             _arrow.MoveTo(1, 1);
             _arrow.LineTo(1, 26);
@@ -633,9 +664,29 @@ public sealed class FlyScreenCursorOverlayService : Service
             _arrow.Close();
         }
 
+        public int PreferredWidth(int arrowPx)
+        {
+            if (string.IsNullOrEmpty(Hint)) return arrowPx;
+            var max = 0f;
+            foreach (var line in Hint.Split('\n'))
+                max = Math.Max(max, _text.MeasureText(line));
+            return arrowPx + (int)max + (int)(20 * _density);
+        }
+
+        public int PreferredHeight(int arrowPx)
+        {
+            if (string.IsNullOrEmpty(Hint)) return arrowPx;
+            var lines = Math.Max(1, Hint.Split('\n').Length);
+            var textH = (int)(lines * _text.TextSize * 1.4f) + (int)(16 * _density);
+            return Math.Max(arrowPx, textH);
+        }
+
         protected override void OnDraw(Canvas canvas)
         {
-            var scale = Math.Max(Width, Height) / 32f;
+            var arrowBox = Math.Min(Width, Height);
+            if (!string.IsNullOrEmpty(Hint))
+                arrowBox = Math.Min(arrowBox, (int)(32f * _density));
+            var scale = arrowBox / 32f;
             if (scale < 0.5f) scale = _density;
             canvas.Save();
             canvas.Scale(scale, scale);
@@ -645,6 +696,22 @@ public sealed class FlyScreenCursorOverlayService : Service
             canvas.DrawPath(_arrow, _fill);
             canvas.DrawPath(_arrow, _stroke);
             canvas.Restore();
+            if (string.IsNullOrEmpty(Hint)) return;
+
+            var lines = Hint.Split('\n');
+            var left = arrowBox + 4 * _density;
+            var top = 4 * _density;
+            var textW = 0f;
+            foreach (var line in lines)
+                textW = Math.Max(textW, _text.MeasureText(line));
+            var boxH = lines.Length * _text.TextSize * 1.35f + 8 * _density;
+            canvas.DrawRoundRect(left, top, left + textW + 12 * _density, top + boxH, 6 * _density, 6 * _density, _chip);
+            var baseline = top + _text.TextSize + 2 * _density;
+            foreach (var line in lines)
+            {
+                canvas.DrawText(line, left + 6 * _density, baseline, _text);
+                baseline += _text.TextSize * 1.35f;
+            }
         }
     }
 }

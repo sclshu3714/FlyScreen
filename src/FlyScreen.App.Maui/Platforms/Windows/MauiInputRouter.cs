@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.Native;
+using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
 
@@ -38,6 +40,11 @@ public sealed class MauiInputRouter : IDisposable
     /// <summary>切换控制权后的短冷却，避免落在边缘时立刻被环形逻辑甩回。</summary>
     private long _switchCooldownUntilTick;
     private const int SwitchCooldownMs = 900;
+    private long _edgeFileWaitStart;
+    private bool _edgeDragSwallowLeftUp;
+
+    /// <summary>按住文件拖过屏幕边缘时，把路径交给布局里的下一台。</summary>
+    public EdgeFileDragService? EdgeFileDrag { get; set; }
     private const int LocalActivityGuardMs = 1000;
     private const int BriefRemoteMs = 450;
     /// <summary>本机是否为当前活动电脑（显示操作光标的那一台）。</summary>
@@ -57,6 +64,13 @@ public sealed class MauiInputRouter : IDisposable
 
     /// <summary>本机 Ctrl+V / Shift+Insert：返回 true 表示已处理（吞键）。</summary>
     public Func<bool>? TryHandleLocalFilePasteHotkey { get; set; }
+    /// <summary>扩展屏会话：排除该对端名的穿边切入。</summary>
+    public Func<string, bool>? IsEdgeCrossExcluded { get; set; }
+    /// <summary>扩展屏从机：暂停本机 EasyMouse。</summary>
+    public Func<bool>? ShouldPauseEasyMouseForExtend { get; set; }
+
+    public void SetEasyMousePaused(bool paused)
+        => EasyMouseEnabled = !paused && _settings.EasyMouse;
 
     public MauiInputRouter(AppSettings settings, ConnectionManager connections)
     {
@@ -145,6 +159,7 @@ public sealed class MauiInputRouter : IDisposable
 
         BecomeCursorOwner(broadcast: true);
         ControlTargetChanged?.Invoke(null);
+        EdgeFileDrag?.SetHover(null);
     }
 
     /// <summary>对端 SwitchFocus 到本机：显示光标并进入「被远程控制」状态。</summary>
@@ -240,6 +255,7 @@ public sealed class MauiInputRouter : IDisposable
         ControlTargetChanged?.Invoke(peer);
         var (sx, sy) = _remoteCursor.Clamped01();
         _ = SendSwitchAsync(peer, sx, sy);
+        EdgeFileDrag?.SetHover(peer);
     }
 
     /// <summary>控远端时将本机光标钉在虚拟桌面中部，用相对位移驱动对端虚拟坐标。</summary>
@@ -282,6 +298,25 @@ public sealed class MauiInputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
+        if (msg == NativeMethods.WM_LBUTTONUP)
+        {
+            WindowsDragPaths.NoteButtonUp();
+            EdgeFileDragCapture.Disarm();
+            if (_edgeDragSwallowLeftUp)
+            {
+                _edgeDragSwallowLeftUp = false;
+                if (_controllingRemote)
+                    return (IntPtr)1;
+            }
+
+            if (EdgeFileDrag?.IsHolding == true)
+            {
+                EdgeFileDrag.Finish();
+                if (_controllingRemote)
+                    return (IntPtr)1;
+            }
+        }
+
         VirtualScreen.GetBounds(out var screenL, out var screenT, out var screenW, out var screenH);
         var centerX = screenL + screenW / 2;
         var centerY = screenT + screenH / 2;
@@ -304,6 +339,9 @@ public sealed class MauiInputRouter : IDisposable
         {
             TryClaimPhysicalInput();
         }
+
+        if (msg == NativeMethods.WM_LBUTTONDOWN && !_controllingRemote)
+            WindowsDragPaths.NoteButtonDown();
         else if (msg == NativeMethods.WM_MOUSEMOVE && !_controllingRemote)
         {
             TryClaimPhysicalInput();
@@ -319,11 +357,38 @@ public sealed class MauiInputRouter : IDisposable
             var onEdge = info.pt.X <= screenL || info.pt.X >= rightObs || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
-            if (EasyMouseEnabled && _settings.EasyMouse && !InSwitchCooldown())
+            var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            if (_settings.TransferFile && leftDown)
+                EdgeFileDragCapture.Arm();
+            else
+                EdgeFileDragCapture.Disarm();
+            var dragged = Array.Empty<string>();
+            var haveDrag = _settings.TransferFile && leftDown && onEdge
+                           && WindowsDragPaths.TryGet(out dragged);
+            if (_settings.TransferFile && leftDown && onEdge && !haveDrag)
+            {
+                if (_edgeFileWaitStart == 0)
+                    _edgeFileWaitStart = Environment.TickCount64;
+                if (Environment.TickCount64 - _edgeFileWaitStart < 400)
+                    return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+            }
+            else if (!onEdge || !leftDown)
+            {
+                _edgeFileWaitStart = 0;
+            }
+
+            var pauseExtend = ShouldPauseEasyMouseForExtend?.Invoke() == true;
+            if (EasyMouseEnabled && _settings.EasyMouse && !pauseExtend && !InSwitchCooldown())
             {
                 if (TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                         out var peer, out var entryX, out var entryY, out var peerSide))
                 {
+                    if (haveDrag && EdgeFileDrag?.TryBegin(dragged) == true)
+                    {
+                        EdgeFileDragCapture.DismissLocalDrag();
+                        EdgeFileDragCapture.Disarm();
+                    }
+
                     SwitchToPeer(peer!, entryX, entryY, peerSide);
                     return (IntPtr)1;
                 }
@@ -369,6 +434,8 @@ public sealed class MauiInputRouter : IDisposable
                 or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_RBUTTONUP
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MBUTTONUP)
             {
+                if (EdgeFileDrag?.IsHolding == true)
+                    return (IntPtr)1;
                 var (button, down) = msg switch
                 {
                     NativeMethods.WM_LBUTTONDOWN => (0, true),
@@ -384,6 +451,8 @@ public sealed class MauiInputRouter : IDisposable
 
             if (msg is NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
             {
+                if (EdgeFileDrag?.IsHolding == true)
+                    return (IntPtr)1;
                 var delta = (short)((info.mouseData >> 16) & 0xFFFF);
                 _ = SendWheelAsync(_activePeer, delta, msg == NativeMethods.WM_MOUSEHWHEEL);
                 return (IntPtr)1;
@@ -418,6 +487,17 @@ public sealed class MauiInputRouter : IDisposable
         {
             if (HandleHotkey((int)info.vkCode))
                 return (IntPtr)1;
+        }
+
+        if (EdgeFileDrag?.IsHolding == true && _controllingRemote)
+        {
+            if (down && info.vkCode == 0x1B)
+            {
+                EdgeFileDrag.Cancel();
+                _edgeDragSwallowLeftUp = true;
+            }
+
+            return (IntPtr)1;
         }
 
         // 本机懒粘贴：Ctrl+V / Shift+Insert 先拉取再重放
@@ -586,7 +666,7 @@ public sealed class MauiInputRouter : IDisposable
 
         if (MatchKey(vk, _settings.HotkeyExit))
         {
-            MainThread.BeginInvokeOnMainThread(() => Application.Current?.Quit());
+            MainThread.BeginInvokeOnMainThread(MauiCloseToTray.RequestExit);
             return true;
         }
 
@@ -734,7 +814,8 @@ public sealed class MauiInputRouter : IDisposable
         bool IsValidPeer(string? name) =>
             !string.IsNullOrWhiteSpace(name)
             && !IsLocalMachine(name)
-            && _connections.IsPeerEdgeMouseCapable(name!);
+            && _connections.IsPeerEdgeMouseCapable(name!)
+            && IsEdgeCrossExcluded?.Invoke(name!) != true;
 
         var nx = screenW <= 1 ? 0.5 : Math.Clamp((x - screenL) / (double)(screenW - 1), 0, 1);
         var ey = entryY;
@@ -881,7 +962,7 @@ public sealed class MauiInputRouter : IDisposable
             return true;
         }
 
-        if (!_connections.IsPeerEdgeMouseCapable(next))
+        if (!_connections.IsPeerEdgeMouseCapable(next) || IsEdgeCrossExcluded?.Invoke(next) == true)
         {
             _remoteCursor.ClampInside();
             return false;

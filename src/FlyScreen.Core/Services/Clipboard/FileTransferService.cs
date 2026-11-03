@@ -35,6 +35,8 @@ public sealed class FileTransferService
     private readonly Dictionary<Guid, CancellationTokenSource> _itemAbort = new();
     /// <summary>当前正在发送的块：TransferItem.Id → (peer, transferId)。</summary>
     private readonly Dictionary<Guid, (string Peer, Guid TransferId)> _activeSends = new();
+    /// <summary>发送端等待对端 FileAccept / FileAbort：null=已接受，非空=拒绝原因。</summary>
+    private readonly Dictionary<Guid, TaskCompletionSource<string?>> _acceptWaiters = new();
     private readonly string _inboxDir;
     private readonly string _pasteDir;
     private readonly string _historyPath;
@@ -187,17 +189,13 @@ public sealed class FileTransferService
         _settings = settings;
         _connections = connections;
         _clipboard = clipboard ?? NullClipboardApplySink.Instance;
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "FlyScreen");
-        // Linux/Mac 无 Roaming 时回退到 LocalApplicationData / ~/.config 风格路径
-        if (string.IsNullOrWhiteSpace(root))
-            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".flyscreen");
-        _inboxDir = Path.Combine(root, "Inbox");
+        // 路径跟 FlyScreenDataPaths（Android 可为公共 com.xuanniao.flyscreen）
+        _inboxDir = global::FlyScreen.Services.FlyScreenDataPaths.InboxDirectory;
         // 粘贴暂存与收件箱分开，避免未粘贴时收件箱里出现占位/缓存
-        _pasteDir = Path.Combine(root, "PasteStaging");
-        _historyPath = Path.Combine(root, "transfer-history.json");
+        _pasteDir = global::FlyScreen.Services.FlyScreenDataPaths.PasteStagingDirectory;
+        _historyPath = global::FlyScreen.Services.FlyScreenDataPaths.TransferHistoryFile;
         Directory.CreateDirectory(_inboxDir);
+        Directory.CreateDirectory(_pasteDir);
         _connections.MessageReceived += OnMessage;
         LoadHistory();
         _ = Task.Run(ChunkDiskLoopAsync);
@@ -778,6 +776,7 @@ public sealed class FileTransferService
         CancellationToken ct = default)
     {
         lock (_gate) _activeSends[uiItem.Id] = (peer, transferId);
+        var acceptWaiter = CreateAcceptWaiter(transferId);
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -801,6 +800,9 @@ public sealed class FileTransferService
             });
             if (!await _connections.SendToAsync(peer, MessageType.FileOffer, offer).ConfigureAwait(false))
                 throw new IOException($"对端未连接: {peer}");
+
+            // 必须等对端打开目标文件并 Accept，否则本机“已完成”、对端卡在 0%
+            await WaitPeerAcceptAsync(acceptWaiter, ct).ConfigureAwait(false);
 
             await using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
                 ChunkSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -842,6 +844,12 @@ public sealed class FileTransferService
         }
         catch (OperationCanceledException)
         {
+            if (uiItem.State is not (TransferState.Failed or TransferState.Cancelled or TransferState.Completed))
+            {
+                uiItem.State = TransferState.Cancelled;
+                uiItem.Status = "已取消";
+            }
+
             try
             {
                 var abort = MessageCodec.JsonBytes(new FileControlPayload
@@ -858,6 +866,7 @@ public sealed class FileTransferService
         {
             uiItem.State = TransferState.Failed;
             uiItem.Status = ex.Message;
+            NotifyStatus($"发送失败: {uiItem.FileName} — {ex.Message}");
             CompletePullWaiter(null);
             QueueSaveHistory();
             try
@@ -874,8 +883,58 @@ public sealed class FileTransferService
         }
         finally
         {
+            ClearAcceptWaiter(transferId);
             lock (_gate) _activeSends.Remove(uiItem.Id);
         }
+    }
+
+    private TaskCompletionSource<string?> CreateAcceptWaiter(Guid transferId)
+    {
+        var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            if (_acceptWaiters.TryGetValue(transferId, out var old))
+                old.TrySetCanceled();
+            _acceptWaiters[transferId] = tcs;
+        }
+
+        return tcs;
+    }
+
+    private void ClearAcceptWaiter(Guid transferId)
+    {
+        lock (_gate) _acceptWaiters.Remove(transferId);
+    }
+
+    private void CompleteAcceptWaiter(Guid transferId, string? abortReason)
+    {
+        TaskCompletionSource<string?>? tcs;
+        lock (_gate)
+        {
+            if (!_acceptWaiters.Remove(transferId, out tcs))
+                return;
+        }
+
+        tcs.TrySetResult(abortReason);
+    }
+
+    private static async Task WaitPeerAcceptAsync(TaskCompletionSource<string?> waiter, CancellationToken ct)
+    {
+        var completed = await Task.WhenAny(waiter.Task, Task.Delay(TimeSpan.FromSeconds(45), ct))
+            .ConfigureAwait(false);
+        if (completed != waiter.Task)
+            throw new IOException("对端未接受传输（超时）。目标文件可能正被占用或无法写入。");
+
+        var abortReason = await waiter.Task.ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(abortReason))
+            throw new IOException(abortReason);
+    }
+
+    private void HandleFileAccept(byte[] payload)
+    {
+        var ctrl = MessageCodec.DecodeJson<FileControlPayload>(payload);
+        if (ctrl == null) return;
+        CompleteAcceptWaiter(ctrl.TransferId, abortReason: null);
     }
 
     private CancellationToken GetItemAbortToken(TransferItem item)
@@ -1011,6 +1070,9 @@ public sealed class FileTransferService
                 break;
             case MessageType.FileOffer:
                 _ = HandleOfferAsync(peer, msg.Payload);
+                break;
+            case MessageType.FileAccept:
+                HandleFileAccept(msg.Payload);
                 break;
             case MessageType.FileChunk:
                 EnqueueChunkWrite(msg.Payload);
@@ -1575,7 +1637,35 @@ public sealed class FileTransferService
                 AddItem(item);
         }
 
-        var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read, ChunkSize, useAsync: true);
+        FileStream fs;
+        try
+        {
+            fs = OpenReceiveWriteStream(dest);
+        }
+        catch (Exception ex)
+        {
+            var reason = FormatReceiveWriteError(dest, ex);
+            if (!isDirMarker)
+            {
+                item.State = TransferState.Failed;
+                item.Status = reason;
+            }
+
+            NotifyStatus($"拒绝接收 {displayName}: {reason}");
+            QueueSaveHistory();
+            try
+            {
+                var abort = MessageCodec.JsonBytes(new FileControlPayload
+                {
+                    TransferId = offer.TransferId,
+                    Reason = reason
+                });
+                await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
+            }
+            catch { /* ignore */ }
+            return;
+        }
+
         lock (_gate)
         {
             _receiving[offer.TransferId] = new ReceiveState(
@@ -1603,6 +1693,63 @@ public sealed class FileTransferService
             : isFolderBatch
                 ? $"接收文件夹: {groupKey} ({offer.GroupIndex + 1}/{groupCount}) ← {peer}"
                 : $"接收中: {offer.FileName} ← {peer}");
+    }
+
+    /// <summary>打开接收落盘流；同名占用时给出可读错误，避免列表卡在 0%。</summary>
+    private static FileStream OpenReceiveWriteStream(string dest)
+    {
+        try
+        {
+            return new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read,
+                ChunkSize, useAsync: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new IOException(FormatReceiveWriteError(dest, ex), ex);
+        }
+    }
+
+    private static string FormatReceiveWriteError(string dest, Exception ex)
+    {
+        var name = Path.GetFileName(dest);
+        if (string.IsNullOrEmpty(name)) name = dest;
+        if (IsSharingOrLockError(ex))
+            return $"目标文件正被占用，无法覆盖「{name}」。请先关闭该文件后重试。";
+        if (ex is UnauthorizedAccessException || IsAccessDenied(ex))
+            return $"无权限写入「{name}」。";
+        var detail = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message.Trim();
+        return $"无法写入「{name}」：{detail}";
+    }
+
+    private static bool IsSharingOrLockError(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException!)
+        {
+            if (e is IOException io)
+            {
+                var code = io.HResult & 0xFFFF;
+                // ERROR_SHARING_VIOLATION=32, ERROR_LOCK_VIOLATION=33
+                if (code is 32 or 33) return true;
+                var msg = io.Message ?? "";
+                if (msg.Contains("being used by another process", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("正由另一进程使用", StringComparison.Ordinal)
+                    || msg.Contains("Sharing", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAccessDenied(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException!)
+        {
+            if (e is UnauthorizedAccessException) return true;
+            if (e is IOException io && (io.HResult & 0xFFFF) == 5) return true;
+        }
+
+        return false;
     }
 
     private TransferItem GetOrCreateFolderUiItem(
@@ -1754,11 +1901,39 @@ public sealed class FileTransferService
         }
         catch (Exception ex)
         {
-            state.Item.State = TransferState.Failed;
-            state.Item.Status = ex.Message;
-            CompletePullWaiter(null);
-            QueueSaveHistory();
+            var reason = FormatReceiveWriteError(state.DestPath, ex);
+            FailReceiveInProgress(id, state, reason);
         }
+    }
+
+    private void FailReceiveInProgress(Guid transferId, ReceiveState state, string reason)
+    {
+        ReceiveState? removed;
+        lock (_gate) _receiving.Remove(transferId, out removed);
+        try { removed?.Stream.Dispose(); } catch { /* ignore */ }
+
+        if (Items.Contains(state.Item))
+        {
+            state.Item.State = TransferState.Failed;
+            state.Item.Status = reason;
+        }
+
+        NotifyStatus($"接收失败: {state.Item.FileName} — {reason}");
+        CompletePullWaiter(null);
+        QueueSaveHistory();
+
+        var peer = state.Item.PeerName;
+        if (string.IsNullOrWhiteSpace(peer)) return;
+        try
+        {
+            var abort = MessageCodec.JsonBytes(new FileControlPayload
+            {
+                TransferId = transferId,
+                Reason = reason
+            });
+            _ = _connections.SendToAsync(peer, MessageType.FileAbort, abort);
+        }
+        catch { /* ignore */ }
     }
 
     private async Task HandleCompleteAsync(byte[] payload)
@@ -1855,10 +2030,31 @@ public sealed class FileTransferService
         }
         catch (Exception ex)
         {
-            state.Item.State = TransferState.Failed;
-            state.Item.Status = ex.Message;
+            var reason = FormatReceiveWriteError(state.DestPath, ex);
+            try { await state.Stream.DisposeAsync().ConfigureAwait(false); } catch { /* ignore */ }
+            if (Items.Contains(state.Item))
+            {
+                state.Item.State = TransferState.Failed;
+                state.Item.Status = reason;
+            }
+
+            NotifyStatus($"接收失败: {state.Item.FileName} — {reason}");
             CompletePullWaiter(null);
             QueueSaveHistory();
+            var peer = state.Item.PeerName;
+            if (!string.IsNullOrWhiteSpace(peer))
+            {
+                try
+                {
+                    var abort = MessageCodec.JsonBytes(new FileControlPayload
+                    {
+                        TransferId = ctrl.TransferId,
+                        Reason = reason
+                    });
+                    await _connections.SendToAsync(peer, MessageType.FileAbort, abort).ConfigureAwait(false);
+                }
+                catch { /* ignore */ }
+            }
         }
     }
 
@@ -1867,33 +2063,54 @@ public sealed class FileTransferService
         var ctrl = MessageCodec.DecodeJson<FileControlPayload>(payload);
         if (ctrl == null) return;
 
-        // 对端中止时，若本机正在发送同一 TransferId，取消发送循环
-        List<CancellationTokenSource> cancelSends = [];
+        var reason = string.IsNullOrWhiteSpace(ctrl.Reason) ? "对端中止" : ctrl.Reason.Trim();
+        // 发送端若还在等 Accept，先唤醒并带上失败原因
+        CompleteAcceptWaiter(ctrl.TransferId, reason);
+
+        // 对端中止时，若本机正在发送同一 TransferId，取消发送循环并标失败
+        List<(Guid ItemId, CancellationTokenSource Cts)> cancelSends = [];
         lock (_gate)
         {
             foreach (var kv in _activeSends)
             {
                 if (kv.Value.TransferId != ctrl.TransferId) continue;
                 if (_itemAbort.TryGetValue(kv.Key, out var cts))
-                    cancelSends.Add(cts);
+                    cancelSends.Add((kv.Key, cts));
             }
         }
 
-        foreach (var cts in cancelSends)
+        foreach (var (itemId, cts) in cancelSends)
         {
+            TransferItem? sendItem = null;
+            UiMarshal.Send(() => sendItem = Items.FirstOrDefault(i => i.Id == itemId));
+            if (sendItem != null
+                && sendItem.State is TransferState.Queued or TransferState.Transferring)
+            {
+                sendItem.State = TransferState.Failed;
+                sendItem.Status = reason;
+                NotifyStatus($"发送失败: {sendItem.FileName} — {reason}");
+            }
+
             try { cts.Cancel(); } catch { /* ignore */ }
         }
 
         ReceiveState? state;
         lock (_gate) _receiving.Remove(ctrl.TransferId, out state);
-        if (state == null) return;
+        if (state == null)
+        {
+            if (cancelSends.Count > 0)
+                QueueSaveHistory();
+            return;
+        }
+
         try { state.Stream.Dispose(); } catch { /* ignore */ }
         try { if (File.Exists(state.DestPath)) File.Delete(state.DestPath); } catch { /* ignore */ }
         // 本地已点删除移出列表时不再改状态
         if (Items.Contains(state.Item))
         {
             state.Item.State = TransferState.Failed;
-            state.Item.Status = ctrl.Reason ?? "对端中止";
+            state.Item.Status = reason;
+            NotifyStatus($"接收失败: {state.Item.FileName} — {reason}");
         }
 
         CompletePullWaiter(null);
@@ -1940,7 +2157,9 @@ public sealed class FileTransferService
             // _lastPasteEntries 由 PreparePastePaths 写入
         }
         NotifyStatus($"文件接收完成（{pastePaths.Count} 个）");
+        // 先放行粘贴等待，再迁路径并删 Inbox/seq_*（避免 UI 阻塞时 Send 死锁）
         CompletePullWaiter(pastePaths.Count > 0 ? pastePaths : null);
+        TryConsumeInboxSeqAfterPaste(sequence, pastePaths);
     }
 
     /// <summary>
@@ -2053,9 +2272,11 @@ public sealed class FileTransferService
                 var parent = Path.GetDirectoryName(dest);
                 if (!string.IsNullOrEmpty(parent))
                     Directory.CreateDirectory(parent);
-                if (!LinkOrCopy(inboxPath, dest))
+                if (!TryLinkOrCopy(inboxPath, dest, out var writeError))
                 {
-                    NotifyStatus($"写入粘贴文件失败: {relative}");
+                    var reason = writeError ?? $"写入粘贴文件失败: {relative}";
+                    NotifyStatus(reason);
+                    MarkReceiveItemFailedByPath(inboxPath, reason);
                     continue;
                 }
 
@@ -2194,15 +2415,16 @@ public sealed class FileTransferService
         return $"{stem}_{Guid.NewGuid():N}{ext}";
     }
 
-    private static bool LinkOrCopy(string source, string dest)
+    private static bool TryLinkOrCopy(string source, string dest, out string? error)
     {
+        Exception? last = null;
         for (var attempt = 0; attempt < 5; attempt++)
         {
             try
             {
                 if (Directory.Exists(dest))
                 {
-                    // 不应把文件写到目录路径上
+                    error = $"目标路径是文件夹，无法写入文件「{Path.GetFileName(dest)}」。";
                     return false;
                 }
 
@@ -2210,20 +2432,62 @@ public sealed class FileTransferService
                     File.Delete(dest);
 
                 File.Copy(source, dest, overwrite: true);
-                if (!File.Exists(dest)) return false;
+                if (!File.Exists(dest))
+                {
+                    error = $"无法写入「{Path.GetFileName(dest)}」。";
+                    return false;
+                }
 
                 var srcLen = new FileInfo(source).Length;
                 var dstLen = new FileInfo(dest).Length;
-                if (srcLen == dstLen) return true;
+                if (srcLen == dstLen)
+                {
+                    error = null;
+                    return true;
+                }
+
+                last = new IOException("复制后大小不一致");
             }
-            catch
+            catch (Exception ex)
             {
-                // 剪贴板占用占位文件时短暂重试
+                last = ex;
+                // 剪贴板占用占位文件时短暂重试；真占用则多试几次仍失败
                 Thread.Sleep(40 + attempt * 30);
             }
         }
 
+        error = last == null
+            ? $"无法写入「{Path.GetFileName(dest)}」。"
+            : FormatReceiveWriteError(dest, last);
         return false;
+    }
+
+    private void MarkReceiveItemFailedByPath(string inboxOrDestPath, string reason)
+    {
+        TransferItem? hit = null;
+        UiMarshal.Send(() =>
+        {
+            hit = Items.FirstOrDefault(i =>
+                i.Direction == TransferDirection.Receive
+                && i.State is TransferState.Completed or TransferState.Transferring
+                && string.Equals(i.FullPath, inboxOrDestPath, StringComparison.OrdinalIgnoreCase));
+            if (hit == null)
+            {
+                var name = Path.GetFileName(inboxOrDestPath);
+                hit = Items.FirstOrDefault(i =>
+                    i.Direction == TransferDirection.Receive
+                    && i.State is TransferState.Completed or TransferState.Transferring
+                    && (string.Equals(i.FileName, name, StringComparison.OrdinalIgnoreCase)
+                        || i.FileName.EndsWith("/" + name, StringComparison.OrdinalIgnoreCase)
+                        || i.FileName.EndsWith("\\" + name, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (hit == null) return;
+            hit.State = TransferState.Failed;
+            hit.Status = reason;
+        });
+        if (hit != null)
+            QueueSaveHistory();
     }
 
     public async Task BroadcastTextAsync(string text)
@@ -2258,7 +2522,16 @@ public sealed class FileTransferService
         }
 
         if (deleteReceiveFiles)
+        {
             CleanupPasteDir();
+            CleanupInboxSeqDirs(onlyUnreferenced: false);
+        }
+        else
+        {
+            // 保留成品文件时仍回收已无引用的拉取缓存
+            CleanupInboxSeqDirs(onlyUnreferenced: true);
+        }
+
         SaveHistoryNow();
         NotifyStatus(removedReceiveCache > 0
             ? $"已清除记录，并删除 {removedReceiveCache} 个接收文件"
@@ -2486,6 +2759,217 @@ public sealed class FileTransferService
                 Directory.Delete(_pasteDir, recursive: true);
         }
         catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// 粘贴路径已就绪后：把仍指向 Inbox/seq_N 的列表项迁到 PasteStaging，再删除该批拉取缓存。
+    /// </summary>
+    private void TryConsumeInboxSeqAfterPaste(long sequence, IReadOnlyList<string> pastePaths)
+    {
+        if (sequence <= 0 || pastePaths.Count == 0) return;
+
+        string seqDir;
+        try { seqDir = Path.GetFullPath(Path.Combine(_inboxDir, $"seq_{sequence}")); }
+        catch { return; }
+
+        if (!Directory.Exists(seqDir)) return;
+
+        // 粘贴仍落在 seq 内（Prepare 失败回退）→ 不能删
+        if (pastePaths.Any(p => IsUnderDirectory(p, seqDir))) return;
+        if (pastePaths.All(p => IsUnderDirectory(p, _inboxDir))) return;
+
+        RelocateItemsUnderDirectory(seqDir, pastePaths);
+        TryDeleteDirectory(seqDir);
+    }
+
+    /// <summary>把 FullPath 仍在 <paramref name="seqDir"/> 下的列表项改到粘贴成品路径。</summary>
+    private void RelocateItemsUnderDirectory(string seqDir, IReadOnlyList<string> pasteTops)
+    {
+        string seqRoot;
+        try
+        {
+            seqRoot = Path.GetFullPath(seqDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+        }
+        catch
+        {
+            return;
+        }
+
+        UiMarshal.Send(() =>
+        {
+            var changed = false;
+            foreach (var item in Items)
+            {
+                if (item.Direction != TransferDirection.Receive) continue;
+                if (string.IsNullOrWhiteSpace(item.FullPath)) continue;
+                string full;
+                try { full = Path.GetFullPath(item.FullPath); }
+                catch { continue; }
+                if (!full.StartsWith(seqRoot, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var rel = full[seqRoot.Length..]
+                    .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                var dest = MapSeqRelativeToPaste(rel, pasteTops);
+                if (string.IsNullOrWhiteSpace(dest)) continue;
+                if (string.Equals(item.FullPath, dest, StringComparison.OrdinalIgnoreCase)) continue;
+                item.FullPath = dest;
+                changed = true;
+            }
+
+            if (changed)
+                QueueSaveHistory();
+        });
+    }
+
+    /// <summary>seq 内相对路径 → PasteStaging 顶层或合并根下的对应路径。</summary>
+    private static string? MapSeqRelativeToPaste(string relativeUnderSeq, IReadOnlyList<string> pasteTops)
+    {
+        if (string.IsNullOrWhiteSpace(relativeUnderSeq) || pasteTops.Count == 0)
+            return null;
+
+        var segments = relativeUnderSeq.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0) return null;
+
+        var topName = segments[0];
+        foreach (var top in pasteTops)
+        {
+            if (string.IsNullOrWhiteSpace(top)) continue;
+            string topFull;
+            try { topFull = Path.GetFullPath(top); }
+            catch { continue; }
+
+            var name = Path.GetFileName(
+                topFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.Equals(name, topName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (segments.Length == 1)
+                return topFull;
+
+            try
+            {
+                return Path.GetFullPath(Path.Combine(topFull, Path.Combine(segments.Skip(1).ToArray())));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // 单文件顶层：pasteTops 可能是 PasteStaging/guid/file.txt，相对路径也是 file.txt
+        if (segments.Length == 1)
+        {
+            foreach (var top in pasteTops)
+            {
+                try
+                {
+                    var topFull = Path.GetFullPath(top);
+                    if (string.Equals(Path.GetFileName(topFull), topName, StringComparison.OrdinalIgnoreCase))
+                        return topFull;
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 清理 Inbox/seq_*。
+    /// <paramref name="onlyUnreferenced"/> 为 true 时只删当前列表未引用的目录（保留接收文件时的扫尾）。
+    /// </summary>
+    private void CleanupInboxSeqDirs(bool onlyUnreferenced)
+    {
+        try
+        {
+            if (!Directory.Exists(_inboxDir)) return;
+            HashSet<string>? referenced = null;
+            if (onlyUnreferenced)
+            {
+                referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                UiMarshal.Send(() =>
+                {
+                    foreach (var item in Items)
+                    {
+                        if (string.IsNullOrWhiteSpace(item.FullPath)) continue;
+                        var seq = TryGetSeqDirOfPath(item.FullPath);
+                        if (seq != null)
+                            referenced.Add(seq);
+                    }
+                });
+            }
+
+            foreach (var dir in Directory.EnumerateDirectories(_inboxDir, "seq_*"))
+            {
+                string full;
+                try { full = Path.GetFullPath(dir); }
+                catch { continue; }
+
+                if (onlyUnreferenced && referenced != null && referenced.Contains(full))
+                    continue;
+
+                // 传输中仍写入该目录时不要删
+                if (IsSeqDirActivelyReceiving(full))
+                    continue;
+
+                TryDeleteDirectory(full);
+            }
+        }
+        catch
+        {
+            // 扫尾失败不影响主流程
+        }
+    }
+
+    private bool IsSeqDirActivelyReceiving(string seqDir)
+    {
+        lock (_gate)
+        {
+            return _receiving.Values.Any(r =>
+                !r.IsDirect
+                && IsUnderDirectory(r.DestPath, seqDir));
+        }
+    }
+
+    private string? TryGetSeqDirOfPath(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var inboxRoot = Path.GetFullPath(_inboxDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(inboxRoot, StringComparison.OrdinalIgnoreCase))
+                return null;
+            var rest = full[inboxRoot.Length..];
+            var first = rest.Split(
+                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (first == null || !first.StartsWith("seq_", StringComparison.OrdinalIgnoreCase))
+                return null;
+            return Path.GetFullPath(Path.Combine(_inboxDir, first));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch
+        {
+            // 文件占用时留给下次扫尾
+        }
     }
 
     private void AddItem(TransferItem item)

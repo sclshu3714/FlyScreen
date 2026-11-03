@@ -33,6 +33,20 @@ internal static class CgEventNative
         public double Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CGSize
+    {
+        public double Width;
+        public double Height;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CGRect
+    {
+        public CGPoint Origin;
+        public CGSize Size;
+    }
+
     [DllImport(CoreGraphics)]
     public static extern IntPtr CGEventCreate(IntPtr source);
 
@@ -41,6 +55,9 @@ internal static class CgEventNative
 
     [DllImport(CoreGraphics)]
     public static extern IntPtr CGEventCreateKeyboardEvent(IntPtr source, ushort virtualKey, [MarshalAs(UnmanagedType.I1)] bool keyDown);
+
+    [DllImport(CoreGraphics)]
+    public static extern void CGEventKeyboardSetUnicodeString(IntPtr evt, nuint length, ushort[] characters);
 
     [DllImport(CoreGraphics)]
     public static extern IntPtr CGEventCreateScrollWheelEvent(IntPtr source, uint units, int wheelCount, int wheel1);
@@ -59,6 +76,22 @@ internal static class CgEventNative
 
     [DllImport(CoreGraphics)]
     public static extern void CGWarpMouseCursorPosition(CGPoint newCursorPosition);
+
+    [DllImport(CoreGraphics)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool CGEventSourceButtonState(int stateId, uint button);
+
+    [DllImport(CoreGraphics)]
+    public static extern uint CGMainDisplayID();
+
+    [DllImport(CoreGraphics)]
+    public static extern CGRect CGDisplayBounds(uint display);
+
+    [DllImport(CoreGraphics)]
+    public static extern nuint CGDisplayPixelsWide(uint display);
+
+    [DllImport(CoreGraphics)]
+    public static extern nuint CGDisplayPixelsHigh(uint display);
 
     [DllImport(ApplicationServices)]
     public static extern bool AXIsProcessTrusted();

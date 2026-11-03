@@ -37,14 +37,17 @@ public partial class App : System.Windows.Application
 
         AppHost.EnsureCreated();
 
-        // 设置了开机自启则确保注册表项与当前 exe 路径一致（升级后路径可能变化）
-        var settings = AppHost.Instance.Settings;
-        if (settings.AutoStart)
-            AutoStartHelper.SetEnabled(true);
+        // 后台同步开机自启，勿阻塞启动（否则会拖住主窗 Loaded / 键鼠钩子，表现为「不能穿边」）
+        var autoStart = AppHost.Instance.Settings.AutoStart;
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { AutoStartHelper.SetEnabled(autoStart); }
+            catch { /* ignore */ }
+        });
 
         DispatcherUnhandledException += (_, args) =>
         {
-            AppLog.Error(args.Exception, "未处理错误");
+            AppLog.Error("未处理错误: " + args.Exception);
             System.Windows.MessageBox.Show("未处理错误: " + args.Exception.Message, "玄鸟");
             args.Handled = true;
         };

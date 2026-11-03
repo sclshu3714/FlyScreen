@@ -56,6 +56,12 @@ public enum MessageType : byte
     BehaviorSync = 63,
     /// <summary>把本机程序发给已连接电脑；对端已有同名或相同 Id 则跳过。</summary>
     ProgramShare = 64,
+    /// <summary>安全密钥同步（布局内已连接 + 密钥不同未连上的发现实例）。</summary>
+    SecurityKeySync = 65,
+    /// <summary>查询对端主屏分辨率/缩放。</summary>
+    DisplayInfoQuery = 66,
+    /// <summary>对端主屏分辨率/缩放应答。</summary>
+    DisplayInfoReply = 67,
     /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
     CompositionUpdate = 70,
     /// <summary>电脑→手机：取消组字浮层。</summary>
@@ -63,7 +69,32 @@ public enum MessageType : byte
     /// <summary>电脑→手机：已确认文本（插入目标）。</summary>
     TextInput = 72,
     /// <summary>手机→电脑：点选候选（Index 或直接 Text）。</summary>
-    CompositionSelect = 73
+    CompositionSelect = 73,
+
+    /// <summary>电脑扩展屏：主机→从机发起会话。</summary>
+    ScreenExtendOffer = 80,
+    /// <summary>电脑扩展屏：从机接受。</summary>
+    ScreenExtendAccept = 81,
+    /// <summary>电脑扩展屏：从机拒绝。</summary>
+    ScreenExtendReject = 82,
+    /// <summary>电脑扩展屏：任一方结束会话。</summary>
+    ScreenExtendStop = 83,
+    /// <summary>电脑扩展屏：JPEG 帧（Bulk；见 ScreenExtendFrameCodec）。</summary>
+    ScreenExtendFrame = 84,
+
+    /// <summary>穿边拖文件：光标所在机器请回报放下目录。</summary>
+    EdgeDragQuery = 85,
+    /// <summary>穿边拖文件：放下目录（接收端绝对路径）。</summary>
+    EdgeDragPlace = 86,
+
+    /// <summary>投影声音：PCM s16le 分块（Bulk）。</summary>
+    ScreenExtendAudio = 87,
+
+    /// <summary>穿边拖文件：光标所在机器显示或收起拖拽提示。</summary>
+    EdgeDragHover = 88,
+
+    /// <summary>投影回控：从机播放器 → 主机采集区键鼠（勿与普通 MouseMove/KeyEvent 混用）。</summary>
+    ScreenExtendInput = 89
 }
 
 public readonly struct NetMessage
@@ -144,31 +175,39 @@ public static class PeerCaps
     public const string CaptureInput = "CaptureInput";
     /// <summary>支持独立大块传输连接（文件/剪贴板分块），与键鼠控制面分离。</summary>
     public const string BulkTransfer = "BulkTransfer";
+    /// <summary>可作为扩展屏主机（占用第二输出并推流）。</summary>
+    public const string ScreenExtendHost = "ScreenExtendHost";
+    /// <summary>可作为扩展屏从机（全屏收流）。</summary>
+    public const string ScreenExtendSink = "ScreenExtendSink";
 
     public static readonly string[] DesktopFull =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>macOS 桌面：与 Win 对齐（键鼠 + 剪贴板文本/文件 + 直传 + 布局）。</summary>
     public static readonly string[] MacDesktopW1 =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>Linux X11 桌面：与 Win 对齐。</summary>
     public static readonly string[] LinuxDesktopX11 =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>Linux Wayland：无 EdgeMouse/捕获；剪贴板文本/文件 + 直传 + 有限注入。</summary>
     public static readonly string[] LinuxDesktopWayland =
     [
-        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput, BulkTransfer
+        AbsPointer, ClipboardText, ClipboardFiles, DirectTransfer, LayoutSync, InjectInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 
     /// <summary>无图形会话：直传落盘 + 文本通道（无系统粘贴体验）；ClipboardFiles 表示可收文件到 Inbox。</summary>
@@ -180,25 +219,29 @@ public static class PeerCaps
     /// <summary>
     /// Android 手机/平板：触控板控桌面 + 文本剪贴板 + 收文件；
     /// 另宣告 EdgeMouse/InjectInput，便于桌面边缘切入并由无障碍服务注入键鼠（须用户授权）。
+    /// ScreenExtendHost：可「复制」投屏到电脑（MediaProjection）；不含 Sink（不作接收端）。
     /// 不含 LayoutSync（不参与桌面布局同步主路径）。
     /// 功能/行为同步（BehaviorSync）不依赖 LayoutSync，手机仍会收到穿边模式等设置。
     /// </summary>
     public static readonly string[] AndroidMobile =
     [
-        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer,
+        ScreenExtendHost
     ];
 
     /// <summary>鸿蒙手机/平板（W5a）：对标 AndroidMobile。</summary>
     public static readonly string[] HarmonyMobile =
     [
-        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer
+        EdgeMouse, AbsPointer, ClipboardText, DirectTransfer, InjectInput, BulkTransfer,
+        ScreenExtendHost
     ];
 
     /// <summary>鸿蒙电脑（W5b）：对标桌面；API 不足时由宿主降级去掉 EdgeMouse/Capture。</summary>
     public static readonly string[] HarmonyDesktop =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
-        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer
+        DirectTransfer, LayoutSync, InjectInput, CaptureInput, BulkTransfer,
+        ScreenExtendHost, ScreenExtendSink
     ];
 }
 
@@ -218,6 +261,8 @@ public static class BulkMessageTypes
             or MessageType.FileComplete or MessageType.FileAbort
             or MessageType.ClipboardInlineChunk or MessageType.ClipboardInlineComplete
             or MessageType.ClipboardImageChunk or MessageType.ClipboardImageComplete
+            or MessageType.ScreenExtendFrame
+            or MessageType.ScreenExtendAudio
             => true,
         _ => false
     };
@@ -267,6 +312,12 @@ public sealed class KeyEventPayload
     public ushort VirtualKey { get; set; }
     public bool Down { get; set; }
     public bool Extended { get; set; }
+
+    /// <summary>
+    /// 非空时按 Unicode 插入到焦点处，忽略 VirtualKey。
+    /// 不经剪贴板，避免盖掉对端剪贴板，也避免字母被对端输入法再组字。
+    /// </summary>
+    public string? Text { get; set; }
 }
 
 /// <summary>跨屏中文组字：拼音行 + 候选列表（手机置顶展示）。</summary>
@@ -502,6 +553,210 @@ public sealed class CursorOwnerPayload
 {
     /// <summary>当前操作/应显示光标的机器名。</summary>
     public string OwnerMachine { get; set; } = "";
+}
+
+/// <summary>布局内同步安全密钥（TCP 已连接；UDP 给密钥不同尚未握手成功的实例）。</summary>
+public sealed class SecurityKeySyncPayload
+{
+    /// <summary>UDP 包判别；TCP JSON 可省略。</summary>
+    public string? Kind { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public string SecurityKey { get; set; } = "";
+    /// <summary>UTC 毫秒时间戳，忽略过期推送。</summary>
+    public long Revision { get; set; }
+    /// <summary>发送方当前电脑布局槽位（接收方校验是否同布局）。</summary>
+    public List<string> LayoutSlots { get; set; } = [];
+    /// <summary>UDP 可选：发送方宣告 IP。</summary>
+    public string? Ip { get; set; }
+    /// <summary>UDP 可选：发送方 TCP 端口。</summary>
+    public int TcpPort { get; set; }
+}
+
+/// <summary>出站 TCP 失败时，请对端主动连回本机（发现口 UDP）。</summary>
+public sealed class DialRequestPayload
+{
+    public string? Kind { get; set; }
+    public string SourceMachine { get; set; } = "";
+    public string? Ip { get; set; }
+    public int TcpPort { get; set; }
+}
+
+public sealed class ScreenExtendOfferPayload
+{
+    public string SessionId { get; set; } = "";
+    public int PreferredWidth { get; set; } = 1920;
+    public int PreferredHeight { get; set; } = 1080;
+    public int Fps { get; set; } = 12;
+    /// <summary>为 true 时主机静音，把正在播放的声音送到从机播放。旧端忽略。</summary>
+    public bool AudioSync { get; set; }
+    /// <summary>为 true 时从机全屏播放器内键鼠可回控主机采集区。旧端忽略。</summary>
+    public bool RemoteControl { get; set; }
+}
+
+/// <summary>
+/// 投影回控输入。Kind：0 移动，1 按键（鼠标），2 滚轮，3 键盘。
+/// Nx/Ny 相对播放器画面内容区 0..1。
+/// </summary>
+public sealed class ScreenExtendInputPayload
+{
+    public const int KindMove = 0;
+    public const int KindButton = 1;
+    public const int KindWheel = 2;
+    public const int KindKey = 3;
+
+    public string SessionId { get; set; } = "";
+    public int Kind { get; set; }
+    public double Nx { get; set; }
+    public double Ny { get; set; }
+    public int Button { get; set; }
+    public bool Down { get; set; }
+    public int Delta { get; set; }
+    public bool Horizontal { get; set; }
+    public ushort VirtualKey { get; set; }
+    public bool Extended { get; set; }
+    public string? Text { get; set; }
+}
+
+public sealed class ScreenExtendAcceptPayload
+{
+    public string SessionId { get; set; } = "";
+    public int SinkWidth { get; set; }
+    public int SinkHeight { get; set; }
+    /// <summary>从机主屏缩放百分比（100=100%）；旧端缺省 0 表示未知。</summary>
+    public int SinkScalePercent { get; set; }
+}
+
+/// <summary>对端主屏显示信息（投影弹窗默认值 / 扩展副屏对齐）。</summary>
+public sealed class DisplayInfoPayload
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+    /// <summary>100 / 125 / 150 / 175 / 200 …</summary>
+    public int ScalePercent { get; set; } = 100;
+    public int RefreshHz { get; set; } = 60;
+}
+
+public sealed class ScreenExtendRejectPayload
+{
+    public string SessionId { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
+/// <summary>穿边拖放时，源端一项的大小和日期，供对端「比较两个文件的信息」。</summary>
+public sealed class EdgeDragItemInfo
+{
+    public string Name { get; set; } = "";
+    public long Size { get; set; } = -1;
+    public long LastWriteUtcTicks { get; set; }
+    public bool IsDirectory { get; set; }
+}
+
+public sealed class EdgeDragQueryPayload
+{
+    public string SessionId { get; set; } = "";
+    /// <summary>源端顶层文件名和文件夹名，供对端检查同名。</summary>
+    public string[] Names { get; set; } = [];
+    /// <summary>源端所在文件夹名，弹窗「从 xxx 复制到」用。</summary>
+    public string SourceFolder { get; set; } = "";
+    /// <summary>与 Names 对应的大小/日期；旧端可为空。</summary>
+    public EdgeDragItemInfo[] Items { get; set; } = [];
+}
+
+public sealed class EdgeDragPlacePayload
+{
+    public string SessionId { get; set; } = "";
+    /// <summary>接收端上的绝对目录。空表示放不了。</summary>
+    public string Directory { get; set; } = "";
+    /// <summary>0 直接传，1 替换同名，2 跳过同名，3 取消。</summary>
+    public int Action { get; set; }
+    /// <summary>Action 为跳过时，这些顶层名称不传。</summary>
+    public string[] SkipNames { get; set; } = [];
+}
+
+/// <summary>拖拽经过某台机器时，让那台画出跟手的文件提示。</summary>
+public sealed class EdgeDragHoverPayload
+{
+    public string SessionId { get; set; } = "";
+    /// <summary>false：收起这台机器上的提示。</summary>
+    public bool Active { get; set; }
+    /// <summary>源端选中的文件和文件夹个数。</summary>
+    public int Count { get; set; }
+    /// <summary>展示用名称，不含路径。</summary>
+    public string[] Names { get; set; } = [];
+}
+
+public sealed class ScreenExtendStopPayload
+{
+    public string SessionId { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
+/// <summary>
+/// ScreenExtendFrame 二进制：16 字节 SessionId（Guid）+ int32 W + int32 H + int32 Seq + JPEG。
+/// </summary>
+public static class ScreenExtendFrameCodec
+{
+    public const int HeaderSize = 28;
+
+    public static byte[] Encode(Guid sessionId, int width, int height, int seq, ReadOnlySpan<byte> jpeg)
+    {
+        var buf = new byte[HeaderSize + jpeg.Length];
+        sessionId.TryWriteBytes(buf.AsSpan(0, 16));
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(16, 4), width);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(20, 4), height);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(24, 4), seq);
+        jpeg.CopyTo(buf.AsSpan(HeaderSize));
+        return buf;
+    }
+
+    public static bool TryDecode(ReadOnlySpan<byte> payload,
+        out Guid sessionId, out int width, out int height, out int seq, out ReadOnlySpan<byte> jpeg)
+    {
+        sessionId = default;
+        width = height = seq = 0;
+        jpeg = default;
+        if (payload.Length < HeaderSize) return false;
+        sessionId = new Guid(payload[..16]);
+        width = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
+        height = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(20, 4));
+        seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
+        jpeg = payload[HeaderSize..];
+        return true;
+    }
+}
+
+/// <summary>
+/// ScreenExtendAudio 二进制：16 字节 SessionId + int32 采样率 + int16 声道 + int16 保留 + int32 序号 + PCM s16le。
+/// </summary>
+public static class ScreenExtendAudioCodec
+{
+    public const int HeaderSize = 28;
+
+    public static byte[] Encode(Guid sessionId, int sampleRate, int channels, int seq, ReadOnlySpan<byte> pcm)
+    {
+        var buf = new byte[HeaderSize + pcm.Length];
+        sessionId.TryWriteBytes(buf.AsSpan(0, 16));
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(16, 4), sampleRate);
+        BinaryPrimitives.WriteInt16LittleEndian(buf.AsSpan(20, 2), (short)channels);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(24, 4), seq);
+        pcm.CopyTo(buf.AsSpan(HeaderSize));
+        return buf;
+    }
+
+    public static bool TryDecode(ReadOnlySpan<byte> payload,
+        out Guid sessionId, out int sampleRate, out int channels, out int seq, out ReadOnlySpan<byte> pcm)
+    {
+        sessionId = default;
+        sampleRate = channels = seq = 0;
+        pcm = default;
+        if (payload.Length < HeaderSize) return false;
+        sessionId = new Guid(payload[..16]);
+        sampleRate = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
+        channels = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(20, 2));
+        seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
+        pcm = payload[HeaderSize..];
+        return sampleRate > 0 && channels is > 0 and <= 8;
+    }
 }
 
 public static class Utf8

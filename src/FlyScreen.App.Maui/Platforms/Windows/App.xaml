@@ -6,28 +6,52 @@
 
   <!--
     MAUI 默认标题栏 DataTemplate 引用 Square44x44Logo.png（不存在），导致图标空白。
-    覆盖 MauiAppTitleBarTemplate，使用与 Win 同源的 logo。
-    见 https://github.com/dotnet/maui/issues/20265
+    覆盖 MauiAppTitleBarTemplate，使用与 Win 同源的 logo；右侧加投影按钮（最小化左侧）。
   -->
   <maui:MauiWinUIApplication.Resources>
+    <!-- 滚动条主题资源（与玄鸟细滑块色一致；切换主题时由 MauiScrollBarTheme 覆盖） -->
+    <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#CBD5E1"/>
+    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#94A3B8"/>
+    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#64748B"/>
+    <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent"/>
+    <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="Transparent"/>
+    <SolidColorBrush x:Key="ScrollBarBackground" Color="Transparent"/>
+    <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="Transparent"/>
+
     <DataTemplate x:Key="MauiAppTitleBarTemplate">
-      <Border Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0">
-        <StackPanel Orientation="Horizontal" Margin="12,0,0,0">
-          <Image x:Name="AppFontIcon"
-                 HorizontalAlignment="Left"
-                 VerticalAlignment="Center"
-                 Source="Assets/appiconLogo.png"
-                 Visibility="Visible"
-                 Width="16"
-                 Height="16"
-                 Margin="0,0,8,0" />
-          <TextBlock x:Name="AppTitle"
-                     VerticalAlignment="Center"
-                     Margin="{Binding WindowTitleMargin}"
-                     Text="{Binding WindowTitle}"
-                     Foreground="{Binding WindowTitleForeground}"
-                     Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
+      <Border x:Name="AppTitleBarRoot" Canvas.ZIndex="1" VerticalAlignment="Stretch" Margin="0"
+              Background="#F7F8FA">
+        <Grid>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="12,0,0,0">
+            <Image x:Name="AppFontIcon"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Center"
+                   Source="Assets/appiconLogo.png"
+                   Visibility="Visible"
+                   Width="16"
+                   Height="16"
+                   Margin="0,0,8,0" />
+            <TextBlock x:Name="AppTitle"
+                       VerticalAlignment="Center"
+                       Margin="{Binding WindowTitleMargin}"
+                       Text="{Binding WindowTitle}"
+                       Foreground="#111827"
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+          </StackPanel>
+          <Button x:Name="TitleProjectBtn"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Stretch"
+                  Width="46"
+                  Padding="0"
+                  Margin="0,0,140,0"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  ToolTipService.ToolTip="投影到电脑"
+                  FontFamily="Segoe MDL2 Assets"
+                  Content="&#xE8B9;"
+                  FontSize="13"
+                  Foreground="#111827"/>
+        </Grid>
       </Border>
     </DataTemplate>
   </maui:MauiWinUIApplication.Resources>

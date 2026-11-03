@@ -301,11 +301,11 @@ src/
 ### 6.3 阶段 W3 — Android 手机 / 平板
 
 **周期：** 6–8 周 · **版本：** 1.4.x · **工程：** `mobile/android`（Kotlin）  
-**进度：** 主交付转 **MAUI（W7）** — 触控板/键盘直发、剪贴板文本、直传、可选无障碍被桌面控；`mobile/android` Kotlin 工程仍为早期骨架。见 [runbooks/build-maui.md](runbooks/build-maui.md)、[runbooks/build-android.md](runbooks/build-android.md)。
+**进度：** 主交付转 **MAUI（W7）** — 触控板/键盘直发、剪贴板（文/HTML/图等，见 [clipboard.md](clipboard.md)）、直传、可选无障碍被桌面控；`mobile/android` Kotlin 工程仍为早期骨架。见 [runbooks/build-maui.md](runbooks/build-maui.md)、[runbooks/build-android.md](runbooks/build-android.md)。
 
 | 形态 | 角色 | 功能 | 现状 |
 |------|------|------|------|
-| Phone | 控 PC 为主 | 触控板、滚轮、系统输入法；文本剪贴板；收文件 | ✅ MAUI 触控板/键盘/剪贴板/直传 |
+| Phone | 控 PC 为主 | 触控板、滚轮、系统输入法；剪贴板文/HTML/图；收文件 | ✅ MAUI 触控板/键盘/剪贴板/直传 |
 | Tablet | 同 Phone | 更大触控板 UI | ✅ MAUI 同构 |
 | TV | **本阶段不做** | → W4 | — |
 
@@ -360,7 +360,7 @@ src/
 **周期：** 6–10 周 · **版本：** 2.1.x  
 **工程：** `FlyScreen.App.Maui`（引用 `FlyScreen.Core`）  
 **TFM：** 默认含 android/ios/maccatalyst；Windows 主机自动追加 `net10.0-windows*`  
-**进度：** 双轨 beta 能力接线（Win DesktopFull + Android 触控板/剪贴板/直传）+ **UI 与 Win 同构**。说明：[runbooks/build-maui.md](runbooks/build-maui.md)。
+**进度：** 双轨 beta：Maui-Win 剪贴板全格式对齐 WPF + 虚拟文件；Android 触控板/剪贴板文·HTML·图/直传/无障碍/用户程序；**UI 与 Win 同构**。剪贴板对标：[clipboard.md](clipboard.md)；构建：[runbooks/build-maui.md](runbooks/build-maui.md)。
 
 #### 目标
 
@@ -375,11 +375,12 @@ src/
 
 1. ~~新建 `FlyScreen.App.Maui`，配色与导航对齐 Win。~~ ✅
 2. ~~`MauiAppHost`：设置、发现、布局、FileTransfer、消息分发。~~ ✅
-3. ~~Windows：钩子/注入/托盘/自启/文本剪贴板（对照移植，不耦合 WPF 工程）。~~ ✅
-4. ~~Android：触控板 AbsPointer + 文本剪贴板 + 直传；Phone 启动分流。~~ ✅
+3. ~~Windows：钩子/注入/托盘/自启/剪贴板内联全格式+虚拟文件（对照移植，不耦合 WPF 工程）。~~ ✅
+4. ~~Android：触控板 AbsPointer + 剪贴板文/HTML/图 + 直传；Phone 启动分流。~~ ✅
 5. ~~侧栏 Path 彩标、安全/关于/帮助页、窄屏抽屉与 Android 侧栏可点。~~ ✅
 6. ~~触控板左键/中键、键盘直发；AbsPointer 门控对齐 Win/MAUI/Linux/Mac；无障碍被控；Signed APK 兜底。~~ ✅（2026-10-16）
-7. ⏳ Windows / Android 与 WPF 真机交叉联调打磨；文件剪贴板 OLE；无障碍键码完整度  
+7. ~~用户程序：三端编辑器 + Android `Fly`（无障碍/OCR/手势）+ `ProgramShare` 同 Id 覆盖。~~ ✅（2026-10）；细节 [programs-android.md](runbooks/programs-android.md)
+8. ⏳ Windows / Android 与 WPF 真机交叉联调打磨；Android 文件剪贴板系统粘贴；无障碍键码完整度；OCR 安全层场景  
 
 
 #### 不做
@@ -442,7 +443,18 @@ src/
 
 ---
 
-## 10. 待产品确认（附录）
+## 10. 电脑扩展屏（并行能力）
+
+真扩展（虚拟 IDD / 第二物理屏 + 采集推流），非镜像。分期与协议见 [extended-display.md](extended-display.md)。
+
+| 阶段 | 范围 |
+|------|------|
+| E1 | Win / Maui-Win 主机+从机 JPEG；会话期从机退出穿边拓扑 |
+| E2+ | 编码优化、Mac/Linux |
+
+手机不作系统扩展屏；与 W1–W7 平台迭代并行，不得破坏 Win 键鼠主路径。
+
+## 11. 待产品确认（附录）
 
 1. Android / 鸿蒙一期是否接受「只控 PC、PC 不控手机」？（规划默认：**接受**）
 2. Linux Wayland 是否接受长期降级？（规划默认：**接受**）
@@ -454,7 +466,7 @@ src/
 
 ---
 
-## 11. 修订记录
+## 12. 修订记录
 
 | 日期 | 版本 | 说明 |
 |------|------|------|
@@ -462,3 +474,6 @@ src/
 | 2026-10-14 | 1.1 | 增补 W7：.NET MAUI 跨平台 UI（`FlyScreen.App.Maui`） |
 | 2026-10-14 | 1.1.1 | W7 TFM 对齐 net10 + 补装 macos workload，消除 MSB4019 AutoImport |
 | 2026-10-15 | 1.2 | 三端 UI 同构：七页导航、安全页密钥、关于/帮助页内化、Path 侧栏；W6/W7 进度与验收更新 |
+| 2026-10-27 | 1.2.1 | W7：用户程序 Fly/OCR 文档化；Publish.MauiWin 仅 Windows TFM 说明 |
+| 2026-10-29 | 1.2.2 | W7：Maui-Win 剪贴板全格式+虚拟文件；Android 文/HTML/图；专文 clipboard.md |
+| 2026-10-29 | 1.2.3 | 电脑扩展屏 E1：专文 extended-display.md；Win/Maui-Win |

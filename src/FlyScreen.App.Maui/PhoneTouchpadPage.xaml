@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:FlyScreen.AppMaui"
              x:Class="FlyScreen.AppMaui.PhoneTouchpadPage"
              Title="触控板"
              NavigationPage.HasNavigationBar="False"
@@ -8,7 +9,7 @@
   <!-- 顶栏 + 按键区 + 触控板（键盘为系统输入法，内容直发对端不在本地累加） -->
   <Grid RowDefinitions="Auto,*,2*" Padding="12" RowSpacing="10">
 
-    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
       <VerticalStackLayout Spacing="2" VerticalOptions="Center">
         <Label Text="玄鸟 · 触控板" FontSize="18" FontAttributes="Bold" />
         <Label x:Name="StatusLabel" Text="连接桌面后即可控制"
@@ -20,10 +21,16 @@
               MinimumWidthRequest="0" HeightRequest="34" Padding="12,0"
               VerticalOptions="Center" Clicked="KeyboardToggle_Clicked" />
 
-      <Button x:Name="SettingsBtn" Grid.Column="2" Text="⚙ 设置"
+      <!-- 对齐电脑端标题栏「投影」：手机无自定义标题栏，放在触控板顶栏 -->
+      <Button x:Name="ProjectBtn" Grid.Column="2" Text="投影"
+              Style="{StaticResource NormalBtn}"
+              MinimumWidthRequest="0" HeightRequest="34" Padding="12,0"
+              VerticalOptions="Center" Clicked="OpenProjection_Clicked" />
+
+      <Button x:Name="BackBtn" Grid.Column="3" Text="返回"
               Style="{StaticResource NormalBtn}"
               MinimumWidthRequest="0" HeightRequest="34" Padding="10,0"
-              VerticalOptions="Center" Clicked="OpenSettings_Clicked" />
+              VerticalOptions="Center" Clicked="Back_Clicked" />
     </Grid>
 
     <Grid Grid.Row="1" ColumnDefinitions="*,*,*" ColumnSpacing="8">
@@ -95,11 +102,12 @@
               Padding="10,8" ColumnDefinitions="*,Auto" ColumnSpacing="8"
               BackgroundColor="{StaticResource SubtleBg}">
           <!-- StyleClass=PhoneIme：Android 固定 ClassText，避免 Entry 默认 NoSuggestions 掐掉拼音候选 -->
-          <Entry x:Name="KeyboardEntry"
+          <local:PhoneImeEntry x:Name="KeyboardEntry"
                  StyleClass="PhoneIme"
                  Placeholder="输入法/手写 → 直接发到电脑（本地不保留）"
                  FontSize="15"
-                 ReturnType="Done"
+                 HeightRequest="40"
+                 ReturnType="Default"
                  IsTextPredictionEnabled="True"
                  IsSpellCheckEnabled="True"
                  BackgroundColor="Transparent"

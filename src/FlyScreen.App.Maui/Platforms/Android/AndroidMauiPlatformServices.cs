@@ -3,6 +3,8 @@ using FlyScreen.AppMaui.Services;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Models;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
@@ -12,15 +14,20 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// 1) 悬浮小窗画指针（其他应用上层可见）
 /// 2) 未加窗成功前绝不关掉无障碍/应用内箭头（避免「能点但看不见」）
 /// 3) 电脑主动穿入时解除触控板屏蔽
+/// 4) 手机→电脑复制投影（MediaProjection Host，不做 Sink）
+/// 5) 投影远程控制：接收从机播放器 ScreenExtendInput 并注入本机
 /// </summary>
 public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 {
     private readonly AppSettings _settings;
     private readonly FileTransferService _transfers;
     private readonly MauiClipboardApplySink _clipSink = new();
+    private readonly AndroidScreenExtendHostController _screenExtendHost;
     private CancellationTokenSource? _clipCts;
-    private string? _lastTextKey;
+    private string? _lastInlineKey;
+    private string? _lastFilesKey;
     private bool _receiving;
+    private bool _screenExtendReverse;
     private bool _promptedOverlay;
     private bool _promptedTouchInjection;
     private bool _remotePointerSuppressed;
@@ -28,12 +35,28 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     private string? _lastOverlayWarn;
     private long _lastOverlayWarnTicks;
     private bool? _a11yDrawCursor;
+    private EdgeFileDragService? _edgeDrag;
 
-    public AndroidMauiPlatformServices(AppSettings settings, FileTransferService transfers)
+    public AndroidMauiPlatformServices(
+        AppSettings settings,
+        FileTransferService transfers,
+        ScreenExtendService screenExtend)
     {
         _settings = settings;
         _transfers = transfers;
+        _screenExtendHost = new AndroidScreenExtendHostController(
+            screenExtend,
+            ArmScreenExtendReverse,
+            DisarmScreenExtendReverse,
+            ApplyScreenExtendReverseInput);
+        // 用户程序运行：WakeLock；可选「通知注入」前台通知（无子程序则不占通知）
+        ProgramService.Instance.Runner.RunningCountChanged += count =>
+            AndroidProgramWakeLock.SetProgramsRunning(count);
     }
+
+    /// <summary>弹出录屏授权并启动采集；须在 StartHostAsync 之前调用。</summary>
+    public Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default)
+        => _screenExtendHost.PrepareCaptureAsync(ct);
 
     public IClipboardApplySink ClipboardSink => _clipSink;
     public bool SupportsDesktopInput => false;
@@ -43,6 +66,29 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public bool AcceptsRemoteInput => _receiving && !_remotePointerSuppressed;
 
     public event Action<string?>? ControlTargetChanged;
+
+    public void AttachEdgeFileDrag(EdgeFileDragService drag)
+    {
+        if (_edgeDrag != null)
+            _edgeDrag.CueChanged -= OnEdgeDragCue;
+        _edgeDrag = drag;
+        drag.CueChanged += OnEdgeDragCue;
+    }
+
+    private static void OnEdgeDragCue(EdgeDragCue? cue)
+    {
+        if (cue == null || cue.Count <= 0)
+        {
+            FlyScreenCursorOverlay.SetDragHint(null);
+            return;
+        }
+
+        var names = string.Join("、", cue.Names.Where(n => !string.IsNullOrWhiteSpace(n)).Take(3));
+        var text = cue.Count > 1 ? $"松开复制 {cue.Count} 项到收件箱" : "松开复制 1 项到收件箱";
+        if (names.Length > 0)
+            text += "\n" + names;
+        FlyScreenCursorOverlay.SetDragHint(text);
+    }
 
     public void SetRemotePointerSuppressed(bool suppressed)
     {
@@ -67,6 +113,14 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     private void ApplySuppressState()
     {
+        // 投影回控期间：从机播放器键鼠优先，不因触控板页屏蔽
+        if (_screenExtendReverse)
+        {
+            if (_remotePointerSuppressed)
+                _remotePointerSuppressed = false;
+            return;
+        }
+
         // 触控板页优先：屏蔽电脑键鼠，避免双指针；离开触控板后再允许穿入
         var want = _touchpadWantsSuppress;
         if (_remotePointerSuppressed == want) return;
@@ -76,6 +130,58 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             EndRemoteCursor();
             ControlTargetChanged?.Invoke(null);
             AppLog.Info("触控板已启用：已断开电脑键鼠控制");
+        }
+    }
+
+    /// <summary>投影 Host 开启远程控制：准备无障碍会话与指针，供从机播放器回控。</summary>
+    private void ArmScreenExtendReverse()
+    {
+        if (_screenExtendReverse && _receiving) return;
+        _screenExtendReverse = true;
+        _remotePointerSuppressed = false;
+        // 不走触控板门闩：回控来自对端全屏播放器，与穿边 EasyMouse 无关
+        BeginReceivingRemoteControlCore(0.5, 0.5);
+        AppLog.Info("投影远程控制：已就绪，等待从机播放器键鼠");
+    }
+
+    private void DisarmScreenExtendReverse()
+    {
+        if (!_screenExtendReverse) return;
+        _screenExtendReverse = false;
+        if (_receiving)
+            EndRemoteCursor();
+        ApplySuppressState();
+        AppLog.Info("投影远程控制：已结束");
+    }
+
+    private void ApplyScreenExtendReverseInput(ScreenExtendInputPayload input)
+    {
+        if (!_screenExtendReverse || !_receiving)
+            ArmScreenExtendReverse();
+        if (!_receiving) return;
+
+        _remotePointerSuppressed = false;
+        // 去黑边时播放器坐标相对裁切画面，需映射回手机全屏
+        FlyScreenMediaProjectionService.MapReverseInputToScreen(input.Nx, input.Ny, out var nx, out var ny);
+        switch (input.Kind)
+        {
+            case ScreenExtendInputPayload.KindMove:
+                InjectMouseMoveAbsolute(nx, ny);
+                break;
+            case ScreenExtendInputPayload.KindButton:
+                InjectMouseMoveAbsolute(nx, ny);
+                InjectMouseButton(input.Button, input.Down);
+                break;
+            case ScreenExtendInputPayload.KindWheel:
+                InjectMouseMoveAbsolute(nx, ny);
+                InjectMouseWheel(input.Delta, input.Horizontal);
+                break;
+            case ScreenExtendInputPayload.KindKey:
+                if (!string.IsNullOrEmpty(input.Text))
+                    InjectText(input.Text);
+                else
+                    InjectKey(input.VirtualKey, input.Down, input.Extended);
+                break;
         }
     }
 
@@ -178,13 +284,18 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
     {
-        // 触控板正在控制电脑时，拒绝被电脑反控
-        if (_touchpadWantsSuppress)
+        // 触控板正在控制电脑时，拒绝被电脑反控（投影回控走 ArmScreenExtendReverse）
+        if (_touchpadWantsSuppress && !_screenExtendReverse)
         {
             AppLog.Info("触控板模式：忽略电脑键鼠穿入");
             return;
         }
 
+        BeginReceivingRemoteControlCore(entryX, entryY);
+    }
+
+    private void BeginReceivingRemoteControlCore(double entryX, double entryY)
+    {
         _remotePointerSuppressed = false;
         _receiving = true;
         _a11yDrawCursor = null;
@@ -219,6 +330,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void OnCursorOwnerChanged(string ownerMachine)
     {
+        if (_screenExtendReverse) return; // 投影回控不走穿边 CursorOwner
         if (string.IsNullOrWhiteSpace(ownerMachine)) return;
         var local = string.Equals(ownerMachine, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(ownerMachine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
@@ -229,6 +341,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
     public void RestoreCursorWhenLeavingCluster()
     {
+        if (_screenExtendReverse) return;
         if (!_receiving) return;
         EndRemoteCursor();
         ControlTargetChanged?.Invoke(null);
@@ -257,7 +370,9 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
 
 
     public bool GetAutoStartEnabled() => false;
-    public void SetAutoStartEnabled(bool enabled) { }
+    public bool SetAutoStartEnabled(bool enabled) => !enabled;
+
+    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
 
     public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
     {
@@ -266,6 +381,19 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     }
 
     public void DisposeTray() { }
+
+    public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        LayoutEdgeSide layoutSide = LayoutEdgeSide.Unknown)
+        // 手机仅复制，无虚拟副屏；采集在 PrepareScreenExtendCaptureAsync
+        => Task.FromResult<(bool, string?)>((true, "手机复制投影"));
+
+    public Task ReleaseScreenExtendHostDisplayAsync()
+        => _screenExtendHost.ReleaseAsync();
+
+    public void SetScreenExtendProjectionMode(DisplayProjectionMode mode) { }
+
+    public void SetScreenExtendDisplayChoice(ProjectionDisplayChoice? choice)
+        => _screenExtendHost.SetDisplayChoice(choice);
 
     /// <summary>
     /// 指针只走系统层：悬浮窗 或 无障碍 Overlay。
@@ -406,16 +534,204 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
             {
                 await Task.Delay(1200, ct).ConfigureAwait(false);
                 if (!_settings.ShareClipboard || _clipSink.IsSuppressed) continue;
-                var text = await _clipSink.TryGetTextAsync().ConfigureAwait(false);
-                if (string.IsNullOrEmpty(text)) continue;
-                var key = text.Length + ":" + text.GetHashCode();
-                if (key == _lastTextKey) continue;
-                _lastTextKey = key;
-                await _transfers.AnnounceLocalInlineAsync(new ClipboardInlineData { Text = text })
+
+                if (_settings.TransferFile)
+                {
+                    var files = await MainThread.InvokeOnMainThreadAsync(TryCaptureAndroidFilePaths)
+                        .ConfigureAwait(false);
+                    if (files is { Count: > 0 })
+                    {
+                        var real = files.Where(p => !_transfers.IsInboxPath(p)).ToList();
+                        if (real.Count > 0)
+                        {
+                            var key = string.Join("|", real);
+                            if (key != _lastFilesKey
+                                && await _transfers.AnnounceLocalFilesAsync(real).ConfigureAwait(false))
+                                _lastFilesKey = key;
+                            continue;
+                        }
+                    }
+                }
+
+                var inline = await MainThread.InvokeOnMainThreadAsync(TryCaptureAndroidInline)
                     .ConfigureAwait(false);
+                if (inline == null || inline.IsEmpty) continue;
+                if (_clipSink.IsSameAsLastApplied(inline)) continue;
+
+                var inlineKey = inline.BuildKey();
+                if (inlineKey == _lastInlineKey) continue;
+                await _transfers.AnnounceLocalInlineAsync(inline).ConfigureAwait(false);
+                _lastInlineKey = inlineKey;
             }
             catch (OperationCanceledException) { break; }
             catch { /* ignore */ }
+        }
+    }
+
+    private static ClipboardInlineData? TryCaptureAndroidInline()
+    {
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            if (ctx == null) return null;
+            var cm = ctx.GetSystemService(global::Android.Content.Context.ClipboardService)
+                as global::Android.Content.ClipboardManager;
+            var clip = cm?.PrimaryClip;
+            if (clip == null || clip.ItemCount <= 0) return null;
+
+            string? text = null;
+            string? html = null;
+            byte[]? png = null;
+
+            for (var i = 0; i < clip.ItemCount; i++)
+            {
+                var item = clip.GetItemAt(i);
+                if (item == null) continue;
+
+                if (string.IsNullOrEmpty(html))
+                {
+                    try
+                    {
+                        html = item.HtmlText;
+                        if (string.IsNullOrEmpty(html)) html = null;
+                    }
+                    catch
+                    {
+                        html = null;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(text))
+                {
+                    text = item.Text;
+                    if (string.IsNullOrEmpty(text))
+                        text = item.CoerceToText(ctx)?.ToString();
+                    if (string.IsNullOrEmpty(text)) text = null;
+                }
+
+                if (png == null)
+                {
+                    var uri = item.Uri;
+                    if (uri != null && IsLikelyImageUri(ctx, uri))
+                        png = TryReadImagePng(ctx, uri);
+                }
+            }
+
+            // 输入法编辑条用的占位符，不能当成用户剪贴板同步到电脑
+            if (PhoneRemoteEditText.IsRemoteOnlyText(text))
+                text = null;
+
+            var data = new ClipboardInlineData { Text = text, Html = html, Png = png };
+            return data.IsEmpty ? null : data;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>非图片 URI → 物化到缓存后宣告为文件（TransferFile 开启时）。</summary>
+    private static IReadOnlyList<string>? TryCaptureAndroidFilePaths()
+    {
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            if (ctx == null) return null;
+            var cm = ctx.GetSystemService(global::Android.Content.Context.ClipboardService)
+                as global::Android.Content.ClipboardManager;
+            var clip = cm?.PrimaryClip;
+            if (clip == null || clip.ItemCount <= 0) return null;
+
+            var paths = new List<string>();
+            for (var i = 0; i < clip.ItemCount; i++)
+            {
+                var item = clip.GetItemAt(i);
+                var uri = item?.Uri;
+                if (uri == null) continue;
+                if (IsLikelyImageUri(ctx, uri)) continue;
+
+                var path = TryMaterializeUriToCache(ctx, uri);
+                if (!string.IsNullOrWhiteSpace(path))
+                    paths.Add(path);
+            }
+
+            return paths.Count > 0 ? paths : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsLikelyImageUri(global::Android.Content.Context ctx, global::Android.Net.Uri uri)
+    {
+        try
+        {
+            var mime = ctx.ContentResolver?.GetType(uri);
+            if (!string.IsNullOrEmpty(mime) && mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var path = uri.Path ?? uri.ToString() ?? "";
+            return path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryMaterializeUriToCache(
+        global::Android.Content.Context ctx, global::Android.Net.Uri uri)
+    {
+        try
+        {
+            if (string.Equals(uri.Scheme, "file", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(uri.Path)
+                && File.Exists(uri.Path))
+                return uri.Path;
+
+            using var input = ctx.ContentResolver?.OpenInputStream(uri);
+            if (input == null) return null;
+
+            var name = uri.LastPathSegment;
+            if (string.IsNullOrWhiteSpace(name) || name.Contains('/'))
+                name = "clip-" + Guid.NewGuid().ToString("N");
+
+            var dir = Path.Combine(ctx.CacheDir?.AbsolutePath ?? Path.GetTempPath(), "flyscreen-clip");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, name);
+            using (var fs = File.Create(path))
+                input.CopyTo(fs);
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static byte[]? TryReadImagePng(global::Android.Content.Context ctx, global::Android.Net.Uri uri)
+    {
+        try
+        {
+            using var input = ctx.ContentResolver?.OpenInputStream(uri);
+            if (input == null) return null;
+
+            using var bmp = global::Android.Graphics.BitmapFactory.DecodeStream(input);
+            if (bmp == null) return null;
+
+            using var ms = new MemoryStream();
+            if (!bmp.Compress(global::Android.Graphics.Bitmap.CompressFormat.Png!, 100, ms))
+                return null;
+            return ms.ToArray();
+        }
+        catch
+        {
+            return null;
         }
     }
 

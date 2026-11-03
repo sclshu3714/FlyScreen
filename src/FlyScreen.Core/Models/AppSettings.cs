@@ -28,8 +28,37 @@ public sealed class AppSettings
     public bool BlockMouseAtCorners { get; set; }
     public bool ShowStatusMessages { get; set; } = true;
     public bool EasyMouse { get; set; } = true;
+    /// <summary>
+    /// Android：通知注入。启用且有用户子程序运行时，以前台通知保活；
+    /// 无子程序运行时不占用通知（本机项，不参与 BehaviorSync）。
+    /// </summary>
+    public bool NotificationInject { get; set; }
     /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
     public int EdgeCrossMode { get; set; }
+    /// <summary>最近一次投影目标机器名（弹窗默认项；须双向已连接的电脑/大屏）。</summary>
+    public string ScreenExtendPeer { get; set; } = "";
+    /// <summary>最近一次投影方式：0 仅电脑 / 1 复制 / 2 扩展 / 3 仅第二屏。</summary>
+    public int ScreenExtendProjectionMode { get; set; } = 2;
+    /// <summary>投影分辨率来源：0 本机主屏 / 1 目标电脑 / 2 自定义。</summary>
+    public int ScreenExtendDisplaySource { get; set; }
+    public int ScreenExtendWidth { get; set; }
+    public int ScreenExtendHeight { get; set; }
+    /// <summary>投影缩放百分比；0 表示跟随来源自动。</summary>
+    public int ScreenExtendScalePercent { get; set; }
+    /// <summary>上次投影帧率；0 表示尚未选择，弹窗用默认档。</summary>
+    public int ScreenExtendFps { get; set; }
+    /// <summary>上次 JPEG 画质；0 表示尚未选择。</summary>
+    public int ScreenExtendJpegQuality { get; set; }
+    /// <summary>上次是否开启声音同步。</summary>
+    public bool ScreenExtendAudioSync { get; set; }
+    /// <summary>上次是否开启投影远程控制（从机播放器回控主机）。</summary>
+    public bool ScreenExtendRemoteControl { get; set; }
+    /// <summary>上次是否开启去黑边。</summary>
+    public bool ScreenExtendCropBlackBars { get; set; }
+    /// <summary>
+    /// 镜像：MTT/VDD 是否由本程序环境修复安装（权威标记见 Windows 侧 mtt-vdd-installed-by-app.flag）。
+    /// </summary>
+    public bool MttVddInstalledByApp { get; set; }
     /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
     public bool AutoStart { get; set; }
     /// <summary>启动时静默检查 GitHub Release 更新。</summary>
@@ -57,8 +86,7 @@ public sealed class AppSettings
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static string SettingsPath =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FlyScreen", "settings.json");
+    public static string SettingsPath => FlyScreen.Services.FlyScreenDataPaths.SettingsFile;
 
     public static AppSettings Load()
     {

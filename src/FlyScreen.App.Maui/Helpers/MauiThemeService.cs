@@ -1,7 +1,8 @@
 namespace FlyScreen.AppMaui.Helpers;
 
 /// <summary>
-/// MAUI 淡色/深色：覆盖 Colors 资源键，配合 DynamicResource 即时生效。
+/// MAUI 淡色/深色：覆盖 Colors 资源键，配合 DynamicResource 即时生效；
+/// Win 上同步 RequestedTheme / 标题栏，并强制刷新 RadioButton 前景（否则切换后字色卡住）。
 /// </summary>
 public static class MauiThemeService
 {
@@ -38,11 +39,43 @@ public static class MauiThemeService
         Set("MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set("ListBg", dark ? "#0B1220" : "#F9FAFB");
         Set("Primary", dark ? "#3B82F6" : "#2563EB");
+        Set("ScrollThumb", dark ? "#64748B" : "#CBD5E1");
+        Set("ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
+        Set("ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
 
         page ??= TryGetMainPage();
         if (page != null && ColorOf("WinBg") is { } winBg)
             page.BackgroundColor = winBg;
+
+        MauiScrollChrome.Apply(dark);
+#if WINDOWS
+        Platforms.Windows.MauiWindowChrome.ApplyTheme(dark);
+#endif
+
+        // WinUI Radio 字符串 Content 的前景常卡住 → Label 内容 + 原生 TextBlock 强制刷色
+        MauiRadioTheme.RefreshAll(page);
+        if (page != null)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                MauiRadioTheme.RefreshAll(page);
+#if WINDOWS
+                Platforms.Windows.MauiWindowChrome.ApplyTheme(dark);
+#endif
+            });
+            // 再延迟一帧：LoadUi/本地化改完 Content 后字色仍可能是旧主题
+            _ = page.Dispatcher.DispatchAsync(async () =>
+            {
+                await Task.Delay(50);
+                MauiRadioTheme.RefreshAll(page);
+                await Task.Delay(150);
+                MauiRadioTheme.RefreshAll(page);
+            });
+        }
     }
+
+    public static void RefreshRadioButtonsInVisualTree(Element? root)
+        => MauiRadioTheme.RefreshAll(root);
 
     private static Page? TryGetMainPage()
     {

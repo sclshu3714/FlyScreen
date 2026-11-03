@@ -13,6 +13,12 @@ public static class MauiProgram
         builder.UseMauiApp<App>();
 
 #if ANDROID
+        // 日志/程序/收件箱 → Android/data/com.xuanniao.flyscreen/files（无需所有文件访问）
+        Platforms.Android.AndroidPublicDataRoot.TryBootstrap();
+
+        builder.ConfigureMauiHandlers(handlers =>
+            handlers.AddHandler<PhoneImeEntry, Platforms.Android.PhoneImeEntryHandler>());
+
         // 触控板「键盘」条：允许系统拼音候选（勿用 NoSuggestions）
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenPhoneIme", (handler, view) =>
         {
@@ -21,7 +27,7 @@ public static class MauiProgram
             if (handler.PlatformView is not Android.Widget.EditText edit) return;
             edit.ShowSoftInputOnFocus = true;
             edit.InputType = Android.Text.InputTypes.ClassText;
-            edit.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
+            edit.ImeOptions = Platforms.Android.PhoneRemoteEditText.RemoteImeOptions();
             edit.SetSingleLine(true);
             try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
         });
@@ -38,6 +44,11 @@ public static class MauiProgram
                     rb.TextColor = text;
             }
         });
+
+        Microsoft.Maui.Handlers.ScrollViewHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (handler, _) =>
+            Platforms.Android.MauiAndroidScrollChrome.Apply(handler.PlatformView));
+        Microsoft.Maui.Handlers.EditorHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (handler, _) =>
+            Platforms.Android.MauiAndroidScrollChrome.Apply(handler.PlatformView));
 
         // StyleClass=Mono → 系统等宽；勿用 FontFamily=Consolas（Win 未打包会炸 FontManager）
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("FlyScreenMono", (handler, view) =>
@@ -60,7 +71,11 @@ public static class MauiProgram
         {
             if (handler.VirtualView is Window window)
                 Services.MauiWindowIcon.Apply(window);
+            Helpers.MauiScrollChrome.ApplyCurrentTheme();
         });
+
+        Microsoft.Maui.Handlers.ScrollViewHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (_, _) =>
+            Helpers.MauiScrollChrome.ApplyCurrentTheme());
 
         // WinUI CheckBox 默认 MinWidth 很大；只清 MinWidth，勿强设 Width（会裁掉勾选图标）
         Microsoft.Maui.Handlers.CheckBoxHandler.Mapper.AppendToMapping("FlyScreenCompact", (handler, _) =>
@@ -72,6 +87,18 @@ public static class MauiProgram
             native.Margin = new Microsoft.UI.Xaml.Thickness(0);
             native.HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left;
             native.VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
+        });
+
+        // RadioButton：Win 用 Label 刷字色；Android 须把 Label Content 收成 string（否则显示类型名）
+        Microsoft.Maui.Handlers.RadioButtonHandler.Mapper.AppendToMapping("FlyScreenRadioTheme", (handler, view) =>
+        {
+            if (view is not RadioButton rb) return;
+            if (rb.Content is string s)
+                Helpers.MauiRadioTheme.SetContent(rb, s);
+            else if (rb.Content is Label lbl)
+                Helpers.MauiRadioTheme.SetContent(rb, lbl.Text ?? "");
+            else
+                Helpers.MauiRadioTheme.RefreshAll(rb);
         });
 
         // 侧栏搜索：去掉 WinUI Entry 默认白底边框，避免「灰底套白框」
@@ -103,12 +130,13 @@ public static class MauiProgram
         var host = MauiAppHost.EnsureCreated();
 #if WINDOWS
         host.AttachPlatform(new Platforms.Windows.WindowsMauiPlatformServices(
-            host.Settings, host.Connections, host.Transfers));
+            host.Settings, host.Connections, host.Transfers, host.ScreenExtend));
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
-            host.Settings, host.Transfers));
+            host.Settings, host.Transfers, host.ScreenExtend));
         // 用户程序 Fly.* 控机：无障碍服务连上后也会再设一次
         ProgramDevice.Current = Platforms.Android.AndroidProgramDeviceControl.Instance;
+        Platforms.Android.FlyScreenDebugLogHud.Register();
 #elif MACCATALYST || IOS
         // Mac / iOS：壳可跑；键鼠注入等仍走 Null（正式桌面 Mac 见 Avalonia）
         host.AttachPlatform(NullMauiPlatformServices.Instance);
@@ -116,7 +144,7 @@ public static class MauiProgram
 
         builder.Services.AddSingleton(host);
         builder.Services.AddSingleton<MainPage>();
-        builder.Services.AddSingleton<PhoneTouchpadPage>();
+        // PhoneTouchpadPage 按目标 peer 每次 new，不注册 Singleton
 
 #if DEBUG
         builder.Logging.AddDebug();
