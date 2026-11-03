@@ -3086,10 +3086,63 @@ public partial class MainPage : ContentPage
 
     private void RefreshAboutPage()
     {
-        var ver = typeof(MainPage).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{Math.Max(ver.Build, 0)}";
         AboutTitleText.Text = Loc.T("About.Title");
-        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
+        AboutBodyHost.Children.Clear();
+        var linkColor = Colors.DodgerBlue;
+        if (Application.Current?.Resources.TryGetValue("Blue", out var blue) == true)
+        {
+            if (blue is Color c) linkColor = c;
+            else if (blue is SolidColorBrush scb) linkColor = scb.Color;
+        }
+
+        foreach (var para in AboutDocument.Build(AppVersionDisplay.Current))
+        {
+            if (para.Spans.Count == 0)
+            {
+                AboutBodyHost.Children.Add(new BoxView { HeightRequest = 8, Color = Colors.Transparent });
+                continue;
+            }
+
+            var fs = new FormattedString();
+            foreach (var span in para.Spans)
+            {
+                if (!string.IsNullOrEmpty(span.Url))
+                {
+                    var url = span.Url;
+                    var s = new Span
+                    {
+                        Text = span.Text,
+                        TextColor = linkColor,
+                        TextDecorations = TextDecorations.Underline,
+                        FontSize = 13
+                    };
+                    s.GestureRecognizers.Add(new TapGestureRecognizer
+                    {
+                        Command = new Command(async () =>
+                        {
+                            try { await Launcher.Default.OpenAsync(url); }
+                            catch { /* ignore */ }
+                        })
+                    });
+                    fs.Spans.Add(s);
+                }
+                else
+                {
+                    fs.Spans.Add(new Span
+                    {
+                        Text = span.Text,
+                        FontSize = 13,
+                        FontAttributes = para.IsHeading ? FontAttributes.Bold : FontAttributes.None
+                    });
+                }
+            }
+
+            AboutBodyHost.Children.Add(new Label
+            {
+                FormattedText = fs,
+                LineBreakMode = LineBreakMode.WordWrap
+            });
+        }
     }
 
     private void RefreshHelpToolbarLabels()

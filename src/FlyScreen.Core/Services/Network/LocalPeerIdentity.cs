@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace FlyScreen.Services.Network;
@@ -45,10 +44,7 @@ public static class LocalPeerIdentity
         _machineNameResolver = resolver;
         _resolvedMachineName = null;
     }
-    public static string AppVersion =>
-        Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
-        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
-        ?? "0.0.0";
+    public static string AppVersion => Helpers.AppVersionDisplay.Current;
 
     public static string[] Caps => _capsOverride ?? DefaultCapsForPlatform();
 

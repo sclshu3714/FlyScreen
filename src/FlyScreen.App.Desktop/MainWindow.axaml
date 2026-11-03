@@ -1033,7 +1033,7 @@
               <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                   <TextBlock x:Name="AboutTitleText" Text="关于" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                  <TextBlock x:Name="AboutBodyText" TextWrapping="Wrap" LineHeight="22" FontSize="13"/>
+                  <StackPanel x:Name="AboutBodyHost" Spacing="2"/>
                 </StackPanel>
               </ScrollViewer>
             </Border>

@@ -1346,13 +1346,63 @@ public partial class MainWindow : Window
 
     private void RefreshAboutPage()
     {
-        var ver = typeof(MainWindow).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{Math.Max(ver.Build, 0)}";
-        var body = string.Format(Loc.T("About.Body"), verText);
-        if (!string.IsNullOrWhiteSpace(_host.PlatformStatusLine))
-            body += "\n\n" + _host.PlatformStatusLine;
         AboutTitleText.Text = Loc.T("About.Title");
-        AboutBodyText.Text = body;
+        AboutBodyHost.Children.Clear();
+        var linkBrush = this.TryFindResource("Blue", ActualThemeVariant, out var br) && br is IBrush b
+            ? b
+            : Brushes.DodgerBlue;
+
+        foreach (var para in AboutDocument.Build(AppVersionDisplay.Current))
+        {
+            if (para.Spans.Count == 0)
+            {
+                AboutBodyHost.Children.Add(new Border { Height = 8 });
+                continue;
+            }
+
+            var wrap = new WrapPanel();
+            foreach (var span in para.Spans)
+            {
+                if (!string.IsNullOrEmpty(span.Url))
+                {
+                    var url = span.Url;
+                    var btn = new HyperlinkButton
+                    {
+                        Content = span.Text,
+                        NavigateUri = new Uri(url),
+                        Padding = new Thickness(0),
+                        FontSize = 13,
+                        Foreground = linkBrush
+                    };
+                    btn.Click += (_, _) => TryOpenUrl(url);
+                    wrap.Children.Add(btn);
+                }
+                else
+                {
+                    wrap.Children.Add(new TextBlock
+                    {
+                        Text = span.Text,
+                        FontSize = 13,
+                        FontWeight = para.IsHeading ? FontWeight.SemiBold : FontWeight.Normal,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+                }
+            }
+
+            AboutBodyHost.Children.Add(wrap);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_host.PlatformStatusLine))
+        {
+            AboutBodyHost.Children.Add(new Border { Height = 8 });
+            AboutBodyHost.Children.Add(new TextBlock
+            {
+                Text = _host.PlatformStatusLine,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
     }
 
     private void RefreshHelpToolbarLabels()
