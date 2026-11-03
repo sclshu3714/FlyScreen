@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.2 |
+| 文档版本 | 1.2.4 |
 | 状态 | 生效 |
 | 原则 | 协议先行、能力协商、平台隔离、**Windows 主干零回退** |
 
@@ -443,16 +443,17 @@ src/
 
 ---
 
-## 10. 电脑扩展屏（并行能力）
+## 10. 电脑扩展屏与穿边拖（并行能力）
 
-真扩展（虚拟 IDD / 第二物理屏 + 采集推流），非镜像。分期与协议见 [extended-display.md](extended-display.md)。
+真扩展（虚拟 IDD / 第二物理屏 + 采集推流），非镜像。分期与协议见 [extended-display.md](extended-display.md)。穿边拖文件见 [edge-file-drag.md](edge-file-drag.md)。
 
-| 阶段 | 范围 |
-|------|------|
-| E1 | Win / Maui-Win 主机+从机 JPEG；会话期从机退出穿边拓扑 |
-| E2+ | 编码优化、Mac/Linux |
+| 阶段 | 范围 | 现状 |
+|------|------|------|
+| E1 | Win / Maui-Win 主机+从机 JPEG；会话期从机退出穿边拓扑 | ✅ 另含声音同步、远程回控、1 对 1 互斥、去黑边；手机可 Host 复制投屏；Mac/Linux 可 Sink |
+| E2+ | 编码优化、更低延迟 | ⏳ |
+| 穿边拖 | 桌面跨屏拖文件/文件夹（Hover/Query/Place + 同名冲突） | ✅ Win / Maui-Win / Mac / Linux |
 
-手机不作系统扩展屏；与 W1–W7 平台迭代并行，不得破坏 Win 键鼠主路径。
+手机不作系统扩展屏（无 Sink）；与 W1–W7 平台迭代并行，不得破坏 Win 键鼠主路径。
 
 ## 11. 待产品确认（附录）
 
@@ -477,3 +478,4 @@ src/
 | 2026-10-27 | 1.2.1 | W7：用户程序 Fly/OCR 文档化；Publish.MauiWin 仅 Windows TFM 说明 |
 | 2026-10-29 | 1.2.2 | W7：Maui-Win 剪贴板全格式+虚拟文件；Android 文/HTML/图；专文 clipboard.md |
 | 2026-10-29 | 1.2.3 | 电脑扩展屏 E1：专文 extended-display.md；Win/Maui-Win |
+| 2026-11-03 | 1.2.4 | E1 补齐声音/回控/互斥；穿边拖专文；protocol/status/clipboard 同步 |

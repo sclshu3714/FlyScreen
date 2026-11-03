@@ -24,6 +24,8 @@
 | `LayoutSync` | 1×4 / 2×2 槽位布局同步 |
 | `InjectInput` | 允许对端注入本机键鼠 |
 | `CaptureInput` | 本机可作为主机捕获键鼠并转发 |
+| `ScreenExtendHost` | 可作为投影主机（电脑：复制/扩展采集推流；手机：仅复制 MediaProjection） |
+| `ScreenExtendSink` | 可作为投影从机（全屏收流）；手机**不**宣告 |
 
 ## 3. 功能矩阵（目标态）
 
@@ -41,6 +43,10 @@
 | LayoutSync | ✅ | ✅ | ✅ | ❌ | ✅ |
 | InjectInput | ✅ | ✅ | ✅ | ⚠️ | ✅ / ⚠️ |
 | CaptureInput | ✅ | ✅ | ✅ | ⚠️ | ✅ / ⚠️ |
+| ScreenExtendHost | ✅ | ⚠️³ | ⚠️³ | ⚠️³ | ⚠️ |
+| ScreenExtendSink | ✅ | ✅ | ✅ | ✅ | ⚠️ |
+
+穿边拖文件非独立 Cap，桌面在具备 `EdgeMouse`+文件传输时可用；见 [edge-file-drag.md](edge-file-drag.md)。
 
 ### 3.2 移动与 TV
 
@@ -54,8 +60,11 @@
 | LayoutSync | ❌ | ❌ | ❌ | ❌ | ❌ |
 | InjectInput（被桌面控） | ⚠️→✅² | ⚠️→✅² | ⚠️ | ⚠️ | ⚠️ |
 | CaptureInput（当主机） | ❌→触控板充当 | 同左 | 遥控主机 | 同左 | 同左 |
+| ScreenExtendHost | ✅ 复制投屏 | ✅ 复制投屏 | — | — | — |
+| ScreenExtendSink | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-² **MAUI Android（`App.Maui`）**：握手宣告 `EdgeMouse` + `InjectInput`；桌面边缘切入手机后，经**无障碍服务「玄鸟键鼠注入」**派发点击/滑动（须用户授权）。完整键码注入仍受限。Kotlin 独立工程（`mobile/android`）仍为旧 Caps，不含此项。
+² **MAUI Android（`App.Maui`）**：握手宣告 `EdgeMouse` + `InjectInput` + `ScreenExtendHost`；桌面边缘切入手机后，经**无障碍服务「玄鸟键鼠注入」**派发点击/滑动（须用户授权）。完整键码注入仍受限。Kotlin 独立工程（`mobile/android`）仍为旧 Caps，不含此项。  
+³ Mac/Linux 本期以 **Sink** 为主；电脑发起扩展/VDD 仍以 Windows（含 Maui-Win）为主。详见 [extended-display.md](extended-display.md)。
 
 ### 3.3 一期主路径（产品默认）
 
@@ -101,3 +110,4 @@ Android `ClipboardFiles`：开启传文件时可物化非图 URI 后宣告；粘
 | 2026-10-16 | MAUI Android：`AndroidMobile` 含 EdgeMouse/InjectInput；无障碍注入；触控板 AbsPointer 主路径完善 |
 | 2026-10-27 | 补充本机用户程序（Fly/OCR）说明；非 Caps |
 | 2026-10-29 | 剪贴板实现对齐说明；链到 [clipboard.md](clipboard.md)；Android/Desktop 半通与尽力语义 |
+| 2026-11-03 | 增补 ScreenExtendHost/Sink；Android 复制投屏；链到穿边拖 |
