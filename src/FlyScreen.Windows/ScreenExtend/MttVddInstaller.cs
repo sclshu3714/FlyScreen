@@ -360,7 +360,8 @@ public static class MttVddInstaller
 
             return (false,
                 "已自动尝试修复/重建虚拟显示设备并重装驱动，但仍无控制台管道。"
-                + "请重启电脑后再打开投影点「重新检测」（部分黄叹号设备需重启才能加载）。");
+                + "请重启电脑后再打开投影点「重新检测」（部分黄叹号设备需重启才能加载）。"
+                + DetectCompetingVirtualDisplayHint());
         }
 
         // 1) 离线 setup.exe —— 仅静默参数（Inno：/VERYSILENT；禁止无参弹窗）
@@ -446,11 +447,12 @@ public static class MttVddInstaller
 
         var pkg = MttVddEnvironment.IsProductInstalled();
         var foundControl = FindVddControlExecutables().Any();
+        var compete = DetectCompetingVirtualDisplayHint();
         return (false, pkg
             ? foundControl
-                ? "已自动修复/重建虚拟显示设备并尝试启动控制台，但仍无管道。请重启电脑后再打开投影点「重新检测」。"
-                : "软件包已安装，但未找到控制台程序。请确认 %AppData%\\FlyScreen\\VddOffline\\ 含 VDDControl，或更换内置离线包的完整主程序后再试；仍失败请重启电脑。"
-            : "安装步骤已执行，但未检测到驱动。请确认 UAC 已允许安装；必要时重启后再试。");
+                ? "已自动修复/重建虚拟显示设备并尝试启动控制台，但仍无管道。请重启电脑后再打开投影点「重新检测」。" + compete
+                : "软件包已安装，但未找到控制台程序。请确认 %AppData%\\FlyScreen\\VddOffline\\ 含 VDDControl，或更换内置离线包的完整主程序后再试；仍失败请重启电脑。" + compete
+            : "安装步骤已执行，但未检测到驱动。请确认已允许安装；必要时重启后再试，或执行 winget install VirtualDrivers.Virtual-Display-Driver --silent。" + compete);
     }
 
     /// <summary>启用设备 → 启动控制台 → 轮询管道 → 创建虚拟屏并切到扩展。</summary>
@@ -504,12 +506,63 @@ public static class MttVddInstaller
         try
         {
             return FindOfflineControlExecutables().Any()
-                   || FindVddControlExecutables().Any()
-                   || FindVddControlShortcuts().Any();
+                   || HasInstalledControlExecutable();
         }
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>系统已安装目录/快捷方式中的控制台（不含仅 AppData 离线包）。</summary>
+    public static bool HasInstalledControlExecutable()
+    {
+        try
+        {
+            return FindVddControlExecutables().Any() || FindVddControlShortcuts().Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>本机是否存在向日葵/ToDesk 等其它虚拟显示驱动（可能抢占扩展屏）。</summary>
+    public static string DetectCompetingVirtualDisplayHint()
+    {
+        try
+        {
+            var names = new List<string>();
+            string[] markers =
+            [
+                "OrayIddDriver", "OrayIdd", "ToDesk", "Moonlight", "ParsecVDA",
+                "Sunshine", "UsbMMIdd"
+            ];
+            using var display = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}");
+            if (display != null)
+            {
+                foreach (var subName in display.GetSubKeyNames())
+                {
+                    if (subName is "Properties" or "Configuration") continue;
+                    using var sub = display.OpenSubKey(subName);
+                    var desc = (sub?.GetValue("DriverDesc") as string) ?? "";
+                    foreach (var m in markers)
+                    {
+                        if (desc.Contains(m, StringComparison.OrdinalIgnoreCase)
+                            && !names.Contains(desc, StringComparer.OrdinalIgnoreCase))
+                            names.Add(desc);
+                    }
+                }
+            }
+
+            if (names.Count == 0) return "";
+            return " 检测到其它虚拟显示驱动（" + string.Join("、", names.Take(3))
+                   + "），可能与 MTT VDD 冲突，建议先在设备管理器中禁用后再修复。";
+        }
+        catch
+        {
+            return "";
         }
     }
 
@@ -605,17 +658,33 @@ public static class MttVddInstaller
         }
     }
 
-    /// <summary>启用/重启 Root\MttVDD，促使 IDD 与用户态管道起来。</summary>
+    /// <summary>启用/重启已存在的 MttVDD 设备节点（不存在则跳过，避免对幽灵 ID 空转）。</summary>
     private static async Task TryEnableDriverDeviceAsync(CancellationToken ct)
     {
         try
         {
-            await RunProcessAsync("pnputil", "/enable-device \"Root\\MttVDD\"", ct).ConfigureAwait(false);
-            await RunProcessAsync("pnputil", "/restart-device \"Root\\MttVDD\"", ct).ConfigureAwait(false);
-            foreach (var id in await EnumerateVddDeviceInstanceIdsAsync(ct).ConfigureAwait(false))
+            var ids = await EnumerateVddDeviceInstanceIdsAsync(ct).ConfigureAwait(false);
+            if (ids.Count == 0)
             {
-                await RunProcessAsync("pnputil", $"/enable-device \"{id}\"", ct).ConfigureAwait(false);
-                await RunProcessAsync("pnputil", $"/restart-device \"{id}\"", ct).ConfigureAwait(false);
+                // 仅当产品已装时尝试一次通用 Root 路径；否则不要盲启不存在的节点
+                if (MttVddEnvironment.IsProductInstalled())
+                {
+                    await RunProcessAsync("pnputil", "/enable-device \"Root\\MttVDD\"", ct, timeoutMs: 20_000)
+                        .ConfigureAwait(false);
+                    await RunProcessAsync("pnputil", "/restart-device \"Root\\MttVDD\"", ct, timeoutMs: 20_000)
+                        .ConfigureAwait(false);
+                }
+
+                await Task.Delay(400, ct).ConfigureAwait(false);
+                return;
+            }
+
+            foreach (var id in ids)
+            {
+                await RunProcessAsync("pnputil", $"/enable-device \"{id}\"", ct, timeoutMs: 20_000)
+                    .ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/restart-device \"{id}\"", ct, timeoutMs: 20_000)
+                    .ConfigureAwait(false);
             }
 
             var nef = FindOfflineNefcon();
@@ -626,11 +695,11 @@ public static class MttVddInstaller
                         .FirstOrDefault()
                     : null;
                 if (offlineInf != null)
-                    await RunProcessAsync(nef, $"install \"{offlineInf}\" Root\\MttVDD", ct)
+                    await RunProcessAsync(nef, $"install \"{offlineInf}\" Root\\MttVDD", ct, timeoutMs: 90_000)
                         .ConfigureAwait(false);
             }
 
-            await Task.Delay(1200, ct).ConfigureAwait(false);
+            await Task.Delay(800, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -640,7 +709,7 @@ public static class MttVddInstaller
 
     /// <summary>
     /// 对应设备管理器里对黄叹号设备的：禁用→启用→重启，以及扫描硬件。
-    /// 用户无需打开设备管理器。
+    /// 仅操作真实枚举到的 MTT 节点；禁止对不存在的 ROOT\MTTVDD\0000 盲重置（会卡住）。
     /// </summary>
     private static async Task TryHealFaultyVddDeviceAsync(IProgress<string>? progress, CancellationToken ct)
     {
@@ -651,38 +720,46 @@ public static class MttVddInstaller
 
             var ids = await EnumerateVddDeviceInstanceIdsAsync(ct).ConfigureAwait(false);
             if (ids.Count == 0)
-                ids = ["Root\\MttVDD", "ROOT\\MTTVDD\\0000"];
+            {
+                progress?.Report("未找到 MTT 虚拟显示设备节点，跳过重置，改为扫描硬件…");
+                await RunProcessAsync("pnputil", "/scan-devices", ct, timeoutMs: 30_000).ConfigureAwait(false);
+                await Task.Delay(800, ct).ConfigureAwait(false);
+                return;
+            }
 
             foreach (var id in ids.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 ct.ThrowIfCancellationRequested();
                 progress?.Report($"正在重置设备 {ShortInstance(id)}…");
-                await RunProcessAsync("pnputil", $"/disable-device \"{id}\"", ct).ConfigureAwait(false);
-                await Task.Delay(700, ct).ConfigureAwait(false);
-                await RunProcessAsync("pnputil", $"/enable-device \"{id}\"", ct).ConfigureAwait(false);
-                await Task.Delay(700, ct).ConfigureAwait(false);
-                await RunProcessAsync("pnputil", $"/restart-device \"{id}\"", ct).ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/disable-device \"{id}\"", ct, timeoutMs: 20_000)
+                    .ConfigureAwait(false);
+                await Task.Delay(500, ct).ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/enable-device \"{id}\"", ct, timeoutMs: 20_000)
+                    .ConfigureAwait(false);
+                await Task.Delay(500, ct).ConfigureAwait(false);
+                await RunProcessAsync("pnputil", $"/restart-device \"{id}\"", ct, timeoutMs: 20_000)
+                    .ConfigureAwait(false);
             }
 
-            // PowerShell 再兜一层（FriendlyName 匹配），覆盖 InstanceId 枚举不全的情况
+            // PowerShell 再兜一层（仅 MttVDD / Virtual Display Driver，勿匹配 Oray 等）
             await RunPowerShellAsync(
                     """
                     Get-PnpDevice -ErrorAction SilentlyContinue |
                       Where-Object {
-                        $_.FriendlyName -match 'Virtual Display|MttVDD' -or
-                        $_.InstanceId -match 'MttVDD|VirtualDisplay'
+                        $_.InstanceId -match 'MttVDD|MTTVDD' -or
+                        ($_.FriendlyName -match 'Virtual Display Driver|MttVDD' -and $_.FriendlyName -notmatch 'Oray|ToDesk|Parsec')
                       } |
                       ForEach-Object {
                         try { Disable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false -ErrorAction SilentlyContinue } catch {}
-                        Start-Sleep -Milliseconds 600
+                        Start-Sleep -Milliseconds 400
                         try { Enable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false -ErrorAction SilentlyContinue } catch {}
                       }
                     """,
                     ct)
                 .ConfigureAwait(false);
 
-            await RunProcessAsync("pnputil", "/scan-devices", ct).ConfigureAwait(false);
-            await Task.Delay(1500, ct).ConfigureAwait(false);
+            await RunProcessAsync("pnputil", "/scan-devices", ct, timeoutMs: 30_000).ConfigureAwait(false);
+            await Task.Delay(800, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -764,7 +841,7 @@ public static class MttVddInstaller
         {
             var ps = await RunProcessCaptureAsync(
                     "powershell",
-                    "-NoProfile -ExecutionPolicy Bypass -Command \"Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Virtual Display|MttVDD' -or $_.InstanceId -match 'MttVDD|VirtualDisplay' } | Select-Object -ExpandProperty InstanceId\"",
+                    "-NoProfile -ExecutionPolicy Bypass -Command \"Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { ($_.InstanceId -match 'MttVDD|MTTVDD') -or ($_.FriendlyName -match 'Virtual Display Driver|MttVDD' -and $_.FriendlyName -notmatch 'Oray|ToDesk|Parsec') } | Select-Object -ExpandProperty InstanceId\"",
                     ct)
                 .ConfigureAwait(false);
             foreach (var line in (ps ?? "").Split('\r', '\n'))
@@ -832,9 +909,16 @@ public static class MttVddInstaller
     }
 
     private static bool LooksLikeVddInstance(string instanceId)
-        => instanceId.Contains("MttVDD", StringComparison.OrdinalIgnoreCase)
-           || instanceId.Contains("MTTVDD", StringComparison.OrdinalIgnoreCase)
-           || instanceId.Contains("VirtualDisplay", StringComparison.OrdinalIgnoreCase);
+    {
+        if (string.IsNullOrWhiteSpace(instanceId)) return false;
+        // 勿把 Oray/ToDesk 等其它 IDD 当成 MTT
+        if (instanceId.Contains("Oray", StringComparison.OrdinalIgnoreCase)
+            || instanceId.Contains("ToDesk", StringComparison.OrdinalIgnoreCase)
+            || instanceId.Contains("Parsec", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return instanceId.Contains("MttVDD", StringComparison.OrdinalIgnoreCase)
+               || instanceId.Contains("MTTVDD", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string ShortInstance(string id)
     {
@@ -850,7 +934,11 @@ public static class MttVddInstaller
             .ConfigureAwait(false);
     }
 
-    private static async Task<string?> RunProcessCaptureAsync(string fileName, string args, CancellationToken ct)
+    private static async Task<string?> RunProcessCaptureAsync(
+        string fileName,
+        string args,
+        CancellationToken ct,
+        int timeoutMs = 45_000)
     {
         try
         {
@@ -867,11 +955,21 @@ public static class MttVddInstaller
                 }
             };
             if (!p.Start()) return null;
-            var stdout = await p.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-            try { await p.StandardError.ReadToEndAsync(ct).ConfigureAwait(false); }
-            catch { /* ignore */ }
-            await p.WaitForExitAsync(ct).ConfigureAwait(false);
-            return stdout;
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(timeoutMs);
+            try
+            {
+                var stdout = await p.StandardOutput.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
+                try { await p.StandardError.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false); }
+                catch { /* ignore */ }
+                await p.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                return stdout;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                return null;
+            }
         }
         catch
         {
@@ -1402,7 +1500,15 @@ public static class MttVddInstaller
         return removed;
     }
 
-    private static async Task<int?> RunProcessAsync(string fileName, string args, CancellationToken ct)
+    /// <summary>
+    /// 运行子进程。主程序已是 requireAdministrator，默认不再 runas（避免 UAC/幽灵设备上永久挂起）。
+    /// </summary>
+    private static async Task<int?> RunProcessAsync(
+        string fileName,
+        string args,
+        CancellationToken ct,
+        int timeoutMs = 120_000,
+        bool elevate = false)
     {
         try
         {
@@ -1412,14 +1518,22 @@ public static class MttVddInstaller
                 {
                     FileName = fileName,
                     Arguments = args,
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    WindowStyle = ProcessWindowStyle.Hidden
+                    UseShellExecute = elevate,
+                    Verb = elevate ? "runas" : "",
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = !elevate
                 }
             };
+            if (!elevate)
+            {
+                p.StartInfo.UseShellExecute = false;
+                p.StartInfo.CreateNoWindow = true;
+                p.StartInfo.RedirectStandardOutput = true;
+                p.StartInfo.RedirectStandardError = true;
+            }
+
             if (!p.Start()) return null;
-            await p.WaitForExitAsync(ct).ConfigureAwait(false);
-            return p.ExitCode;
+            return await WaitExitWithTimeoutAsync(p, ct, timeoutMs).ConfigureAwait(false);
         }
         catch
         {
@@ -1436,13 +1550,35 @@ public static class MttVddInstaller
                     }
                 };
                 if (!p.Start()) return null;
-                await p.WaitForExitAsync(ct).ConfigureAwait(false);
-                return p.ExitCode;
+                return await WaitExitWithTimeoutAsync(p, ct, timeoutMs).ConfigureAwait(false);
             }
             catch
             {
                 return null;
             }
+        }
+    }
+
+    private static async Task<int?> WaitExitWithTimeoutAsync(Process p, CancellationToken ct, int timeoutMs)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (timeoutMs > 0)
+            timeoutCts.CancelAfter(timeoutMs);
+        try
+        {
+            await p.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            return p.ExitCode;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (!p.HasExited)
+                    p.Kill(entireProcessTree: true);
+            }
+            catch { /* ignore */ }
+
+            return null;
         }
     }
 }

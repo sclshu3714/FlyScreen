@@ -97,6 +97,13 @@
               <TextBox x:Name="OutputDirBox" Style="{StaticResource FieldTextBox}"/>
             </DockPanel>
 
+            <CheckBox x:Name="IncludeVddOfflineBox" Margin="0,14,0,0"
+                      IsChecked="True"
+                      Content="包含虚拟显示离线包（VddOffline / FlyScreen.VddOffline.zip）"/>
+            <TextBlock Text="仅影响 Windows 桌面 / MAUI Win。不勾选则安装包更小，使用时通过 winget/在线安装驱动。"
+                       TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource MutedBrush}"
+                       Margin="0,6,0,0"/>
+
             <Expander x:Name="InstallerOptionsExpander"
                       Header="安装包选项（默认值可改）"
                       Margin="0,14,0,0"

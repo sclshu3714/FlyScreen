@@ -271,9 +271,50 @@ public sealed class PublishService
         if (!string.IsNullOrWhiteSpace(target.ExtraArgs))
             args.Add(target.ExtraArgs);
 
+        // Win / Maui-Win：可选跳过内置 VddOffline zip（运行时走 winget/在线）
+        if (target.Id is "win" or "maui-win")
+        {
+            if (options.IncludeVddOffline)
+            {
+                args.Add("-p:FlyScreenSkipVddOffline=false");
+                log("包含虚拟显示离线包 VddOffline\\FlyScreen.VddOffline.zip");
+            }
+            else
+            {
+                args.Add("-p:FlyScreenSkipVddOffline=true");
+                log("已跳过虚拟显示离线包（使用时走 winget/在线安装）");
+            }
+        }
+
         log($"dotnet publish → {target.Id} ({configuration}, 无 PDB)");
-        return await _runner.RunAsync("dotnet", string.Join(' ', args), _repoRoot, log, ct)
+        var exit = await _runner.RunAsync("dotnet", string.Join(' ', args), _repoRoot, log, ct)
             .ConfigureAwait(false);
+        if (exit == 0 && target.Id is "win" or "maui-win" && !options.IncludeVddOffline)
+            StripVddOfflineFromDir(outputDir, log);
+        return exit;
+    }
+
+    private static void StripVddOfflineFromDir(string dir, Action<string> log)
+    {
+        if (!Directory.Exists(dir)) return;
+        var removed = 0;
+        foreach (var zip in Directory.EnumerateFiles(dir, "FlyScreen.VddOffline.zip", SearchOption.AllDirectories))
+        {
+            try { File.Delete(zip); removed++; } catch { /* ignore */ }
+        }
+
+        foreach (var folder in Directory.EnumerateDirectories(dir, "VddOffline", SearchOption.AllDirectories))
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+                removed++;
+            }
+            catch { /* ignore */ }
+        }
+
+        if (removed > 0)
+            log($"已从产物中移除 VddOffline 离线包（{removed} 项）。");
     }
 
     private static void EnsureReleaseConfiguration(PublishOptions options, Action<string> log)

@@ -310,8 +310,8 @@ public static class MttVddEnvironment
 
         // 停止投影时驱动重载会把 VDDControl 打退出，管道消失，但软件仍显示已安装。
         // 这里只拉起控制台并等待管道，不改数量、不切显示拓扑、不走重装。
-        if (IsProductInstalled()
-            || MttVddInstaller.HasAnyControlExecutable())
+        // 注意：仅 AppData 里有离线包控制台 ≠ 驱动已装，勿误判成「已安装」去反复重置设备。
+        if (IsProductInstalled() || MttVddInstaller.HasInstalledControlExecutable())
         {
             await MttVddInstaller.TryEnsureConsoleAsync(ct, waitAttempts: 12, delayMs: 700)
                 .ConfigureAwait(false);
@@ -324,11 +324,15 @@ public static class MttVddEnvironment
             if (await IsDriverReadyAsync(ct).ConfigureAwait(false))
                 return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
 
+            var competing = MttVddInstaller.DetectCompetingVirtualDisplayHint();
             return (false,
-                "已安装 Virtual Display Driver，但未检测到控制台管道。请稍候再点「重新检测」，或运行 %AppData%\\FlyScreen\\VddOffline\\VDDControl*.exe；不必重复自动修复安装");
+                "已安装 Virtual Display Driver，但未检测到控制台管道。请稍候再点「重新检测」，或运行 %AppData%\\FlyScreen\\VddOffline\\VDDControl*.exe；不必重复自动修复安装"
+                + competing);
         }
 
-        return (false, "未检测到真副屏，且未安装或未运行虚拟显示驱动（MTT VDD）");
+        return (false,
+            "未检测到真副屏，且未安装或未运行虚拟显示驱动（MTT VDD）。可点「自动修复环境」安装（优先离线包，其次 winget）"
+            + MttVddInstaller.DetectCompetingVirtualDisplayHint());
     }
 
     /// <summary>供目标下拉：本机副屏条目。</summary>

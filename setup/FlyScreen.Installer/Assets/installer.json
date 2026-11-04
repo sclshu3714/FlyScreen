@@ -5,7 +5,7 @@
   "ExeName": "FlyScreen.exe",
   "DefaultInstallDir": "C:\\Program Files\\\u7384\u9E1F",
   "LicenseUrl": "https://github.com/sclshu3714/FlyScreen",
-  "RequiredBytes": 188686459,
+  "RequiredBytes": 188687812,
   "CreateDesktopShortcut": true,
   "CreateStartMenuShortcut": true,
   "LaunchAfterInstall": true,

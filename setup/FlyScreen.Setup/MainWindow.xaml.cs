@@ -214,7 +214,8 @@ public partial class MainWindow : Window
         LicenseFile = Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "license.txt"),
         CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true,
         CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
-        LaunchAfterInstall = LaunchAfterBox.IsChecked == true
+        LaunchAfterInstall = LaunchAfterBox.IsChecked == true,
+        IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
     };
 
     private void SetBusy(bool busy)
@@ -226,6 +227,7 @@ public partial class MainWindow : Window
         ModeInstaller.IsEnabled = !busy;
         DeploySelfContained.IsEnabled = !busy;
         DeployFramework.IsEnabled = !busy;
+        IncludeVddOfflineBox.IsEnabled = !busy;
         OutputDirBox.IsEnabled = !busy;
         InstallerOptionsExpander.IsEnabled = !busy && ModeInstaller.IsChecked == true;
     }

@@ -97,6 +97,10 @@ public sealed class PublishOptions
     public bool CreateDesktopShortcut { get; set; } = true;
     public bool CreateStartMenuShortcut { get; set; } = true;
     public bool LaunchAfterInstall { get; set; } = true;
+    /// <summary>
+    /// 是否把 VddOffline\FlyScreen.VddOffline.zip 打进 Win 产物；关闭则体积更小，运行时走 winget/在线安装。
+    /// </summary>
+    public bool IncludeVddOffline { get; set; } = true;
 }
 
 public sealed class InstallerManifest
