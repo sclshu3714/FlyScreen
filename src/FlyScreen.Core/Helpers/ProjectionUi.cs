@@ -22,7 +22,7 @@ public readonly record struct ProjectionUiChrome(
     string UnicodeGlyph,
     string Label,
     string Tooltip,
-    /// <summary>是否用强调色（投影中 / 接收中）。</summary>
+    /// <summary>是否用强调色（正在投影 / 正在接收）。</summary>
     bool Emphasized,
     double SuggestedWidth);
 
@@ -31,7 +31,7 @@ public readonly record struct ProjectionUiChrome(
 /// <list type="bullet">
 /// <item>空闲默认：投屏图标 +「投影」</item>
 /// <item>空闲悬停：连接图标 +「投影」（提示打开设置）</item>
-/// <item>投影中：投屏图标 +「投影中」</item>
+/// <item>正在投影：投屏图标 +「正在投影」</item>
 /// <item>投影中悬停 / 托盘：停止图标 +「停止投影」</item>
 /// <item>接收中：接收图标 +「接收中」</item>
 /// </list>
@@ -86,7 +86,7 @@ public static class ProjectionUi
                 Loc.T("ProjUi.Idle.HoverTip"),
                 false, 78),
 
-            // 投影中：标题默认「投影中」；托盘默认直接「停止投影」（菜单偏动作）
+            // 正在投影：标题默认「正在投影」；托盘默认直接「停止投影」（菜单偏动作）
             (ProjectionUiPhase.Hosting, false, false) => new(
                 Mdl2Cast, UniHosting,
                 Loc.T("ProjUi.Host.Label"),

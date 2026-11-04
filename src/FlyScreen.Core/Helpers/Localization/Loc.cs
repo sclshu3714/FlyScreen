@@ -603,7 +603,7 @@ public static class Loc
         ["ProjUi.Idle.Label"] = "投影",
         ["ProjUi.Idle.Tip"] = "投影到电脑",
         ["ProjUi.Idle.HoverTip"] = "打开投影设置",
-        ["ProjUi.Host.Label"] = "投影中",
+        ["ProjUi.Host.Label"] = "正在投影",
         ["ProjUi.Host.Tip"] = "正在投影",
         ["ProjUi.Host.HoverLabel"] = "停止投影",
         ["ProjUi.Host.HoverTip"] = "点击停止当前投影",
