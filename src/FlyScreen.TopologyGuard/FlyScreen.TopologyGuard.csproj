@@ -13,6 +13,8 @@
     <Product>玄鸟:守护</Product>
     <Description>扩展投影异常退出时收拢「仅电脑屏幕」。</Description>
     <UseAppHost>true</UseAppHost>
+    <!-- 随 Win / Maui-Win 单文件发布旁路自包含时需要 RID 图（见 FlyScreen.CopyTopologyGuard.targets） -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
