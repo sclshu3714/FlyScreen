@@ -10,7 +10,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // 任务栏显示名「玄鸟」（不改 FlyScreen.exe）；拓扑监视为独立 TopologyGuard.exe
+        // 任务栏显示名「玄鸟」；拓扑守护嵌入主程序，运行时解压（仍单文件分发）
         FlyScreen.WinApi.WindowsAppUserModel.EnsureProcessId(
             FlyScreen.WinApi.WindowsAppUserModel.MainAppId);
 

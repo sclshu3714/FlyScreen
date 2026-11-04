@@ -1,18 +1,22 @@
 using System.Diagnostics;
+using System.Reflection;
+using System.Security.Cryptography;
+using FlyScreen.Services;
 using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.ScreenExtend;
 
 /// <summary>
-/// 扩展拓扑收拢监视：由独立命名的 <c>FlyScreen.TopologyGuard.exe</c>（显示名「玄鸟:守护」）监视父进程；
-/// 主进程被杀时仍执行 <c>DisplaySwitch /internal</c>，避免与主应用同组被任务管理器一并结束。
-/// Guard 若被先杀，脏标记期间会定时重拉。正常 Finalize 时 <see cref="Disarm"/> 解除监视。
+/// 扩展拓扑收拢监视：宿主程序集内嵌的 <c>FlyScreen.TopologyGuard.exe</c>
+/// （显示名「玄鸟:守护」）解压到 AppData 后以独立进程名监视父进程。
+/// 发布仍是单文件；不以 Content 塞进单文件包（嵌套 exe 会导致 apphost 0xc0000005）。
 /// </summary>
 public static class DisplayTopologyWatchdog
 {
     public const string GuardExeName = "FlyScreen.TopologyGuard.exe";
+    public const string GuardBinName = "FlyScreen.TopologyGuard.bin";
+    public const string GuardResourceName = "FlyScreen.TopologyGuard.exe";
 
-    /// <summary>Guard 被杀后，主进程侧多久重拉一次。</summary>
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(2);
 
     private static readonly object Gate = new();
@@ -23,10 +27,8 @@ public static class DisplayTopologyWatchdog
     public static string CancelEventName(int parentPid)
         => $@"Local\FlyScreen.DisplayWatchdog.Cancel.{parentPid}";
 
-    /// <summary>TopologyGuard 入口：阻塞直到父进程退出或被 Disarm，再按需收拢拓扑。</summary>
     public static void RunForParent(int parentPid) => RunWatchdogLoop(parentPid);
 
-    /// <summary>扩展投影开始后调用：确保监视子进程在跑，并开启保活重拉。</summary>
     public static void EnsureRunning()
     {
         lock (Gate)
@@ -37,7 +39,6 @@ public static class DisplayTopologyWatchdog
         }
     }
 
-    /// <summary>正常 Finalize 完成后调用：停止保活，让监视进程退出且不再 /internal。</summary>
     public static void Disarm()
     {
         lock (Gate)
@@ -55,12 +56,7 @@ public static class DisplayTopologyWatchdog
                 // 无监视进程
             }
 
-            try
-            {
-                _child?.WaitForExit(800);
-            }
-            catch { /* ignore */ }
-
+            try { _child?.WaitForExit(800); } catch { /* ignore */ }
             try { _child?.Dispose(); } catch { /* ignore */ }
             _child = null;
         }
@@ -97,7 +93,6 @@ public static class DisplayTopologyWatchdog
         }
     }
 
-    /// <summary>若 cancel 事件已存在（Guard 仍活着）则跳过；否则拉起。</summary>
     private static void TryStartGuardUnlocked()
     {
         try
@@ -106,21 +101,19 @@ public static class DisplayTopologyWatchdog
             try
             {
                 using var existing = EventWaitHandle.OpenExisting(CancelEventName(pid));
-                return; // 已在监视
+                return;
             }
             catch (WaitHandleCannotBeOpenedException)
             {
-                // need start / restart
+                // need start
             }
 
-            var exe = ResolveGuardExe();
+            var exe = EnsureGuardOnDisk();
             if (string.IsNullOrWhiteSpace(exe))
                 return;
 
             _child?.Dispose();
             _child = null;
-
-            // 经 cmd start 拉起，脱离本进程树；独立 exe 名避免任务管理器应用组一并杀掉。
             StartDetachedGuard(exe, pid.ToString());
 
             for (var i = 0; i < 40; i++)
@@ -138,30 +131,127 @@ public static class DisplayTopologyWatchdog
         }
         catch
         {
-            // ignore — 仍有脏标记 + 下次启动恢复
+            // ignore
         }
-    }
-
-    private static string? ResolveGuardExe()
-    {
-        static string? Beside(string? basePath)
-        {
-            if (string.IsNullOrWhiteSpace(basePath)) return null;
-            var dir = Path.GetDirectoryName(basePath);
-            if (string.IsNullOrWhiteSpace(dir)) return null;
-            var path = Path.Combine(dir, GuardExeName);
-            return File.Exists(path) ? path : null;
-        }
-
-        var fromBase = Path.Combine(AppContext.BaseDirectory, GuardExeName);
-        return Beside(Environment.ProcessPath)
-               ?? Beside(Process.GetCurrentProcess().MainModule?.FileName)
-               ?? (File.Exists(fromBase) ? fromBase : null);
     }
 
     /// <summary>
-    /// 用 cmd start 脱离父子树；失败则退回直接 Process.Start（仍有独立进程名防组杀）。
+    /// 从入口/本程序集嵌入资源（或调试旁路文件）固化到 AppData\FlyScreen\guard\。
     /// </summary>
+    private static string? EnsureGuardOnDisk()
+    {
+        try
+        {
+            var dir = Path.Combine(FlyScreenDataPaths.Root, "guard");
+            Directory.CreateDirectory(dir);
+            var dest = Path.Combine(dir, GuardExeName);
+            var stampPath = Path.Combine(dir, "guard.sha256");
+            var tmp = dest + ".tmp";
+
+            using var src = OpenGuardSource();
+            if (src == null)
+                return File.Exists(dest) ? dest : null;
+
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* ignore */ }
+
+            string hash;
+            using (var sha = SHA256.Create())
+            using (var fs = File.Create(tmp))
+            using (var crypto = new CryptoStream(fs, sha, CryptoStreamMode.Write))
+            {
+                src.CopyTo(crypto);
+                crypto.FlushFinalBlock();
+                hash = Convert.ToHexString(sha.Hash ?? Array.Empty<byte>()).ToLowerInvariant();
+            }
+
+            if (File.Exists(dest) && File.Exists(stampPath))
+            {
+                try
+                {
+                    if (string.Equals(File.ReadAllText(stampPath).Trim(), hash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { File.Delete(tmp); } catch { /* ignore */ }
+                        return dest;
+                    }
+                }
+                catch { /* rewrite */ }
+            }
+
+            File.Copy(tmp, dest, overwrite: true);
+            try { File.Delete(tmp); } catch { /* ignore */ }
+            File.WriteAllText(stampPath, hash);
+            return dest;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Stream? OpenGuardSource()
+    {
+        foreach (var asm in EnumerateGuardAssemblies())
+        {
+            try
+            {
+                var direct = asm.GetManifestResourceStream(GuardResourceName);
+                if (direct != null)
+                    return direct;
+
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (name.Equals(GuardResourceName, StringComparison.OrdinalIgnoreCase) ||
+                        name.EndsWith("." + GuardResourceName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var s = asm.GetManifestResourceStream(name);
+                        if (s != null)
+                            return s;
+                    }
+                }
+            }
+            catch
+            {
+                // try next
+            }
+        }
+
+        foreach (var name in new[] { GuardBinName, GuardExeName })
+        {
+            try
+            {
+                var beside = Path.Combine(AppContext.BaseDirectory, name);
+                if (File.Exists(beside))
+                    return File.OpenRead(beside);
+
+                var procDir = Path.GetDirectoryName(Environment.ProcessPath);
+                if (!string.IsNullOrEmpty(procDir))
+                {
+                    var alt = Path.Combine(procDir, name);
+                    if (File.Exists(alt))
+                        return File.OpenRead(alt);
+                }
+            }
+            catch
+            {
+                // try next
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<Assembly> EnumerateGuardAssemblies()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var asm in new[] { Assembly.GetEntryAssembly(), typeof(DisplayTopologyWatchdog).Assembly })
+        {
+            if (asm == null) continue;
+            var key = asm.FullName ?? asm.GetHashCode().ToString();
+            if (!seen.Add(key)) continue;
+            yield return asm;
+        }
+    }
+
     private static void StartDetachedGuard(string exe, string parentPidArg)
     {
         try

@@ -87,13 +87,20 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         SourceInitialized += (_, _) =>
         {
-            var helper = new System.Windows.Interop.WindowInteropHelper(this);
-            FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
-                helper.Handle,
-                FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
-                FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
-                System.IO.Path.Combine("Assets", "wlogo_tu.ico"),
-                "wlogo_tu.ico");
+            try
+            {
+                var helper = new System.Windows.Interop.WindowInteropHelper(this);
+                FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
+                    helper.Handle,
+                    FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
+                    FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
+                    System.IO.Path.Combine("Assets", "wlogo_tu.ico"),
+                    "wlogo_tu.ico");
+            }
+            catch
+            {
+                // 任务栏显示名失败不挡主窗
+            }
         };
         UpdateTitleMaxGlyph();
     }

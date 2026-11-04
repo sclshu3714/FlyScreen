@@ -1,59 +1,8 @@
 <!--
-  将独立命名的 FlyScreen.TopologyGuard.exe 拷到 Win / Maui-Win 输出旁。
-  任务管理器按应用组结束主程序时不会带走不同进程名的监视进程。
-
-  注意：主工程 dotnet/VS Publish 会带全局 RuntimeIdentifier=win-x64；
-  TopologyGuard 不是 ProjectReference，还原图常无该 RID。因此：
-  - 普通 Build：无 RID 编框架依赖版并拷贝（RemoveProperties 去掉继承的 RID）
-  - 单文件 Publish：跳过 Build 拷贝，Publish 结束后旁路 dotnet publish 自包含 Guard
+  已废弃：旁路复制 TopologyGuard.exe 到输出/发布目录。
+  请改用 FlyScreen.BundleTopologyGuard.targets（由 App.Windows / Maui-Win 导入），
+  把 Guard 打进主程序单文件，运行时从 BaseDirectory 固化到 AppData 再拉起。
 -->
 <Project>
-  <PropertyGroup>
-    <_FsTopologyGuardProj>$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\FlyScreen.TopologyGuard.csproj</_FsTopologyGuardProj>
-    <_FsTopologyGuardTfm>net10.0-windows7.0</_FsTopologyGuardTfm>
-  </PropertyGroup>
-
-  <!-- Debug / 普通 Build：框架依赖；Publish(带 RID) 时跳过，改由 PublishBeside 处理 -->
-  <Target Name="FlyScreen_BuildAndCopyTopologyGuard"
-          AfterTargets="Build"
-          Condition="'$(FlyScreenSkipTopologyGuard)' != 'true' And '$(RuntimeIdentifier)' == '' And '$(PublishSingleFile)' != 'true'">
-    <MSBuild Projects="$(_FsTopologyGuardProj)"
-             Targets="Build"
-             Properties="Configuration=$(Configuration);TargetFramework=$(_FsTopologyGuardTfm);RuntimeIdentifier=;SelfContained=false"
-             RemoveProperties="RuntimeIdentifier;RuntimeIdentifiers;SelfContained;PublishSingleFile;PublishReadyToRun;PublishAot;PublishTrimmed;PublishDir;PublishProtocol;RuntimeIdentifierOverride" />
-    <PropertyGroup>
-      <_FsGuardOut>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\bin\$(Configuration)\$(_FsTopologyGuardTfm)'))</_FsGuardOut>
-    </PropertyGroup>
-    <ItemGroup>
-      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.exe"
-                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.exe')" />
-      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.dll"
-                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.dll')" />
-      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.deps.json"
-                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.deps.json')" />
-      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.runtimeconfig.json"
-                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.runtimeconfig.json')" />
-      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.pdb"
-                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.pdb')" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_FsGuardCopy)"
-          DestinationFolder="$(TargetDir)"
-          SkipUnchangedFiles="true"
-          Condition="'@(_FsGuardCopy)' != ''" />
-  </Target>
-
-  <!-- 单文件发布结束后：独立 dotnet publish Guard 到同一目录（自带 restore，不继承主工程全局属性） -->
-  <Target Name="FlyScreen_PublishTopologyGuardBeside"
-          AfterTargets="Publish"
-          Condition="'$(FlyScreenSkipTopologyGuard)' != 'true' And '$(PublishDir)' != ''">
-    <PropertyGroup>
-      <_FsGuardRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_FsGuardRid>
-      <_FsGuardRid Condition="'$(_FsGuardRid)' == '' And '$(RuntimeIdentifierOverride)' != ''">$(RuntimeIdentifierOverride)</_FsGuardRid>
-      <_FsGuardRid Condition="'$(_FsGuardRid)' == ''">win-x64</_FsGuardRid>
-      <_FsGuardPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_FsGuardPublishDir>
-      <_FsGuardProjFull>$([System.IO.Path]::GetFullPath('$(_FsTopologyGuardProj)'))</_FsGuardProjFull>
-    </PropertyGroup>
-    <Message Importance="High" Text="旁路发布 TopologyGuard ($(_FsGuardRid)) → $(_FsGuardPublishDir)" />
-    <Exec Command="dotnet publish &quot;$(_FsGuardProjFull)&quot; -c &quot;$(Configuration)&quot; -f $(_FsTopologyGuardTfm) -r $(_FsGuardRid) --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:FlyScreenSkipTopologyGuard=true -o &quot;$(_FsGuardPublishDir)&quot;" />
-  </Target>
+  <Warning Text="FlyScreen.CopyTopologyGuard.targets 已废弃，请改用 FlyScreen.BundleTopologyGuard.targets。" />
 </Project>

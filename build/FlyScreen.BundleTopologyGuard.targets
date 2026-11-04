@@ -1,0 +1,68 @@
+<!--
+  TopologyGuard 以 .bin 打进宿主单文件（ExcludeFromSingleFile=false）。
+  禁止用 .exe 作为 Content：嵌套单文件 apphost PE 会导致启动 0xc0000005。
+  运行时 Watchdog 从 BaseDirectory 读取 .bin，固化为 AppData 下 .exe 再拉起。
+-->
+<Project>
+  <PropertyGroup>
+    <_FsTopologyGuardProj>$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\FlyScreen.TopologyGuard.csproj</_FsTopologyGuardProj>
+    <_FsTopologyGuardTfm>net10.0-windows7.0</_FsTopologyGuardTfm>
+    <_FsGuardBundleRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_FsGuardBundleRid>
+    <_FsGuardBundleRid Condition="'$(_FsGuardBundleRid)' == '' And '$(RuntimeIdentifierOverride)' != ''">$(RuntimeIdentifierOverride)</_FsGuardBundleRid>
+    <_FsGuardBundleRid Condition="'$(_FsGuardBundleRid)' == ''">win-x64</_FsGuardBundleRid>
+    <_FsGuardBundleDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\bundled-topology-guard\$(_FsGuardBundleRid)\</_FsGuardBundleDir>
+    <_FsGuardBundleExe>$(_FsGuardBundleDir)FlyScreen.TopologyGuard.exe</_FsGuardBundleExe>
+    <_FsGuardBundleBin>$(_FsGuardBundleDir)FlyScreen.TopologyGuard.bin</_FsGuardBundleBin>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_FsGuardBundleInputs Include="$(_FsTopologyGuardProj)" />
+    <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\**\*.cs" />
+  </ItemGroup>
+
+  <Target Name="FlyScreen_PrepareBundledTopologyGuard"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;ComputeFilesToPublish;_GetCopyToOutputDirectoryItemsFromThisProject"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipTopologyGuard)' != 'true'"
+          Inputs="@(_FsGuardBundleInputs)"
+          Outputs="$(_FsGuardBundleBin)">
+    <MakeDir Directories="$(_FsGuardBundleDir)" />
+    <PropertyGroup>
+      <_FsGuardProjFull>$([System.IO.Path]::GetFullPath('$(_FsTopologyGuardProj)'))</_FsGuardProjFull>
+      <_FsGuardOutFull>$([System.IO.Path]::GetFullPath('$(_FsGuardBundleDir)'))</_FsGuardOutFull>
+    </PropertyGroup>
+    <Message Importance="High" Text="打包 TopologyGuard .bin（$(_FsGuardBundleRid)）→ $(_FsGuardOutFull)" />
+    <Exec Command="dotnet publish &quot;$(_FsGuardProjFull)&quot; -c &quot;$(Configuration)&quot; -f $(_FsTopologyGuardTfm) -r $(_FsGuardBundleRid) --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:FlyScreenSkipTopologyGuard=true -o &quot;$(_FsGuardOutFull)&quot;" />
+    <Copy SourceFiles="$(_FsGuardBundleExe)" DestinationFiles="$(_FsGuardBundleBin)" OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(_FsGuardBundleExe)')" />
+    <Error Condition="!Exists('$(_FsGuardBundleBin)') And '$(DesignTimeBuild)' != 'true'"
+           Text="打包 TopologyGuard 失败：不存在 $(_FsGuardBundleBin)" />
+  </Target>
+
+  <Target Name="FlyScreen_IncludeBundledTopologyGuard"
+          AfterTargets="FlyScreen_PrepareBundledTopologyGuard"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;ComputeFilesToPublish;_GetCopyToOutputDirectoryItemsFromThisProject"
+          Condition="'$(FlyScreenSkipTopologyGuard)' != 'true'">
+    <ItemGroup>
+      <Content Remove="@(Content)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.TopologyGuard.exe'" />
+      <Content Remove="@(Content)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.TopologyGuard.bin'" />
+    </ItemGroup>
+    <ItemGroup Condition="Exists('$(_FsGuardBundleBin)')">
+      <Content Include="$(_FsGuardBundleBin)" KeepDuplicates="false">
+        <Link>FlyScreen.TopologyGuard.bin</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <TargetPath>FlyScreen.TopologyGuard.bin</TargetPath>
+      </Content>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="FlyScreen_RemoveLooseTopologyGuardFromPublish"
+          AfterTargets="Publish"
+          Condition="'$(FlyScreenSkipTopologyGuard)' != 'true' And '$(PublishDir)' != ''">
+    <Delete Files="$(PublishDir)FlyScreen.TopologyGuard.exe"
+            Condition="Exists('$(PublishDir)FlyScreen.TopologyGuard.exe')" />
+    <Delete Files="$(PublishDir)FlyScreen.TopologyGuard.bin"
+            Condition="Exists('$(PublishDir)FlyScreen.TopologyGuard.bin')" />
+  </Target>
+</Project>

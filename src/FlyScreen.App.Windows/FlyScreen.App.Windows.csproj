@@ -43,6 +43,6 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
-  <Import Project="..\..\build\FlyScreen.CopyTopologyGuard.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets" />
 
 </Project>

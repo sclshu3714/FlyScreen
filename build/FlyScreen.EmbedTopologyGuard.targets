@@ -1,0 +1,7 @@
+<!--
+  已废弃：勿在 FlyScreen.Windows 嵌入（易与 Guard→Windows 循环/资源未进 DLL）。
+  宿主 App.Windows / Maui-Win 请用 FlyScreen.BundleTopologyGuard.targets（EmbeddedResource）。
+-->
+<Project>
+  <Warning Text="FlyScreen.EmbedTopologyGuard.targets 已废弃，请改用 FlyScreen.BundleTopologyGuard.targets。" />
+</Project>

@@ -43,13 +43,23 @@ public static class WindowsAppUserModel
         {
             var exe = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
+            {
+                AppliedHwnds.Remove(hwnd);
                 return;
+            }
 
-            var hr = SHGetPropertyStoreForWindow(hwnd, typeof(IPropertyStore).GUID, out var store);
-            if (hr != 0 || store is null) return;
+            var iid = typeof(IPropertyStore).GUID;
+            var hr = SHGetPropertyStoreForWindow(hwnd, ref iid, out var punk);
+            if (hr != 0 || punk == IntPtr.Zero)
+            {
+                AppliedHwnds.Remove(hwnd);
+                return;
+            }
 
+            IPropertyStore? store = null;
             try
             {
+                store = (IPropertyStore)Marshal.GetUniqueObjectForIUnknown(punk);
                 var relaunch = exe.Contains(' ') ? $"\"{exe}\"" : exe;
                 var icon = ResolveIconResource(exe, iconCandidates);
 
@@ -62,7 +72,12 @@ public static class WindowsAppUserModel
             }
             finally
             {
-                Marshal.ReleaseComObject(store);
+                if (store != null)
+                {
+                    try { Marshal.FinalReleaseComObject(store); } catch { /* ignore */ }
+                }
+
+                Marshal.Release(punk);
             }
         }
         catch
@@ -89,11 +104,13 @@ public static class WindowsAppUserModel
 
     private static void SetString(IPropertyStore store, PropertyKey key, string value)
     {
-        var pv = new PropVariant();
+        var pv = new PropVariant
+        {
+            vt = (ushort)VarEnum.VT_LPWSTR,
+            pszVal = Marshal.StringToCoTaskMemUni(value)
+        };
         try
         {
-            pv.vt = (ushort)VarEnum.VT_LPWSTR;
-            pv.union.pszVal = Marshal.StringToCoTaskMemUni(value);
             store.SetValue(ref key, ref pv);
         }
         finally
@@ -111,8 +128,7 @@ public static class WindowsAppUserModel
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
 
     [DllImport("shell32.dll")]
-    private static extern int SHGetPropertyStoreForWindow(
-        IntPtr hwnd, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IPropertyStore ppv);
+    private static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid, out IntPtr ppv);
 
     [DllImport("ole32.dll")]
     private static extern int PropVariantClear(ref PropVariant pvar);
@@ -130,12 +146,9 @@ public static class WindowsAppUserModel
         }
     }
 
-    [StructLayout(LayoutKind.Explicit)]
-    private struct PropVariantUnion
-    {
-        [FieldOffset(0)] public IntPtr pszVal;
-    }
-
+    /// <summary>
+    /// x86=16 字节、x64=24 字节（union 对齐）。旧布局只有 16 字节会在 SetValue 时 AV。
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct PropVariant
     {
@@ -143,7 +156,8 @@ public static class WindowsAppUserModel
         public ushort wReserved1;
         public ushort wReserved2;
         public ushort wReserved3;
-        public PropVariantUnion union;
+        public IntPtr pszVal;
+        public IntPtr reserved;
     }
 
     [ComImport]
@@ -151,10 +165,10 @@ public static class WindowsAppUserModel
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IPropertyStore
     {
-        uint GetCount(out uint cProps);
-        uint GetAt(uint iProp, out PropertyKey pkey);
-        uint GetValue(ref PropertyKey key, out PropVariant pv);
-        uint SetValue(ref PropertyKey key, ref PropVariant pv);
-        uint Commit();
+        [PreserveSig] int GetCount(out uint cProps);
+        [PreserveSig] int GetAt(uint iProp, out PropertyKey pkey);
+        [PreserveSig] int GetValue(ref PropertyKey key, out PropVariant pv);
+        [PreserveSig] int SetValue(ref PropertyKey key, ref PropVariant pv);
+        [PreserveSig] int Commit();
     }
 }
