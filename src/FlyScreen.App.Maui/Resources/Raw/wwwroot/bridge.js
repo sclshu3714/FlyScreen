@@ -471,7 +471,15 @@
     post({ type: 'ready' });
   }
 
-  require.config({ paths: { vs: 'vs' } });
+  // zh-cn/zh-tw 文件名含连字符会被 WinAppSDK MakePri 当成语言限定符 → PRI249；
+  // 磁盘用 zh_cn/zh_tw，这里映射回 Monaco 期望的模块名。
+  require.config({
+    paths: {
+      vs: 'vs',
+      'vs/nls.messages.zh-cn': 'vs/nls.messages.zh_cn',
+      'vs/nls.messages.zh-tw': 'vs/nls.messages.zh_tw'
+    }
+  });
   require(['vs/editor/editor.main'], function () {
     const style = document.createElement('style');
     // 手机屏窄：压缩断点栏 + 行号宽度

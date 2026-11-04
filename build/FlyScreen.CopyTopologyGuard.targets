@@ -1,0 +1,53 @@
+<!--
+  将独立命名的 FlyScreen.TopologyGuard.exe 拷到 Win / Maui-Win 输出旁。
+  任务管理器按应用组结束主程序时不会带走不同进程名的监视进程。
+-->
+<Project>
+  <PropertyGroup>
+    <_FsTopologyGuardProj>$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\FlyScreen.TopologyGuard.csproj</_FsTopologyGuardProj>
+    <_FsTopologyGuardTfm>net10.0-windows7.0</_FsTopologyGuardTfm>
+  </PropertyGroup>
+
+  <!-- Debug / 普通 Build：框架依赖，与主程序同目录共享 FlyScreen.*.dll -->
+  <Target Name="FlyScreen_BuildAndCopyTopologyGuard"
+          AfterTargets="Build"
+          Condition="'$(FlyScreenSkipTopologyGuard)' != 'true'">
+    <MSBuild Projects="$(_FsTopologyGuardProj)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=$(_FsTopologyGuardTfm)" />
+    <PropertyGroup>
+      <_FsGuardOut>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\bin\$(Configuration)\$(_FsTopologyGuardTfm)'))</_FsGuardOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.exe"
+                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.exe')" />
+      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.dll"
+                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.dll')" />
+      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.deps.json"
+                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.deps.json')" />
+      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.runtimeconfig.json"
+                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.runtimeconfig.json')" />
+      <_FsGuardCopy Include="$(_FsGuardOut)\FlyScreen.TopologyGuard.pdb"
+                    Condition="Exists('$(_FsGuardOut)\FlyScreen.TopologyGuard.pdb')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_FsGuardCopy)"
+          DestinationFolder="$(TargetDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_FsGuardCopy)' != ''" />
+  </Target>
+
+  <!-- 单文件发布：旁路再发一份自包含 TopologyGuard，避免主程序打包后旁无 DLL -->
+  <Target Name="FlyScreen_PublishTopologyGuardBeside"
+          AfterTargets="Publish"
+          Condition="'$(FlyScreenSkipTopologyGuard)' != 'true' And '$(PublishDir)' != ''">
+    <PropertyGroup>
+      <_FsGuardRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_FsGuardRid>
+      <_FsGuardRid Condition="'$(_FsGuardRid)' == '' And '$(RuntimeIdentifierOverride)' != ''">$(RuntimeIdentifierOverride)</_FsGuardRid>
+      <_FsGuardRid Condition="'$(_FsGuardRid)' == ''">win-x64</_FsGuardRid>
+      <_FsGuardPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_FsGuardPublishDir>
+    </PropertyGroup>
+    <MSBuild Projects="$(_FsTopologyGuardProj)"
+             Targets="Publish"
+             Properties="Configuration=$(Configuration);TargetFramework=$(_FsTopologyGuardTfm);RuntimeIdentifier=$(_FsGuardRid);SelfContained=true;PublishSingleFile=true;IncludeNativeLibrariesForSelfExtract=true;EnableCompressionInSingleFile=true;PublishDir=$(_FsGuardPublishDir)\;FlyScreenSkipTopologyGuard=true" />
+  </Target>
+</Project>

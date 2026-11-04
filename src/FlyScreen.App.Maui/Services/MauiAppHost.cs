@@ -273,6 +273,14 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
         Settings.EnsureLocalMachineSlot();
 #if WINDOWS
+        // 上次扩展投影异常退出：补 /internal 收拢仅电脑屏幕
+        try
+        {
+            await FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRecoverOrphanedExtendAsync()
+                .ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+
         try
         {
             var fw = await MauiConnectionDiagnostics.EnsureListenRulesAsync(Settings.TcpPort, Settings.UdpPort)
@@ -829,9 +837,18 @@ public sealed class MauiAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { await StopProjectionAsync().ConfigureAwait(false); }
+        catch { /* ignore */ }
+
         _platform.StopClipboardMonitor();
         _platform.StopDesktopInput();
         _platform.DisposeTray();
+#if WINDOWS
+        if (_platform is Platforms.Windows.WindowsMauiPlatformServices winPlat)
+        {
+            try { winPlat.DisposeScreenExtendUi(); } catch { /* ignore */ }
+        }
+#endif
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
         LayoutSync.Detach();

@@ -10,6 +10,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 拓扑监视已改为独立 FlyScreen.TopologyGuard.exe（不同进程名，防任务管理器组杀）
+
         if (!SingleInstanceHelper.TryStartPrimary(out _singleInstance))
         {
             // 已有实例：已发激活信号；本进程退出（勿走 StartupUri，避免调试器误报启动失败）
@@ -36,6 +38,18 @@ public partial class App : System.Windows.Application
             });
 
         AppHost.EnsureCreated();
+
+        // 软退出兜底：若 UI 未走 ExitApp，仍尽量收拢扩展拓扑（杀进程无法触发）
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try
+            {
+                if (FlyScreen.ScreenExtend.DisplayTopologyDirty.IsMarked)
+                    FlyScreen.ScreenExtend.DisplayProjection.TryApply(
+                        FlyScreen.Services.ScreenExtend.DisplayProjectionMode.Internal);
+            }
+            catch { /* ignore */ }
+        };
 
         // 后台同步开机自启，勿阻塞启动（否则会拖住主窗 Loaded / 键鼠钩子，表现为「不能穿边」）
         var autoStart = AppHost.Instance.Settings.AutoStart;

@@ -43,7 +43,11 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
 
         // 用过管道：停止时收拢拓扑，并在驱动重载后把控制台拉回来
         if (pipeOk)
+        {
             _manageVirtualCount = true;
+            // 会话占用 VDD：退出/杀进程前须收拢；脏标记供下次启动恢复
+            DisplayTopologyDirty.Mark();
+        }
 
         if (!await MttVddEnvironment.EnsureVirtualMonitorVisibleAsync(
                     ct: ct,

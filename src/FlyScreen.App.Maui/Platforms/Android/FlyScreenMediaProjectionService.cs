@@ -199,12 +199,12 @@ public sealed class FlyScreenMediaProjectionService : Service
         if (_foregrounded) return;
         try
         {
-            if (OperatingSystem.IsAndroidVersionAtLeast(26))
-            {
-                var manager = GetSystemService(NotificationService) as NotificationManager;
-                manager?.CreateNotificationChannel(new NotificationChannel(
-                    ChannelId, "屏幕投影", NotificationImportance.Low));
-            }
+            if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+                return;
+
+            var manager = GetSystemService(NotificationService) as NotificationManager;
+            manager?.CreateNotificationChannel(new NotificationChannel(
+                ChannelId, "屏幕投影", NotificationImportance.Low));
 
             var notification = new Notification.Builder(this, ChannelId)
                 .SetContentTitle("玄鸟")
@@ -379,16 +379,14 @@ public sealed class FlyScreenMediaProjectionService : Service
             if (dm != null)
                 dpi = (int)dm.DensityDpi;
 
-            var size = new global::Android.Graphics.Point();
             global::Android.Views.Display? display = null;
             if (OperatingSystem.IsAndroidVersionAtLeast(30))
                 display = Display;
             display ??= (GetSystemService(WindowService) as IWindowManager)?.DefaultDisplay;
-            display?.GetRealSize(size);
-            if (size.X > 0 && size.Y > 0)
+            if (AndroidDisplaySize.TryGetPixels(display, out var rw, out var rh))
             {
-                w = size.X;
-                h = size.Y;
+                w = rw;
+                h = rh;
             }
             else if (dm != null)
             {

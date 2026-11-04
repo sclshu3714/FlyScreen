@@ -964,15 +964,18 @@ public partial class MainWindow : Window
     private async void ExitApp()
     {
         DisposeTray();
-        await _host.DisposeAsync();
+        // DisposeAsync 内会 StopProjection 并等待 /internal，避免扩展拓扑残留
+        try { await _host.DisposeAsync(); }
+        catch { /* ignore */ }
         System.Windows.Application.Current.Shutdown();
     }
 
-    /// <summary>自动更新：释放托盘后立即退出，供外部脚本覆盖单文件 exe 并重启。</summary>
+    /// <summary>自动更新：释放托盘后退出，供外部脚本覆盖单文件 exe 并重启。</summary>
     public void ExitForUpdate()
     {
         try { DisposeTray(); } catch { /* ignore */ }
-        try { _ = _host.DisposeAsync().AsTask(); } catch { /* ignore */ }
+        // 同步等拓扑收拢，避免更新重启后仍卡在扩展屏
+        try { _host.DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { /* ignore */ }
         Environment.Exit(0);
     }
 

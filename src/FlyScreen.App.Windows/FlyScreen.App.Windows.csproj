@@ -42,5 +42,6 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <Import Project="..\..\build\FlyScreen.CopyTopologyGuard.targets" />
 
 </Project>

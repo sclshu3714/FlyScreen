@@ -76,7 +76,7 @@ public partial class App : Application
                     {
                         if (Current?.Windows.FirstOrDefault()?.Page is Page sinkPage)
                         {
-                            await sinkPage.DisplayAlert(
+                            await sinkPage.DisplayAlertAsync(
                                 "投影",
                                 FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
                                     FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,

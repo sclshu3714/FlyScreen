@@ -116,6 +116,7 @@ internal sealed class FlyScreenImeProxy
             {
                 // -1 = VIRTUAL_KEYBOARD（绑定层无同名常量）
                 var map = KeyCharacterMap.Load(-1);
+                if (map == null) return handled;
                 var code = map.Get((Keycode)keyCode, (int)meta);
                 if (code != 0 && !char.IsControl((char)code))
                 {

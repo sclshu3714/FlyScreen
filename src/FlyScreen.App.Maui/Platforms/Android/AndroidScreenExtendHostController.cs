@@ -121,20 +121,11 @@ public sealed class AndroidScreenExtendHostController : IDisposable
         var h = 0;
         try
         {
-            var size = new global::Android.Graphics.Point();
-            global::Android.Views.Display? display = null;
-            if (OperatingSystem.IsAndroidVersionAtLeast(30))
-                display = activity.Display;
-            if (display == null)
+            if (AndroidDisplaySize.TryGetPixels(activity, out var pw, out var ph))
             {
-                var wm = activity.GetSystemService(global::Android.Content.Context.WindowService)
-                    as global::Android.Views.IWindowManager;
-                display = wm?.DefaultDisplay;
+                w = pw;
+                h = ph;
             }
-
-            display?.GetRealSize(size);
-            w = size.X;
-            h = size.Y;
         }
         catch
         {

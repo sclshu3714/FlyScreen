@@ -159,6 +159,14 @@ public sealed class AppHost : IAsyncDisposable
 
     public async Task StartAsync()
     {
+        // 上次扩展投影异常退出：补 /internal 收拢仅电脑屏幕
+        try
+        {
+            await FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRecoverOrphanedExtendAsync()
+                .ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+
         await EnsureWindowsFirewallAsync().ConfigureAwait(false);
         await Connections.StartAsync().ConfigureAwait(false);
 
@@ -589,6 +597,9 @@ public sealed class AppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { await StopProjectionAsync().ConfigureAwait(false); }
+        catch { /* ignore */ }
+
         _layoutSync?.Detach();
         _layoutSync = null;
         _behaviorSync?.Detach();

@@ -1,5 +1,6 @@
 #if ANDROID
 using Android.Content;
+using Android.Net;
 using Android.Net.Wifi;
 using FlyScreen.Services.Network;
 
@@ -49,13 +50,32 @@ public static class AndroidNetworkBootstrap
         try
         {
             var ctx = global::Android.App.Application.Context;
+            // 优先 LinkProperties（API 全版本可用，避免 WifiInfo.IpAddress 在 31+ 过时）
+            if (ctx.GetSystemService(Context.ConnectivityService) is ConnectivityManager cm)
+            {
+                var network = cm.ActiveNetwork;
+                var props = network != null ? cm.GetLinkProperties(network) : null;
+                if (props?.LinkAddresses != null)
+                {
+                    foreach (var la in props.LinkAddresses)
+                    {
+                        var host = la?.Address?.HostAddress;
+                        if (string.IsNullOrWhiteSpace(host) || host.Contains(':'))
+                            continue;
+                        if (LocalPeerIdentity.IsBogusMachineName(host) || host.StartsWith("0."))
+                            continue;
+                        return host;
+                    }
+                }
+            }
+
             if (ctx.GetSystemService(Context.WifiService) is not WifiManager wifi)
                 return null;
-#pragma warning disable CA1422 // ConnectionInfo 在新 API 仍可用作回退
+#pragma warning disable CA1422 // ConnectionInfo / IpAddress：仅作旧系统回退
             var info = wifi.ConnectionInfo;
-#pragma warning restore CA1422
             if (info == null) return null;
             var raw = info.IpAddress;
+#pragma warning restore CA1422
             if (raw == 0) return null;
             // Android 返回小端 int
             var b0 = raw & 0xFF;

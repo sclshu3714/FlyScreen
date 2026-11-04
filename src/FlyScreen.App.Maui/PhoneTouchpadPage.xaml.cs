@@ -792,7 +792,7 @@ public partial class PhoneTouchpadPage : ContentPage
             if (_host.ScreenExtend.IsActive
                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
             {
-                await DisplayAlert(
+                await DisplayAlertAsync(
                     "投影",
                     FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
                         FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,

@@ -407,7 +407,14 @@ public sealed class MauiScreenExtendController : IDisposable
                 _service.StopAsync("app-exit").GetAwaiter().GetResult();
         }
         catch { /* ignore */ }
-        _ = FinalizeAfterSessionEndedAsync(releaseHost);
+
+        // 必须等 Finalize（/internal + 清脏标记）完成再让进程退出
+        try
+        {
+            FinalizeAfterSessionEndedAsync(releaseHost).GetAwaiter().GetResult();
+        }
+        catch { /* ignore */ }
+
         MainThread.BeginInvokeOnMainThread(() =>
         {
             try { _sink?.CloseFromSession(); } catch { /* ignore */ }

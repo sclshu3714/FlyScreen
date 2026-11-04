@@ -41,14 +41,15 @@ public partial class MainPage : ContentPage
     private int _logKnownTotal;
     private AppLogEntry? _logWatermark;
     private bool _openProgramLog;
-    private bool _progSelectAllUpdating;
     private UserProgram? _progMoreTarget;
     private bool _hostWired;
     private bool _uiPrepared;
+#if ANDROID
     private bool _a11yInjectUpdating;
     private bool _a11yInjectWired;
-    private int _a11yRefreshGen;
     private bool _notifyInjectUpdating;
+#endif
+    private int _a11yRefreshGen;
     private bool _pageAlive = true;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
@@ -134,7 +135,7 @@ public partial class MainPage : ContentPage
         _onStatusMessage = msg => RunOnUi(() => StatusLabel.Text = msg);
         _onProjectionNotice = msg => RunOnUi(async () =>
         {
-            try { await DisplayAlert("投影", msg, "确定"); }
+            try { await DisplayAlertAsync("投影", msg, "确定"); }
             catch { /* ignore */ }
         });
         _onAppLogChanged = () => RunOnUi(() =>
@@ -1859,7 +1860,6 @@ public partial class MainPage : ContentPage
 
     private void ProgSelectAll_Changed(object? sender, CheckedChangedEventArgs e)
     {
-        if (_progSelectAllUpdating) return;
         foreach (var p in ProgramService.Instance.Catalog.Items)
             p.IsSelected = e.Value;
     }
@@ -2339,13 +2339,18 @@ public partial class MainPage : ContentPage
             var resolver = activity?.ContentResolver;
             if (resolver == null) return null;
 
+            if (!OperatingSystem.IsAndroidVersionAtLeast(29))
+                return null;
+
             var values = new Android.Content.ContentValues();
             values.Put(Android.Provider.MediaStore.IMediaColumns.DisplayName, fileName);
             values.Put(Android.Provider.MediaStore.IMediaColumns.MimeType, "text/plain");
             values.Put(Android.Provider.MediaStore.IMediaColumns.RelativePath,
                 Android.OS.Environment.DirectoryDownloads);
 
-            var uri = resolver.Insert(Android.Provider.MediaStore.Downloads.ExternalContentUri, values);
+            var collection = Android.Provider.MediaStore.Downloads.ExternalContentUri;
+            if (collection == null) return null;
+            var uri = resolver.Insert(collection, values);
             if (uri == null) return null;
 
             await using var stream = resolver.OpenOutputStream(uri);
@@ -2658,7 +2663,7 @@ public partial class MainPage : ContentPage
         if (_host.ScreenExtend.IsActive
             && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
         {
-            await DisplayAlert(
+            await DisplayAlertAsync(
                 "投影",
                 FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
                     FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,

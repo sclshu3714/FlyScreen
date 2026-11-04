@@ -376,7 +376,14 @@ public sealed class ScreenExtendController : IDisposable
                 _service.StopAsync("app-exit").GetAwaiter().GetResult();
         }
         catch { /* ignore */ }
-        _ = FinalizeAfterSessionEndedAsync(releaseHost);
+
+        // 必须等 Finalize（/internal + 清脏标记）完成再让进程退出，否则托盘退出会残留扩展拓扑
+        try
+        {
+            FinalizeAfterSessionEndedAsync(releaseHost).GetAwaiter().GetResult();
+        }
+        catch { /* ignore */ }
+
         _dispatcher.BeginInvoke(() =>
         {
             try { _sinkWindow?.CloseFromSession(); } catch { /* ignore */ }

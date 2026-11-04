@@ -9,6 +9,8 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // Windows 拓扑监视：独立 FlyScreen.TopologyGuard.exe（见 DisplayTopologyWatchdog）
+
         var builder = MauiApp.CreateBuilder();
         builder.UseMauiApp<App>();
 
@@ -131,6 +133,17 @@ public static class MauiProgram
 #if WINDOWS
         host.AttachPlatform(new Platforms.Windows.WindowsMauiPlatformServices(
             host.Settings, host.Connections, host.Transfers, host.ScreenExtend));
+        // 软退出兜底：UI 未 Dispose 时尽量 /internal（任务管理器结束进程无法触发）
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try
+            {
+                if (FlyScreen.ScreenExtend.DisplayTopologyDirty.IsMarked)
+                    FlyScreen.ScreenExtend.DisplayProjection.TryApply(
+                        FlyScreen.Services.ScreenExtend.DisplayProjectionMode.Internal);
+            }
+            catch { /* ignore */ }
+        };
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
             host.Settings, host.Transfers, host.ScreenExtend));

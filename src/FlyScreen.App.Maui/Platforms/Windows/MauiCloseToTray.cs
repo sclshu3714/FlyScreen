@@ -17,9 +17,21 @@ internal static class MauiCloseToTray
     /// <summary>托盘「退出」、底部「退出」、热键退出等走此入口。</summary>
     public static void RequestExit()
     {
+        if (_exitRequested) return;
         _exitRequested = true;
-        try { Application.Current?.Quit(); }
-        catch { /* ignore */ }
+        // 先停投影并等待 /internal，再 Quit；否则扩展拓扑会残留
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                var host = MauiAppHost.EnsureCreated();
+                await host.DisposeAsync().ConfigureAwait(true);
+            }
+            catch { /* ignore */ }
+
+            try { Application.Current?.Quit(); }
+            catch { /* ignore */ }
+        });
     }
 
     public static void TryHook(Microsoft.Maui.Controls.Window window)

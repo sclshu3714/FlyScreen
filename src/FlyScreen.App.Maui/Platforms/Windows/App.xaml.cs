@@ -6,6 +6,9 @@ public partial class App : MauiWinUIApplication
 {
     public App()
     {
+        // 任务栏显示名「玄鸟」：须在任何 UI 之前设置 AppUserModelID（不改 exe 名）
+        global::FlyScreen.AppMaui.Platforms.Windows.MauiAppUserModel.EnsureProcessId();
+
         // WebView2 勿写入安装目录（Program Files 无写权限会导致 HybridWebView 异常）
         try
         {

@@ -65,6 +65,8 @@ public static class MttVddEnvironment
             // DisplaySwitch 至多一次：反复 /extend 会拖垮 DWM/显示栈直至整机卡死
             // 拓扑切换时常把指针甩到新屏左上角；先记下位置，切换后再拉回，避免投影画面闪一下
             progress?.Report("正在切换为扩展显示…");
+            // 杀进程时来不及 Finalize：落盘脏标记，下次启动收拢
+            DisplayTopologyDirty.Mark();
             var hadCursor = NativeMethods.GetCursorPos(out var cursorBefore);
             DisplayProjection.TryApply(Services.ScreenExtend.DisplayProjectionMode.Extend);
             if (hadCursor)

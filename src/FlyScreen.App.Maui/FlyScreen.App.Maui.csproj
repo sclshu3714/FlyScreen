@@ -55,9 +55,11 @@
     <AndroidSigningKeyPass>flyscreen</AndroidSigningKeyPass>
   </PropertyGroup>
 
-  <!-- Windows 用 .ico；跨平台图标/启动图用玄鸟 png（与 Desktop Assets 同源） -->
+  <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe/AssemblyName 仍为 FlyScreen.App.Maui（只改显示名见 MauiAppUserModel） -->
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-    <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
+    <ApplicationIcon>Platforms\Windows\Assets\appicon.ico</ApplicationIcon>
+    <AssemblyTitle>玄鸟</AssemblyTitle>
+    <Product>玄鸟</Product>
   </PropertyGroup>
 
   <!-- win-x64 发布：单文件自包含（与 PublishProfiles/SingleFile-win-x64.pubxml / Publish-FlyScreenMaui.ps1 一致） -->
@@ -162,6 +164,9 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <!-- 仅 Windows TFM 旁路拷贝 TopologyGuard（独立进程名防任务管理器组杀） -->
+  <Import Project="..\..\build\FlyScreen.CopyTopologyGuard.targets"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
 
   <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->
   <Target Name="FlyScreen_PreClearAndroidIntermediates"

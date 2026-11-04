@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.TopologyGuard</RootNamespace>
+    <AssemblyName>FlyScreen.TopologyGuard</AssemblyName>
+    <Product>玄鸟显示拓扑监视</Product>
+    <Description>扩展投影异常退出时收拢「仅电脑屏幕」；独立进程名，避免与主应用同组被任务管理器一并结束。</Description>
+    <!-- 监视进程无控制台窗口 -->
+    <UseAppHost>true</UseAppHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+  </ItemGroup>
+
+</Project>

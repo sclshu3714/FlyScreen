@@ -34,7 +34,7 @@
             <TextBlock x:Name="AppTitle"
                        VerticalAlignment="Center"
                        Margin="{Binding WindowTitleMargin}"
-                       Text="{Binding WindowTitle}"
+                       Text="玄鸟"
                        Foreground="#111827"
                        Style="{StaticResource CaptionTextBlockStyle}" />
           </StackPanel>

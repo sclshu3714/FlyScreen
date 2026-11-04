@@ -216,7 +216,7 @@ public sealed class ProjectionDialogPage : ContentPage
             FontSize = 15,
             FontAttributes = FontAttributes.Bold,
             VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.StartAndExpand
+            HorizontalOptions = LayoutOptions.Fill
         };
         _closeBtn = new Button
         {

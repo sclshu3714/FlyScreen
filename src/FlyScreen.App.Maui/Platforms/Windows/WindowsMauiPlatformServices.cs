@@ -234,4 +234,11 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void SetScreenExtendDisplayChoice(ProjectionDisplayChoice? choice)
         => _screenExtendUi?.SetDisplayChoice(choice);
+
+    /// <summary>退出进程前释放扩展屏控制器（内部会等待拓扑 Finalize）。</summary>
+    public void DisposeScreenExtendUi()
+    {
+        try { _screenExtendUi?.Dispose(); } catch { /* ignore */ }
+        _screenExtendUi = null;
+    }
 }

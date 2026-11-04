@@ -127,12 +127,12 @@ public sealed class FlyScreenProgramNotifyService : Service
     {
         try
         {
-            if (OperatingSystem.IsAndroidVersionAtLeast(26))
-            {
-                var manager = GetSystemService(NotificationService) as NotificationManager;
-                manager?.CreateNotificationChannel(new NotificationChannel(
-                    ChannelId, "子程序运行", NotificationImportance.Low));
-            }
+            if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+                return;
+
+            var manager = GetSystemService(NotificationService) as NotificationManager;
+            manager?.CreateNotificationChannel(new NotificationChannel(
+                ChannelId, "子程序运行", NotificationImportance.Low));
 
             var text = runningCount <= 1
                 ? "用户子程序运行中"

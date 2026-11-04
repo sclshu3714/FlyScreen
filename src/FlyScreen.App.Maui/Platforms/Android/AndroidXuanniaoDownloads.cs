@@ -192,16 +192,25 @@ public static class AndroidXuanniaoDownloads
         var resolver = ctx?.ContentResolver;
         if (resolver == null) return false;
 
+        if (!OperatingSystem.IsAndroidVersionAtLeast(29))
+            return false;
+
         var relative = MediaRelative(subDir);
         var isImage = mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 
         // 先 Downloads（用户在「下载/XuanNiao」可见）；图片再试 Images 集合作兜底
-        if (TryInsertMediaStore(resolver, MediaStore.Downloads.ExternalContentUri, bytes, displayName, mimeType, relative))
+        var downloads = MediaStore.Downloads.ExternalContentUri;
+        if (downloads != null
+            && TryInsertMediaStore(resolver, downloads, bytes, displayName, mimeType, relative))
             return true;
 
-        if (isImage
-            && TryInsertMediaStore(resolver, MediaStore.Images.Media.ExternalContentUri, bytes, displayName, mimeType, relative))
-            return true;
+        if (isImage)
+        {
+            var images = MediaStore.Images.Media.ExternalContentUri;
+            if (images != null
+                && TryInsertMediaStore(resolver, images, bytes, displayName, mimeType, relative))
+                return true;
+        }
 
         return false;
     }
@@ -220,7 +229,7 @@ public static class AndroidXuanniaoDownloads
             var values = new ContentValues();
             values.Put(MediaStore.IMediaColumns.DisplayName, displayName);
             values.Put(MediaStore.IMediaColumns.MimeType, mimeType);
-            if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
+            if (OperatingSystem.IsAndroidVersionAtLeast(29))
             {
                 values.Put(MediaStore.IMediaColumns.RelativePath, relativePath);
                 values.Put(MediaStore.IMediaColumns.IsPending, 1);
@@ -245,7 +254,7 @@ public static class AndroidXuanniaoDownloads
                 output.Flush();
             }
 
-            if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
+            if (OperatingSystem.IsAndroidVersionAtLeast(29))
             {
                 var done = new ContentValues();
                 done.Put(MediaStore.IMediaColumns.IsPending, 0);

@@ -25,7 +25,7 @@ public sealed partial class FlyScreenInputAccessibilityService
             }
             finally
             {
-                root.Recycle();
+                AndroidA11yNodes.RecycleQuiet(root);
             }
         }
         catch
@@ -68,7 +68,7 @@ public sealed partial class FlyScreenInputAccessibilityService
     }
 
     /// <summary>
-    /// 系统 UI 朝向是否横屏。优先 <see cref="Android.Content.Res.Orientation"/>，
+    /// 系统 UI 朝向是否横屏。优先 Configuration.Orientation，
     /// 避免 GetRealSize 滞后时把竖屏误判成横屏（从而误用横屏 OCR 区）。
     /// </summary>
     public bool? GetUiIsLandscape()
@@ -95,7 +95,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         try { return true; }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -118,7 +118,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                         try { WalkTexts(root, list, seen, limit); }
                         finally
                         {
-                            try { root.Recycle(); } catch { /* ignore */ }
+                            AndroidA11yNodes.RecycleQuiet(root);
                         }
                         if (list.Count >= limit) return list;
                     }
@@ -133,7 +133,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                 try { WalkTexts(root, list, seen, limit); }
                 finally
                 {
-                    try { root.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(root);
                 }
             }
         }
@@ -163,7 +163,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -296,7 +296,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         try { return true; }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -308,7 +308,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         try { return true; }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -324,7 +324,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -340,7 +340,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -351,7 +351,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         try { return TapNodeCenter(node); }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -362,7 +362,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         try { return TapNodeCenter(node); }
         finally
         {
-            try { node.Recycle(); } catch { /* ignore */ }
+            AndroidA11yNodes.RecycleQuiet(node);
         }
     }
 
@@ -475,7 +475,7 @@ public sealed partial class FlyScreenInputAccessibilityService
             }
             finally
             {
-                try { node.Recycle(); } catch { /* ignore */ }
+                AndroidA11yNodes.RecycleQuiet(node);
             }
         });
     }
@@ -498,7 +498,7 @@ public sealed partial class FlyScreenInputAccessibilityService
             }
             finally
             {
-                try { node.Recycle(); } catch { /* ignore */ }
+                AndroidA11yNodes.RecycleQuiet(node);
             }
         });
     }
@@ -533,12 +533,12 @@ public sealed partial class FlyScreenInputAccessibilityService
                 }
                 finally
                 {
-                    try { scrollable.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(scrollable);
                 }
             }
             finally
             {
-                root.Recycle();
+                AndroidA11yNodes.RecycleQuiet(root);
             }
         }
         catch
@@ -552,7 +552,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         try
         {
             if (node.Scrollable)
-                return AccessibilityNodeInfo.Obtain(node);
+                return AndroidA11yNodes.ObtainCopy(node);
             for (var i = 0; i < node.ChildCount; i++)
             {
                 var child = node.GetChild(i);
@@ -564,7 +564,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                 }
                 finally
                 {
-                    try { child.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(child);
                 }
             }
         }
@@ -588,13 +588,13 @@ public sealed partial class FlyScreenInputAccessibilityService
                 {
                     if (n == null) continue;
                     if (found == null) found = n;
-                    else try { n.Recycle(); } catch { /* ignore */ }
+                    else AndroidA11yNodes.RecycleQuiet(n);
                 }
                 return found != null;
             }
             finally
             {
-                root.Recycle();
+                AndroidA11yNodes.RecycleQuiet(root);
             }
         }
         catch
@@ -619,7 +619,7 @@ public sealed partial class FlyScreenInputAccessibilityService
             }
             finally
             {
-                root.Recycle();
+                AndroidA11yNodes.RecycleQuiet(root);
             }
         }
         catch
@@ -635,7 +635,7 @@ public sealed partial class FlyScreenInputAccessibilityService
         {
             var d = node.ContentDescription?.ToString();
             if (!string.IsNullOrEmpty(d) && d.Contains(desc, StringComparison.Ordinal))
-                return AccessibilityNodeInfo.Obtain(node);
+                return AndroidA11yNodes.ObtainCopy(node);
 
             for (var i = 0; i < node.ChildCount; i++)
             {
@@ -648,7 +648,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                 }
                 finally
                 {
-                    try { child.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(child);
                 }
             }
         }
@@ -679,7 +679,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                         }
                         finally
                         {
-                            try { root.Recycle(); } catch { /* ignore */ }
+                            AndroidA11yNodes.RecycleQuiet(root);
                         }
                     }
                 }
@@ -694,7 +694,7 @@ public sealed partial class FlyScreenInputAccessibilityService
             }
             finally
             {
-                try { active.Recycle(); } catch { /* ignore */ }
+                AndroidA11yNodes.RecycleQuiet(active);
             }
         }
         catch
@@ -716,7 +716,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                 if (found == null)
                     found = n;
                 else
-                    try { n.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(n);
             }
             if (found != null) return true;
         }
@@ -733,7 +733,7 @@ public sealed partial class FlyScreenInputAccessibilityService
             var d = node.ContentDescription?.ToString();
             if ((!string.IsNullOrEmpty(t) && t.Contains(text, StringComparison.Ordinal))
                 || (!string.IsNullOrEmpty(d) && d.Contains(text, StringComparison.Ordinal)))
-                return AccessibilityNodeInfo.Obtain(node);
+                return AndroidA11yNodes.ObtainCopy(node);
 
             for (var i = 0; i < node.ChildCount; i++)
             {
@@ -746,7 +746,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                 }
                 finally
                 {
-                    try { child.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(child);
                 }
             }
         }
@@ -779,7 +779,7 @@ public sealed partial class FlyScreenInputAccessibilityService
                 try { WalkTexts(child, list, seen, max); }
                 finally
                 {
-                    try { child.Recycle(); } catch { /* ignore */ }
+                    AndroidA11yNodes.RecycleQuiet(child);
                 }
             }
         }
