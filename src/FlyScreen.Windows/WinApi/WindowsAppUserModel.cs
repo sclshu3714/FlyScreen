@@ -15,6 +15,7 @@ public static class WindowsAppUserModel
 
     private static readonly HashSet<nint> AppliedHwnds = [];
     private static string? _processId;
+    private static string? _appliedRelaunch;
 
     /// <summary>须在任何窗口创建之前调用。</summary>
     public static void EnsureProcessId(string appId)
@@ -34,7 +35,7 @@ public static class WindowsAppUserModel
 
     public static void ApplyToWindow(IntPtr hwnd, string appId, string displayName, params string[] iconCandidates)
     {
-        if (hwnd == IntPtr.Zero || !AppliedHwnds.Add(hwnd))
+        if (hwnd == IntPtr.Zero)
             return;
 
         EnsureProcessId(appId);
@@ -43,24 +44,23 @@ public static class WindowsAppUserModel
         {
             var exe = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
-            {
-                AppliedHwnds.Remove(hwnd);
                 return;
-            }
+
+            // 同一窗口若启动路径已写入过则跳过；路径变化（如从 Debug 换到安装目录）须重写
+            var relaunch = exe.Contains(' ') ? $"\"{exe}\"" : exe;
+            if (AppliedHwnds.Contains(hwnd)
+                && string.Equals(_appliedRelaunch, relaunch, StringComparison.OrdinalIgnoreCase))
+                return;
 
             var iid = typeof(IPropertyStore).GUID;
             var hr = SHGetPropertyStoreForWindow(hwnd, ref iid, out var punk);
             if (hr != 0 || punk == IntPtr.Zero)
-            {
-                AppliedHwnds.Remove(hwnd);
                 return;
-            }
 
             IPropertyStore? store = null;
             try
             {
                 store = (IPropertyStore)Marshal.GetUniqueObjectForIUnknown(punk);
-                var relaunch = exe.Contains(' ') ? $"\"{exe}\"" : exe;
                 var icon = ResolveIconResource(exe, iconCandidates);
 
                 SetString(store, PkeyId, appId);
@@ -69,6 +69,8 @@ public static class WindowsAppUserModel
                 if (icon != null)
                     SetString(store, PkeyRelaunchIcon, icon);
                 store.Commit();
+                AppliedHwnds.Add(hwnd);
+                _appliedRelaunch = relaunch;
             }
             finally
             {

@@ -157,15 +157,13 @@
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
     <!-- 托盘菜单 UpdateLayeredWindow 绘制（非 WinForms） -->
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
-    <!-- 离线 VDD：共用 tools\VddOffline（不依赖其它 App 工程） -->
-    <None Include="..\..\tools\VddOffline\**\*"
-          CopyToOutputDirectory="PreserveNewest"
-          Link="VddOffline\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
-  <!-- Windows：TopologyGuard 打进单文件包，不在发布目录旁路第二个 exe -->
+  <!-- Windows：TopologyGuard / VddOffline（zip 在 VddOffline\ 下）打进包 -->
   <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+  <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
 
   <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->

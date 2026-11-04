@@ -325,7 +325,7 @@ public static class MttVddEnvironment
                 return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
 
             return (false,
-                "已安装 Virtual Display Driver，但未检测到控制台管道。请稍候再点「重新检测」，或手动运行 VddOffline\\VDDControl*.exe；不必重复自动修复安装");
+                "已安装 Virtual Display Driver，但未检测到控制台管道。请稍候再点「重新检测」，或运行 %AppData%\\FlyScreen\\VddOffline\\VDDControl*.exe；不必重复自动修复安装");
         }
 
         return (false, "未检测到真副屏，且未安装或未运行虚拟显示驱动（MTT VDD）");

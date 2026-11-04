@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
+using FlyScreen.Services;
 using Microsoft.Win32;
 
 namespace FlyScreen.ScreenExtend;
@@ -9,10 +12,13 @@ namespace FlyScreen.ScreenExtend;
 /// 按需安装 / 卸载 MTT Virtual Display Driver。
 /// 统一使用离线包 v25.05.03（setup + VDDControl），其次 winget；不再下载已放弃的 25.7 Driver.Only。
 /// 仅当本程序成功安装后写入 <see cref="MttVddInstallRecord"/>，卸载清理才开放。
+/// 发布物：程序目录 VddOffline\FlyScreen.VddOffline.zip（单文件则内置后解压到同相对路径）；
+/// 运行时再展开到 %AppData%\FlyScreen\VddOffline。
 /// </summary>
 public static class MttVddInstaller
 {
     public const string OfflineFolderName = "VddOffline";
+    public const string OfflineBundleZipName = "FlyScreen.VddOffline.zip";
 
     public const string WingetId = "VirtualDrivers.Virtual-Display-Driver";
 
@@ -24,13 +30,189 @@ public static class MttVddInstaller
         "VDD.Control.25.7.23.zip"
     ];
 
+    private static readonly object OfflineGate = new();
+
+    /// <summary>固化后的离线包目录（%AppData%\FlyScreen\VddOffline）。</summary>
     public static string OfflineDirectory
+        => Path.Combine(FlyScreenDataPaths.Root, OfflineFolderName);
+
+    /// <summary>
+    /// 从单文件解压目录 / 程序旁的 zip 或文件夹，固化到 <see cref="OfflineDirectory"/>。
+    /// </summary>
+    public static bool EnsureOfflineMaterialized(IProgress<string>? progress = null)
     {
-        get
+        lock (OfflineGate)
         {
-            var baseDir = AppContext.BaseDirectory;
-            return Path.Combine(baseDir, OfflineFolderName);
+            try
+            {
+                var dest = OfflineDirectory;
+                Directory.CreateDirectory(dest);
+                var stampPath = Path.Combine(dest, "bundle.sha256");
+
+                var zip = FindBundledOfflineZip();
+                if (zip != null)
+                {
+                    string hash;
+                    using (var fs = File.OpenRead(zip))
+                    using (var sha = SHA256.Create())
+                        hash = Convert.ToHexString(sha.ComputeHash(fs)).ToLowerInvariant();
+
+                    if (File.Exists(stampPath)
+                        && string.Equals(File.ReadAllText(stampPath).Trim(), hash, StringComparison.OrdinalIgnoreCase)
+                        && HasUsableOfflinePayload(dest))
+                        return true;
+
+                    progress?.Report("正在展开内置虚拟显示离线包…");
+                    var tmp = dest + ".extracting";
+                    try
+                    {
+                        if (Directory.Exists(tmp))
+                            Directory.Delete(tmp, recursive: true);
+                        Directory.CreateDirectory(tmp);
+                        ZipFile.ExtractToDirectory(zip, tmp, overwriteFiles: true);
+                        // 替换内容：先清旧文件（保留目录）
+                        foreach (var f in Directory.EnumerateFiles(dest))
+                        {
+                            try { File.Delete(f); } catch { /* ignore */ }
+                        }
+
+                        foreach (var f in Directory.EnumerateFiles(tmp))
+                        {
+                            var name = Path.GetFileName(f);
+                            File.Copy(f, Path.Combine(dest, name), overwrite: true);
+                        }
+
+                        foreach (var d in Directory.EnumerateDirectories(tmp))
+                        {
+                            var name = Path.GetFileName(d);
+                            var target = Path.Combine(dest, name);
+                            if (Directory.Exists(target))
+                                Directory.Delete(target, recursive: true);
+                            CopyDirectory(d, target);
+                        }
+
+                        File.WriteAllText(stampPath, hash);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (Directory.Exists(tmp))
+                                Directory.Delete(tmp, recursive: true);
+                        }
+                        catch { /* ignore */ }
+                    }
+
+                    return HasUsableOfflinePayload(dest);
+                }
+
+                // 调试多文件：程序旁已有 VddOffline 文件夹
+                var beside = FindBesideOfflineFolder();
+                if (beside != null && HasUsableOfflinePayload(beside))
+                {
+                    if (string.Equals(Path.GetFullPath(beside), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    progress?.Report("正在同步程序目录离线包…");
+                    foreach (var f in Directory.EnumerateFiles(beside))
+                    {
+                        var name = Path.GetFileName(f);
+                        if (string.Equals(name, "bundle.sha256", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        File.Copy(f, Path.Combine(dest, name), overwrite: true);
+                    }
+
+                    return HasUsableOfflinePayload(dest);
+                }
+
+                return HasUsableOfflinePayload(dest);
+            }
+            catch
+            {
+                return HasUsableOfflinePayload(OfflineDirectory);
+            }
         }
+    }
+
+    private static bool HasUsableOfflinePayload(string dir)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) return false;
+            return Directory.EnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly).Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? FindBundledOfflineZip()
+    {
+        foreach (var root in EnumerateAppContentRoots())
+        {
+            // 优先：安装/发布目录 VddOffline\FlyScreen.VddOffline.zip
+            var nested = Path.Combine(root, OfflineFolderName, OfflineBundleZipName);
+            if (File.Exists(nested))
+                return nested;
+
+            // 兼容旧版：根目录旁路 zip
+            var legacy = Path.Combine(root, OfflineBundleZipName);
+            if (File.Exists(legacy))
+                return legacy;
+        }
+
+        return null;
+    }
+
+    private static string? FindBesideOfflineFolder()
+    {
+        foreach (var root in EnumerateAppContentRoots())
+        {
+            var dir = Path.Combine(root, OfflineFolderName);
+            try
+            {
+                // 仅当目录内已有控制台/setup 等 exe（开发机旁路展开）；纯 zip 走 FindBundledOfflineZip
+                if (Directory.Exists(dir) && HasUsableOfflinePayload(dir))
+                    return dir;
+            }
+            catch { /* next */ }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateAppContentRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in new[]
+                 {
+                     AppContext.BaseDirectory,
+                     Path.GetDirectoryName(Environment.ProcessPath)
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            string full;
+            try
+            {
+                full = Path.GetFullPath(raw.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (seen.Add(full))
+                yield return full;
+        }
+    }
+
+    private static void CopyDirectory(string src, string dest)
+    {
+        Directory.CreateDirectory(dest);
+        foreach (var f in Directory.EnumerateFiles(src))
+            File.Copy(f, Path.Combine(dest, Path.GetFileName(f)), overwrite: true);
+        foreach (var d in Directory.EnumerateDirectories(src))
+            CopyDirectory(d, Path.Combine(dest, Path.GetFileName(d)));
     }
 
     /// <summary>离线静默安装包（setup*.exe）；不含控制台 exe。</summary>
@@ -105,14 +287,26 @@ public static class MttVddInstaller
             || MttVddEnvironment.HasSecondaryMonitor())
             return (true, "环境已就绪，无需安装");
 
+        EnsureOfflineMaterialized(progress);
         Directory.CreateDirectory(OfflineDirectory);
         PurgeAbandonedOfflineDownloads();
         var attemptedInstall = false;
         var productAlready = MttVddEnvironment.IsProductInstalled();
+        var hasOfflineControl = FindOfflineControlExecutables().Any();
+        var hasInstalledControl = FindVddControlExecutables().Any() || FindVddControlShortcuts().Any();
+        var hasOfflineSetup = FindOfflineSetupExecutables().Any();
 
         // 0) 软件已装但管道未起：自动修黄叹号设备 → 拉控制台；仍失败再静默重建设备（用户无需开设备管理器）。
         if (productAlready)
         {
+            // 无任何控制台/离线包时不要长时间重置设备（只会空转并生成空 VddOffline）
+            if (!hasOfflineControl && !hasInstalledControl && !hasOfflineSetup)
+            {
+                return (false,
+                    "驱动已安装，但未找到 VDDControl/setup（单文件应内置 FlyScreen.VddOffline.zip）。"
+                    + "请更换完整发布的主程序，或手动将控制台放入 %AppData%\\FlyScreen\\VddOffline\\ 后再点「重新检测」。");
+            }
+
             progress?.Report("检测到已安装 Virtual Display Driver，正在启用设备并启动控制台…");
             if (await TryActivateDriverAsync(progress, ct).ConfigureAwait(false))
             {
@@ -237,7 +431,7 @@ public static class MttVddInstaller
         if (!attemptedInstall && !productAlready && setupFresh == null)
         {
             return (false,
-                "自动静默安装未完成。请将安装包放入程序目录 VddOffline\\ 后重试，或执行：winget install VirtualDrivers.Virtual-Display-Driver --silent");
+                "自动静默安装未完成。请确认主程序内置离线包，或将 setup/VDDControl 放入 %AppData%\\FlyScreen\\VddOffline\\ 后重试，或执行：winget install VirtualDrivers.Virtual-Display-Driver --silent");
         }
 
         // 最后再激活一轮；仍失败则不写安装标记（卸载卡片须等环境真正通过）
@@ -255,7 +449,7 @@ public static class MttVddInstaller
         return (false, pkg
             ? foundControl
                 ? "已自动修复/重建虚拟显示设备并尝试启动控制台，但仍无管道。请重启电脑后再打开投影点「重新检测」。"
-                : "软件包已安装，但未找到控制台程序。请确认程序目录 VddOffline\\ 含 VDDControl-v25.05.03.exe 后重试；仍失败请重启电脑。"
+                : "软件包已安装，但未找到控制台程序。请确认 %AppData%\\FlyScreen\\VddOffline\\ 含 VDDControl，或更换内置离线包的完整主程序后再试；仍失败请重启电脑。"
             : "安装步骤已执行，但未检测到驱动。请确认 UAC 已允许安装；必要时重启后再试。");
     }
 
@@ -331,6 +525,8 @@ public static class MttVddInstaller
     {
         if (await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false))
             return true;
+
+        EnsureOfflineMaterialized();
         if (!MttVddEnvironment.IsProductInstalled() && !HasAnyControlExecutable())
             return false;
 

@@ -10,13 +10,13 @@
 
 | 端 | 如何引用 | 进发布产物 |
 |----|----------|------------|
-| WPF Win | `..\..\tools\VddOffline\**\*` | setup + VDDControl + README |
-| Maui-Win | `..\..\tools\VddOffline\**\*`（Windows TFM） | 同上 |
+| WPF Win | `build/FlyScreen.BundleVddOffline.targets` 打 zip | `VddOffline\FlyScreen.VddOffline.zip`（勿放安装根目录） |
+| Maui-Win | 同上（Windows TFM） | 同上 |
 | Mac | 仅 `..\..\tools\VddOffline\README.txt` | 仅 README |
 | Linux | 仅 `..\..\tools\VddOffline\README.txt` | 仅 README |
 | Maui Android | — | 不复制 |
 
-`docs/mtt_vdd` 不进任何端的发布包。
+运行时把 zip 展开到 `%AppData%\FlyScreen\VddOffline`。`docs/mtt_vdd` 不进任何端的发布包。
 
 ## 基本离线包（写入 tools\VddOffline）
 

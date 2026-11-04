@@ -1,0 +1,91 @@
+<!--
+  将 tools/VddOffline 打成 FlyScreen.VddOffline.zip，发布到程序目录 VddOffline\ 下
+  （勿放安装根目录）。单文件发布时 zip 打进主包，运行时解压到磁盘同相对路径，
+  再由 MttVddInstaller 展开到 %AppData%\FlyScreen\VddOffline。
+-->
+<Project>
+  <PropertyGroup>
+    <_FsVddSrcDir>$(MSBuildThisFileDirectory)..\tools\VddOffline\</_FsVddSrcDir>
+    <_FsVddBundleDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\bundled-vdd-offline\</_FsVddBundleDir>
+    <_FsVddBundleZip>$(_FsVddBundleDir)FlyScreen.VddOffline.zip</_FsVddBundleZip>
+    <_FsVddPublishRel>VddOffline\FlyScreen.VddOffline.zip</_FsVddPublishRel>
+    <!-- 单文件必须把内容解压到磁盘，否则 zip 只在包内、运行时找不到 -->
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_FsVddBundleInputs Include="$(_FsVddSrcDir)**\*" />
+  </ItemGroup>
+
+  <Target Name="FlyScreen_PrepareBundledVddOffline"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;ComputeFilesToPublish;_GetCopyToOutputDirectoryItemsFromThisProject"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipVddOffline)' != 'true'"
+          Inputs="@(_FsVddBundleInputs)"
+          Outputs="$(_FsVddBundleZip)">
+    <PropertyGroup>
+      <_FsVddSrcFull>$([System.IO.Path]::GetFullPath('$(_FsVddSrcDir)'))</_FsVddSrcFull>
+      <_FsVddZipFull>$([System.IO.Path]::GetFullPath('$(_FsVddBundleZip)'))</_FsVddZipFull>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_FsVddSrcFull)')"
+           Text="缺少离线 VDD 目录：$(_FsVddSrcFull)。请先运行 docs\mtt_vdd\fetch-offline-pack.ps1。" />
+    <MakeDir Directories="$(_FsVddBundleDir)" />
+    <Delete Files="$(_FsVddBundleZip)" Condition="Exists('$(_FsVddBundleZip)')" />
+    <Message Importance="High" Text="打包 VddOffline → $(_FsVddZipFull)（发布相对路径 $(_FsVddPublishRel)）" />
+    <ZipDirectory SourceDirectory="$(_FsVddSrcFull)"
+                  DestinationFile="$(_FsVddZipFull)"
+                  Overwrite="true" />
+  </Target>
+
+  <Target Name="FlyScreen_IncludeBundledVddOffline"
+          AfterTargets="FlyScreen_PrepareBundledVddOffline"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;ComputeFilesToPublish;_GetCopyToOutputDirectoryItemsFromThisProject"
+          Condition="'$(FlyScreenSkipVddOffline)' != 'true'">
+    <ItemGroup>
+      <Content Remove="@(Content)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.VddOffline.zip'" />
+      <None Remove="@(None)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.VddOffline.zip'" />
+      <!-- 去掉旧的旁路「展开后的」文件夹项，避免与 zip 混放 -->
+      <None Remove="@(None)" Condition="$([System.String]::Copy('%(None.Link)').StartsWith('VddOffline')) And '%(Filename)%(Extension)' != 'FlyScreen.VddOffline.zip'" />
+    </ItemGroup>
+    <ItemGroup Condition="Exists('$(_FsVddBundleZip)')">
+      <Content Include="$(_FsVddBundleZip)" KeepDuplicates="false">
+        <Link>$(_FsVddPublishRel)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <!-- 进单文件包；运行时随 IncludeAllContentForSelfExtract 解压到 VddOffline\ -->
+        <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+        <TargetPath>$(_FsVddPublishRel)</TargetPath>
+      </Content>
+    </ItemGroup>
+    <Error Condition="!Exists('$(_FsVddBundleZip)') And '$(DesignTimeBuild)' != 'true'"
+           Text="打包 VddOffline 失败：不存在 $(_FsVddBundleZip)" />
+  </Target>
+
+  <!-- 单文件：发布根下不应残留松散 zip；多文件安装包保留 VddOffline\FlyScreen.VddOffline.zip -->
+  <Target Name="FlyScreen_RemoveLooseVddOfflineFromPublish"
+          AfterTargets="Publish"
+          Condition="'$(FlyScreenSkipVddOffline)' != 'true' And '$(PublishSingleFile)' == 'true' And '$(PublishDir)' != ''">
+    <Delete Files="$(PublishDir)FlyScreen.VddOffline.zip"
+            Condition="Exists('$(PublishDir)FlyScreen.VddOffline.zip')" />
+    <Delete Files="$(PublishDir)VddOffline\FlyScreen.VddOffline.zip"
+            Condition="Exists('$(PublishDir)VddOffline\FlyScreen.VddOffline.zip')" />
+    <RemoveDir Directories="$(PublishDir)VddOffline"
+               Condition="Exists('$(PublishDir)VddOffline')" />
+  </Target>
+
+  <!-- 多文件发布：清掉误落在根目录的旧 zip，只保留 VddOffline\ 内 -->
+  <Target Name="FlyScreen_RelocateRootVddZipOnPublish"
+          AfterTargets="Publish"
+          Condition="'$(FlyScreenSkipVddOffline)' != 'true' And '$(PublishSingleFile)' != 'true' And '$(PublishDir)' != ''">
+    <PropertyGroup>
+      <_FsVddRootZip>$(PublishDir)FlyScreen.VddOffline.zip</_FsVddRootZip>
+      <_FsVddNestedZip>$(PublishDir)VddOffline\FlyScreen.VddOffline.zip</_FsVddNestedZip>
+    </PropertyGroup>
+    <MakeDir Directories="$(PublishDir)VddOffline"
+             Condition="Exists('$(_FsVddRootZip)') And !Exists('$(_FsVddNestedZip)')" />
+    <Move SourceFiles="$(_FsVddRootZip)"
+          DestinationFiles="$(_FsVddNestedZip)"
+          Condition="Exists('$(_FsVddRootZip)') And !Exists('$(_FsVddNestedZip)')" />
+    <Delete Files="$(_FsVddRootZip)"
+            Condition="Exists('$(_FsVddRootZip)') And Exists('$(_FsVddNestedZip)')" />
+  </Target>
+</Project>
