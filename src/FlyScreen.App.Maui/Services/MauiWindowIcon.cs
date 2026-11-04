@@ -69,7 +69,13 @@ public static class MauiWindowIcon
             EnsureUnicodeSubclass(hwnd);
             _ = SetWindowTextW(hwnd, AppDisplayName);
             // 任务栏右键顶栏显示「玄鸟」（进程名列仍为 FlyScreen.App.Maui.exe）
-            Platforms.Windows.MauiAppUserModel.ApplyToWindow(hwnd);
+            FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
+                hwnd,
+                FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
+                FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
+                Path.Combine("Assets", "appicon.ico"),
+                Path.Combine("Resources", "AppIcon", "appicon.ico"),
+                "appicon.ico");
 
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = AppWindow.GetFromWindowId(windowId);

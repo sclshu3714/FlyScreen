@@ -85,6 +85,16 @@ public partial class MainWindow : Window
         }
         Loaded += OnLoaded;
         Closing += OnClosing;
+        SourceInitialized += (_, _) =>
+        {
+            var helper = new System.Windows.Interop.WindowInteropHelper(this);
+            FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
+                helper.Handle,
+                FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
+                FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
+                System.IO.Path.Combine("Assets", "wlogo_tu.ico"),
+                "wlogo_tu.ico");
+        };
         UpdateTitleMaxGlyph();
     }
 

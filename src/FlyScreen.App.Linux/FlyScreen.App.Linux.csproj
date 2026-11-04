@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FlyScreen.LinuxApp</RootNamespace>
     <AssemblyName>FlyScreen</AssemblyName>
+    <AssemblyTitle>玄鸟</AssemblyTitle>
     <Product>玄鸟</Product>
     <Description>玄鸟 Linux — 桌面 GUI / 无头 CLI·Daemon，复用同一业务宿主</Description>
     <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>

@@ -1,29 +1,30 @@
-#if WINDOWS
 using System.Runtime.InteropServices;
 
-namespace FlyScreen.AppMaui.Platforms.Windows;
+namespace FlyScreen.WinApi;
 
 /// <summary>
-/// 仅改「显示名称」，不改 exe / AssemblyName。
-/// 任务栏右键顶栏、固定磁贴文案来自 AppUserModel.RelaunchDisplayNameResource；
-/// 进程名列仍为 FlyScreen.App.Maui.exe。
+/// 仅改任务栏/Shell 显示名，不改 exe / AssemblyName。
+/// Win / Maui / TopologyGuard 共用。
 /// </summary>
-internal static class MauiAppUserModel
+public static class WindowsAppUserModel
 {
-    public const string AppId = "XuanNiao.FlyScreen";
-    public const string DisplayName = "玄鸟";
+    public const string MainAppId = "XuanNiao.FlyScreen";
+    public const string MainDisplayName = "玄鸟";
+    public const string GuardAppId = "XuanNiao.FlyScreen.TopologyGuard";
+    public const string GuardDisplayName = "玄鸟:守护";
 
     private static readonly HashSet<nint> AppliedHwnds = [];
-    private static bool _processIdSet;
+    private static string? _processId;
 
     /// <summary>须在任何窗口创建之前调用。</summary>
-    public static void EnsureProcessId()
+    public static void EnsureProcessId(string appId)
     {
-        if (_processIdSet) return;
+        if (string.Equals(_processId, appId, StringComparison.Ordinal))
+            return;
         try
         {
-            if (SetCurrentProcessExplicitAppUserModelID(AppId) == 0)
-                _processIdSet = true;
+            if (SetCurrentProcessExplicitAppUserModelID(appId) == 0)
+                _processId = appId;
         }
         catch
         {
@@ -31,12 +32,12 @@ internal static class MauiAppUserModel
         }
     }
 
-    public static void ApplyToWindow(IntPtr hwnd)
+    public static void ApplyToWindow(IntPtr hwnd, string appId, string displayName, params string[] iconCandidates)
     {
         if (hwnd == IntPtr.Zero || !AppliedHwnds.Add(hwnd))
             return;
 
-        EnsureProcessId();
+        EnsureProcessId(appId);
 
         try
         {
@@ -50,11 +51,11 @@ internal static class MauiAppUserModel
             try
             {
                 var relaunch = exe.Contains(' ') ? $"\"{exe}\"" : exe;
-                var icon = ResolveIconResource(exe);
+                var icon = ResolveIconResource(exe, iconCandidates);
 
-                SetString(store, PkeyId, AppId);
+                SetString(store, PkeyId, appId);
                 SetString(store, PkeyRelaunchCommand, relaunch);
-                SetString(store, PkeyRelaunchDisplayName, DisplayName);
+                SetString(store, PkeyRelaunchDisplayName, displayName);
                 if (icon != null)
                     SetString(store, PkeyRelaunchIcon, icon);
                 store.Commit();
@@ -70,22 +71,19 @@ internal static class MauiAppUserModel
         }
     }
 
-    private static string? ResolveIconResource(string exe)
+    private static string? ResolveIconResource(string exe, string[] iconCandidates)
     {
         var baseDir = AppContext.BaseDirectory;
-        foreach (var rel in new[]
-                 {
-                     Path.Combine("Assets", "appicon.ico"),
-                     Path.Combine("Resources", "AppIcon", "appicon.ico"),
-                     "appicon.ico"
-                 })
+        foreach (var rel in iconCandidates)
         {
-            var full = Path.GetFullPath(Path.Combine(baseDir, rel));
+            if (string.IsNullOrWhiteSpace(rel)) continue;
+            var full = Path.IsPathRooted(rel)
+                ? rel
+                : Path.GetFullPath(Path.Combine(baseDir, rel));
             if (File.Exists(full))
                 return full;
         }
 
-        // 回退：exe 内嵌图标
         return exe + ",0";
     }
 
@@ -104,7 +102,6 @@ internal static class MauiAppUserModel
         }
     }
 
-    // PKEY_AppUserModel_* — formatID 9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3
     private static readonly PropertyKey PkeyRelaunchCommand = new(0x9F4C2855, 0x9F79, 0x4B39, 0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3, 2);
     private static readonly PropertyKey PkeyRelaunchIcon = new(0x9F4C2855, 0x9F79, 0x4B39, 0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3, 3);
     private static readonly PropertyKey PkeyRelaunchDisplayName = new(0x9F4C2855, 0x9F79, 0x4B39, 0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3, 4);
@@ -161,4 +158,3 @@ internal static class MauiAppUserModel
         uint Commit();
     }
 }
-#endif

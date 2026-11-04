@@ -6,10 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>FlyScreen.TopologyGuard</RootNamespace>
+    <!-- exe 名保持独立，避免与主应用同组被任务管理器一并结束 -->
     <AssemblyName>FlyScreen.TopologyGuard</AssemblyName>
-    <Product>玄鸟显示拓扑监视</Product>
-    <Description>扩展投影异常退出时收拢「仅电脑屏幕」；独立进程名，避免与主应用同组被任务管理器一并结束。</Description>
-    <!-- 监视进程无控制台窗口 -->
+    <!-- 任务管理器/文件属性显示名；不改 AssemblyName -->
+    <AssemblyTitle>玄鸟:守护</AssemblyTitle>
+    <Product>玄鸟:守护</Product>
+    <Description>扩展投影异常退出时收拢「仅电脑屏幕」。</Description>
     <UseAppHost>true</UseAppHost>
   </PropertyGroup>
 

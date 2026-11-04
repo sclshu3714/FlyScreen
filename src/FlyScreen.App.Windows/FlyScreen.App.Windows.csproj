@@ -12,6 +12,7 @@
     <AssemblyName>FlyScreen</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\wlogo_tu.ico</ApplicationIcon>
+    <AssemblyTitle>玄鸟</AssemblyTitle>
     <Product>玄鸟</Product>
     <Authors>sclshu3714</Authors>
     <Company>玄鸟</Company>

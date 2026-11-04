@@ -55,7 +55,7 @@
     <AndroidSigningKeyPass>flyscreen</AndroidSigningKeyPass>
   </PropertyGroup>
 
-  <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe/AssemblyName 仍为 FlyScreen.App.Maui（只改显示名见 MauiAppUserModel） -->
+  <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe 名不变，显示名见 WindowsAppUserModel -->
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ApplicationIcon>Platforms\Windows\Assets\appicon.ico</ApplicationIcon>
     <AssemblyTitle>玄鸟</AssemblyTitle>

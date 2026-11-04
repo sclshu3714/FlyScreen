@@ -4,7 +4,7 @@ using FlyScreen.Services.ScreenExtend;
 namespace FlyScreen.ScreenExtend;
 
 /// <summary>
-/// 扩展拓扑收拢监视：由独立命名的 <c>FlyScreen.TopologyGuard.exe</c> 监视父进程；
+/// 扩展拓扑收拢监视：由独立命名的 <c>FlyScreen.TopologyGuard.exe</c>（显示名「玄鸟:守护」）监视父进程；
 /// 主进程被杀时仍执行 <c>DisplaySwitch /internal</c>，避免与主应用同组被任务管理器一并结束。
 /// Guard 若被先杀，脏标记期间会定时重拉。正常 Finalize 时 <see cref="Disarm"/> 解除监视。
 /// </summary>
