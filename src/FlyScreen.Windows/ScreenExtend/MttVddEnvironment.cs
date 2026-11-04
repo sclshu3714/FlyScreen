@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using FlyScreen.Native;
 using Microsoft.Win32;
 
 namespace FlyScreen.ScreenExtend;
@@ -11,10 +12,9 @@ public static class MttVddEnvironment
 
     public static async Task<bool> IsDriverReadyAsync(CancellationToken ct = default)
     {
-        // 新版 Control 常可连接 MTTVirtualDisplayPipe，但 PING 无 PONG；管道可连即视为控制台已运行
-        if (await MttVddPipeClient.IsPipePresentAsync(ct).ConfigureAwait(false))
-            return true;
-        return await MttVddPipeClient.PingAsync(ct).ConfigureAwait(false);
+        // 新版 Control 常可连接 MTTVirtualDisplayPipe，但 PING 无 PONG；管道可连即视为控制台已运行。
+        // 连不上时不必再走 PING（同样会 Connect 超时），否则投影弹窗检测会多等一轮且调试器刷异常。
+        return await MttVddPipeClient.IsPipePresentAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -63,8 +63,15 @@ public static class MttVddEnvironment
                 .ConfigureAwait(false);
 
             // DisplaySwitch 至多一次：反复 /extend 会拖垮 DWM/显示栈直至整机卡死
+            // 拓扑切换时常把指针甩到新屏左上角；先记下位置，切换后再拉回，避免投影画面闪一下
             progress?.Report("正在切换为扩展显示…");
+            var hadCursor = NativeMethods.GetCursorPos(out var cursorBefore);
             DisplayProjection.TryApply(Services.ScreenExtend.DisplayProjectionMode.Extend);
+            if (hadCursor)
+            {
+                try { NativeMethods.SetCursorPos(cursorBefore.X, cursorBefore.Y); }
+                catch { /* ignore */ }
+            }
 
             for (var i = 0; i < 36; i++)
             {

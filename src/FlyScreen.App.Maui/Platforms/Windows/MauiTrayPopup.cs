@@ -4,6 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using Color = System.Drawing.Color;
 using Font = System.Drawing.Font;
@@ -44,10 +45,12 @@ internal sealed class MauiTrayPopup : IDisposable
     private readonly Action _onProject;
     private readonly Action _onAbout;
     private readonly Action _onExit;
+    private readonly ProjectionUiPhase _projectPhase;
     private readonly string[] _labels;
     private readonly Action[] _actions;
     private readonly Rectangle[] _itemRects; // 相对窗口客户区（含 CardMargin）
     private const int PrimaryItemCount = 4; // 打开 / 重连 / 投影 / 关于（退出单独在分隔线后）
+    private const int ProjectItemIndex = 2;
 
     private IntPtr _hwnd;
     private WndProc? _proc;
@@ -58,18 +61,25 @@ internal sealed class MauiTrayPopup : IDisposable
     private int _cardW;
     private int _cardH;
 
-    private MauiTrayPopup(Action onOpen, Action onReconnect, Action onProject, Action onAbout, Action onExit)
+    private MauiTrayPopup(
+        Action onOpen,
+        Action onReconnect,
+        Action onProject,
+        ProjectionUiPhase projectPhase,
+        Action onAbout,
+        Action onExit)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
         _onProject = onProject;
+        _projectPhase = projectPhase;
         _onAbout = onAbout;
         _onExit = onExit;
         _labels =
         [
             Loc.T("Tray.Open"),
             Loc.T("Tray.Reconnect"),
-            Loc.T("Tray.Project"),
+            ProjectionUi.Tray(projectPhase).Label,
             Loc.T("Tray.About"),
             Loc.T("Tray.Exit")
         ];
@@ -82,19 +92,32 @@ internal sealed class MauiTrayPopup : IDisposable
         Action onOpen,
         Action onReconnect,
         Action onProject,
+        ProjectionUiPhase projectPhase,
         Action onAbout,
         Action onExit)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
-        var popup = new MauiTrayPopup(onOpen, onReconnect, onProject, onAbout, onExit);
+        var popup = new MauiTrayPopup(onOpen, onReconnect, onProject, projectPhase, onAbout, onExit);
         _open = popup;
         popup.ShowAtCursor();
+    }
+
+    private ProjectionUiChrome ProjectChrome(bool hovered)
+        => ProjectionUi.Tray(_projectPhase, hovered);
+
+    private string LabelAt(int index, bool hovered)
+    {
+        if (index == ProjectItemIndex)
+            return ProjectChrome(hovered).Label;
+        return _labels[index];
     }
 
     private void MeasureAndBuildHwnd()
     {
         using var font = CreateFont();
+        using var iconFont = CreateMdl2Font();
         var textW = CardMinWidth - PanelPadX * 2 - ItemMargin * 2 - ItemHPad * 2;
+        const int projectIconGap = 22; // MDL2 图标占位，与标题栏一致
         using (var tmp = new Bitmap(8, 8))
         using (var g = Graphics.FromImage(tmp))
         {
@@ -102,6 +125,21 @@ internal sealed class MauiTrayPopup : IDisposable
             {
                 var sz = g.MeasureString(label, font);
                 textW = Math.Max(textW, (int)Math.Ceiling(sz.Width));
+            }
+
+            // 投影：图标 + 文案（含悬停 / 各阶段最长）
+            foreach (var chrome in new[]
+                     {
+                         ProjectChrome(false),
+                         ProjectChrome(true),
+                         ProjectionUi.Tray(ProjectionUiPhase.Hosting),
+                         ProjectionUi.Tray(ProjectionUiPhase.Receiving)
+                     })
+            {
+                var iconW = g.MeasureString(chrome.Mdl2Glyph, iconFont).Width;
+                var labelW = g.MeasureString(chrome.Label, font).Width;
+                textW = Math.Max(textW, (int)Math.Ceiling(iconW + 6 + labelW));
+                textW = Math.Max(textW, projectIconGap + (int)Math.Ceiling(labelW));
             }
         }
 
@@ -206,6 +244,7 @@ internal sealed class MauiTrayPopup : IDisposable
             }
 
             using var font = CreateFont();
+            using var iconFont = CreateMdl2Font();
             using var textBrush = new SolidBrush(TextColor);
 
             for (var i = 0; i < _labels.Length; i++)
@@ -239,8 +278,23 @@ internal sealed class MauiTrayPopup : IDisposable
                     LineAlignment = StringAlignment.Center,
                     FormatFlags = StringFormatFlags.NoWrap
                 };
-                var textRect = new RectangleF(rect.X + ItemHPad, rect.Y, rect.Width - ItemHPad * 2, rect.Height);
-                g.DrawString(_labels[i], font, textBrush, textRect, sf);
+                var hovered = i == _hoverIndex;
+                if (i == ProjectItemIndex)
+                {
+                    var chrome = ProjectChrome(hovered);
+                    var fg = chrome.Emphasized ? Accent : TextColor;
+                    using var fgBrush = new SolidBrush(fg);
+                    var iconRect = new RectangleF(rect.X + ItemHPad, rect.Y, 18, rect.Height);
+                    var labelRect = new RectangleF(rect.X + ItemHPad + 22, rect.Y,
+                        Math.Max(8, rect.Width - ItemHPad * 2 - 22), rect.Height);
+                    g.DrawString(chrome.Mdl2Glyph, iconFont, fgBrush, iconRect, sf);
+                    g.DrawString(chrome.Label, font, fgBrush, labelRect, sf);
+                }
+                else
+                {
+                    var textRect = new RectangleF(rect.X + ItemHPad, rect.Y, rect.Width - ItemHPad * 2, rect.Height);
+                    g.DrawString(LabelAt(i, hovered), font, textBrush, textRect, sf);
+                }
             }
         }
 
@@ -384,6 +438,9 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private static Font CreateFont()
         => new("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+
+    private static Font CreateMdl2Font()
+        => new("Segoe MDL2 Assets", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
 
     private static GraphicsPath RoundedRect(int x, int y, int w, int h, int r)
     {

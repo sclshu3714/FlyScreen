@@ -102,9 +102,12 @@ public sealed class MauiScreenExtendController : IDisposable
         await FinalizeAfterSessionEndedAsync(releaseHostDisplay: true).ConfigureAwait(false);
     }
 
+    private long _hostReadyTick;
+
     private void OnHostReady()
     {
         _hostSessionActive = true;
+        _hostReadyTick = Environment.TickCount64;
         MainThread.BeginInvokeOnMainThread(() => MauiProjectionTitleBar.SetProjecting(true));
         _ = OnHostReadyAsync();
     }
@@ -203,6 +206,12 @@ public sealed class MauiScreenExtendController : IDisposable
         {
             var target = ResolveCaptureTarget();
             if (target == null) return;
+            if (input.Kind == ScreenExtendInputPayload.KindMove
+                && _hostReadyTick != 0
+                && Environment.TickCount64 - _hostReadyTick < 500
+                && input.Nx <= 0.03 && input.Ny <= 0.03)
+                return;
+
             var rect = target.Value;
             var px = rect.Left + (int)Math.Round(Math.Clamp(input.Nx, 0, 1) * Math.Max(0, rect.Width - 1));
             var py = rect.Top + (int)Math.Round(Math.Clamp(input.Ny, 0, 1) * Math.Max(0, rect.Height - 1));
@@ -413,6 +422,7 @@ public sealed class MauiScreenExtendSinkWindow
 {
     private readonly Action _onUserClose;
     private readonly SinkLocalCursorIdleHide _cursorIdle = new();
+    private readonly ScreenExtendReverseMoveGate _reverseGate = new();
     private readonly Microsoft.UI.Xaml.Window _window;
     private readonly Microsoft.UI.Xaml.Controls.Grid _root;
     private readonly Microsoft.UI.Xaml.Controls.Image _image;
@@ -525,6 +535,7 @@ public sealed class MauiScreenExtendSinkWindow
         if (_captureBound) return;
         if (_session?.CanSendReverseInput != true) return;
         _captureBound = true;
+        _reverseGate.OnCaptureAttached();
         _root.PointerMoved += OnPointerMoved;
         _root.PointerPressed += OnPointerPressed;
         _root.PointerReleased += OnPointerReleased;
@@ -535,6 +546,7 @@ public sealed class MauiScreenExtendSinkWindow
     {
         if (!_captureBound) return;
         _captureBound = false;
+        _reverseGate.OnCaptureDetached();
         _root.PointerMoved -= OnPointerMoved;
         _root.PointerPressed -= OnPointerPressed;
         _root.PointerReleased -= OnPointerReleased;
@@ -552,12 +564,14 @@ public sealed class MauiScreenExtendSinkWindow
     {
         _cursorIdle.NotifyLocalMouseMoved();
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendMove(nx, ny)) return;
         _ = _session.SendReverseMoveAsync(nx, ny);
     }
 
     private void OnPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var button = MapButton(e);
         if (button < 0) return;
         e.Handled = true;
@@ -567,6 +581,7 @@ public sealed class MauiScreenExtendSinkWindow
     private void OnPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var button = MapButton(e);
         if (button < 0) return;
         e.Handled = true;
@@ -576,6 +591,7 @@ public sealed class MauiScreenExtendSinkWindow
     private void OnPointerWheel(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var props = e.GetCurrentPoint(_root).Properties;
         var delta = props.MouseWheelDelta;
         if (delta == 0) return;

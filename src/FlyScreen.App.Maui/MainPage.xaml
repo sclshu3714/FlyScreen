@@ -21,7 +21,7 @@
                     Padding="0" HorizontalOptions="Start" Clicked="MenuBtn_Clicked" />
             <Label x:Name="PhoneTitleLabel" Grid.Column="1" Text="玄鸟" FontAttributes="Bold" FontSize="16"
                    HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
-            <Button x:Name="PhoneProjectBtn" Grid.Column="2" Text="投影"
+            <Button x:Name="PhoneProjectBtn" Grid.Column="2" Text="⧉  投影"
                     Style="{StaticResource NormalBtn}"
                     MinimumWidthRequest="0" HeightRequest="36" Padding="12,0"
                     VerticalOptions="Center" Clicked="PhoneProject_Clicked" />

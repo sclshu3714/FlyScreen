@@ -600,6 +600,16 @@ public static class Loc
         ["Tray.About"] = "关于",
         ["Tray.Exit"] = "退出",
 
+        ["ProjUi.Idle.Label"] = "投影",
+        ["ProjUi.Idle.Tip"] = "投影到电脑",
+        ["ProjUi.Idle.HoverTip"] = "打开投影设置",
+        ["ProjUi.Host.Label"] = "投影中",
+        ["ProjUi.Host.Tip"] = "正在投影",
+        ["ProjUi.Host.HoverLabel"] = "停止投影",
+        ["ProjUi.Host.HoverTip"] = "点击停止当前投影",
+        ["ProjUi.Sink.Label"] = "接收中",
+        ["ProjUi.Sink.Tip"] = "正在接收投影；请先退出全屏接收后再发起",
+
         ["About.Title"] = "关于 玄鸟",
         ["About.AppLine"] = "玄鸟 (FlyScreen) · 版本 {0}",
         ["About.Sec.Intro"] = "【简介】",
@@ -1041,6 +1051,16 @@ public static class Loc
         ["Tray.Project"] = "Project",
         ["Tray.About"] = "About",
         ["Tray.Exit"] = "Exit",
+
+        ["ProjUi.Idle.Label"] = "Project",
+        ["ProjUi.Idle.Tip"] = "Project to a PC",
+        ["ProjUi.Idle.HoverTip"] = "Open projection settings",
+        ["ProjUi.Host.Label"] = "Projecting",
+        ["ProjUi.Host.Tip"] = "Projection in progress",
+        ["ProjUi.Host.HoverLabel"] = "Stop projection",
+        ["ProjUi.Host.HoverTip"] = "Click to stop projection",
+        ["ProjUi.Sink.Label"] = "Receiving",
+        ["ProjUi.Sink.Tip"] = "Receiving projection; exit fullscreen before starting another",
 
         ["About.Title"] = "About XuanNiao",
         ["About.AppLine"] = "XuanNiao (FlyScreen) · Version {0}",

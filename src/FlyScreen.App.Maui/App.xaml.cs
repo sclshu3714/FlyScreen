@@ -45,6 +45,18 @@ public partial class App : Application
         // 开机自启：尽早藏主窗，避免托盘已起、主界面却是未渲染黑块
         Platforms.Windows.MauiAutostartUi.Hook(window);
         Platforms.Windows.MauiCloseToTray.TryHook(window);
+        Platforms.Windows.MauiProjectionTitleBar.ResolvePhase = () =>
+        {
+            try
+            {
+                return FlyScreen.Helpers.ProjectionUi.Resolve(
+                    Services.MauiAppHost.EnsureCreated().ScreenExtend);
+            }
+            catch
+            {
+                return FlyScreen.Helpers.ProjectionUiPhase.Idle;
+            }
+        };
         Platforms.Windows.MauiProjectionTitleBar.OpenProjection = () =>
             MainThread.BeginInvokeOnMainThread(async () =>
             {
@@ -55,7 +67,7 @@ public partial class App : Application
                         && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
                     {
                         await host.StopProjectionAsync();
-                        Platforms.Windows.MauiProjectionTitleBar.SetProjecting(false);
+                        Platforms.Windows.MauiProjectionTitleBar.Refresh();
                         return;
                     }
 
@@ -78,9 +90,7 @@ public partial class App : Application
                     var main = FindMainPage(root);
                     if (main != null)
                         await main.OpenProjectionDialogAsync();
-                    Platforms.Windows.MauiProjectionTitleBar.SetProjecting(
-                        host.ScreenExtend.IsActive
-                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host);
+                    Platforms.Windows.MauiProjectionTitleBar.Refresh();
                 }
                 catch { /* ignore */ }
             });

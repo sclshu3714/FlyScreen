@@ -23,6 +23,7 @@ public sealed class ScreenExtendController : IDisposable
     private readonly ProjectionAudioBridge _audio;
     private readonly LatestFrameSlot _frames = new();
     private int _decodePosted;
+    private long _hostReadyTick;
 
     public ScreenExtendController(ScreenExtendService service, Dispatcher dispatcher)
     {
@@ -107,6 +108,7 @@ public sealed class ScreenExtendController : IDisposable
     private void OnHostReady()
     {
         _hostSessionActive = true;
+        _hostReadyTick = Environment.TickCount64;
         _ = OnHostReadyAsync();
     }
 
@@ -206,6 +208,13 @@ public sealed class ScreenExtendController : IDisposable
         {
             var target = ResolveCaptureTarget();
             if (target == null) return;
+            // 会话刚开始时丢掉从机全屏合成的左上角回控，避免光标闪到采集屏角落
+            if (input.Kind == ScreenExtendInputPayload.KindMove
+                && _hostReadyTick != 0
+                && Environment.TickCount64 - _hostReadyTick < 500
+                && input.Nx <= 0.03 && input.Ny <= 0.03)
+                return;
+
             var rect = target.Value;
             var px = rect.Left + (int)Math.Round(Math.Clamp(input.Nx, 0, 1) * Math.Max(0, rect.Width - 1));
             var py = rect.Top + (int)Math.Round(Math.Clamp(input.Ny, 0, 1) * Math.Max(0, rect.Height - 1));

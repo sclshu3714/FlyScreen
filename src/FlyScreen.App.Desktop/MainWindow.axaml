@@ -377,7 +377,7 @@
         </Border>
         <Border Grid.Column="1" Background="Transparent"/>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-          <Button x:Name="TitleProjectBtn" Classes="link" Content="⧉" Width="40" Height="32" Padding="0"
+          <Button x:Name="TitleProjectBtn" Classes="link" MinWidth="78" Height="32" Padding="8,0"
                   Click="TitleProject_Click" ToolTip.Tip="投影到电脑"/>
           <Button Classes="link" Content="—" Width="40" Height="32" Padding="0"
                   Click="TitleMin_Click" ToolTip.Tip="最小化"/>

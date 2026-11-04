@@ -2,6 +2,8 @@
 
 供开发人员维护清单与拉取脚本。本目录**不存放**安装包二进制。
 
+产品入口（目标态）：投影工具 `projection` 的 Desktop/Windows 依赖组件；修复 API 与投影「环境修复」共用。见 [../tools.md](../tools.md) §6.3、[../extended-display.md](../extended-display.md)。现网仍多在投影弹窗内触发，代码迁移前以现网为准。
+
 ## 共用目录
 
 **唯一二进制源**：`tools/VddOffline\`（工具资源；`src` 保持纯代码）。

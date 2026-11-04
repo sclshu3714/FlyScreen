@@ -41,16 +41,16 @@
           <Button x:Name="TitleProjectBtn"
                   HorizontalAlignment="Right"
                   VerticalAlignment="Stretch"
-                  Width="46"
-                  Padding="0"
+                  MinWidth="78"
+                  Width="78"
+                  Padding="8,0"
                   Margin="0,0,140,0"
                   Background="Transparent"
                   BorderThickness="0"
                   ToolTipService.ToolTip="投影到电脑"
-                  FontFamily="Segoe MDL2 Assets"
-                  Content="&#xE8B9;"
-                  FontSize="13"
-                  Foreground="#111827"/>
+                  FontSize="11"
+                  Foreground="#111827"
+                  Content="投影"/>
         </Grid>
       </Border>
     </DataTemplate>

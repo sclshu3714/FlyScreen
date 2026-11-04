@@ -227,6 +227,8 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private bool _titleProjectHovered;
+
     private void TitleProject_Click(object? sender, RoutedEventArgs e)
         => _ = OpenProjectionFromUiAsync();
 
@@ -237,6 +239,7 @@ public partial class MainWindow : Window
         {
             await _host.StopProjectionAsync();
             RefreshTitleProjectButton();
+            ApplyTrayLocalized();
             return;
         }
 
@@ -253,15 +256,75 @@ public partial class MainWindow : Window
         var dlg = new ProjectionDialog(_host);
         await dlg.ShowDialog(this);
         RefreshTitleProjectButton();
+        ApplyTrayLocalized();
+    }
+
+    private void EnsureTitleProjectHoverHooks()
+    {
+        if (TitleProjectBtn == null || TitleProjectBtn.Tag as string == "projHover") return;
+        TitleProjectBtn.Tag = "projHover";
+        TitleProjectBtn.PointerEntered += (_, _) =>
+        {
+            _titleProjectHovered = true;
+            RefreshTitleProjectButton();
+        };
+        TitleProjectBtn.PointerExited += (_, _) =>
+        {
+            _titleProjectHovered = false;
+            RefreshTitleProjectButton();
+        };
     }
 
     private void RefreshTitleProjectButton()
     {
         if (TitleProjectBtn == null) return;
-        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
-        TitleProjectBtn.Content = on ? "投影中" : "⧉";
-        ToolTip.SetTip(TitleProjectBtn, on ? "正在投影（点击停止）" : "投影到电脑");
-        TitleProjectBtn.Width = on ? 64 : 40;
+        EnsureTitleProjectHoverHooks();
+        var phase = ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = ProjectionUi.Title(phase, _titleProjectHovered);
+        ToolTip.SetTip(TitleProjectBtn, chrome.Tooltip);
+        TitleProjectBtn.Width = chrome.SuggestedWidth;
+        TitleProjectBtn.Padding = new Thickness(8, 0, 8, 0);
+        IBrush? fg = null;
+        if (chrome.Emphasized)
+        {
+            fg = new SolidColorBrush(Color.Parse("#2563EB"));
+            if (Application.Current?.TryGetResource("Blue", ActualThemeVariant, out var res) == true
+                && res is IBrush b)
+                fg = b;
+            TitleProjectBtn.Foreground = fg;
+        }
+        else
+        {
+            TitleProjectBtn.ClearValue(Button.ForegroundProperty);
+            fg = TitleProjectBtn.Foreground;
+        }
+
+        TitleProjectBtn.Content = BuildProjectionTitleContent(chrome, fg);
+    }
+
+    private static StackPanel BuildProjectionTitleContent(ProjectionUiChrome chrome, IBrush? foreground)
+    {
+        var icon = new TextBlock
+        {
+            Text = chrome.UnicodeGlyph,
+            FontSize = 13,
+            Foreground = foreground,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        };
+        var label = new TextBlock
+        {
+            Text = chrome.Label,
+            FontSize = 11,
+            Foreground = foreground,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 0,
+            Children = { icon, label }
+        };
     }
 
     private void TitleMin_Click(object? sender, RoutedEventArgs e)
@@ -346,8 +409,16 @@ public partial class MainWindow : Window
         });
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.UIThread.Post(RefreshDiscovery);
-        _host.ScreenExtend.HostSessionReady += () => Dispatcher.UIThread.Post(RefreshTitleProjectButton);
-        _host.ScreenExtend.SessionEnded += () => Dispatcher.UIThread.Post(RefreshTitleProjectButton);
+        _host.ScreenExtend.HostSessionReady += () => Dispatcher.UIThread.Post(() =>
+        {
+            RefreshTitleProjectButton();
+            ApplyTrayLocalized();
+        });
+        _host.ScreenExtend.SessionEnded += () => Dispatcher.UIThread.Post(() =>
+        {
+            RefreshTitleProjectButton();
+            ApplyTrayLocalized();
+        });
         RefreshTitleProjectButton();
 
         await _host.StartAsync();
@@ -412,7 +483,8 @@ public partial class MainWindow : Window
         var menu = new NativeMenu();
         menu.Add(TrayItem(Loc.T("Tray.Open"), ShowFromTray));
         menu.Add(TrayItem(Loc.T("Tray.Reconnect"), () => _ = _host.Connections.ReconnectNowAsync()));
-        menu.Add(TrayItem(Loc.T("Tray.Project"), () => _ = OpenProjectionFromUiAsync()));
+        var projectChrome = ProjectionUi.Tray(ProjectionUi.Resolve(_host.ScreenExtend));
+        menu.Add(TrayItem(ProjectionUi.FormatLine(projectChrome), () => _ = OpenProjectionFromUiAsync()));
         menu.Add(TrayItem(Loc.T("Tray.About"), () =>
         {
             ShowFromTray();

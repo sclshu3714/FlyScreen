@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
@@ -29,15 +30,23 @@ public sealed class MauiTrayService : IDisposable
     private Action? _project;
     private Action? _about;
     private Action? _exit;
+    private Func<ProjectionUiPhase>? _projectPhase;
     private bool _added;
 
-    public void Ensure(Action show, Action reconnect, Action project, Action about, Action exit)
+    public void Ensure(
+        Action show,
+        Action reconnect,
+        Action project,
+        Action about,
+        Action exit,
+        Func<ProjectionUiPhase>? projectPhase = null)
     {
         _show = show;
         _reconnect = reconnect;
         _project = project;
         _about = about;
         _exit = exit;
+        _projectPhase = projectPhase;
         if (_hwnd != IntPtr.Zero) return;
 
         _proc = WndProcImpl;
@@ -127,6 +136,7 @@ public sealed class MauiTrayService : IDisposable
             onOpen: () => _show?.Invoke(),
             onReconnect: () => _reconnect?.Invoke(),
             onProject: () => _project?.Invoke(),
+            projectPhase: _projectPhase?.Invoke() ?? ProjectionUiPhase.Idle,
             onAbout: () => _about?.Invoke(),
             onExit: () => _exit?.Invoke());
     }

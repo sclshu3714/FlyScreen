@@ -7,12 +7,18 @@ using FlyScreen.Services;
 namespace FlyScreen.Input;
 
 /// <summary>
-/// 按住左键时在虚拟屏幕外缘放一条接收区，读出正在拖的文件和文件夹。
+/// 靠近屏幕外缘时放一条接收区，读出正在拖的文件和文件夹。
+/// <para>
+/// 切勿在「左键按下后的任意移动」就 Arm：顶层接收条一碰到拖放就会 GetData，
+/// 与资源管理器拖影抢 IDataObject，偶发只剩空矩形框。
+/// DragEnter 只探测格式，真正 GetData 推迟到消息队列，减轻拖影空白。
+/// </para>
 /// </summary>
 public static class EdgeFileDragCapture
 {
     private const int WmArm = 0x8000 + 41;
     private const int WmDisarm = 0x8000 + 42;
+    private const int WmDeferredRead = 0x8000 + 43;
     private const int Strip = 12;
 
     private static readonly object Gate = new();
@@ -23,6 +29,7 @@ public static class EdgeFileDragCapture
     private static int _wantShown;
     private static int _dropFailed;
     private static DropSink? _sink;
+    private static IntPtr _pendingData;
 
     public static bool HasPaths
     {
@@ -133,12 +140,57 @@ public static class EdgeFileDragCapture
                 Place(hwnds, show: true);
             else if (msg.message == WmDisarm)
             {
+                ClearPendingData();
                 lock (Gate) _paths = [];
                 Place(hwnds, show: false);
             }
+            else if (msg.message == WmDeferredRead)
+                ConsumePendingData();
 
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
+        }
+    }
+
+    private static void ClearPendingData()
+    {
+        var p = Interlocked.Exchange(ref _pendingData, IntPtr.Zero);
+        if (p != IntPtr.Zero)
+        {
+            try { Marshal.Release(p); }
+            catch { /* ignore */ }
+        }
+    }
+
+    private static void QueueDeferredRead(IntPtr data)
+    {
+        if (data == IntPtr.Zero) return;
+        Marshal.AddRef(data);
+        var prev = Interlocked.Exchange(ref _pendingData, data);
+        if (prev != IntPtr.Zero)
+        {
+            try { Marshal.Release(prev); }
+            catch { /* ignore */ }
+        }
+
+        if (_signal != IntPtr.Zero)
+            PostMessage(_signal, WmDeferredRead, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private static void ConsumePendingData()
+    {
+        var data = Interlocked.Exchange(ref _pendingData, IntPtr.Zero);
+        if (data == IntPtr.Zero) return;
+        try
+        {
+            var paths = DropSink.ReadFiles(data);
+            if (paths.Length > 0)
+                Remember(paths);
+        }
+        finally
+        {
+            try { Marshal.Release(data); }
+            catch { /* ignore */ }
         }
     }
 
@@ -168,45 +220,64 @@ public static class EdgeFileDragCapture
     {
         public int DragEnter(IntPtr data, uint keyState, long pt, ref uint effect)
         {
-            var paths = ReadFiles(data);
-            if (paths.Length == 0)
+            // 勿在 DragEnter 同步 GetData：会与源端拖影抢 IDataObject。
+            if (!QueryHasHdrop(data))
             {
                 effect = 0;
                 return 0;
             }
 
-            Remember(paths);
+            QueueDeferredRead(data);
             effect = 1;
             return 0;
         }
 
         public int DragOver(uint keyState, long pt, ref uint effect)
         {
-            effect = HasPaths ? 1u : 0u;
+            // 若推迟读取尚未完成，仍允许继续悬停（路径稍后补齐）
+            effect = HasPaths || Volatile.Read(ref _pendingData) != IntPtr.Zero ? 1u : 0u;
             return 0;
         }
 
-        public int DragLeave() => 0;
+        public int DragLeave()
+        {
+            ClearPendingData();
+            return 0;
+        }
 
         public int Drop(IntPtr data, uint keyState, long pt, ref uint effect)
         {
+            ClearPendingData();
             var paths = ReadFiles(data);
             if (paths.Length > 0) Remember(paths);
             effect = 0;
             return 0;
         }
 
-        private static string[] ReadFiles(IntPtr data)
+        private static bool QueryHasHdrop(IntPtr data)
+        {
+            if (data == IntPtr.Zero) return false;
+            var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
+            try
+            {
+                var format = HdropFormat();
+                return obj.QueryGetData(ref format) == 0;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(obj);
+            }
+        }
+
+        internal static string[] ReadFiles(IntPtr data)
         {
             if (data == IntPtr.Zero) return [];
             var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
-            var format = new FORMATETC
-            {
-                cfFormat = 15,
-                dwAspect = DVASPECT.DVASPECT_CONTENT,
-                lindex = -1,
-                tymed = TYMED.TYMED_HGLOBAL
-            };
+            var format = HdropFormat();
             STGMEDIUM medium = default;
             try
             {
@@ -242,6 +313,14 @@ public static class EdgeFileDragCapture
                 Marshal.ReleaseComObject(obj);
             }
         }
+
+        private static FORMATETC HdropFormat() => new()
+        {
+            cfFormat = 15,
+            dwAspect = DVASPECT.DVASPECT_CONTENT,
+            lindex = -1,
+            tymed = TYMED.TYMED_HGLOBAL
+        };
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

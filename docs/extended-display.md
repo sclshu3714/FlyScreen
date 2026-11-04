@@ -2,19 +2,30 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.2 |
-| 状态 | E1 扩展：声音同步 · 远程回控 · 1 对 1 互斥 · 去黑边 |
+| 文档版本 | 1.4 |
+| 状态 | E1 已交付；**目标态**：整包投影为独立工具 `projection`（复制+扩展）；VDD 为其依赖（文档已写，代码未迁） |
 | 范围 | **电脑↔电脑**真扩展屏；**手机→电脑复制投屏**（MediaProjection Host）；手机不作接收端 |
 | 统计日 | 2026-11-03 |
 
+相关：[tools.md](tools.md)（权威：工具 `projection`、依赖 `virtual-display`、标题栏单入口）、[mtt_vdd/README.md](mtt_vdd/README.md)。
+
 ## 1. 产品逻辑
 
-1. **标题栏**（最小化左侧）投影按钮 → 弹窗：先选 **投影方式**（复制 / 扩展），再选 **目标**（本机真副屏 + 双向已连接电脑）。扩展且对端目标缺 MTT 时显示 **环境修复**（离线 `VddOffline` 优先，其次 winget）。
+1. **标题栏**（最小化左侧）投影按钮 → 弹窗：先选 **投影方式**（复制 / 扩展），再选 **目标**（本机真副屏 + 双向已连接电脑）。扩展且本机缺可用 MTT / 管道未就绪时显示 **环境修复**。
 2. 投影中标题栏变为「投影中」，再点即 **停止**。
 3. A **采集**（复制=主屏；扩展=副屏/VDD）经局域网推到 B；B **全屏显示**。
 4. 会话期内，B 从 **穿边拓扑摘除**。**手机不作投影目标（无 Sink）**；手机可作 Host **复制**投到电脑。Mac/Linux 可 **接收**；电脑发起仍以 Windows 为主（含扩展/VDD）。
 
 > 真扩展 ≠ 把所有电脑当成扩展屏。无第二输出时无法「凭空」扩展；须虚拟 IDD 或第二物理显示器。复制模式不强制 MTT。
+
+**目标态（工具系统，见 [tools.md](tools.md) 1.0）：**
+
+- 投影（复制+扩展）为独立工具 `projection`；**未安装则无标题栏投影入口**，不宣告投影 Caps。
+- **发起端与目标端都必须已安装** `projection`，否则不能完成跨机投影（见 tools.md §2.1）。
+- 每个工具标题栏只注入一项；复制/扩展/停止等为下拉；手机无「扩展」。
+- VDD 为 `projection` 的 Desktop/Windows 依赖，打进同一 `.flytool`；「环境修复」只调用同一修复 API。
+- 可将工具分享到布局内已连接且设备形态匹配的对端（tools.md §4.1）。
+- 现网仍内置投影；迁移完成前以现网代码为准。
 
 ## 2. 分期
 
@@ -51,18 +62,26 @@
 按优先级：
 
 1. 若本机已有 **非主显示器**（真副屏），扩展时可直接采集，不强制 MTT。
-2. 否则 **MTT Virtual Display Driver** 管道 `\\.\pipe\MTTVirtualDisplayPipe`：`PING` → `SETDISPLAYCOUNT N`。安装：**静默优先**——离线 `v25.05.03` setup（`/VERYSILENT`）→ `winget --silent` → 启动 `VDDControl-v25.05.03` 拉管道。发布进包仅 **setup + VDDControl**（共用 `tools/VddOffline/`；清单在 `docs/mtt_vdd/`）。**不再下载**已放弃的 `Driver.Only`。**仅管道真正就绪**才写入 `%AppData%/FlyScreen/mtt-vdd-installed-by-app.flag`。
-3. 仅一块物理屏且管道不可用 → 返回 `NeedEnvironmentRepair`。25.7 起官方改为便携 Control、不再发 setup；静默离线包因此保留 25.5.2 setup-x64（详见 `docs/mtt_vdd/README.md`）。
-4. 「卸载并清理」仅在**本程序安装标记且环境检查已通过（管道就绪）**时显示；无内容时不显示空卡片。
+2. 否则 **MTT Virtual Display Driver** 管道 `\\.\pipe\MTTVirtualDisplayPipe`：`PING` → `SETDISPLAYCOUNT N`。
+3. 仅一块物理屏且管道不可用 → 返回 `NeedEnvironmentRepair`（弹窗环境修复 → **目标态调用工具「虚拟扩展屏」的修复**）。
+4. 安装 / 修复路径（工具与弹窗共用）：离线 `v25.05.03` setup（`/VERYSILENT`）→ `winget --silent` → 启动 `VDDControl-v25.05.03` 拉管道。发布进包仅 **setup + VDDControl**（`tools/VddOffline/`；清单 [mtt_vdd/README.md](mtt_vdd/README.md)）。**不再下载** `Driver.Only`。**仅管道真正就绪**才写入 `%AppData%/FlyScreen/mtt-vdd-installed-by-app.flag`。
+5. **卸载**：目标态在工具页；仅本程序安装标记存在时可「卸载并清理」。现网仍可能在投影弹窗显示卸载，迁移后弹窗不再承担卸载入口（可保留「去工具页管理」链接）。
+
+### 4.1 工具页与感叹号（目标态）
+
+设备管理器 → 显示适配器里，`Virtual Display Driver` 带黄色感叹号表示驱动未正常启动，工具卡片状态为 **需修复**，提供 **修复** 与 **卸载**。未出现该适配器或无安装标记时为 **未安装**（仅安装）。旁路的 `Todesk Virtual Display Adapter`、`OraylddDriver Device` 等第三方项与本工具无关，禁止当作本工具去卸。
+
+投影扩展时的自动 / 一键「环境修复」= 触发工具 `virtual-display` 的修复实现，参数与结果一致。用户也可先在工具页手动修复再点投影开始。
 
 ### 如何在本机确认 VDD
 
 | 位置 | 看什么 |
 |------|--------|
+| 工具页 → 虚拟扩展屏 | 未安装 / 已安装 / 需修复 |
 | 设置 → 应用 → 已安装的应用 | `Virtual Display Driver` |
-| 设备管理器 → 显示适配器 | `MttVDD` / Virtual Display 相关项 |
+| 设备管理器 → 显示适配器 | `Virtual Display Driver` / `MttVDD`；**感叹号 = 需修复** |
 | 设置 → 系统 → 显示 | 扩展后应出现额外显示器 |
-| 开始菜单 | 打开 Virtual Display Driver / VDD.Control（管道常由此进程提供） |
+| 开始菜单 | Virtual Display Driver / VDD.Control（管道常由此进程提供） |
 
 > 说明：统一使用离线包 **v25.05.03**（`Virtual.Display.Driver-v25.05.03-setup-x64.exe` + `VDDControl-v25.05.03.exe`）。历史误下的 `VirtualDisplayDriver-*-Driver.Only.zip` 会在检测/修复时自动清理。
 
@@ -134,6 +153,7 @@
 
 - **仅从机全屏播放器**在激活/焦点内采集键鼠，坐标相对 Uniform 画面内容区归一化；黑边不转发；Esc 只停投影。
 - 主机把 `ScreenExtendInput` 映射到采集区后注入：**不**走穿边 `EnsureAcceptsRemoteInput`。Win/Maui-Win 注入采集监视器矩形；Android 手机 Host 走无障碍手势（需开启「玄鸟键鼠注入」）。开启「去黑边」时，回控坐标先按裁切矩形映射回全屏再注入。
+- **工具化后（见 [tools.md](tools.md) §5.5.10）：** 无障碍注入仍由**主程序**执行；投影工具只声明会话需要远程控制，MUST NOT 持有无障碍引用。
 - Host 回控会话期间与 Sink 收流一样 **暂停 EasyMouse/穿边**，避免两端键鼠互抢；Android 回控期间也不被触控板页屏蔽。
 - 中途改开关需停投重开。Android 无播放器 Sink（不做手机收流回控）。Mac/Linux 可作 Sink 回控采集；Host 回控：Win / Maui-Win / Android 手机。
 
@@ -148,6 +168,8 @@
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-03 | 目标态对齐 tools.md 1.0：投影整包独立工具；VDD 为依赖；标题栏单入口 |
+| 2026-11-03 | 目标态：VDD 安装/修复/卸载迁工具页；投影环境修复 = 调用工具修复；感叹号 = 需修复；**未改代码** |
 | 2026-11-03 | 文档补齐声音同步 / 去黑边 / Esc 恢复声音；链到穿边拖互斥 |
 | 2026-11-02 | 投影 1 对 1 互斥：Busy Host/Sink 拒绝与中文提示；禁止接收中再发起、禁止投向忙端 |
 | 2026-11-02 | 投影弹窗远程控制：Offer.RemoteControl + ScreenExtendInput；播放器内回控；Host 暂停 EasyMouse |

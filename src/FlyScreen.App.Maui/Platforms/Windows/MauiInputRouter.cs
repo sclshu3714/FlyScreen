@@ -340,7 +340,8 @@ public sealed class MauiInputRouter : IDisposable
             TryClaimPhysicalInput();
         }
 
-        if (msg == NativeMethods.WM_LBUTTONDOWN && !_controllingRemote)
+        // 穿边拖文件：只记按下时刻；真正读 Shell 在靠近边缘时 Prefetch（避免每次点击起线程）
+        if (msg == NativeMethods.WM_LBUTTONDOWN && !_controllingRemote && _settings.TransferFile)
             WindowsDragPaths.NoteButtonDown();
         else if (msg == NativeMethods.WM_MOUSEMOVE && !_controllingRemote)
         {
@@ -358,8 +359,13 @@ public sealed class MauiInputRouter : IDisposable
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
             var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
-            if (_settings.TransferFile && leftDown)
+            // 仅靠近屏幕外缘才挂接收条 / 预读选中项（低频路径）
+            var nearEdge = NearVirtualEdge(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
+            if (_settings.TransferFile && leftDown && nearEdge)
+            {
                 EdgeFileDragCapture.Arm();
+                WindowsDragPaths.PrefetchIfNeeded();
+            }
             else
                 EdgeFileDragCapture.Disarm();
             var dragged = Array.Empty<string>();
@@ -577,6 +583,7 @@ public sealed class MauiInputRouter : IDisposable
     /// <summary>
     /// ShowCursor 计数按线程维护；必须在安装 LL 钩子的 UI 线程上调整，
     /// 否则网络线程 Show 无法抵消钩子线程 Hide，玄鸟窗口上会出现「可点不可见」。
+    /// WinUI 同步上下文不支持 <c>Send</c>（会抛 NotSupportedException），一律用 <c>Post</c>。
     /// </summary>
     private void RunOnHookThread(Action action)
     {
@@ -589,10 +596,20 @@ public sealed class MauiInputRouter : IDisposable
 
         try
         {
-            sc.Send(_ => action(), null);
+            sc.Post(_ =>
+            {
+                try { action(); }
+                catch { /* ignore */ }
+            }, null);
         }
         catch (ObjectDisposedException) { }
         catch (InvalidOperationException) { }
+        catch (NotSupportedException)
+        {
+            // 兜底：部分宿主只接受主线程队列
+            try { MainThread.BeginInvokeOnMainThread(action); }
+            catch { /* ignore */ }
+        }
     }
 
     private void HideLocalCursor()
@@ -784,6 +801,15 @@ public sealed class MauiInputRouter : IDisposable
         var env = Environment.MachineName;
         return !LocalPeerIdentity.IsBogusMachineName(env)
                && string.Equals(name, env, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>距虚拟桌面外缘 ≤ margin 像素（用于提前挂拖放接收条，又不干扰中央拖影）。</summary>
+    private static bool NearVirtualEdge(int x, int y, int screenL, int screenT, int screenW, int screenH, int margin = 28)
+    {
+        var right = screenL + screenW - 1;
+        var bottom = screenT + screenH - 1;
+        return x <= screenL + margin || x >= right - margin
+               || y <= screenT + margin || y >= bottom - margin;
     }
 
     /// <summary>

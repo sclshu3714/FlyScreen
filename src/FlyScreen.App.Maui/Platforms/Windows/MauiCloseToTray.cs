@@ -94,7 +94,8 @@ internal static class MauiCloseToTray
                         catch { /* ignore */ }
                     });
                 },
-                exit: RequestExit);
+                exit: RequestExit,
+                projectPhase: () => FlyScreen.Helpers.ProjectionUi.Resolve(host.ScreenExtend));
         }
         catch { /* ignore */ }
     }

@@ -100,6 +100,8 @@ public partial class MainWindow : Window
             DragMove();
     }
 
+    private bool _titleProjectHovered;
+
     private void TitleProject_Click(object sender, RoutedEventArgs e)
         => _ = OpenProjectionFromUiAsync();
 
@@ -128,20 +130,60 @@ public partial class MainWindow : Window
         RefreshTitleProjectButton();
     }
 
+    private void EnsureTitleProjectHoverHooks()
+    {
+        if (TitleProjectBtn == null || TitleProjectBtn.Tag as string == "projHover") return;
+        TitleProjectBtn.Tag = "projHover";
+        TitleProjectBtn.MouseEnter += (_, _) =>
+        {
+            _titleProjectHovered = true;
+            RefreshTitleProjectButton();
+        };
+        TitleProjectBtn.MouseLeave += (_, _) =>
+        {
+            _titleProjectHovered = false;
+            RefreshTitleProjectButton();
+        };
+    }
+
     private void RefreshTitleProjectButton()
     {
         if (TitleProjectBtn == null) return;
-        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
-        TitleProjectBtn.ToolTip = on ? "正在投影（点击停止）" : "投影到电脑";
-        TitleProjectBtn.Width = on ? 72 : 46;
-        TitleProjectBtn.Content = on ? "投影中" : "\uE8B9";
-        TitleProjectBtn.FontFamily = on
-            ? new System.Windows.Media.FontFamily("Segoe UI")
-            : new System.Windows.Media.FontFamily("Segoe MDL2 Assets");
-        TitleProjectBtn.FontSize = on ? 11 : 13;
-        // Accent 只在投影弹窗里，主窗口用 Blue（同色 #2563EB）
-        TitleProjectBtn.Foreground = TryFindResource(on ? "Blue" : "Text") as System.Windows.Media.Brush
+        EnsureTitleProjectHoverHooks();
+        var phase = ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = ProjectionUi.Title(phase, _titleProjectHovered);
+        TitleProjectBtn.ToolTip = chrome.Tooltip;
+        TitleProjectBtn.Width = chrome.SuggestedWidth;
+        TitleProjectBtn.Padding = new Thickness(8, 0, 8, 0);
+        TitleProjectBtn.Foreground = TryFindResource(chrome.Emphasized ? "Blue" : "Text") as System.Windows.Media.Brush
             ?? System.Windows.Media.Brushes.Black;
+        TitleProjectBtn.Content = BuildProjectionTitleContent(chrome);
+    }
+
+    private System.Windows.Controls.StackPanel BuildProjectionTitleContent(ProjectionUiChrome chrome)
+    {
+        var fg = TitleProjectBtn.Foreground;
+        var icon = new System.Windows.Controls.TextBlock
+        {
+            Text = chrome.Mdl2Glyph,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"),
+            FontSize = 13,
+            Foreground = fg,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        };
+        var label = new System.Windows.Controls.TextBlock
+        {
+            Text = chrome.Label,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI"),
+            FontSize = 11,
+            Foreground = fg,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var row = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        row.Children.Add(icon);
+        row.Children.Add(label);
+        return row;
     }
 
     private void ApplyWindowIcon()
@@ -277,6 +319,7 @@ public partial class MainWindow : Window
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             onProject: () => _ = OpenProjectionFromUiAsync(),
+            projectPhase: ProjectionUi.Resolve(_host.ScreenExtend),
             onAbout: () =>
             {
                 ShowFromTray();

@@ -795,7 +795,7 @@
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="TitleProjectBtn" Style="{StaticResource TitleBarBtn}"
-                            FontFamily="Segoe MDL2 Assets" Content="&#xE8B9;" FontSize="13"
+                            FontSize="11" MinWidth="78" Padding="8,0"
                             ToolTip="投影到电脑" Click="TitleProject_Click"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
                     <Button x:Name="TitleMinBtn" Style="{StaticResource TitleBarBtn}" Content="─"

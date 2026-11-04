@@ -278,7 +278,8 @@ public partial class MainPage : ContentPage
                     reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
                     project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
                     about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-                    exit: RequestAppExit);
+                    exit: RequestAppExit,
+                    projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
             }
 #endif
         }
@@ -294,7 +295,8 @@ public partial class MainPage : ContentPage
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: RequestAppExit);
+            exit: RequestAppExit,
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
     }
 
     /// <summary>托盘「关于」：显示关于页。</summary>
@@ -2697,10 +2699,14 @@ public partial class MainPage : ContentPage
     private void RefreshPhoneProjectButton()
     {
         if (PhoneProjectBtn == null) return;
-        var on = _host.ScreenExtend.IsActive
-                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
-        PhoneProjectBtn.Text = on ? "投影中" : "投影";
-        PhoneProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
+        var phase = ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = ProjectionUi.Title(phase);
+        PhoneProjectBtn.Text = ProjectionUi.FormatLine(chrome);
+        PhoneProjectBtn.Style = (Style)Application.Current!.Resources[
+            chrome.Emphasized ? "SegBtnActive" : "NormalBtn"];
+#if WINDOWS
+        Platforms.Windows.MauiProjectionTitleBar.Refresh();
+#endif
     }
 
     private void LoadEdgeCrossModeUi(int mode)
@@ -3091,7 +3097,8 @@ public partial class MainPage : ContentPage
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: RequestAppExit);
+            exit: RequestAppExit,
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
     }
 
     private void RefreshAboutPage()

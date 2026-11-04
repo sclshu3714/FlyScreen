@@ -11,8 +11,8 @@
 
 ## 多端迭代规划
 
-后续将扩展 macOS、Linux、Android（手机 / 平板 / 电视）、鸿蒙（手机 / 平板 / **电脑**）。  
-规划、设备矩阵、协议兼容与 **Windows 零回退门禁** 见文档目录：
+各端**已实现能力**见下方 [各端能力一览](#各端能力一览)。  
+后续继续补齐 macOS / Linux 键鼠主路径，以及 Android TV、鸿蒙等。规划与门禁文档：
 
 - **[docs/README.md](docs/README.md)** — 文档索引  
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — 版本阶段与周期（W0–W7，含 MAUI）  
@@ -24,7 +24,7 @@
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
 当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
-MAUI Android：触控板/键盘控桌面；桌面控手机与**用户程序（Fly API / OCR）**均需开启「玄鸟键鼠注入」无障碍（详见 [docs/status.md](docs/status.md)、[docs/runbooks/programs-android.md](docs/runbooks/programs-android.md)）。
+MAUI Android：桌面控手机与**用户程序（Fly API / OCR）**均需开启「玄鸟键鼠注入」无障碍（详见 [docs/runbooks/programs-android.md](docs/runbooks/programs-android.md)）。
 
 ## 相对 Mouse without Borders 的改进
 
@@ -215,17 +215,54 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 - **发版注意（自动更新）**：构建版本 = 最新 tag 的 patch+1；publish 后把 exe 上传到 **同名** GitHub Release（如版本 `1.0.2` → tag `v1.0.2`）。详见 [docs/compatibility.md](docs/compatibility.md)、[docs/runbooks/release-windows.md](docs/runbooks/release-windows.md)。替换失败见 `%TEMP%\xuanniao-update.log`。
 - **关于**页、托盘提示与右键菜单随界面语言更新。
 
-## 功能一览
+## 各端能力一览
 
-- 跨机键鼠（边缘切换、热键、Easy Mouse、环形鼠标）
-- 电脑布局（拖拽互换、添加/移除、布局同步，最多 4 台）
-- 剪贴板：文本、HTML、RTF、CSV、图片/截图（跨端能力见 [docs/clipboard.md](docs/clipboard.md)）
-- 文件：粘贴按需拉取（Win/Maui-Win 虚拟剪贴板）+ 直接推送 + **穿边拖**
-- 电脑扩展屏 / 投影：复制或扩展、声音同步、远程回控、去黑边（见 [docs/extended-display.md](docs/extended-display.md)）
-- 局域网发现、多网卡、开机自启、托盘、单实例
-- 深色主题、多语言、GitHub 更新、连接诊断
-- 三端 UI 同构（WPF / Avalonia Desktop / MAUI）：七页导航 + 安全页密钥
-- MAUI Android：触控板控桌面（含中键/滚轮）、远程 IME 直发对端；可选无障碍被桌面 Easy Mouse 控制；手机可复制投屏到电脑
+图例：**完整** = 与 Win 对标可用 · **尽力** = 已实现、效果视系统而定 · **半通** = 能传但不能像本机一样挂系统剪贴板 · **骨架** = 工程/协议已通、主路径未齐 · **—** = 不适用或未做。  
+更细对标见 [docs/status.md](docs/status.md)、[docs/clipboard.md](docs/clipboard.md)。
+
+### 平台总览
+
+| 平台 | 工程 | 状态 | 一句话 |
+|------|------|------|--------|
+| **Windows 桌面** | `App.Windows`（WPF） | **stable** | 完整产品：键鼠、布局、剪贴板、文件、投影、穿边拖、更新、诊断 |
+| **MAUI-Windows** | `App.Maui` | beta | 与 WPF 主路径对齐（剪贴板全格式、投影 Host/Sink、穿边拖） |
+| **MAUI-Android** | `App.Maui` | beta | 触控板/键盘控桌面；剪贴板文/HTML/图；复制投屏 Host；无障碍被控；用户程序 Fly/OCR |
+| **macOS** | `App.Mac` + Avalonia | beta | 剪贴板尽力 + 直传/Inbox；可收投影 + 穿边拖；键鼠注入/捕获仍骨架 |
+| **Linux** | `App.Linux` + Avalonia | beta | 同 Mac 传输路径；可收投影 + 穿边拖；CLI/Daemon；键鼠主路径骨架 |
+| 鸿蒙手机 / 电脑 | `mobile/harmony` | 骨架 | 触控板/设置壳；剪贴板与键鼠未齐 |
+
+### 能力对照（桌面 / MAUI）
+
+| 能力 | Win | Maui-Win | Maui-Android | Mac | Linux |
+|------|-----|----------|--------------|-----|-------|
+| 边缘键鼠 / Easy Mouse（主机） | 完整 | 完整 | —（被控见下） | 骨架 | 骨架 |
+| 被控注入键鼠 | 完整 | 完整 | 完整（须开无障碍） | 骨架 | 骨架 |
+| 触控板控桌面（AbsPointer） | 可收 | 可收 | **完整**（含中键/滚轮） | 可收 | 可收 |
+| 远程 IME 直发对端 | — | — | **完整** | — | — |
+| 1×4 / 2×2 布局同步 | 完整 | 完整 | ❌ 不宣告 | 骨架 | 骨架 |
+| 剪贴板 文 / HTML / 图 | 完整 | 完整 | 完整 | 尽力 | 尽力 |
+| 剪贴板 RTF / CSV | 完整 | 完整 | 粘贴降级文本 | 尽力 | 尽力 |
+| 文件剪贴板（按需拉取） | 完整（虚拟粘贴） | 完整 | 半通 | 半通 | 半通 |
+| 直接传输 / 收件箱 | 完整 | 完整 | 完整 | 骨架 | 骨架 |
+| 穿边拖文件 | 完整 | 完整 | — | 完整 | 完整 |
+| 投影 Host（复制/扩展） | 完整 | 完整 | 复制投屏 Host | — | — |
+| 投影 Sink（全屏收流） | 完整 | 完整 | ❌ | 完整 | 完整 |
+| 声音同步 / 远程回控 / 去黑边 | 完整 | 完整 | Host 侧可选 | Sink 侧 | Sink 侧 |
+| 托盘 / 开机自启 / 单实例 | 完整 | 完整 | — | — | Daemon³ |
+| 主题 / 多语言 / 更新 / 诊断 | 完整 | 完整 | 部分 | — | — |
+| 用户程序编辑 / 共享 | 完整 | 完整 | 完整 | UI | UI |
+| 用户程序设备控制（`Fly.*` / OCR） | — | — | **完整**（须无障碍） | — | — |
+| 七页 UI 同构 | 完整 | 完整 | 完整（窄屏抽屉） | 完整 | 完整 |
+
+³ Linux 支持 `--daemon` + systemd 示例，无桌面托盘。
+
+### 手机 ↔ 电脑（摘要）
+
+| 方向 | 已实现 |
+|------|--------|
+| 手机 → 电脑 | 触控板相对移动、左右键/中键/滚轮；系统输入法整段直发；剪贴板文/HTML/图；文件直传收件箱；**复制投屏**（可选声音/回控） |
+| 电脑 → 手机 | Easy Mouse 边缘切入 + 点击/滑动（须开启「玄鸟键鼠注入」无障碍）；组字浮层；完整键码仍受限 |
+| 用户程序 | 三端可编辑/共享；**仅 Android** 可跑 `Fly.HasText` / OCR / 手势等本机自动化 |
 
 ## 特别鸣谢
 

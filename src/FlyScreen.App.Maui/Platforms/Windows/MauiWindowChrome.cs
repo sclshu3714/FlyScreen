@@ -95,6 +95,9 @@ internal static class MauiWindowChrome
         var projectBtn = FindByName(tree, "TitleProjectBtn") as WinButton;
         if (projectBtn != null)
             projectBtn.Foreground = brushFg;
+
+        // 投影按钮内容含自建 TextBlock，需按主题重刷，否则深色下默认前景仍是浅色模板的深字
+        MauiProjectionTitleBar.Refresh();
     }
 
     private static DependencyObject? FindByName(DependencyObject parent, string name)

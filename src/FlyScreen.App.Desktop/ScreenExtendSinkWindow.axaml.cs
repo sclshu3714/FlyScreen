@@ -11,6 +11,7 @@ public partial class ScreenExtendSinkWindow : Window
 {
     private readonly Action _onUserClose;
     private readonly SinkLocalCursorIdleHide _cursorIdle = new();
+    private readonly ScreenExtendReverseMoveGate _reverseGate = new();
     private bool _closingFromSession;
     private bool _userCloseRaised;
     private Bitmap? _current;
@@ -64,6 +65,7 @@ public partial class ScreenExtendSinkWindow : Window
         if (_captureBound) return;
         if (_session?.CanSendReverseInput != true) return;
         _captureBound = true;
+        _reverseGate.OnCaptureAttached();
         PointerMoved += OnPointerMoved;
         PointerPressed += OnPointerPressed;
         PointerReleased += OnPointerReleased;
@@ -74,6 +76,7 @@ public partial class ScreenExtendSinkWindow : Window
     {
         if (!_captureBound) return;
         _captureBound = false;
+        _reverseGate.OnCaptureDetached();
         PointerMoved -= OnPointerMoved;
         PointerPressed -= OnPointerPressed;
         PointerReleased -= OnPointerReleased;
@@ -91,12 +94,14 @@ public partial class ScreenExtendSinkWindow : Window
     {
         _cursorIdle.NotifyLocalMouseMoved();
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendMove(nx, ny)) return;
         _ = _session.SendReverseMoveAsync(nx, ny);
     }
 
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var button = MapButton(e);
         if (button < 0) return;
         e.Handled = true;
@@ -106,6 +111,7 @@ public partial class ScreenExtendSinkWindow : Window
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var button = MapButton(e);
         if (button < 0) return;
         e.Handled = true;
@@ -115,6 +121,7 @@ public partial class ScreenExtendSinkWindow : Window
     private void OnPointerWheel(object? sender, PointerWheelEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var delta = (int)Math.Round(e.Delta.Y * 120);
         if (delta == 0)
             delta = (int)Math.Round(e.Delta.X * 120);
