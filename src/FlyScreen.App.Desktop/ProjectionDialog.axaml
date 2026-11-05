@@ -3,14 +3,26 @@
         x:Class="FlyScreen.DesktopUi.ProjectionDialog"
         Title="投影"
         Icon="/Assets/app_icon.png"
-        Width="520" SizeToContent="Height"
-        MinHeight="320" MaxHeight="720"
+        Width="520" Height="480"
+        MinHeight="480" MaxHeight="480"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         Background="{DynamicResource WinBg}"
         Foreground="{DynamicResource Text}"
         FontSize="13">
   <DockPanel>
+    <!-- 与主窗标题栏同高 36 -->
+    <Border DockPanel.Dock="Top" Height="36" Padding="12,0,12,0"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
+            Background="{DynamicResource WinBg}">
+      <DockPanel LastChildFill="True">
+        <TextBlock DockPanel.Dock="Left" Text="投影" FontSize="12"
+                   VerticalAlignment="Center" Margin="0,0,12,0"/>
+        <TextBlock x:Name="EnvTitleStatus" HorizontalAlignment="Right" VerticalAlignment="Center"
+                   FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap"
+                   TextTrimming="CharacterEllipsis" Text="正在检查…" Cursor="Hand"/>
+      </DockPanel>
+    </Border>
     <Border DockPanel.Dock="Bottom" Padding="20,12,20,16"
             BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0"
             Background="{DynamicResource WinBg}">
@@ -42,45 +54,65 @@
         <Border Padding="14,12" Background="{DynamicResource CardBg}"
                 BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
           <StackPanel Spacing="8">
-            <TextBlock Text="画面" FontWeight="SemiBold"/>
-            <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,Auto,10,Auto,Auto">
-              <TextBlock Text="分辨率" FontSize="12" Foreground="{DynamicResource Muted}"
-                         Grid.Row="0" Grid.Column="0" Margin="0,0,0,4"/>
-              <TextBlock Text="缩放" FontSize="12" Foreground="{DynamicResource Muted}"
-                         Grid.Row="0" Grid.Column="2" Margin="0,0,0,4"/>
-              <ComboBox x:Name="ResolutionCombo" MinHeight="36" Height="36" Grid.Row="1" Grid.Column="0"/>
-              <ComboBox x:Name="ScaleCombo" MinHeight="36" Height="36" Grid.Row="1" Grid.Column="2"/>
-              <TextBlock Text="帧率" FontSize="12" Foreground="{DynamicResource Muted}"
-                         Grid.Row="3" Grid.Column="0" Margin="0,0,0,4"/>
-              <TextBlock Text="画质" FontSize="12" Foreground="{DynamicResource Muted}"
-                         Grid.Row="3" Grid.Column="2" Margin="0,0,0,4"/>
-              <ComboBox x:Name="FpsCombo" MinHeight="36" Height="36" Grid.Row="4" Grid.Column="0"/>
-              <ComboBox x:Name="QualityCombo" MinHeight="36" Height="36" Grid.Row="4" Grid.Column="2"/>
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <TextBlock Text="选项" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"
+                         Margin="0,0,10,0"/>
+              <TextBlock x:Name="OptionsSummary" Grid.Column="1" FontSize="11"
+                         Foreground="{DynamicResource Muted}" VerticalAlignment="Center"
+                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+              <Button x:Name="OptionsToggleBtn" Grid.Column="2" Content="▸" FontSize="18" FontWeight="SemiBold"
+                      Padding="12,0" MinWidth="36" Background="Transparent" BorderThickness="0"
+                      Click="OptionsToggle_Click"/>
             </Grid>
-            <TextBlock x:Name="DisplayHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
-                       Text="分辨率、帧率、画质与 Windows 对齐。Mac/Linux 本期不发起投影。"/>
-          </StackPanel>
-        </Border>
-        <Border Padding="14,12" Background="{DynamicResource CardBg}"
-                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
-          <StackPanel Spacing="8">
-            <TextBlock Text="选项" FontWeight="SemiBold"/>
-            <Grid ColumnDefinitions="*,*,*">
-              <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold" IsChecked="False" Grid.Column="0"/>
-              <CheckBox x:Name="RemoteControlCheck" Content="远程控制" FontWeight="SemiBold" IsChecked="False" Grid.Column="1"/>
-              <CheckBox x:Name="CropBlackBarsCheck" Content="去黑边" FontWeight="SemiBold" IsChecked="False" Grid.Column="2"/>
-            </Grid>
-            <TextBlock FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
-                       Text="默认关闭。声音同步：投影端静音由目标播放。远程控制：仅本机全屏播放器内键鼠可回控投影端（接收时生效）。去黑边：裁掉四周黑边。"/>
-          </StackPanel>
-        </Border>
-        <Border x:Name="EnvPanel" Padding="14,12" Background="{DynamicResource SubtleBg}"
-                BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
-          <StackPanel Spacing="8">
-            <TextBlock Text="环境检查" FontWeight="SemiBold"/>
-            <TextBlock x:Name="EnvHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
-                       Text="正在检查环境…"/>
-            <TextBlock x:Name="EnvStatus" FontSize="12" TextWrapping="Wrap"/>
+            <StackPanel x:Name="OptionsBody" IsVisible="False" Spacing="10">
+              <Border Padding="12,10" Background="{DynamicResource SubtleBg}"
+                      BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="画面" FontWeight="SemiBold"/>
+                  <Grid ColumnDefinitions="*,10,*" RowDefinitions="Auto,Auto,8,Auto,Auto">
+                    <TextBlock Text="分辨率" FontSize="11" Foreground="{DynamicResource Muted}"
+                               Grid.Row="0" Grid.Column="0" Margin="0,0,0,3"/>
+                    <TextBlock Text="缩放" FontSize="11" Foreground="{DynamicResource Muted}"
+                               Grid.Row="0" Grid.Column="2" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="ResolutionCombo" MinHeight="36" Height="36" Grid.Row="1" Grid.Column="0"/>
+                    <ComboBox x:Name="ScaleCombo" MinHeight="36" Height="36" Grid.Row="1" Grid.Column="2"/>
+                    <TextBlock Text="帧率" FontSize="11" Foreground="{DynamicResource Muted}"
+                               Grid.Row="3" Grid.Column="0" Margin="0,0,0,3"/>
+                    <TextBlock Text="画质" FontSize="11" Foreground="{DynamicResource Muted}"
+                               Grid.Row="3" Grid.Column="2" Margin="0,0,0,3"/>
+                    <ComboBox x:Name="FpsCombo" MinHeight="36" Height="36" Grid.Row="4" Grid.Column="0"/>
+                    <ComboBox x:Name="QualityCombo" MinHeight="36" Height="36" Grid.Row="4" Grid.Column="2"/>
+                  </Grid>
+                  <TextBlock x:Name="DisplayHint" FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                             Text="分辨率、帧率、画质与 Windows 对齐。Mac/Linux 本期不发起投影。"/>
+                </StackPanel>
+              </Border>
+              <Border Padding="12,10" Background="{DynamicResource SubtleBg}"
+                      BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="功能" FontWeight="SemiBold"/>
+                  <Grid ColumnDefinitions="*,*,*">
+                    <CheckBox x:Name="AudioSyncCheck" Content="声音同步" FontWeight="SemiBold" IsChecked="False" Grid.Column="0"
+                              ToolTip.Tip="投影端静音，由目标播放声音"/>
+                    <CheckBox x:Name="RemoteControlCheck" Content="远程控制" FontWeight="SemiBold" IsChecked="False" Grid.Column="1"
+                              ToolTip.Tip="仅本机全屏播放器内键鼠可回控投影端"/>
+                    <CheckBox x:Name="CropBlackBarsCheck" Content="去黑边" FontWeight="SemiBold" IsChecked="False" Grid.Column="2"
+                              ToolTip.Tip="裁掉四周黑边"/>
+                  </Grid>
+                  <TextBlock FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                             Text="默认关闭。声音同步：目标播本地音；远程控制：全屏播放器内回控；去黑边：裁四周黑边。"/>
+                </StackPanel>
+              </Border>
+              <Border x:Name="EnvPanel" Padding="12,10" Background="{DynamicResource SubtleBg}"
+                      BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="环境" FontWeight="SemiBold"/>
+                  <TextBlock x:Name="EnvHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                             Text="正在检查环境…"/>
+                  <TextBlock x:Name="EnvStatus" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
           </StackPanel>
         </Border>
       </StackPanel>

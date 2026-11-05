@@ -593,6 +593,36 @@ public static class MttVddInstaller
             .ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 开始投影前准备通道：启用设备 → 拉控制台 → 若仍无管道则自愈黄叹号设备再拉一次。
+    /// 不改显示拓扑（拓扑由 VirtualDisplaySession / EnsureVirtualMonitorVisible 负责）。
+    /// </summary>
+    public static async Task<bool> TryPrepareDriverChannelAsync(
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (await MttVddEnvironment.IsDriverReadyAsync(ct).ConfigureAwait(false))
+            return true;
+
+        EnsureOfflineMaterialized();
+        if (!MttVddEnvironment.IsProductInstalled() && !HasAnyControlExecutable())
+            return false;
+
+        progress?.Report("正在启用虚拟显示设备…");
+        await TryEnableDriverDeviceAsync(ct).ConfigureAwait(false);
+        progress?.Report("正在启动虚拟显示控制台…");
+        PurgeAbandonedOfflineDownloads();
+        await TryStartVddControlAsync(ct).ConfigureAwait(false);
+        if (await WaitForDriverReadyAsync(progress, ct, attempts: 6, delayMs: 800).ConfigureAwait(false))
+            return true;
+
+        // 设备管理器黄叹号等：自愈后再拉控制台
+        progress?.Report("正在修复异常的虚拟显示设备…");
+        await TryHealFaultyVddDeviceAsync(progress, ct).ConfigureAwait(false);
+        await TryStartVddControlAsync(ct).ConfigureAwait(false);
+        return await WaitForDriverReadyAsync(progress, ct, attempts: 10, delayMs: 1000).ConfigureAwait(false);
+    }
+
     /// <summary>尽力启动 VDD 控制台，使命名管道开始监听。</summary>
     private static async Task TryStartVddControlAsync(CancellationToken ct)
     {

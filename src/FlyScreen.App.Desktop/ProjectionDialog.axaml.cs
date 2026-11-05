@@ -26,6 +26,7 @@ public partial class ProjectionDialog : Window
         Opened += (_, _) =>
         {
             if (_host == null) return;
+            SetOptionsExpanded(false);
             DesktopThemeService.Apply(DesktopThemeService.Current, this);
             ModeCombo.Items.Clear();
             foreach (var m in DisplayProjectionModeInfo.PickerModes)
@@ -52,11 +53,19 @@ public partial class ProjectionDialog : Window
             AudioSyncCheck.IsChecked = _host.Settings.ScreenExtendAudioSync;
             RemoteControlCheck.IsChecked = _host.Settings.ScreenExtendRemoteControl;
             CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
+            AudioSyncCheck.IsCheckedChanged += (_, _) => UpdateOptionsSummary();
+            RemoteControlCheck.IsCheckedChanged += (_, _) => UpdateOptionsSummary();
+            CropBlackBarsCheck.IsCheckedChanged += (_, _) => UpdateOptionsSummary();
+            ResolutionCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
+            ScaleCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
+            FpsCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
+            QualityCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
             Closed += (_, _) => RememberChoices();
             RefreshTargets();
             RefreshDisplayPresets();
             UpdateHints();
             RefreshEnvCheck();
+            SetOptionsExpanded(false);
         };
     }
 
@@ -242,11 +251,66 @@ public partial class ProjectionDialog : Window
         StartBtn.Opacity = StartBtn.IsEnabled ? 1 : 0.5;
     }
 
+    private bool _optionsExpanded;
+
+    private void OptionsToggle_Click(object? sender, RoutedEventArgs e)
+        => SetOptionsExpanded(!_optionsExpanded);
+
+    private void SetOptionsExpanded(bool expanded)
+    {
+        _optionsExpanded = expanded;
+        if (OptionsBody != null)
+            OptionsBody.IsVisible = expanded;
+        if (OptionsToggleBtn != null)
+            OptionsToggleBtn.Content = expanded ? "▾" : "▸";
+        if (OptionsSummary != null)
+            OptionsSummary.IsVisible = !expanded;
+        if (!expanded)
+            UpdateOptionsSummary();
+    }
+
+    private void UpdateOptionsSummary()
+    {
+        if (OptionsSummary == null || ResolutionCombo == null) return;
+        try
+        {
+            var res = ResolutionCombo.SelectedItem?.ToString() ?? "";
+            var scale = ScaleCombo.SelectedItem?.ToString() ?? "";
+            var fps = FpsCombo.SelectedItem?.ToString() ?? "";
+            var quality = QualityCombo.SelectedItem?.ToString() ?? "";
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(res)) parts.Add(res);
+            if (!string.IsNullOrWhiteSpace(scale)) parts.Add(scale);
+            if (!string.IsNullOrWhiteSpace(fps)) parts.Add(fps);
+            if (!string.IsNullOrWhiteSpace(quality)) parts.Add(quality);
+            if (AudioSyncCheck?.IsChecked == true) parts.Add("声音同步");
+            if (RemoteControlCheck?.IsChecked == true) parts.Add("远程控制");
+            if (CropBlackBarsCheck?.IsChecked == true) parts.Add("去黑边");
+            OptionsSummary.Text = string.Join(" · ", parts);
+        }
+        catch
+        {
+            OptionsSummary.Text = "";
+        }
+    }
+
     private void SetEnvUi(string hint, bool ready, string? status = null)
     {
         _envReady = ready;
         EnvHint.Text = hint;
         EnvStatus.Text = status ?? "";
+        if (EnvTitleStatus != null)
+        {
+            var h = (hint ?? "").Trim();
+            var text = h.StartsWith("正在检查", StringComparison.Ordinal)
+                ? "正在检查…"
+                : ready ? "环境正常" : "环境异常";
+            EnvTitleStatus.Text = text;
+            EnvTitleStatus.Foreground = new Avalonia.Media.SolidColorBrush(
+                Avalonia.Media.Color.Parse(ready ? "#059669"
+                    : text is "正在检查…" ? "#6B7280" : "#B91C1C"));
+        }
+
         UpdateStartEnabled();
     }
 

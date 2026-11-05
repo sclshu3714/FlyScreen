@@ -802,6 +802,9 @@ public partial class PhoneTouchpadPage : ContentPage
             }
 
             await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+#if WINDOWS
+            Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
             RefreshProjectButton();
         }
         catch (Exception ex)

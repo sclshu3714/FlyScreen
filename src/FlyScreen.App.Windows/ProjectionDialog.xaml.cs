@@ -12,6 +12,7 @@ public partial class ProjectionDialog : Window
 {
     private readonly AppHost _host;
     private readonly IProgress<string> _repairProgress;
+    private readonly IProgress<string> _startProgress;
     private bool _busy;
     private bool _envReady;
     private int _envSeq;
@@ -19,6 +20,7 @@ public partial class ProjectionDialog : Window
     private int _displaySeq;
     private bool _suppressDisplayChange;
     private bool _displaySelectionReady;
+    private bool _optionsExpanded;
     private DisplayInfoPayload? _peerDisplay;
 
     public ProjectionDialog(AppHost host)
@@ -34,10 +36,82 @@ public partial class ProjectionDialog : Window
         {
             if (EnvStatus != null)
                 EnvStatus.Text = s;
+            if (EnvTitleStatus != null && _host.IsProjectionEnvironmentRepairing)
+                EnvTitleStatus.Text = "正在修复…";
+        });
+        _startProgress = new Progress<string>(s =>
+        {
+            if (StartProgress != null)
+                StartProgress.Text = s ?? "";
         });
 
         Loaded += OnLoaded;
         Closed += OnClosed;
+    }
+
+    private void OptionsHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => SetOptionsExpanded(!_optionsExpanded);
+
+    private void SetOptionsExpanded(bool expanded)
+    {
+        _optionsExpanded = expanded;
+        if (OptionsBody != null)
+            OptionsBody.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        if (OptionsChevron != null)
+            OptionsChevron.Text = expanded ? "▾" : "▸";
+        if (OptionsSummary != null)
+            OptionsSummary.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+        if (!expanded)
+            UpdateOptionsSummary();
+    }
+
+    private void FeatureCheck_Changed(object sender, RoutedEventArgs e)
+        => UpdateOptionsSummary();
+
+    private void UpdateOptionsSummary()
+    {
+        if (OptionsSummary == null) return;
+        try
+        {
+            var choice = ReadDisplayChoice();
+            var parts = new List<string>
+            {
+                choice.ResolutionLabel,
+                choice.ScaleLabel,
+                $"{choice.Fps} 帧",
+                ProjectionDisplayPresets.JpegQualityLabel(choice.JpegQuality)
+            };
+            if (AudioSyncCheck?.IsChecked == true) parts.Add("声音同步");
+            if (RemoteControlCheck?.IsChecked == true) parts.Add("远程控制");
+            if (CropBlackBarsCheck?.IsChecked == true) parts.Add("去黑边");
+            OptionsSummary.Text = string.Join(" · ", parts);
+        }
+        catch
+        {
+            OptionsSummary.Text = "";
+        }
+    }
+
+    /// <summary>标题栏只显示短态；详情留在选项内「环境」区。</summary>
+    private bool _envTitleCanRepair;
+
+    private string EnvTitleLabel(bool ready, string? hint = null)
+    {
+        if (_host.IsProjectionEnvironmentRepairing)
+            return "正在修复…";
+        var h = (hint ?? "").Trim();
+        if (h.StartsWith("正在检查", StringComparison.Ordinal))
+            return "正在检查…";
+        return ready ? "环境正常" : "环境异常";
+    }
+
+    private void EnvTitleStatus_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!_envTitleCanRepair || _busy || _host.IsProjectionEnvironmentRepairing || _awaitingRepair) return;
+        if (!_optionsExpanded)
+            SetOptionsExpanded(true);
+        RepairActions.Visibility = Visibility.Visible;
+        _ = AwaitRepairAsync(startIfNeeded: true);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -402,6 +476,7 @@ public partial class ProjectionDialog : Window
             DisplayHint.Text = $"扩展副屏设为目标电脑 {choice.ResolutionLabel} · {rate}，主屏不变。";
         else
             DisplayHint.Text = $"扩展副屏设为 {choice.ResolutionLabel} · {choice.ScaleLabel} · {rate}，主屏不变。";
+        UpdateOptionsSummary();
     }
 
     private void UpdateHints()
@@ -452,16 +527,19 @@ public partial class ProjectionDialog : Window
 
     private async Task RefreshUninstallPanelAsync()
     {
-        if (UninstallPanel == null) return;
-        // 仅本程序安装且驱动管道已就绪（环境检查可通过）时显示卸载
+        if (UninstallBtn == null) return;
         var show = false;
-        if (_host.IsMttInstalledByApp
-            && !_host.IsProjectionEnvironmentRepairing)
+        if (!_host.IsProjectionEnvironmentRepairing)
         {
-            show = await MttVddEnvironment.IsDriverReadyAsync().ConfigureAwait(true);
+            // 环境检查通过直接显示；不通过时若已装 VDD/控制台也显示
+            var installed = await Task.Run(() =>
+                MttVddEnvironment.IsProductInstalled()
+                || MttVddInstaller.HasAnyControlExecutable()
+                || MttVddInstaller.HasInstalledControlExecutable()).ConfigureAwait(true);
+            show = _envReady || installed;
         }
 
-        UninstallPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        UninstallBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (UninstallStatus != null && !show)
             UninstallStatus.Text = "";
     }
@@ -495,7 +573,30 @@ public partial class ProjectionDialog : Window
             EnvStatus.Text = status ?? "";
         var show = showRepair || _host.IsProjectionEnvironmentRepairing;
         RepairActions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (EnvTitleStatus != null)
+        {
+            var label = EnvTitleLabel(ready, hint);
+            EnvTitleStatus.Text = label;
+            _envTitleCanRepair = show && !_host.IsProjectionEnvironmentRepairing
+                                 && label == "环境异常";
+            EnvTitleStatus.Cursor = _envTitleCanRepair
+                ? System.Windows.Input.Cursors.Hand
+                : System.Windows.Input.Cursors.Arrow;
+            EnvTitleStatus.ToolTip = _envTitleCanRepair ? "点击自动修复环境" : null;
+            // 正常绿 / 异常红
+            var hex = ready && !_host.IsProjectionEnvironmentRepairing
+                ? "#059669"
+                : label is "正在检查…" or "正在修复…"
+                    ? "#6B7280"
+                    : "#B91C1C";
+            EnvTitleStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex)!);
+        }
+
+        if (show && !_optionsExpanded)
+            SetOptionsExpanded(true);
         UpdateRepairActionButtons();
+        RefreshUninstallPanel();
     }
 
     private async Task RefreshEnvCheckAsync()
@@ -507,6 +608,8 @@ public partial class ProjectionDialog : Window
             EnvStatus.Text = string.IsNullOrWhiteSpace(_host.ProjectionEnvironmentRepairStatus)
                 ? "正在修复…"
                 : _host.ProjectionEnvironmentRepairStatus;
+            if (!_optionsExpanded)
+                SetOptionsExpanded(true);
             UpdateRepairActionButtons();
             return;
         }
@@ -535,7 +638,7 @@ public partial class ProjectionDialog : Window
         if (mode == DisplayProjectionMode.Clone)
         {
             if (seq != _envSeq) return;
-            SetEnvUi("复制模式镜像主屏，无需虚拟显示驱动。环境检查已通过。", true, false);
+            SetEnvUi("复制模式无需虚拟显示驱动。", true, false);
             return;
         }
 
@@ -551,7 +654,7 @@ public partial class ProjectionDialog : Window
                 return;
             }
 
-            SetEnvUi("本机副屏可用，扩展采集环境检查已通过。", true, false);
+            SetEnvUi("本机副屏可用。", true, false);
             return;
         }
 
@@ -559,14 +662,11 @@ public partial class ProjectionDialog : Window
         if (seq != _envSeq) return;
         if (ready)
         {
-            SetEnvUi(detail + "。环境检查已通过。", true, false);
+            SetEnvUi(detail, true, false);
             return;
         }
 
-        SetEnvUi(
-            detail + "。可自动安装 Virtual Display Driver（优先离线包 VddOffline，其次 winget）。",
-            false,
-            showRepair: true);
+        SetEnvUi(detail, false, showRepair: true);
     }
 
     private async Task AwaitRepairAsync(bool startIfNeeded)
@@ -596,26 +696,35 @@ public partial class ProjectionDialog : Window
         if (_busy || !_envReady || _host.IsProjectionEnvironmentRepairing) return;
         _busy = true;
         UpdateRepairActionButtons();
+        if (StartProgress != null)
+            StartProgress.Text = "准备开始…";
         try
         {
             var result = await _host.StartProjectionAsync(
                 ReadTarget(), ReadMode(), ReadDisplayChoice(),
                 AudioSyncCheck.IsChecked == true,
-                RemoteControlCheck.IsChecked == true)
+                RemoteControlCheck.IsChecked == true,
+                _startProgress)
                 .ConfigureAwait(true);
             if (result.NeedEnvironmentRepair)
             {
+                if (StartProgress != null)
+                    StartProgress.Text = "失败：需要修复环境";
                 SetEnvUi(result.Message ?? "需要安装虚拟显示驱动", false, true, "请点击「自动修复环境」");
                 return;
             }
 
             if (!result.Ok)
             {
+                if (StartProgress != null)
+                    StartProgress.Text = "失败：" + (result.Message ?? "投影失败");
                 MessageBox.Show(this, result.Message ?? "投影失败", "投影",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            if (StartProgress != null)
+                StartProgress.Text = "成功";
             DialogResult = true;
             Close();
         }

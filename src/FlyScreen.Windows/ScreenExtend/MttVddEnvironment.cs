@@ -290,11 +290,18 @@ public static class MttVddEnvironment
     }
 
     /// <summary>
-    /// 扩展模式环境是否就绪（只读探测，禁止改显示拓扑）。
-    /// 切勿在此调用 EnsureVirtualMonitorVisibleAsync / DisplaySwitch——弹窗检测时反复改拓扑会卡死整机。
-    /// 副屏创建推迟到用户点击「开始投影」。
+    /// 扩展模式「安装态」是否就绪：只查真副屏 / 驱动是否已装 / 控制台或离线包是否存在。
+    /// 不探测、不拉起命名管道（通道在「开始投影」时创建，停止投影时关闭）。
+    /// 禁止改显示拓扑。
     /// </summary>
-    public static async Task<(bool Ready, string Detail)> CheckExtendReadyAsync(CancellationToken ct = default)
+    public static Task<(bool Ready, string Detail)> CheckExtendReadyAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(CheckExtendInstallReady());
+    }
+
+    /// <inheritdoc cref="CheckExtendReadyAsync"/>
+    public static (bool Ready, string Detail) CheckExtendInstallReady()
     {
         if (HasSecondaryMonitor())
         {
@@ -302,37 +309,33 @@ public static class MttVddEnvironment
             return (true, $"已有副屏 {m.Value.Width}x{m.Value.Height}");
         }
 
-        if (await IsDriverReadyAsync(ct).ConfigureAwait(false))
+        MttVddInstaller.EnsureOfflineMaterialized();
+        var product = IsProductInstalled();
+        var control = MttVddInstaller.HasAnyControlExecutable()
+                      || MttVddInstaller.HasInstalledControlExecutable();
+        var setup = MttVddInstaller.FindOfflineSetupExecutables().Any();
+        var competing = MttVddInstaller.DetectCompetingVirtualDisplayHint();
+
+        if (product && control)
+            return (true, "虚拟显示驱动与控制台已安装（开始投影时再创建通道）");
+
+        if (product && !control)
         {
-            // 管道就绪即可通过检测；副屏在 Start→Ensure 时再创建，避免检测阶段 DisplaySwitch 拖垮桌面
-            return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
+            return (false,
+                "已安装 Virtual Display Driver，但缺少控制台程序。请点「自动修复环境」展开内置离线包，或手动放入 %AppData%\\FlyScreen\\VddOffline\\VDDControl*.exe"
+                + competing);
         }
 
-        // 停止投影时驱动重载会把 VDDControl 打退出，管道消失，但软件仍显示已安装。
-        // 这里只拉起控制台并等待管道，不改数量、不切显示拓扑、不走重装。
-        // 注意：仅 AppData 里有离线包控制台 ≠ 驱动已装，勿误判成「已安装」去反复重置设备。
-        if (IsProductInstalled() || MttVddInstaller.HasInstalledControlExecutable())
+        if (setup || control)
         {
-            await MttVddInstaller.TryEnsureConsoleAsync(ct, waitAttempts: 12, delayMs: 700)
-                .ConfigureAwait(false);
-            if (HasSecondaryMonitor())
-            {
-                var again = DisplayMonitorEnum.FindBestExtendTarget()!.Value;
-                return (true, $"已有副屏 {again.Width}x{again.Height}");
-            }
-
-            if (await IsDriverReadyAsync(ct).ConfigureAwait(false))
-                return (true, "虚拟显示驱动已就绪（开始投影时再创建副屏）");
-
-            var competing = MttVddInstaller.DetectCompetingVirtualDisplayHint();
             return (false,
-                "已安装 Virtual Display Driver，但未检测到控制台管道。请稍候再点「重新检测」，或运行 %AppData%\\FlyScreen\\VddOffline\\VDDControl*.exe；不必重复自动修复安装"
+                "未安装 Virtual Display Driver。可点「自动修复环境」安装（优先离线包，其次 winget）"
                 + competing);
         }
 
         return (false,
-            "未检测到真副屏，且未安装或未运行虚拟显示驱动（MTT VDD）。可点「自动修复环境」安装（优先离线包，其次 winget）"
-            + MttVddInstaller.DetectCompetingVirtualDisplayHint());
+            "未检测到真副屏，且未安装虚拟显示驱动（MTT VDD），也缺少离线安装包。可点「自动修复环境」尝试安装"
+            + competing);
     }
 
     /// <summary>供目标下拉：本机副屏条目。</summary>

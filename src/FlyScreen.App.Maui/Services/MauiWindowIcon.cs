@@ -19,7 +19,7 @@ namespace FlyScreen.AppMaui.Services;
 /// </summary>
 public static class MauiWindowIcon
 {
-    private const string AppDisplayName = "玄鸟";
+    private static string AppDisplayName => FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName;
 
     private const int GwlpWndProc = -4;
     private const uint WmSetText = 0x000C;

@@ -35,10 +35,30 @@ public sealed class VirtualDisplaySession : IAsyncDisposable
 
         var pipeOk = await MttVddPipeClient.IsPipePresentAsync(ct).ConfigureAwait(false)
                      || await MttVddPipeClient.PingAsync(ct).ConfigureAwait(false);
+        // 安装检查已通过、但控制台未监听：开始投影时再拉起/自愈（黄叹号、被 Oray 等挤掉）
         if (existing == null && !pipeOk)
         {
+            try
+            {
+                await MttVddInstaller.TryPrepareDriverChannelAsync(ct: ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            pipeOk = await MttVddPipeClient.IsPipePresentAsync(ct).ConfigureAwait(false)
+                     || await MttVddPipeClient.PingAsync(ct).ConfigureAwait(false);
+            existing = DisplayMonitorEnum.FindBestExtendTarget();
+        }
+
+        if (existing == null && !pipeOk)
+        {
+            var compete = MttVddInstaller.DetectCompetingVirtualDisplayHint();
             return (false,
-                "未检测到第二显示器，且本机未运行虚拟显示驱动（MTTVirtualDisplayPipe）。" + InstallHint);
+                "虚拟显示驱动已安装，但控制台管道未就绪（设备管理器中 Virtual Display Driver 若有黄叹号，或存在向日葵等其它虚拟屏，需先修复/禁用冲突项）。"
+                + "请点「自动修复环境」，或连接物理副屏后重试。"
+                + compete);
         }
 
         // 用过管道：停止时收拢拓扑，并在驱动重载后把控制台拉回来

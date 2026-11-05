@@ -8,8 +8,17 @@ namespace FlyScreen.WinApi;
 /// </summary>
 public static class WindowsAppUserModel
 {
+    /// <summary>
+    /// 正式安装与 Debug 必须用不同 AUMID，否则 F5 会激活「开始菜单/Program Files」里已安装的同 ID 实例，
+    /// 看起来像调试却在跑安装包路径。
+    /// </summary>
+#if DEBUG
+    public const string MainAppId = "XuanNiao.FlyScreen.Debug";
+    public const string MainDisplayName = "玄鸟 (调试)";
+#else
     public const string MainAppId = "XuanNiao.FlyScreen";
     public const string MainDisplayName = "玄鸟";
+#endif
     public const string GuardAppId = "XuanNiao.FlyScreen.TopologyGuard";
     public const string GuardDisplayName = "玄鸟:守护";
 

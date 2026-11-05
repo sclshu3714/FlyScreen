@@ -24,14 +24,20 @@ public partial class App : Application
     protected override Window CreateWindow(IActivationState? activationState)
     {
         // 手机/平板/桌面统一进玄鸟主界面；触控板由布局工具条按需打开
+#if WINDOWS
+        // Debug=「玄鸟 (调试)」/ Release=「玄鸟」；勿与 Program Files 安装包任务栏入口混淆
+        var title = FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName;
+#else
+        const string title = "玄鸟";
+#endif
         Window window;
         if (DeviceInfo.Idiom == DeviceIdiom.Phone)
-            window = new Window(new AppShell()) { Title = "玄鸟" };
+            window = new Window(new AppShell()) { Title = title };
         else
         {
             window = new Window(new AppShell())
             {
-                Title = "玄鸟",
+                Title = title,
                 Width = 960,
                 Height = 640,
                 MinimumWidth = 900,

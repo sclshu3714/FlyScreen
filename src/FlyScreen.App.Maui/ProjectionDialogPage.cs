@@ -8,7 +8,7 @@ using FlyScreen.ScreenExtend;
 
 namespace FlyScreen.AppMaui;
 
-/// <summary>投影弹窗：环境检查常显；未通过前禁用开始；主题与主界面一致。手机仅复制。</summary>
+/// <summary>投影弹窗：画面/选项/环境/卸载合并进可折叠「选项」（默认收起）；环境态在标题栏；手机仅复制。</summary>
 public sealed class ProjectionDialogPage : ContentPage
 {
     private readonly MauiAppHost _host;
@@ -34,7 +34,6 @@ public sealed class ProjectionDialogPage : ContentPage
     private bool _displaySelectionReady;
     private DisplayInfoPayload? _peerDisplay;
     private readonly VerticalStackLayout _envPanel = new() { Spacing = 8 };
-    private readonly VerticalStackLayout _uninstallPanel = new() { Spacing = 8, IsVisible = false };
     private readonly Label _envHint = new()
     {
         FontSize = 12,
@@ -43,19 +42,17 @@ public sealed class ProjectionDialogPage : ContentPage
     };
     private readonly Label _envStatus = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
     private readonly Label _uninstallStatus = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
-    private readonly Label _uninstallBody = new()
-    {
-        Text = "检测到本程序曾安装 MTT Virtual Display Driver。可卸载并清理相关程序与数据。",
-        FontSize = 12,
-        LineBreakMode = LineBreakMode.WordWrap
-    };
     private readonly HorizontalStackLayout _repairActions = new() { Spacing = 8, IsVisible = false };
     private Border _dialogShell = null!;
     private Border _titleBar = null!;
     private Border _modeCard = null!;
     private Border _targetCard = null!;
-    private Border _displayCard = null!;
     private Border _optionsCard = null!;
+    private Border _pictureCard = null!;
+    private Border _featuresCard = null!;
+    private VerticalStackLayout _optionsBody = null!;
+    private Label _optionsChevron = null!;
+    private Label _optionsSummary = null!;
     private CheckBox _audioSyncCheck = null!;
     private Label _audioTitle = null!;
     private CheckBox _remoteControlCheck = null!;
@@ -63,10 +60,11 @@ public sealed class ProjectionDialogPage : ContentPage
     private CheckBox _cropBlackBarsCheck = null!;
     private Label _cropTitle = null!;
     private Label _optionsHint = null!;
-    private Border _envCard = null!;
-    private Border _uninstallCard = null!;
+    private Border _envInner = null!;
     private Border _footerBar = null!;
     private Label _titleLabel = null!;
+    private Label _envTitleStatus = null!;
+    private Label _startProgress = null!;
     private Button _closeBtn = null!;
     private Button _startBtn = null!;
     private Button _repairBtn = null!;
@@ -75,10 +73,13 @@ public sealed class ProjectionDialogPage : ContentPage
     private Button _cancelBtn = null!;
     private readonly List<ProjectionTarget> _targets = [];
     private readonly IProgress<string> _repairProgress;
+    private readonly IProgress<string> _startProgressReport;
     private bool _busy;
     private bool _envReady;
     private int _envSeq;
     private bool _awaitingRepair;
+    private bool _optionsExpanded;
+    private bool _envTitleCanRepair;
 
     public ProjectionDialogPage(MauiAppHost host)
     {
@@ -92,7 +93,14 @@ public sealed class ProjectionDialogPage : ContentPage
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = Color.FromArgb("#80000000");
         _repairProgress = new Progress<string>(s =>
-            MainThread.BeginInvokeOnMainThread(() => _envStatus.Text = s));
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _envStatus.Text = s;
+                if (_host.IsProjectionEnvironmentRepairing)
+                    SetEnvTitleStatus(ready: false, hint: "正在修复…");
+            }));
+        _startProgressReport = new Progress<string>(s =>
+            MainThread.BeginInvokeOnMainThread(() => _startProgress.Text = s ?? ""));
 
         if (_phoneOnlyClone)
         {
@@ -183,7 +191,7 @@ public sealed class ProjectionDialogPage : ContentPage
         _repairActions.Children.Add(_repairBtn);
         _repairActions.Children.Add(_recheckBtn);
 
-        _envPanel.Children.Add(new Label { Text = "环境检查", FontAttributes = FontAttributes.Bold });
+        _envPanel.Children.Add(new Label { Text = "环境", FontAttributes = FontAttributes.Bold });
         _envPanel.Children.Add(_envHint);
         _envPanel.Children.Add(_repairActions);
         _envPanel.Children.Add(_envStatus);
@@ -193,13 +201,14 @@ public sealed class ProjectionDialogPage : ContentPage
             Text = "卸载并清理",
             BackgroundColor = Colors.Transparent,
             HeightRequest = 36,
-            HorizontalOptions = LayoutOptions.Start
+            HorizontalOptions = LayoutOptions.Start,
+            IsVisible = false,
+            Margin = new Thickness(0, 4, 0, 0)
         };
         _uninstallBtn.Clicked += async (_, _) => await OnUninstallAsync();
-        _uninstallPanel.Children.Add(new Label { Text = "卸载虚拟显示驱动", FontAttributes = FontAttributes.Bold });
-        _uninstallPanel.Children.Add(_uninstallBody);
-        _uninstallPanel.Children.Add(_uninstallBtn);
-        _uninstallPanel.Children.Add(_uninstallStatus);
+        // 合并进环境卡片：通过/已装时显示
+        _envPanel.Children.Add(_uninstallBtn);
+        _envPanel.Children.Add(_uninstallStatus);
 
         _cancelBtn = new Button
         {
@@ -210,46 +219,81 @@ public sealed class ProjectionDialogPage : ContentPage
         };
         _cancelBtn.Clicked += async (_, _) => await CloseAsync();
 
+        // 与主窗标题栏对齐：高 36、标题 12、关闭 46×36 / 悬停 #E81123
         _titleLabel = new Label
         {
             Text = "投影",
-            FontSize = 15,
+            FontSize = 12,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+        _envTitleStatus = new Label
+        {
+            Text = "正在检查…",
+            FontSize = 12,
             FontAttributes = FontAttributes.Bold,
             VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Fill
+            HorizontalOptions = LayoutOptions.End,
+            HorizontalTextAlignment = TextAlignment.End,
+            LineBreakMode = LineBreakMode.TailTruncation,
+            Margin = new Thickness(0, 0, 8, 0)
         };
+        var envTitleTap = new TapGestureRecognizer();
+        envTitleTap.Tapped += async (_, _) =>
+        {
+            if (!_envTitleCanRepair || _busy || _host.IsProjectionEnvironmentRepairing) return;
+            if (!_optionsExpanded)
+                SetOptionsExpanded(true);
+            await OnRepairAsync();
+        };
+        _envTitleStatus.GestureRecognizers.Add(envTitleTap);
         _closeBtn = new Button
         {
             Text = "✕",
-            FontSize = 14,
+            FontSize = 11,
             BackgroundColor = Colors.Transparent,
-            WidthRequest = 40,
+            WidthRequest = 46,
             HeightRequest = 36,
+            MinimumWidthRequest = 46,
+            MinimumHeightRequest = 36,
             Padding = 0,
-            HorizontalOptions = LayoutOptions.End
+            Margin = 0,
+            CornerRadius = 0,
+            BorderWidth = 0,
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Fill
         };
         _closeBtn.Clicked += async (_, _) => await CloseAsync();
+        ApplyCloseButtonVisualStates(_closeBtn);
 
         _titleBar = new Border
         {
             StrokeThickness = 0,
-            Padding = new Thickness(16, 10, 8, 10),
+            HeightRequest = 36,
+            MinimumHeightRequest = 36,
+            MaximumHeightRequest = 36,
+            Padding = new Thickness(12, 0, 0, 0),
             Content = new Grid
             {
+                HeightRequest = 36,
                 ColumnDefinitions = new ColumnDefinitionCollection
                 {
+                    new(GridLength.Auto),
                     new(GridLength.Star),
+                    new(GridLength.Auto),
                     new(GridLength.Auto)
                 },
                 Children =
                 {
                     _titleLabel,
+                    _envTitleStatus,
                     _closeBtn
                 }
             }
         };
-        Grid.SetColumn(_titleLabel, 0);
-        Grid.SetColumn(_closeBtn, 1);
+        Microsoft.Maui.Controls.Grid.SetColumn(_titleLabel, 0);
+        Microsoft.Maui.Controls.Grid.SetColumn(_envTitleStatus, 2);
+        Microsoft.Maui.Controls.Grid.SetColumn(_closeBtn, 3);
 
         _modeCard = MakeCard("投影方式", _modePicker, _modeHint);
         _targetCard = MakeCard("目标", _targetPicker, _targetHint);
@@ -272,27 +316,13 @@ public sealed class ProjectionDialogPage : ContentPage
         pictureGrid.Add(Field("缩放", _scalePicker), 2, 0);
         pictureGrid.Add(Field("帧率", _fpsPicker), 0, 2);
         pictureGrid.Add(Field("画质", _qualityPicker), 2, 2);
-        _displayCard = new Border
-        {
-            StrokeThickness = 1,
-            Padding = new Thickness(14, 12),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
-            Content = new VerticalStackLayout
-            {
-                Spacing = 8,
-                Children =
-                {
-                    new Label { Text = "画面", FontAttributes = FontAttributes.Bold },
-                    pictureGrid,
-                    _displayHint
-                }
-            }
-        };
+
         _audioSyncCheck = new CheckBox
         {
             IsChecked = host.Settings.ScreenExtendAudioSync,
             VerticalOptions = LayoutOptions.Center
         };
+        _audioSyncCheck.CheckedChanged += (_, _) => UpdateOptionsSummary();
         _audioTitle = new Label
         {
             Text = "声音同步",
@@ -304,6 +334,7 @@ public sealed class ProjectionDialogPage : ContentPage
             IsChecked = host.Settings.ScreenExtendRemoteControl,
             VerticalOptions = LayoutOptions.Center
         };
+        _remoteControlCheck.CheckedChanged += (_, _) => UpdateOptionsSummary();
         _remoteControlTitle = new Label
         {
             Text = "远程控制",
@@ -315,6 +346,7 @@ public sealed class ProjectionDialogPage : ContentPage
             IsChecked = host.Settings.ScreenExtendCropBlackBars,
             VerticalOptions = LayoutOptions.Center
         };
+        _cropBlackBarsCheck.CheckedChanged += (_, _) => UpdateOptionsSummary();
         _cropTitle = new Label
         {
             Text = "去黑边",
@@ -323,10 +355,11 @@ public sealed class ProjectionDialogPage : ContentPage
         };
         _optionsHint = new Label
         {
-            Text = "默认关闭。声音同步：本机静音由目标播放。远程控制：仅目标端全屏播放器内键鼠可操作本机投影画面。去黑边：裁掉四周黑边。",
-            FontSize = 12,
+            Text = "默认关闭。声音同步：目标播本地音；远程控制：全屏播放器内回控；去黑边：裁四周黑边。",
+            FontSize = 11,
             LineBreakMode = LineBreakMode.WordWrap
         };
+        _displayHint.FontSize = 11;
         var optionsGrid = new Grid
         {
             ColumnDefinitions =
@@ -351,6 +384,86 @@ public sealed class ProjectionDialogPage : ContentPage
             Spacing = 8,
             Children = { _cropBlackBarsCheck, _cropTitle }
         }, 2, 0);
+
+        _envInner = new Border
+        {
+            StrokeThickness = 1,
+            Padding = new Thickness(12, 10),
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            Content = _envPanel
+        };
+
+        _optionsChevron = new Label
+        {
+            Text = "▸",
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        _optionsSummary = new Label
+        {
+            FontSize = 11,
+            VerticalOptions = LayoutOptions.Center,
+            LineBreakMode = LineBreakMode.TailTruncation,
+            HorizontalOptions = LayoutOptions.Fill,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        var optionsTitle = new Label
+        {
+            Text = "选项",
+            FontSize = 14,
+            FontAttributes = FontAttributes.Bold,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        var optionsHeader = new Grid
+        {
+            Padding = new Thickness(0, 2),
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            },
+            Children = { optionsTitle, _optionsSummary, _optionsChevron }
+        };
+        Microsoft.Maui.Controls.Grid.SetColumn(optionsTitle, 0);
+        Microsoft.Maui.Controls.Grid.SetColumn(_optionsSummary, 1);
+        Microsoft.Maui.Controls.Grid.SetColumn(_optionsChevron, 2);
+        var headerTap = new TapGestureRecognizer();
+        headerTap.Tapped += (_, _) => SetOptionsExpanded(!_optionsExpanded);
+        optionsHeader.GestureRecognizers.Add(headerTap);
+
+        _pictureCard = WrapInnerCard(new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                new Label { Text = "画面", FontAttributes = FontAttributes.Bold },
+                pictureGrid,
+                _displayHint
+            }
+        });
+        _featuresCard = WrapInnerCard(new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                new Label { Text = "功能", FontAttributes = FontAttributes.Bold },
+                optionsGrid,
+                _optionsHint
+            }
+        });
+        _optionsBody = new VerticalStackLayout
+        {
+            Spacing = 10,
+            IsVisible = false,
+            Children = { _pictureCard, _featuresCard }
+        };
+        if (!_phoneOnlyClone)
+            _optionsBody.Children.Add(_envInner);
+
         _optionsCard = new Border
         {
             StrokeThickness = 1,
@@ -359,46 +472,51 @@ public sealed class ProjectionDialogPage : ContentPage
             Content = new VerticalStackLayout
             {
                 Spacing = 8,
-                Children =
-                {
-                    new Label { Text = "选项", FontAttributes = FontAttributes.Bold },
-                    optionsGrid,
-                    _optionsHint
-                }
+                Children = { optionsHeader, _optionsBody }
             }
         };
-        _envCard = WrapCard(_envPanel);
-        _uninstallCard = WrapCard(_uninstallPanel);
-        _uninstallCard.IsVisible = false;
-        if (_phoneOnlyClone)
-        {
-            _envCard.IsVisible = false;
-            _uninstallCard.IsVisible = false;
-        }
 
+        _startProgress = new Label
+        {
+            FontSize = 12,
+            VerticalOptions = LayoutOptions.Center,
+            LineBreakMode = LineBreakMode.WordWrap,
+            HorizontalOptions = LayoutOptions.Fill,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
         _footerBar = new Border
         {
             StrokeThickness = 0,
             Padding = new Thickness(16, 12),
-            Content = new HorizontalStackLayout
+            Content = new Grid
             {
-                Spacing = 10,
-                HorizontalOptions = LayoutOptions.End,
-                Children = { _cancelBtn, _startBtn }
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition(GridLength.Star),
+                    new ColumnDefinition(GridLength.Auto)
+                },
+                Children =
+                {
+                    _startProgress,
+                    new HorizontalStackLayout
+                    {
+                        Spacing = 10,
+                        HorizontalOptions = LayoutOptions.End,
+                        Children = { _cancelBtn, _startBtn }
+                    }
+                }
             }
         };
+        var footerActions = (HorizontalStackLayout)((Grid)_footerBar.Content!).Children[1];
+        Microsoft.Maui.Controls.Grid.SetColumn(_startProgress, 0);
+        Microsoft.Maui.Controls.Grid.SetColumn(footerActions, 1);
 
         var bodyStack = new VerticalStackLayout
         {
             Padding = new Thickness(16, 8, 16, 8),
             Spacing = 12,
-            Children = { _modeCard, _targetCard, _displayCard, _optionsCard }
+            Children = { _modeCard, _targetCard, _optionsCard }
         };
-        if (!_phoneOnlyClone)
-        {
-            bodyStack.Children.Add(_envCard);
-            bodyStack.Children.Add(_uninstallCard);
-        }
 
         var body = new ScrollView
         {
@@ -406,12 +524,17 @@ public sealed class ProjectionDialogPage : ContentPage
             Content = bodyStack
         };
 
+        // 固定高度：折叠/展开「选项」不改变弹窗高度，中间区滚动查看
+        const double dialogHeight = 480;
         _dialogShell = new Border
         {
             StrokeThickness = 1,
+            WidthRequest = 520,
             MaximumWidthRequest = 520,
             MinimumWidthRequest = 320,
-            MaximumHeightRequest = 720,
+            HeightRequest = dialogHeight,
+            MaximumHeightRequest = dialogHeight,
+            MinimumHeightRequest = dialogHeight,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
             Padding = 0,
@@ -427,9 +550,9 @@ public sealed class ProjectionDialogPage : ContentPage
                 Children = { _titleBar, body, _footerBar }
             }
         };
-        Grid.SetRow(_titleBar, 0);
-        Grid.SetRow(body, 1);
-        Grid.SetRow(_footerBar, 2);
+        Microsoft.Maui.Controls.Grid.SetRow(_titleBar, 0);
+        Microsoft.Maui.Controls.Grid.SetRow(body, 1);
+        Microsoft.Maui.Controls.Grid.SetRow(_footerBar, 2);
 
         Content = new Grid
         {
@@ -445,12 +568,16 @@ public sealed class ProjectionDialogPage : ContentPage
     private void OnAppearing(object? sender, EventArgs e)
     {
         ApplyTheme();
+#if WINDOWS
+        Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
         RefreshTargets();
         UpdateHints();
         _ = RefreshDisplayDefaultsAsync();
         if (_phoneOnlyClone)
         {
             _envReady = true;
+            SetEnvTitleStatus(ready: true);
             UpdateStartEnabled();
             return;
         }
@@ -468,6 +595,8 @@ public sealed class ProjectionDialogPage : ContentPage
 #if WINDOWS
         MttVddRepairSession.Changed -= OnRepairSessionChanged;
         MttVddRepairSession.DetachProgress(_repairProgress);
+        // 关闭 Modal 后再刷一次主窗标题栏
+        Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
 #endif
         // 不取消修复：后台继续安装
     }
@@ -521,11 +650,17 @@ public sealed class ProjectionDialogPage : ContentPage
         _displayHint.TextColor = muted;
         _optionsHint.TextColor = muted;
         _envHint.TextColor = muted;
-        _uninstallBody.TextColor = muted;
         _envStatus.TextColor = text;
         _uninstallStatus.TextColor = text;
         _titleLabel.TextColor = text;
-        _closeBtn.TextColor = muted;
+        _optionsChevron.TextColor = muted;
+        _optionsSummary.TextColor = muted;
+        _startProgress.TextColor = muted;
+        // 关闭钮默认跟标题字色；悬停由 VisualState 刷成白底红（与主窗一致）
+        if (_closeBtn.BackgroundColor == Colors.Transparent
+            || _closeBtn.BackgroundColor == Colors.White)
+            _closeBtn.TextColor = text;
+        _remoteControlTitle.TextColor = text;
 
         _dialogShell.BackgroundColor = winBg;
         _dialogShell.Stroke = line;
@@ -534,14 +669,14 @@ public sealed class ProjectionDialogPage : ContentPage
 
         PaintCard(_modeCard, card, line, text);
         PaintCard(_targetCard, card, line, text);
-        PaintCard(_displayCard, card, line, text);
         PaintCard(_optionsCard, card, line, text);
+        PaintCard(_pictureCard, subtle, line, text);
+        PaintCard(_featuresCard, subtle, line, text);
         _audioTitle.TextColor = text;
         _cropTitle.TextColor = text;
-        PaintCard(_envCard, subtle, line, text);
-        PaintCard(_uninstallCard, subtle, line, text);
+        _envInner.BackgroundColor = subtle;
+        _envInner.Stroke = line;
         PaintPanelLabels(_envPanel, text);
-        PaintPanelLabels(_uninstallPanel, text);
 
         _startBtn.BackgroundColor = blue;
         _startBtn.TextColor = Colors.White;
@@ -618,25 +753,127 @@ public sealed class ProjectionDialogPage : ContentPage
         Content = inner
     };
 
+    private static Border WrapInnerCard(View inner) => new()
+    {
+        StrokeThickness = 1,
+        Padding = new Thickness(12, 10),
+        StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+        Content = inner
+    };
+
+    /// <summary>对齐主窗 TitleBarCloseBtn：常态透明，悬停 #E81123 + 白字。</summary>
+    private static void ApplyCloseButtonVisualStates(Button btn)
+    {
+        var groups = new VisualStateGroupList();
+        var common = new VisualStateGroup { Name = "CommonStates" };
+        common.States.Add(new VisualState
+        {
+            Name = "Normal",
+            Setters =
+            {
+                new Setter { Property = Button.BackgroundColorProperty, Value = Colors.Transparent }
+            }
+        });
+        common.States.Add(new VisualState
+        {
+            Name = "PointerOver",
+            Setters =
+            {
+                new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#E81123") },
+                new Setter { Property = Button.TextColorProperty, Value = Colors.White }
+            }
+        });
+        common.States.Add(new VisualState
+        {
+            Name = "Pressed",
+            Setters =
+            {
+                new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#C50F1F") },
+                new Setter { Property = Button.TextColorProperty, Value = Colors.White }
+            }
+        });
+        groups.Add(common);
+        VisualStateManager.SetVisualStateGroups(btn, groups);
+    }
+
     private void RefreshUninstallPanel()
         => _ = RefreshUninstallPanelAsync();
 
     private async Task RefreshUninstallPanelAsync()
     {
 #if WINDOWS
-        // 仅本程序安装且驱动管道已就绪时显示卸载
         var show = false;
-        if (_host.IsMttInstalledByApp && !_host.IsProjectionEnvironmentRepairing)
-            show = await MttVddEnvironment.IsDriverReadyAsync();
-        _uninstallPanel.IsVisible = show;
-        _uninstallCard.IsVisible = show;
+        if (!_host.IsProjectionEnvironmentRepairing)
+        {
+            // 环境检查通过直接显示；不通过时若已装 VDD/控制台也显示
+            var installed = await Task.Run(() =>
+                MttVddEnvironment.IsProductInstalled()
+                || MttVddInstaller.HasAnyControlExecutable()
+                || MttVddInstaller.HasInstalledControlExecutable());
+            show = _envReady || installed;
+        }
+
+        _uninstallBtn.IsVisible = show;
         if (!show)
             _uninstallStatus.Text = "";
 #else
-        _uninstallPanel.IsVisible = false;
-        _uninstallCard.IsVisible = false;
+        _uninstallBtn.IsVisible = false;
         await Task.CompletedTask;
 #endif
+    }
+
+    private void SetOptionsExpanded(bool expanded)
+    {
+        _optionsExpanded = expanded;
+        _optionsBody.IsVisible = expanded;
+        _optionsChevron.Text = expanded ? "▾" : "▸";
+        _optionsSummary.IsVisible = !expanded;
+        if (!expanded)
+            UpdateOptionsSummary();
+    }
+
+    private void UpdateOptionsSummary()
+    {
+        if (_optionsSummary == null) return;
+        try
+        {
+            var c = ReadDisplayChoice();
+            var parts = new List<string>
+            {
+                c.ResolutionLabel,
+                c.ScaleLabel,
+                $"{c.Fps} 帧",
+                ProjectionDisplayPresets.JpegQualityLabel(c.JpegQuality)
+            };
+            if (_audioSyncCheck.IsChecked == true) parts.Add("声音同步");
+            if (_remoteControlCheck.IsChecked == true) parts.Add("远程控制");
+            if (_cropBlackBarsCheck.IsChecked == true) parts.Add("去黑边");
+            _optionsSummary.Text = string.Join(" · ", parts);
+        }
+        catch
+        {
+            _optionsSummary.Text = "";
+        }
+    }
+
+    /// <summary>标题栏只显示短态；详情留在选项内「环境」区。异常可点进入修复。</summary>
+    private void SetEnvTitleStatus(bool ready, string? hint = null, bool showRepair = false)
+    {
+        string text;
+        if (_host.IsProjectionEnvironmentRepairing)
+            text = "正在修复…";
+        else if ((hint ?? "").Trim().StartsWith("正在检查", StringComparison.Ordinal))
+            text = "正在检查…";
+        else
+            text = ready ? "环境正常" : "环境异常";
+
+        _envTitleStatus.Text = text;
+        _envTitleCanRepair = showRepair && !_host.IsProjectionEnvironmentRepairing && text == "环境异常";
+        _envTitleStatus.TextColor = ready && !_host.IsProjectionEnvironmentRepairing
+            ? Color.FromArgb("#059669")
+            : text is "正在检查…" or "正在修复…"
+                ? (ColorOf("Muted") ?? Color.FromArgb("#6B7280"))
+                : Color.FromArgb("#B91C1C");
     }
 
     private void RefreshTargets()
@@ -900,6 +1137,7 @@ public sealed class ProjectionDialogPage : ContentPage
         }
         else
             _displayHint.Text = $"扩展副屏 {c.ResolutionLabel} · {c.ScaleLabel} · {rate}，主屏不变。";
+        UpdateOptionsSummary();
     }
 
     private void UpdateHints()
@@ -952,8 +1190,13 @@ public sealed class ProjectionDialogPage : ContentPage
         _envHint.Text = hint;
         if (status != null || !_host.IsProjectionEnvironmentRepairing)
             _envStatus.Text = status ?? "";
-        _repairActions.IsVisible = showRepair || _host.IsProjectionEnvironmentRepairing;
+        var show = showRepair || _host.IsProjectionEnvironmentRepairing;
+        _repairActions.IsVisible = show;
+        SetEnvTitleStatus(ready, hint, show);
+        if (show && !_optionsExpanded)
+            SetOptionsExpanded(true);
         UpdateRepairActionButtons();
+        RefreshUninstallPanel();
     }
 
     private async Task RefreshEnvCheckAsync()
@@ -961,9 +1204,13 @@ public sealed class ProjectionDialogPage : ContentPage
         if (_host.IsProjectionEnvironmentRepairing)
         {
             _repairActions.IsVisible = true;
-            _envStatus.Text = string.IsNullOrWhiteSpace(_host.ProjectionEnvironmentRepairStatus)
+            var s = string.IsNullOrWhiteSpace(_host.ProjectionEnvironmentRepairStatus)
                 ? "正在修复…"
                 : _host.ProjectionEnvironmentRepairStatus;
+            _envStatus.Text = s;
+            SetEnvTitleStatus(ready: false, hint: "正在修复…");
+            if (!_optionsExpanded)
+                SetOptionsExpanded(true);
             UpdateRepairActionButtons();
             return;
         }
@@ -1058,21 +1305,25 @@ public sealed class ProjectionDialogPage : ContentPage
     {
         if (_busy || !_envReady || _host.IsProjectionEnvironmentRepairing) return;
         _busy = true;
+        _startProgress.Text = "";
         UpdateRepairActionButtons();
         try
         {
             var result = await _host.StartProjectionAsync(
                 ReadTarget(), ReadMode(), ReadDisplayChoice(),
                 _audioSyncCheck.IsChecked == true,
-                _remoteControlCheck.IsChecked == true);
+                _remoteControlCheck.IsChecked == true,
+                _startProgressReport);
             if (result.NeedEnvironmentRepair)
             {
+                _startProgress.Text = "失败：需要修复环境";
                 SetEnvUi(result.Message ?? "需要安装虚拟显示驱动", false, true, "请点击「自动修复环境」");
                 return;
             }
 
             if (!result.Ok)
             {
+                _startProgress.Text = "失败：" + (result.Message ?? "投影失败");
                 await DisplayAlertAsync("投影", result.Message ?? "投影失败", "确定");
                 return;
             }

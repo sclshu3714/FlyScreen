@@ -2674,6 +2674,10 @@ public partial class MainPage : ContentPage
 
         // 无 NavigationPage，避免系统顶栏白条；页内自定义标题 + 居中卡片
         await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+#if WINDOWS
+        // Modal 会重置 WinUI 标题栏模板为浅色默认 → 跟刷，避免左右两截
+        Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
     }
 
     private void PhoneProject_Clicked(object? sender, EventArgs e)

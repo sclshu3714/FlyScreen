@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "FlyScreen.App.Windows": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}
