@@ -76,7 +76,10 @@ public static class UpdateChannelRules
 
             UpdateChannel.DesktopLinux =>
                 !n.Contains("maui") && !n.EndsWith(".apk") && !n.EndsWith(".exe") &&
-                n.Contains(Describe(UpdateChannel.DesktopLinux)),
+                n.Contains(Describe(UpdateChannel.DesktopLinux)) &&
+                (preferInstallerPackage
+                    ? n.EndsWith(".tar.gz") || n.EndsWith(".tgz") || n.EndsWith(".tar")
+                    : !n.EndsWith(".tar.gz") && !n.EndsWith(".tgz") && !n.EndsWith(".tar") && !n.EndsWith(".zip")),
 
             _ => false
         };

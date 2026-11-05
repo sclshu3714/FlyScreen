@@ -450,7 +450,8 @@ public sealed class InstallService
                    || fileName.Equals("FlyScreen.App.Maui.exe", StringComparison.OrdinalIgnoreCase)
                    || fileName.Equals("FlyScreen.App.Windows.exe", StringComparison.OrdinalIgnoreCase)
                    || target.Contains(@"\FlyScreen\", StringComparison.OrdinalIgnoreCase)
-                   || target.Contains(@"\玄鸟\", StringComparison.OrdinalIgnoreCase);
+                   || target.Contains(@"\玄鸟\", StringComparison.OrdinalIgnoreCase)
+                   || target.Contains(@"\XuanNiao\", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {

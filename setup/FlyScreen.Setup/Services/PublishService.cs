@@ -57,14 +57,20 @@ public sealed class PublishService
                     continue;
                 }
 
-                if (!target.UsesWindowsSetup)
+                if (target.UsesWindowsSetup)
                 {
-                    log($"{target.DisplayName} → 安装包产物（APK）。");
-                    await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                    await PublishInstallerAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                }
+                else if (target.UsesArchiveInstaller)
+                {
+                    log($"{target.DisplayName} → 安装包产物（tar.gz，含字体与许可）。");
+                    await PublishStandaloneAsync(target, options, log, slice, ct, archiveInstaller: true)
+                        .ConfigureAwait(false);
                 }
                 else
                 {
-                    await PublishInstallerAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                    log($"{target.DisplayName} → 安装包产物（APK）。");
+                    await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
                 }
             }
             else
@@ -91,7 +97,8 @@ public sealed class PublishService
         PublishOptions options,
         Action<string> log,
         IProgress<PublishProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool archiveInstaller = false)
     {
         var staging = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "app");
         PrepareCleanDir(staging);
@@ -125,7 +132,7 @@ public sealed class PublishService
 
         Report(progress, 88, $"{target.DisplayName}：整理产物…");
         var finish = Path.Combine(_repoRoot, "build", "Finish-PublishToArtifacts.ps1");
-        var kind = target.Kind;
+        var kind = archiveInstaller ? "UnixArchive" : target.Kind;
         var finishArgs =
             $"-NoProfile -ExecutionPolicy Bypass -File \"{finish}\" " +
             $"-SourceDir \"{staging}\" -Rid \"{target.Rid}\" -Kind {kind} " +
@@ -201,7 +208,6 @@ public sealed class PublishService
             RequiredBytes = requiredBytes,
             CreateDesktopShortcut = options.CreateDesktopShortcut,
             CreateStartMenuShortcut = options.CreateStartMenuShortcut,
-            LaunchAfterInstall = options.LaunchAfterInstall,
             CarouselImages = carouselFiles
         };
 
@@ -308,8 +314,8 @@ public sealed class PublishService
         if (!string.IsNullOrWhiteSpace(target.ExtraArgs))
             args.Add(target.ExtraArgs);
 
-        // Win / Maui-Win：可选跳过内置 VddOffline zip（运行时走 winget/在线）
-        if (target.Id is "win" or "maui-win")
+        // 仅 Windows 电脑端可打入 VddOffline；Mac / Linux / 手机端忽略该选项
+        if (target.SupportsVddOffline)
         {
             if (options.IncludeVddOffline)
             {
@@ -326,7 +332,7 @@ public sealed class PublishService
         log($"dotnet publish → {target.Id} ({configuration}, 无 PDB)");
         var exit = await _runner.RunAsync("dotnet", string.Join(' ', args), _repoRoot, log, ct)
             .ConfigureAwait(false);
-        if (exit == 0 && target.Id is "win" or "maui-win" && !options.IncludeVddOffline)
+        if (exit == 0 && target.SupportsVddOffline && !options.IncludeVddOffline)
             StripVddOfflineFromDir(outputDir, log);
         return exit;
     }

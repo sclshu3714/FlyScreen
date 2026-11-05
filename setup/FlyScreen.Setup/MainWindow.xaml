@@ -68,12 +68,12 @@
             <TextBlock Text="打包方式" Style="{StaticResource SectionLabel}"/>
             <StackPanel Orientation="Horizontal">
               <RadioButton x:Name="ModeStandalone" Content="独立应用" GroupName="PackageMode"
-                           IsChecked="True" Checked="PackageMode_Changed"/>
-              <RadioButton x:Name="ModeInstaller" Content="安装包" GroupName="PackageMode"
                            Checked="PackageMode_Changed"/>
+              <RadioButton x:Name="ModeInstaller" Content="安装包" GroupName="PackageMode"
+                           IsChecked="True" Checked="PackageMode_Changed"/>
             </StackPanel>
             <TextBlock x:Name="InstallerHint"
-                       Text="安装包：Windows 桌面 / MAUI Win → Setup.exe；MAUI Android → APK。Linux / Mac 请用「独立应用」。"
+                       Text="安装包：Windows 桌面 / MAUI Win → Setup.exe；MAUI Android → APK；Linux → tar.gz。Mac 请用「独立应用」。"
                        TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"
                        FontSize="12" Margin="0,6,0,0" Visibility="Collapsed"/>
 
@@ -95,9 +95,10 @@
             </DockPanel>
 
             <CheckBox x:Name="IncludeVddOfflineBox" Margin="0,14,0,0"
-                      IsChecked="True"
+                      IsChecked="False"
                       Content="包含虚拟显示离线包（VddOffline / FlyScreen.VddOffline.zip）"/>
-            <TextBlock Text="仅影响 Windows 桌面 / MAUI Win。不勾选则安装包更小，使用时通过 winget/在线安装驱动。"
+            <TextBlock x:Name="VddOfflineHint"
+                       Text="仅打进已勾选的 Windows 电脑端（Windows 桌面 / MAUI Win）。Mac、Linux 与手机端不支持。不勾选则体积更小，使用时通过 winget/在线安装。"
                        TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource MutedBrush}"
                        Margin="0,6,0,0"/>
 
@@ -120,7 +121,6 @@
                 </DockPanel>
                 <CheckBox x:Name="DesktopShortcutBox" Content="创建桌面快捷方式" IsChecked="True"/>
                 <CheckBox x:Name="StartMenuShortcutBox" Content="创建开始菜单快捷方式" IsChecked="True"/>
-                <CheckBox x:Name="LaunchAfterBox" Content="安装后启动" IsChecked="True"/>
               </StackPanel>
             </Expander>
           </StackPanel>

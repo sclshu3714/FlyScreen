@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using FlyScreen.Input;
 using FlyScreen.Models;
+using FlyScreen.ScreenExtend;
 using FlyScreen.Native;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
@@ -347,7 +348,9 @@ public sealed class InputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var info = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-        if (InputInjector.IsInjectedMouse(info.flags, info.dwExtraInfo))
+        var injectedMouse = InputInjector.IsInjectedMouse(info.flags, info.dwExtraInfo);
+        ProjectionHostCursor.OnHookMouse(injectedMouse);
+        if (injectedMouse)
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();

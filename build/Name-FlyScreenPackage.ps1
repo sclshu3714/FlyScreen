@@ -1,6 +1,7 @@
 ﻿# 按 docs/ROADMAP.md §4.2 命名发布物：
 #   FlyScreen-{version}-{rid}{实际后缀}
-# 后缀以 Source 文件/打包产物为准（.exe/.apk/.hap/.zip/.dmg/.AppImage/...），不以文档示例强制。
+# 后缀以 Source 为准（.exe/.apk/无扩展名可执行文件/.tar.gz）。
+# 目录仅用于安装包，打成 .tar.gz；独立程序必须传入单个可执行文件。
 #
 # 用法：
 #   powershell -File build\Name-FlyScreenPackage.ps1 -Source path\to\FlyScreen.exe -Rid win-x64
@@ -8,7 +9,7 @@
 #   powershell -File build\Name-FlyScreenPackage.ps1 -Source app-phone-release.apk -Rid android
 #
 # 参数：
-#   -Source   已生成的文件，或目录（目录将打成 .zip）
+#   -Source   已生成的文件，或安装包目录（目录打成 .tar.gz）
 #   -Rid      平台标识：win-x64 / osx-arm64 / osx-x64 / linux-x64 / linux-arm64 /
 #             android / android-tv / harmony /
 #             maui-win-x64 / maui-android / maui-osx-arm64 / maui-osx-x64 等
@@ -55,11 +56,17 @@ $ext = ""
 $staged = $null
 
 if ($isDir) {
-    # 目录产物 → zip（实际后缀 .zip）
-    $ext = ".zip"
-    $staged = Join-Path $env:TEMP ("flyscreen-pkg-{0}-{1}.zip" -f $ver, $rid)
+    # 安装包目录 → tar.gz（独立程序不应走到这里）
+    $ext = ".tar.gz"
+    $staged = Join-Path $env:TEMP ("flyscreen-pkg-{0}-{1}.tar.gz" -f $ver, $rid)
     if (Test-Path -LiteralPath $staged) { Remove-Item -LiteralPath $staged -Force }
-    Compress-Archive -Path (Join-Path $Source "*") -DestinationPath $staged -Force
+    if (Get-Command tar -ErrorAction SilentlyContinue) {
+        & tar -czf $staged -C $Source .
+        if ($LASTEXITCODE -ne 0) { throw "tar 打包失败: $Source" }
+    }
+    else {
+        throw "未找到 tar，无法将安装包目录打成 .tar.gz: $Source"
+    }
 }
 else {
     $ext = [IO.Path]::GetExtension($Source)

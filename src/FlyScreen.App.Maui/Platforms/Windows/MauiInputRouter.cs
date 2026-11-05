@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using FlyScreen.Input;
 using FlyScreen.Models;
+using FlyScreen.ScreenExtend;
 using FlyScreen.Native;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
@@ -294,7 +295,9 @@ public sealed class MauiInputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var info = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-        if (MauiInputInjector.IsInjectedMouse(info.flags, info.dwExtraInfo))
+        var injectedMouse = MauiInputInjector.IsInjectedMouse(info.flags, info.dwExtraInfo);
+        ProjectionHostCursor.OnHookMouse(injectedMouse);
+        if (injectedMouse)
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();

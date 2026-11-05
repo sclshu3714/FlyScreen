@@ -7,7 +7,7 @@ namespace FlyScreen.TopologyGuard;
 /// 独立命名监视进程：主应用被任务管理器按组结束时本进程仍存活，
 /// 父 PID 消失后执行 DisplaySwitch /internal。
 /// 用法：FlyScreen.TopologyGuard.exe &lt;parentPid&gt;
-/// 显示名「玄鸟:守护」（AssemblyTitle），exe 名仍为 FlyScreen.TopologyGuard.exe。
+/// 显示名「玄鸟·守护」（AssemblyTitle），exe 名仍为 FlyScreen.TopologyGuard.exe。
 /// </summary>
 internal static class Program
 {

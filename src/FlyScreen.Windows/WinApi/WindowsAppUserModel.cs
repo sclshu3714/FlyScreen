@@ -20,7 +20,7 @@ public static class WindowsAppUserModel
     public const string MainDisplayName = "玄鸟";
 #endif
     public const string GuardAppId = "XuanNiao.FlyScreen.TopologyGuard";
-    public const string GuardDisplayName = "玄鸟:守护";
+    public const string GuardDisplayName = "玄鸟·守护";
 
     private static readonly HashSet<nint> AppliedHwnds = [];
     private static string? _processId;

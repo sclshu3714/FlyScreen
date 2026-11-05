@@ -9,11 +9,13 @@
     <!-- exe 名保持独立，避免与主应用同组被任务管理器一并结束 -->
     <AssemblyName>FlyScreen.TopologyGuard</AssemblyName>
     <!-- 任务管理器/文件属性显示名；不改 AssemblyName -->
-    <AssemblyTitle>玄鸟:守护</AssemblyTitle>
-    <Product>玄鸟:守护</Product>
+    <AssemblyTitle>玄鸟·守护</AssemblyTitle>
+    <Product>玄鸟·守护</Product>
     <Description>扩展投影异常退出时收拢「仅电脑屏幕」。</Description>
-    <!-- 任务管理器进程图标；与主应用同源鸟标 -->
-    <ApplicationIcon>..\FlyScreen.App.Windows\Assets\wlogo_tu.ico</ApplicationIcon>
+    <!-- 任务管理器读 exe 内图标。wlogo_tu.ico 是 PNG 帧，单文件宿主嵌不进去，会退回默认蓝块。
+         打包目标可传入绝对路径 FlyScreenGuardBmpIcon（勿用全局 ApplicationIcon，会流到引用项目）。 -->
+    <ApplicationIcon>guard.ico</ApplicationIcon>
+    <ApplicationIcon Condition="'$(FlyScreenGuardBmpIcon)' != ''">$(FlyScreenGuardBmpIcon)</ApplicationIcon>
     <UseAppHost>true</UseAppHost>
     <!-- 由 BundleTopologyGuard 以 RID 自包含单文件打进主程序包时需要 -->
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>

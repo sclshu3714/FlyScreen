@@ -219,6 +219,11 @@ public sealed class ScreenExtendController : IDisposable
             var px = rect.Left + (int)Math.Round(Math.Clamp(input.Nx, 0, 1) * Math.Max(0, rect.Width - 1));
             var py = rect.Top + (int)Math.Round(Math.Clamp(input.Ny, 0, 1) * Math.Max(0, rect.Height - 1));
 
+            if (input.Kind is ScreenExtendInputPayload.KindMove
+                or ScreenExtendInputPayload.KindButton
+                or ScreenExtendInputPayload.KindWheel)
+                ProjectionHostCursor.BeginRemoteDriving();
+
             switch (input.Kind)
             {
                 case ScreenExtendInputPayload.KindMove:
@@ -314,6 +319,7 @@ public sealed class ScreenExtendController : IDisposable
 
     private void OnSessionEnded()
     {
+        _dispatcher.BeginInvoke(ProjectionHostCursor.EndSessionOnHookThread);
         // 对端 Esc/关窗/杀进程/断连：主机必须停采集、释放副屏并恢复主屏（勿看 !_wantDisplay）
         var releaseHost = _hostSessionActive || _wantDisplay || _vdd != null;
         _hostSessionActive = false;

@@ -15,6 +15,7 @@ public static class TargetCatalog
             ProjectPath = @"src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj",
             SupportsInstaller = true,
             UsesWindowsSetup = true,
+            SupportsVddOffline = true,
             IsSelected = true
         },
         new PublishTargetItem
@@ -27,7 +28,8 @@ public static class TargetCatalog
             Framework = "net10.0-windows10.0.19041.0",
             ExtraArgs = "-p:FlyScreenMauiTfms=windows -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false -p:IncludeAllContentForSelfExtract=true",
             SupportsInstaller = true,
-            UsesWindowsSetup = true
+            UsesWindowsSetup = true,
+            SupportsVddOffline = true
         },
         new PublishTargetItem
         {
@@ -50,7 +52,9 @@ public static class TargetCatalog
             Rid = "linux-x64",
             Kind = "UnixBin",
             ProjectPath = @"src\FlyScreen.App.Linux\FlyScreen.App.Linux.csproj",
-            SupportsInstaller = false
+            SupportsInstaller = true,
+            UsesWindowsSetup = false,
+            UsesArchiveInstaller = true
         },
         new PublishTargetItem
         {

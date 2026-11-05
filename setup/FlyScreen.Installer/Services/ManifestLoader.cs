@@ -15,7 +15,6 @@ public sealed class InstallerManifest
     public long RequiredBytes { get; set; } = 200L * 1024 * 1024;
     public bool CreateDesktopShortcut { get; set; } = true;
     public bool CreateStartMenuShortcut { get; set; } = true;
-    public bool LaunchAfterInstall { get; set; } = true;
     public string[] CarouselImages { get; set; } = [];
 }
 
@@ -47,7 +46,7 @@ public static class ManifestLoader
         {
             manifest.DefaultInstallDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                manifest.ProductName);
+                "XuanNiao");
         }
 
         return manifest;
@@ -109,7 +108,7 @@ public static class ManifestLoader
     private static InstallerManifest CreateDefault() => new()
     {
         DefaultInstallDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "玄鸟"),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao"),
         LicenseUrl = "https://github.com/sclshu3714/FlyScreen",
         Version = VersionResolver.Resolve()
     };

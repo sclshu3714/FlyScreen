@@ -13,11 +13,16 @@
     <_FsGuardBundleDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\bundled-topology-guard\$(_FsGuardBundleRid)\</_FsGuardBundleDir>
     <_FsGuardBundleExe>$(_FsGuardBundleDir)FlyScreen.TopologyGuard.exe</_FsGuardBundleExe>
     <_FsGuardBundleBin>$(_FsGuardBundleDir)FlyScreen.TopologyGuard.bin</_FsGuardBundleBin>
+    <_FsGuardIconSource>$(MSBuildThisFileDirectory)..\src\FlyScreen.App.Windows\Assets\wlogo_tu.ico</_FsGuardIconSource>
+    <_FsGuardBmpIcon>$(_FsGuardBundleDir)guard.bmp.ico</_FsGuardBmpIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <_FsGuardBundleInputs Include="$(_FsTopologyGuardProj)" />
     <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\**\*.cs" />
+    <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\guard.ico" />
+    <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)Convert-PngIcoToBmpIco.ps1" />
+    <_FsGuardBundleInputs Include="$(_FsGuardIconSource)" />
   </ItemGroup>
 
   <Target Name="FlyScreen_PrepareBundledTopologyGuard"
@@ -31,7 +36,8 @@
       <_FsGuardOutFull>$([System.IO.Path]::GetFullPath('$(_FsGuardBundleDir)'))</_FsGuardOutFull>
     </PropertyGroup>
     <Message Importance="High" Text="打包 TopologyGuard .bin（$(_FsGuardBundleRid)）→ $(_FsGuardOutFull)" />
-    <Exec Command="dotnet publish &quot;$(_FsGuardProjFull)&quot; -c &quot;$(Configuration)&quot; -f $(_FsTopologyGuardTfm) -r $(_FsGuardBundleRid) --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:FlyScreenSkipTopologyGuard=true -o &quot;$(_FsGuardOutFull)&quot;" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)Convert-PngIcoToBmpIco.ps1&quot; -Source &quot;$(_FsGuardIconSource)&quot; -Destination &quot;$(_FsGuardBmpIcon)&quot;" />
+    <Exec Command="dotnet publish &quot;$(_FsGuardProjFull)&quot; -c &quot;$(Configuration)&quot; -f $(_FsTopologyGuardTfm) -r $(_FsGuardBundleRid) --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:FlyScreenSkipTopologyGuard=true -p:FlyScreenGuardBmpIcon=&quot;$(_FsGuardBmpIcon)&quot; -o &quot;$(_FsGuardOutFull)&quot;" />
     <Copy SourceFiles="$(_FsGuardBundleExe)" DestinationFiles="$(_FsGuardBundleBin)" OverwriteReadOnlyFiles="true"
           Condition="Exists('$(_FsGuardBundleExe)')" />
     <Error Condition="!Exists('$(_FsGuardBundleBin)') And '$(DesignTimeBuild)' != 'true'"

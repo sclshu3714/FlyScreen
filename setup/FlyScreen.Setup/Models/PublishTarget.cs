@@ -30,12 +30,16 @@ public sealed class PublishTargetItem : INotifyPropertyChanged
     public string? Framework { get; init; }
     public string? ExtraArgs { get; init; }
     public bool RequiresMac { get; init; }
-    /// <summary>可选「安装包」模式（Windows Setup 或 Android APK）。</summary>
+    /// <summary>可选「安装包」模式（Windows Setup、Android APK 或 Linux tar.gz）。</summary>
     public bool SupportsInstaller { get; init; }
-    /// <summary>走 Windows 自定义 Setup.exe；Android APK 为 false。</summary>
+    /// <summary>走 Windows 自定义 Setup.exe；Android APK / Linux tar.gz 为 false。</summary>
     public bool UsesWindowsSetup { get; init; }
+    /// <summary>安装包为目录打成的 .tar.gz（Linux），不是 Setup.exe / APK。</summary>
+    public bool UsesArchiveInstaller { get; init; }
     /// <summary>可选「独立应用」目录产物；Android APK 为 false。</summary>
     public bool SupportsStandalone { get; init; } = true;
+    /// <summary>可打入虚拟显示离线包。仅 Windows 电脑端（WPF / MAUI Win）。</summary>
+    public bool SupportsVddOffline { get; init; }
     public bool SupportsSelfContained { get; init; } = true;
 
     public bool IsSelected
@@ -82,25 +86,24 @@ public sealed class PublishTargetItem : INotifyPropertyChanged
 
 public sealed class PublishOptions
 {
-    public PackageMode PackageMode { get; set; } = PackageMode.Standalone;
+    public PackageMode PackageMode { get; set; } = PackageMode.Installer;
     public DeploymentMode DeploymentMode { get; set; } = DeploymentMode.SelfContained;
     public string Configuration { get; set; } = "Release";
     public string OutputRoot { get; set; } = "";
     public string ProductName { get; set; } = "玄鸟";
     public string PublisherName { get; set; } = "玄鸟";
     public string DefaultInstallDir { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "玄鸟");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao");
     public string LicenseUrl { get; set; } = "https://github.com/sclshu3714/FlyScreen";
     public string LicenseFile { get; set; } = "";
     public string CarouselDir { get; set; } = "";
     public string ExeName { get; set; } = "FlyScreen.exe";
     public bool CreateDesktopShortcut { get; set; } = true;
     public bool CreateStartMenuShortcut { get; set; } = true;
-    public bool LaunchAfterInstall { get; set; } = true;
     /// <summary>
     /// 是否把 VddOffline\FlyScreen.VddOffline.zip 打进 Win 产物；关闭则体积更小，运行时走 winget/在线安装。
     /// </summary>
-    public bool IncludeVddOffline { get; set; } = true;
+    public bool IncludeVddOffline { get; set; }
 }
 
 public sealed class InstallerManifest
@@ -114,6 +117,5 @@ public sealed class InstallerManifest
     public long RequiredBytes { get; set; }
     public bool CreateDesktopShortcut { get; set; } = true;
     public bool CreateStartMenuShortcut { get; set; } = true;
-    public bool LaunchAfterInstall { get; set; } = true;
     public string[] CarouselImages { get; set; } = [];
 }

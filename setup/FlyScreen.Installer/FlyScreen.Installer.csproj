@@ -29,9 +29,7 @@
     <Content Include="Assets\installer.json"
              Condition="Exists('Assets\installer.json')"
              CopyToOutputDirectory="PreserveNewest" />
-    <None Include="Assets\app.ico"
-          Condition="Exists('Assets\app.ico')"
-          CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="Assets\app.ico" />
     <!-- 便于开发直接运行安装壳时读到真实版本 -->
     <None Include="..\..\build\version.json"
           Link="version.json"

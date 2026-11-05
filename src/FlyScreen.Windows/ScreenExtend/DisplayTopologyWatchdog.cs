@@ -8,7 +8,7 @@ namespace FlyScreen.ScreenExtend;
 
 /// <summary>
 /// 扩展拓扑收拢监视：宿主程序集内嵌的 <c>FlyScreen.TopologyGuard.exe</c>
-/// （显示名「玄鸟:守护」）解压到 AppData 后以独立进程名监视父进程。
+/// （显示名「玄鸟·守护」）解压到 AppData 后以独立进程名监视父进程。
 /// 发布仍是单文件；不以 Content 塞进单文件包（嵌套 exe 会导致 apphost 0xc0000005）。
 /// </summary>
 public static class DisplayTopologyWatchdog

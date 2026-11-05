@@ -18,11 +18,20 @@ public partial class MainWindow : Window
         InitializeComponent();
         _repoRoot = RepoPaths.FindRepoRoot();
         _targets = new ObservableCollection<PublishTargetItem>(TargetCatalog.CreateDefaults());
+        foreach (var t in _targets)
+        {
+            t.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(PublishTargetItem.IsSelected)
+                    or nameof(PublishTargetItem.IsEnabled))
+                    ApplyVddOfflineState();
+            };
+        }
         TargetList.ItemsSource = _targets;
 
         OutputDirBox.Text = RepoPaths.ArtifactsRelease(_repoRoot);
         InstallDirBox.Text = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "玄鸟");
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao");
         LicenseUrlBox.Text = "https://github.com/sclshu3714/FlyScreen";
         CarouselDirBox.Text = Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "carousel");
 
@@ -61,14 +70,15 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 互斥规则：
-    /// - 安装包：SupportsInstaller（Win Setup / Android APK）；其它端禁用
+    /// - 安装包：SupportsInstaller（Win Setup / Android APK / Linux tar.gz）；其它端禁用
     /// - 独立应用：SupportsStandalone（Android 仅 APK，须选安装包）
     /// - 安装包选项 Expander：仅含 Windows Setup 目标且为安装包模式时可编辑
+    /// - VddOffline：仅已勾选的 Windows 电脑端（WPF / MAUI Win）可包含；默认不勾选
     /// - mac 端：非 macOS 主机上禁用
     /// </summary>
     private void ApplyMutexRules()
     {
-        if (ModeInstaller == null || DeployFramework == null) return;
+        if (ModeInstaller == null || DeployFramework == null || _targets == null) return;
 
         var installerMode = ModeInstaller.IsChecked == true;
         var frameworkMode = DeployFramework.IsChecked == true;
@@ -119,8 +129,27 @@ public partial class MainWindow : Window
         var enabledCount = _targets.Count(t => t.IsEnabled);
         var selectedCount = _targets.Count(t => t.IsSelected);
         TargetMutexHint.Text = installerMode
-            ? $"安装包可选 Win Setup / Android APK，共 {enabledCount} 个端；已选 {selectedCount} 个。"
+            ? $"安装包可选 Win Setup / Android APK / Linux tar.gz，共 {enabledCount} 个端；已选 {selectedCount} 个。"
             : $"独立应用可选 {enabledCount} 个端；已选 {selectedCount} 个。";
+
+        ApplyVddOfflineState();
+    }
+
+    /// <summary>
+    /// 虚拟显示离线包只属于 Windows 电脑端。未勾选 Windows 桌面或 MAUI Win 时禁用并取消勾选。
+    /// </summary>
+    private void ApplyVddOfflineState()
+    {
+        if (IncludeVddOfflineBox == null || VddOfflineHint == null || _targets == null) return;
+
+        var windowsSelected = _targets.Any(t => t.IsEnabled && t.IsSelected && t.SupportsVddOffline);
+        IncludeVddOfflineBox.IsEnabled = !_publishing && windowsSelected;
+        if (!windowsSelected)
+            IncludeVddOfflineBox.IsChecked = false;
+
+        VddOfflineHint.Text = windowsSelected
+            ? "仅打进已勾选的 Windows 电脑端（Windows 桌面 / MAUI Win）。Mac、Linux 与手机端不包含此包。不勾选则体积更小，使用时通过 winget/在线安装。"
+            : "虚拟显示离线包仅 Windows 电脑端支持。当前未勾选 Windows 桌面或 MAUI Win，此选项不可用。";
     }
 
     private void BrowseOutput_Click(object sender, RoutedEventArgs e)
@@ -221,19 +250,22 @@ public partial class MainWindow : Window
             : OutputDirBox.Text.Trim(),
         ProductName = string.IsNullOrWhiteSpace(ProductNameBox.Text) ? "玄鸟" : ProductNameBox.Text.Trim(),
         DefaultInstallDir = string.IsNullOrWhiteSpace(InstallDirBox.Text)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "玄鸟")
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao")
             : InstallDirBox.Text.Trim(),
         LicenseUrl = LicenseUrlBox.Text.Trim(),
         CarouselDir = CarouselDirBox.Text.Trim(),
         LicenseFile = Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "license.txt"),
         CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true,
         CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
-        LaunchAfterInstall = LaunchAfterBox.IsChecked == true,
         IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
+                            && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline)
     };
+
+    private bool _publishing;
 
     private void SetBusy(bool busy)
     {
+        _publishing = busy;
         StartButton.IsEnabled = !busy;
         CancelButton.IsEnabled = busy;
         TargetList.IsEnabled = !busy;
@@ -241,9 +273,9 @@ public partial class MainWindow : Window
         ModeInstaller.IsEnabled = !busy;
         DeploySelfContained.IsEnabled = !busy;
         DeployFramework.IsEnabled = !busy;
-        IncludeVddOfflineBox.IsEnabled = !busy;
         OutputDirBox.IsEnabled = !busy;
         InstallerOptionsExpander.IsEnabled = !busy && ModeInstaller.IsChecked == true;
+        ApplyVddOfflineState();
 
         // 进度条贴窗底：默认隐藏，仅打包过程显示
         ProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;

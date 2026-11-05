@@ -1,13 +1,14 @@
 ﻿# 从发布输出目录挑出可执行/安装包，按 ROADMAP §4.2 复制到 artifacts/release：
 #   FlyScreen-{version}-{rid}{ext}
 #
-# UnixBin：若旁路存在 Fonts/（Linux 中文 OFL 字体），则打成含可执行文件 + Fonts/ + Licenses/ 的 .zip；
-#          否则仍发布单个无扩展名二进制（如 Mac）。
+# UnixBin（独立应用）：只发布单个可执行文件，不打 zip。
+# UnixArchive（Linux 安装包）：整个发布目录打成 .tar.gz（含 Fonts/、Licenses/）。
 #
 # 用法：
 #   powershell -File build\Finish-PublishToArtifacts.ps1 -SourceDir ... -Rid win-x64 -Kind Exe
 #   powershell -File build\Finish-PublishToArtifacts.ps1 -SourceDir ... -Rid maui-android -Kind Apk
 #   powershell -File build\Finish-PublishToArtifacts.ps1 -SourceDir ... -Rid linux-x64 -Kind UnixBin
+#   powershell -File build\Finish-PublishToArtifacts.ps1 -SourceDir ... -Rid linux-x64 -Kind UnixArchive
 param(
     [Parameter(Mandatory = $true)]
     [string]$SourceDir,
@@ -15,7 +16,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Rid,
 
-    [ValidateSet('Exe', 'Apk', 'UnixBin')]
+    [ValidateSet('Exe', 'Apk', 'UnixBin', 'UnixArchive')]
     [string]$Kind = 'Exe',
 
     [string]$RepoRoot = '',
@@ -83,75 +84,23 @@ function Find-PackageFile {
     }
 }
 
-function New-UnixBundleWithFonts {
-    param(
-        [string]$BinaryPath,
-        [string]$PublishDir,
-        [string]$RepoRoot
-    )
-
-    $fontsSrc = Join-Path $PublishDir 'Fonts'
-    if (-not (Test-Path -LiteralPath $fontsSrc)) {
-        return $null
-    }
-
-    $stage = Join-Path $env:TEMP ("flyscreen-unixbin-{0}" -f [guid]::NewGuid().ToString('n'))
-    New-Item -ItemType Directory -Force -Path $stage | Out-Null
-    Copy-Item -LiteralPath $BinaryPath -Destination (Join-Path $stage (Split-Path $BinaryPath -Leaf)) -Force
-    Copy-Item -LiteralPath $fontsSrc -Destination (Join-Path $stage 'Fonts') -Recurse -Force
-
-    $licDir = Join-Path $stage 'Licenses'
-    New-Item -ItemType Directory -Force -Path $licDir | Out-Null
-
-    $tp = Join-Path $RepoRoot 'docs\THIRD_PARTY.md'
-    if (Test-Path -LiteralPath $tp) {
-        Copy-Item -LiteralPath $tp -Destination (Join-Path $licDir 'THIRD_PARTY.md') -Force
-    }
-    $notice = Join-Path $RepoRoot 'NOTICE.txt'
-    if (Test-Path -LiteralPath $notice) {
-        Copy-Item -LiteralPath $notice -Destination (Join-Path $licDir 'NOTICE.txt') -Force
-    }
-    $licensesRoot = Join-Path $RepoRoot 'third_party\licenses'
-    if (Test-Path -LiteralPath $licensesRoot) {
-        Get-ChildItem -LiteralPath $licensesRoot -File | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $licDir $_.Name) -Force
-        }
-    }
-    $ofl = Join-Path $fontsSrc 'OFL.txt'
-    if (Test-Path -LiteralPath $ofl) {
-        Copy-Item -LiteralPath $ofl -Destination (Join-Path $licDir 'OFL-NotoSansSC.txt') -Force
-    }
-
-    Write-Host "UnixBin 含 Fonts/ → 打成目录包: $stage"
-    return $stage
+# Linux 安装包：目录 → tar.gz。独立应用只交付单个可执行文件。
+$packageSource = if ($Kind -eq 'UnixArchive') {
+    Write-Host "安装包目录 → tar.gz: $SourceDir"
+    $SourceDir
+}
+else {
+    $sourceFile = Find-PackageFile -Dir $SourceDir -Kind $Kind
+    Write-Host "选用产物: $sourceFile"
+    $sourceFile
 }
 
-$sourceFile = Find-PackageFile -Dir $SourceDir -Kind $Kind
-Write-Host "选用产物: $sourceFile"
-
-$stageToClean = $null
-$packageSource = $sourceFile
-
-if ($Kind -eq 'UnixBin') {
-    $bundle = New-UnixBundleWithFonts -BinaryPath $sourceFile -PublishDir $SourceDir -RepoRoot $RepoRoot
-    if ($bundle) {
-        $packageSource = $bundle
-        $stageToClean = $bundle
-    }
-}
-
-try {
+& {
     $nameArgs = @{
         Source   = $packageSource
         Rid      = $Rid
         RepoRoot = $RepoRoot
     }
     if ($OutDir) { $nameArgs.OutDir = $OutDir }
-
     & (Join-Path $PSScriptRoot 'Name-FlyScreenPackage.ps1') @nameArgs
-}
-finally {
-    if ($stageToClean -and (Test-Path -LiteralPath $stageToClean)) {
-        Remove-Item -LiteralPath $stageToClean -Recurse -Force -ErrorAction SilentlyContinue
-    }
 }

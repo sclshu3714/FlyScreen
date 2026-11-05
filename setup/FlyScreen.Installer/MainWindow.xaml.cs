@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using FlyScreen.Installer.Services;
 using Microsoft.Win32;
 
@@ -26,6 +27,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyTitleIcon();
         _manifest = ManifestLoader.Load();
         _payloadZip = ManifestLoader.FindPayloadZip();
         _licensePath = ManifestLoader.FindLicenseText();
@@ -35,12 +37,11 @@ public partial class MainWindow : Window
         VersionRun.Text = VersionResolver.FormatDisplay(_manifest.Version);
 
         PathBox.Text = string.IsNullOrWhiteSpace(_manifest.DefaultInstallDir)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), _manifest.ProductName)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao")
             : _manifest.DefaultInstallDir;
 
         DesktopShortcutBox.IsChecked = _manifest.CreateDesktopShortcut;
         StartMenuShortcutBox.IsChecked = _manifest.CreateStartMenuShortcut;
-        LaunchAfterBox.IsChecked = _manifest.LaunchAfterInstall;
 
         var images = ManifestLoader.ResolveCarouselImages(_manifest).Distinct().ToList();
         Carousel.SetImages(images);
@@ -54,6 +55,30 @@ public partial class MainWindow : Window
             StatusText.Foreground = (Brush)FindResource("DangerBrush");
             ProgressPanel.Visibility = Visibility.Visible;
             ProgressBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>自绘标题栏不走系统图标，标题前和任务栏都用同一只鸟标。</summary>
+    private void ApplyTitleIcon()
+    {
+        try
+        {
+            var uri = new Uri("pack://application:,,,/Assets/app.ico", UriKind.Absolute);
+            var info = Application.GetResourceStream(uri);
+            if (info?.Stream == null) return;
+
+            var decoder = BitmapDecoder.Create(info.Stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            var frame = decoder.Frames
+                .OrderBy(f => Math.Abs(f.PixelWidth - 32))
+                .FirstOrDefault();
+            if (frame == null) return;
+            if (frame.CanFreeze) frame.Freeze();
+            Icon = frame;
+            TitleIcon.Source = frame;
+        }
+        catch
+        {
+            /* 图标缺失时仍可安装 */
         }
     }
 
@@ -251,7 +276,6 @@ public partial class MainWindow : Window
 
         _manifest.CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true;
         _manifest.CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true;
-        _manifest.LaunchAfterInstall = LaunchAfterBox.IsChecked == true;
 
         // 已安装 → 卸载（保留个人文件）后再装
         var existing = InstallProbe.DetectInstalled(installDir, _manifest.ExeName);
@@ -452,7 +476,6 @@ public partial class MainWindow : Window
         MoreButton.IsEnabled = !busy;
         DesktopShortcutBox.IsEnabled = !busy;
         StartMenuShortcutBox.IsEnabled = !busy;
-        LaunchAfterBox.IsEnabled = !busy;
     }
 
     private void UpdateSpaceInfo()
