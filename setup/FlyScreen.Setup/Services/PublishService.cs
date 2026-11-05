@@ -16,25 +16,35 @@ public sealed class PublishService
         IReadOnlyList<PublishTargetItem> targets,
         PublishOptions options,
         Action<string> log,
+        IProgress<PublishProgress>? progress = null,
         CancellationToken ct = default)
     {
         if (targets.Count == 0)
             throw new InvalidOperationException("请至少选择一个打包目标。");
 
+        Report(progress, 0, "准备资源…");
         AssetGenerator.EnsurePublisherAssets(
             Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets"),
             log);
 
         Directory.CreateDirectory(options.OutputRoot);
 
-        foreach (var target in targets)
+        var total = Math.Max(1, targets.Count);
+        for (var i = 0; i < targets.Count; i++)
         {
+            var target = targets[i];
             ct.ThrowIfCancellationRequested();
+            var from = i * 100.0 / total;
+            var to = (i + 1) * 100.0 / total;
+            var slice = new RangeProgress(progress, from, to);
+
             log($"======== 开始打包: {target.DisplayName} ({target.Rid}) ========");
+            Report(slice, 0, $"[{i + 1}/{total}] {target.DisplayName}");
 
             if (target.RequiresMac && !OperatingSystem.IsMacOS())
             {
                 log($"跳过 {target.DisplayName}：需要在 macOS 上构建。");
+                Report(slice, 100, $"跳过 {target.DisplayName}");
                 continue;
             }
 
@@ -43,18 +53,18 @@ public sealed class PublishService
                 if (!target.SupportsInstaller)
                 {
                     log($"跳过 {target.DisplayName}：不支持安装包模式。");
+                    Report(slice, 100, $"跳过 {target.DisplayName}");
                     continue;
                 }
 
-                // Android APK 等：安装包但不走 Windows Setup
                 if (!target.UsesWindowsSetup)
                 {
                     log($"{target.DisplayName} → 安装包产物（APK）。");
-                    await PublishStandaloneAsync(target, options, log, ct).ConfigureAwait(false);
+                    await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
                 }
                 else
                 {
-                    await PublishInstallerAsync(target, options, log, ct).ConfigureAwait(false);
+                    await PublishInstallerAsync(target, options, log, slice, ct).ConfigureAwait(false);
                 }
             }
             else
@@ -62,13 +72,17 @@ public sealed class PublishService
                 if (!target.SupportsStandalone)
                 {
                     log($"跳过 {target.DisplayName}：须使用「安装包」模式（如 Android APK）。");
+                    Report(slice, 100, $"跳过 {target.DisplayName}");
                     continue;
                 }
 
-                await PublishStandaloneAsync(target, options, log, ct).ConfigureAwait(false);
+                await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
             }
+
+            Report(slice, 100, $"{target.DisplayName} 完成");
         }
 
+        Report(progress, 100, "全部任务完成");
         log("全部任务完成。");
     }
 
@@ -76,6 +90,7 @@ public sealed class PublishService
         PublishTargetItem target,
         PublishOptions options,
         Action<string> log,
+        IProgress<PublishProgress>? progress,
         CancellationToken ct)
     {
         var staging = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "app");
@@ -83,15 +98,18 @@ public sealed class PublishService
 
         EnsureReleaseConfiguration(options, log);
 
+        Report(progress, 8, $"{target.DisplayName}：dotnet publish…");
         var exit = await RunDotnetPublishAsync(target, options, staging, singleFile: true, log, ct)
             .ConfigureAwait(false);
         if (exit != 0)
             throw new InvalidOperationException($"dotnet publish 失败 ({target.Id})，退出码 {exit}");
 
+        Report(progress, 72, $"{target.DisplayName}：清理调试符号…");
         StripDebugSymbols(staging, log);
 
         if (target.Id == "maui-android")
         {
+            Report(progress, 78, $"{target.DisplayName}：签名 APK…");
             var apkScript = Path.Combine(_repoRoot, "build", "Ensure-MauiSignedApk.ps1");
             if (File.Exists(apkScript))
             {
@@ -105,6 +123,7 @@ public sealed class PublishService
             }
         }
 
+        Report(progress, 88, $"{target.DisplayName}：整理产物…");
         var finish = Path.Combine(_repoRoot, "build", "Finish-PublishToArtifacts.ps1");
         var kind = target.Kind;
         var finishArgs =
@@ -120,6 +139,7 @@ public sealed class PublishService
         PublishTargetItem target,
         PublishOptions options,
         Action<string> log,
+        IProgress<PublishProgress>? progress,
         CancellationToken ct)
     {
         var installerDir = RepoPaths.InstallerDir(_repoRoot);
@@ -132,11 +152,12 @@ public sealed class PublishService
             ? Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "license.txt")
             : options.LicenseFile;
 
+        Report(progress, 5, $"{target.DisplayName}：准备安装资源…");
         AssetGenerator.EnsureInstallerAssets(installerDir, carouselSource, licenseSource, log);
 
         EnsureReleaseConfiguration(options, log);
 
-        // 1) 发布应用为目录（Release，各端独立输出；安装包内解压，不强制单文件）
+        Report(progress, 12, $"{target.DisplayName}：发布应用…");
         var appStaging = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "app");
         PrepareCleanDir(appStaging);
         var exit = await RunDotnetPublishAsync(target, options, appStaging, singleFile: false, log, ct)
@@ -144,12 +165,13 @@ public sealed class PublishService
         if (exit != 0)
             throw new InvalidOperationException($"dotnet publish 失败 ({target.Id})");
 
+        Report(progress, 48, $"{target.DisplayName}：清理调试符号…");
         StripDebugSymbols(appStaging, log);
 
-        // 1b) 发布卸载器并放入应用目录（随 payload 安装）
+        Report(progress, 52, $"{target.DisplayName}：发布卸载器…");
         await PublishUninstallerIntoAsync(appStaging, options, log, ct).ConfigureAwait(false);
 
-        // 2) 打 payload.zip（已去掉 pdb）
+        Report(progress, 58, $"{target.DisplayName}：打包 payload…");
         var payloadDir = Path.Combine(installerDir, "Payload");
         PrepareCleanDir(payloadDir);
         var payloadZip = Path.Combine(payloadDir, "payload.zip");
@@ -160,7 +182,7 @@ public sealed class PublishService
         var requiredBytes = new FileInfo(payloadZip).Length + 32L * 1024 * 1024;
         var version = ReadVersion();
 
-        // 3) 写安装清单
+        Report(progress, 68, $"{target.DisplayName}：写入安装清单…");
         var carouselFiles = Directory.GetFiles(Path.Combine(installerDir, "Assets", "carousel"), "*.png")
             .Select(Path.GetFileName)
             .Where(n => n != null)
@@ -190,7 +212,7 @@ public sealed class PublishService
         }));
         log($"已写入安装清单: {manifestPath}");
 
-        // 4) 发布安装程序（自包含单文件，内含 payload）
+        Report(progress, 72, $"{target.DisplayName}：发布安装程序…");
         var setupOut = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "setup");
         PrepareCleanDir(setupOut);
 
@@ -208,6 +230,7 @@ public sealed class PublishService
 
         StripDebugSymbols(setupOut, log);
 
+        Report(progress, 92, $"{target.DisplayName}：输出 Setup…");
         var setupExe = Directory.EnumerateFiles(setupOut, "*.exe")
             .OrderByDescending(f => new FileInfo(f).Length)
             .FirstOrDefault()
@@ -218,6 +241,20 @@ public sealed class PublishService
         var finalPath = Path.Combine(options.OutputRoot, finalName);
         File.Copy(setupExe, finalPath, overwrite: true);
         log($"安装包已输出: {finalPath}");
+    }
+
+    private static void Report(IProgress<PublishProgress>? progress, double percent, string message)
+        => progress?.Report(PublishProgress.Create(percent, message));
+
+    private sealed class RangeProgress(IProgress<PublishProgress>? inner, double from, double to)
+        : IProgress<PublishProgress>
+    {
+        public void Report(PublishProgress value)
+        {
+            if (inner == null) return;
+            var mapped = from + Math.Clamp(value.Percent, 0, 100) / 100.0 * (to - from);
+            inner.Report(PublishProgress.Create(mapped, value.Message));
+        }
     }
 
     private async Task<int> RunDotnetPublishAsync(

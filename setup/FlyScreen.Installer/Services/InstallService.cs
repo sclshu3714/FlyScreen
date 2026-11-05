@@ -109,6 +109,7 @@ public sealed class InstallService
             RepairPinnedTaskbarShortcuts(exePath, workDir, manifest.ProductName);
 
             Report(progress, 94, "写入卸载信息…");
+            WriteInstallMarker(installDir);
             WriteUninstallInfo(manifest, installDir, exePath);
 
             if (!string.IsNullOrWhiteSpace(backupDir) && Directory.Exists(backupDir))
@@ -353,6 +354,22 @@ public sealed class InstallService
 
     public const string UninstallExeName = "Uninstall.exe";
 
+    private static void WriteInstallMarker(string installDir)
+    {
+        try
+        {
+            Directory.CreateDirectory(installDir);
+            File.WriteAllText(
+                Path.Combine(installDir, ".flyscreen-install"),
+                "setup\n",
+                Encoding.UTF8);
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
     private static void WriteUninstallInfo(InstallerManifest manifest, string installDir, string exePath)
     {
         using var key = Registry.CurrentUser.CreateSubKey(UninstallKeyPath);
@@ -365,19 +382,23 @@ public sealed class InstallService
         key.SetValue("InstallLocation", installDir);
         key.SetValue("DisplayIcon", exePath);
         key.SetValue("EstimatedSize", (int)Math.Min(int.MaxValue, manifest.RequiredBytes / 1024));
-        key.SetValue("NoModify", 1);
+        // 启用「修改」：指向卸载器维护模式
+        key.SetValue("NoModify", 0);
         key.SetValue("NoRepair", 1);
 
         if (File.Exists(uninstallExe))
         {
             key.SetValue("UninstallString", $"\"{uninstallExe}\"");
             key.SetValue("QuietUninstallString", $"\"{uninstallExe}\" /S");
+            key.SetValue("ModifyPath", $"\"{uninstallExe}\" /modify");
         }
         else
         {
             // 兜底：无卸载器时仍可删目录（不推荐）
             var uninstallCmd = $"cmd.exe /C rmdir /S /Q \"{installDir}\" & reg delete \"HKCU\\{UninstallKeyPath}\" /f";
             key.SetValue("UninstallString", uninstallCmd);
+            try { key.DeleteValue("ModifyPath", throwOnMissingValue: false); } catch { /* ignore */ }
+            key.SetValue("NoModify", 1);
         }
     }
 

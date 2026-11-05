@@ -25,5 +25,12 @@ public sealed class MauiUpdateChecker
     public static string FormatVersion(Version v) => GitHubReleaseClient.FormatVersion(v);
 
     public Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default)
-        => _client.CheckAsync(Channel, typeof(MauiUpdateChecker).Assembly, ct);
+    {
+        // Android / Mac 始终按平台资源；Windows MAUI 按安装包/单文件形态选 Setup 或 exe
+        bool? preferSetup = null;
+#if WINDOWS
+        preferSetup = AppInstallLayout.PreferInstallerPackageAsset();
+#endif
+        return _client.CheckAsync(Channel, typeof(MauiUpdateChecker).Assembly, ct, preferSetup);
+    }
 }

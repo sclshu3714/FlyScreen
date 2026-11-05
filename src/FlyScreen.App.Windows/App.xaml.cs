@@ -30,6 +30,9 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
+        // 安装包布局：补写「应用和功能 → 修改」入口（旧安装可能为灰色）
+        FlyScreen.Services.Update.ArpModifyRegistration.EnsureIfInstallerLayout();
+
         // Core 模型属性通知回投 WPF UI 线程
         UiMarshal.Configure(
             post: a => Dispatcher.BeginInvoke(a, System.Windows.Threading.DispatcherPriority.Background),

@@ -2,7 +2,7 @@ using FlyScreen.Services.Update;
 
 namespace FlyScreen.AppMaui.Services;
 
-/// <summary>MAUI 跨平台安装入口：桌面自替换；Android 走平台 APK 安装。</summary>
+/// <summary>MAUI 跨平台安装入口：Android APK；Win 按安装形态 Setup/自替换；其它桌面自替换。</summary>
 public static class MauiUpdateInstaller
 {
     public static async Task<UpdateApplyResult> DownloadAndApplyAsync(
@@ -14,8 +14,7 @@ public static class MauiUpdateInstaller
         return await Platforms.Android.AndroidApkUpdater.DownloadAndInstallAsync(check, progress, ct)
             .ConfigureAwait(false);
 #else
-        // Windows / MacCatalyst：单文件自替换
-        return await new SelfReplaceInstaller().DownloadAndApplyAsync(check, progress, ct)
+        return await new UpdateApplier().DownloadAndApplyAsync(check, progress, ct)
             .ConfigureAwait(false);
 #endif
     }

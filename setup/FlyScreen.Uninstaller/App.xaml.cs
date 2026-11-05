@@ -10,17 +10,27 @@ public partial class App : Application
         var args = e.Args;
         var ctx = UninstallContext.Detect(args);
 
-        // 若在安装目录内运行，先复制到临时目录再启动，以便删除自身
-        if (UninstallService.TryRelaunchFromTemp(args, ctx.InstallDir))
+        var modify = args.Any(a =>
+            a is "/modify" or "--modify" or "/MODIFY" or "-modify");
+
+        // 修改模式不需要复制到 Temp（不删自身）；卸载才需要
+        if (!modify && UninstallService.TryRelaunchFromTemp(args, ctx.InstallDir))
         {
             Shutdown();
             return;
         }
 
+        if (modify)
+        {
+            var win = new ModifyWindow(ctx);
+            win.Show();
+            return;
+        }
+
         var silent = args.Any(a => a is "/S" or "/silent" or "--silent" or "-s");
-        var win = new MainWindow(ctx, silent);
+        var uninstall = new MainWindow(ctx, silent);
         if (silent)
-            win.WindowState = WindowState.Minimized;
-        win.Show();
+            uninstall.WindowState = WindowState.Minimized;
+        uninstall.Show();
     }
 }

@@ -16,7 +16,12 @@ public partial class MainWindow : Window
     private readonly string? _payloadZip;
     private readonly string? _licensePath;
     private bool _busy;
+    private bool _finished;
+    private string? _finishedInstallDir;
     private CancellationTokenSource? _installCts;
+    private double _lockedWidth;
+    private double _lockedHeight;
+    private bool _sizeLocked;
 
     public MainWindow()
     {
@@ -75,6 +80,35 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private void Window_ContentRendered(object? sender, EventArgs e)
+    {
+        if (_sizeLocked) return;
+        UpdateLayout();
+        _lockedWidth = ActualWidth > 0 ? ActualWidth : Width;
+        _lockedHeight = ActualHeight;
+        if (_lockedHeight < 100) return;
+        LockWindowSize();
+        ContentRendered -= Window_ContentRendered;
+    }
+
+    private void LockWindowSize()
+    {
+        _sizeLocked = true;
+        SizeToContent = SizeToContent.Manual;
+        MinWidth = MaxWidth = Width = _lockedWidth;
+        MinHeight = Height = _lockedHeight;
+        MaxHeight = double.PositiveInfinity;
+    }
+
+    private void ApplyBaseWindowSize()
+    {
+        if (!_sizeLocked) return;
+        SizeToContent = SizeToContent.Manual;
+        Width = _lockedWidth;
+        Height = _lockedHeight;
+        MinHeight = _lockedHeight;
+    }
+
     private void Minimize_Click(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
@@ -106,6 +140,21 @@ public partial class MainWindow : Window
         MoreIcon.Data = Geometry.Parse(open ? "M1,5 L5,1 L9,5" : "M1,1 L5,5 L9,1");
         Keyboard.ClearFocus();
         FocusManager.SetFocusedElement(this, RootBorder);
+
+        if (!_sizeLocked) return;
+        if (!open)
+        {
+            ApplyBaseWindowSize();
+            return;
+        }
+
+        UpdateLayout();
+        var extra = MorePanel.ActualHeight + MorePanel.Margin.Top;
+        if (extra < 1) extra = MorePanel.DesiredSize.Height + 14;
+        SizeToContent = SizeToContent.Manual;
+        MinHeight = 0;
+        Width = _lockedWidth;
+        Height = _lockedHeight + extra;
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
@@ -278,34 +327,15 @@ public partial class MainWindow : Window
 
             if (wasRunning)
             {
-                // 自动重启，不弹窗
                 ApplyProgress(ProgressReport.Create(100, "正在重新启动…"));
                 InstallService.Launch(installDir, _manifest.ExeName);
                 Close();
                 return;
             }
 
-            var launch = false;
-            // 收起后仍用「更多」里记住的勾选；未改过则弹窗询问
-            if (_manifest.LaunchAfterInstall)
-            {
-                launch = true;
-            }
-            else
-            {
-                launch = ConfirmDialog.Ask(
-                    this,
-                    "安装完成",
-                    $"{_manifest.ProductName} 已安装到：\n{installDir}\n\n是否立即启动？",
-                    "立即启动",
-                    "稍后",
-                    ConfirmDialogKind.Info);
-            }
-
-            if (launch)
-                InstallService.Launch(installDir, _manifest.ExeName);
-
-            Close();
+            // 原先未在运行（含已安装但未启动）：停在完成页，由勾选决定是否启动
+            ShowInstallComplete(installDir);
+            return;
         }
         catch (OperationCanceledException)
         {
@@ -346,10 +376,34 @@ public partial class MainWindow : Window
         }
         finally
         {
-            SetBusy(false);
+            if (!_finished)
+                SetBusy(false);
             _installCts?.Dispose();
             _installCts = null;
         }
+    }
+
+    private void ShowInstallComplete(string installDir)
+    {
+        _finished = true;
+        _busy = false;
+        _finishedInstallDir = installDir;
+        if (MorePanel.Visibility == Visibility.Visible)
+            SetMoreExpanded(false);
+        ApplyBaseWindowSize();
+        InstallBody.Visibility = Visibility.Collapsed;
+        FinishPanel.Visibility = Visibility.Visible;
+        FinishTitle.Text = $"{_manifest.ProductName} 已安装完成";
+        FinishPath.Text = installDir;
+        LaunchFinishBox.Content = $"启动 {_manifest.ProductName}";
+        LaunchFinishBox.IsChecked = true;
+    }
+
+    private void Finish_Click(object sender, RoutedEventArgs e)
+    {
+        if (LaunchFinishBox.IsChecked == true && !string.IsNullOrWhiteSpace(_finishedInstallDir))
+            InstallService.Launch(_finishedInstallDir, _manifest.ExeName);
+        Close();
     }
 
     private void UpdateInstallEnabled()

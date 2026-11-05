@@ -14,12 +14,9 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Margin="0,0,0,16">
-      <TextBlock Text="玄鸟 · 多端发布" FontSize="24" FontWeight="SemiBold"
-                 Foreground="{StaticResource TextBrush}"/>
-      <TextBlock Text="选择端、打包方式与部署模式，一键发布独立程序或自定义安装包（始终使用 Release，不含 PDB）。"
-                 Foreground="{StaticResource MutedBrush}" Margin="0,6,0,0" FontSize="13"/>
-    </StackPanel>
+    <TextBlock Grid.Row="0" Margin="0,0,0,16"
+               Text="选择端、打包方式与部署模式，一键发布独立程序或自定义安装包（始终使用 Release，不含 PDB）。"
+               Foreground="{StaticResource MutedBrush}" FontSize="13" TextWrapping="Wrap"/>
 
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
@@ -146,15 +143,28 @@
       </Border>
     </Grid>
 
-    <DockPanel Grid.Row="2" Margin="0,16,0,0">
-      <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button x:Name="CancelButton" Content="取消" Style="{StaticResource GhostButton}"
-                Margin="0,0,8,0" IsEnabled="False" Click="Cancel_Click"/>
-        <Button x:Name="StartButton" Content="开始打包" Style="{StaticResource PrimaryButton}"
-                Click="Start_Click"/>
-      </StackPanel>
-      <TextBlock x:Name="StatusText" VerticalAlignment="Center"
-                 Foreground="{StaticResource MutedBrush}" Text="就绪 · 配置固定为 Release"/>
+    <DockPanel Grid.Row="2" Margin="0,16,0,0" LastChildFill="True">
+      <!-- 窗体最底部进度条：默认隐藏，打包时显示 -->
+      <ProgressBar x:Name="ProgressBar" DockPanel.Dock="Bottom"
+                   Height="4" Margin="0,10,0,0"
+                   Minimum="0" Maximum="100" Value="0"
+                   IsIndeterminate="False" BorderThickness="0"
+                   Background="#E8EEF8" Foreground="{StaticResource AccentBrush}"
+                   Visibility="Collapsed"/>
+
+      <DockPanel>
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
+          <Button x:Name="CancelButton" Content="取消" Style="{StaticResource GhostButton}"
+                  Margin="0,0,8,0" IsEnabled="False" Click="Cancel_Click"/>
+          <Button x:Name="StartButton" Content="开始打包" Style="{StaticResource PrimaryButton}"
+                  Click="Start_Click"/>
+        </StackPanel>
+        <!-- 状态 + 百分比合并到同一条文案 -->
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="0,0,12,0"
+                   Foreground="{StaticResource MutedBrush}"
+                   Text="就绪 · 配置固定为 Release"
+                   TextTrimming="CharacterEllipsis"/>
+      </DockPanel>
     </DockPanel>
   </Grid>
 </Window>

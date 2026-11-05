@@ -156,17 +156,21 @@ public partial class MainWindow : Window
         var options = BuildOptions();
         _cts = new CancellationTokenSource();
         SetBusy(true);
-        StatusText.Text = "打包中（Release）…";
+        ApplyProgress(PublishProgress.Create(0, "打包中（Release）…"));
 
         try
         {
             var service = new PublishService(_repoRoot);
+            var progress = new Progress<PublishProgress>(p =>
+            {
+                Dispatcher.Invoke(() => ApplyProgress(p));
+            });
             await service.PublishAsync(selected, options, msg =>
             {
                 Dispatcher.Invoke(() => AppendLog(msg));
-            }, _cts.Token).ConfigureAwait(true);
+            }, progress, _cts.Token).ConfigureAwait(true);
 
-            StatusText.Text = "完成";
+            ApplyProgress(PublishProgress.Create(100, "全部任务完成"));
             MessageDialog.CompleteWithFolder(
                 this,
                 "完成",
@@ -181,7 +185,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             AppendLog("错误: " + ex.Message);
-            StatusText.Text = "失败";
+            StatusText.Text = "打包失败";
             MessageDialog.Alert(this, "打包失败", ex.Message, MessageDialogKind.Error);
         }
         finally
@@ -190,6 +194,16 @@ public partial class MainWindow : Window
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    private void ApplyProgress(PublishProgress report)
+    {
+        ProgressBar.Visibility = Visibility.Visible;
+        ProgressBar.Value = report.Percent;
+        var pct = (int)Math.Round(report.Percent);
+        StatusText.Text = string.IsNullOrWhiteSpace(report.Message)
+            ? $"{pct}%"
+            : $"{report.Message}  {pct}%";
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => _cts?.Cancel();
@@ -230,6 +244,11 @@ public partial class MainWindow : Window
         IncludeVddOfflineBox.IsEnabled = !busy;
         OutputDirBox.IsEnabled = !busy;
         InstallerOptionsExpander.IsEnabled = !busy && ModeInstaller.IsChecked == true;
+
+        // 进度条贴窗底：默认隐藏，仅打包过程显示
+        ProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        if (busy)
+            ProgressBar.Value = 0;
     }
 
     private void AppendLog(string message)
