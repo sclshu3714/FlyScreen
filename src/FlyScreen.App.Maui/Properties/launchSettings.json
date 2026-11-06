@@ -5,5 +5,11 @@
       "nativeDebugging": false,
       "commandLineArgs": ""
     }
+  },
+  // 加上下面这个配置，禁止VS在找不到配置时弹出错误框
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "iisSettings": {
+    "windowsAuthentication": false,
+    "anonymousAuthentication": true
   }
 }

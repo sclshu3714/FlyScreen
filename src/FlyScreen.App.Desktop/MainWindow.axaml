@@ -10,7 +10,7 @@
         Width="960" Height="640"
         MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource WinBg}"
+        Background="Transparent"
         FontFamily="{DynamicResource UiFont}"
         FontSize="13"
         Foreground="{DynamicResource Text}"
@@ -160,6 +160,9 @@
       <Setter Property="Padding" Value="8,0"/>
       <Setter Property="Margin" Value="0"/>
     </Style>
+    <Style Selector="Button.link:pointerover">
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+    </Style>
 
     <Style Selector="TextBox">
       <Setter Property="MinHeight" Value="36"/>
@@ -290,6 +293,7 @@
       <Setter Property="BorderBrush" Value="Transparent"/>
     </Style>
 
+    <!-- 1×4 / 2×2：状态分段，不用单选圆点 -->
     <Style Selector="RadioButton.seg">
       <Setter Property="Width" Value="52"/>
       <Setter Property="Height" Value="28"/>
@@ -298,15 +302,35 @@
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border x:Name="SegBd" Background="{TemplateBinding Background}"
+                  CornerRadius="{TemplateBinding CornerRadius}">
+            <ContentPresenter x:Name="PART_ContentPresenter"
+                              Content="{TemplateBinding Content}"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center"
+                              VerticalContentAlignment="Center"
+                              Foreground="{TemplateBinding Foreground}"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
     </Style>
-    <!-- 分段按钮无圆点，内容居中，勿沿用通用 ContentPresenter 左边距 -->
     <Style Selector="RadioButton.seg /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Margin" Value="0"/>
       <Setter Property="HorizontalAlignment" Value="Center"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="RadioButton.seg:pointerover:not(:checked)">
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
     </Style>
     <Style Selector="RadioButton.seg:checked">
       <Setter Property="Background" Value="{DynamicResource Blue}"/>
@@ -351,13 +375,12 @@
   </Window.Styles>
 
   <Panel>
-  <!-- Linux 自绘标题栏时再设圆角/边框；其它平台保持直角由系统装饰负责 -->
-  <Border x:Name="WindowChrome"
+  <!-- 外层铺色并按圆角裁切，直角像素不绘制 -->
+  <Border x:Name="WindowClip"
           Background="{DynamicResource WinBg}"
-          BorderBrush="{DynamicResource Line}"
-          BorderThickness="0"
-          CornerRadius="0"
+          CornerRadius="8"
           ClipToBounds="True">
+  <Border x:Name="WindowChrome" Background="Transparent">
   <DockPanel>
     <!-- Linux/WSL：系统标题栏常因字体只画出「玄」。客户端标题栏可拖动整窗 -->
     <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
@@ -680,7 +703,15 @@
                 <TextBlock Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。"
                            Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10"/>
                 <Grid ColumnDefinitions="*,Auto" MinHeight="36">
-                  <ComboBox x:Name="NicCombo" VerticalAlignment="Center"/>
+                  <ComboBox x:Name="NicCombo" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            VerticalAlignment="Center">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:NicInfo">
+                        <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"/>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
                   <Button Grid.Column="1" Classes="normal" Content="刷新网卡" Click="RefreshNics_Click" VerticalAlignment="Center"/>
                 </Grid>
                 <Grid Margin="0,12,0,0" ColumnDefinitions="Auto,100,Auto,100" MinHeight="36">
@@ -1071,6 +1102,7 @@
     </Grid>
   </Grid>
   </DockPanel>
+  </Border>
   </Border>
   <!-- 拖拽幽灵卡片（跟指针），X11 无系统拖影时也能看出在移动 -->
   <Canvas x:Name="DragGhostLayer" IsHitTestVisible="False" ZIndex="1000"/>

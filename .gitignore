@@ -32,3 +32,6 @@ mobile/harmony/.idea/
 /_icon_backup_20261105_171614
 /_icon_backup_20261105_171743
 /_icon_backup_*/
+
+# VS Code C# Dev Tools - Auto-generated runners
+.vscodecsdt/Runners/

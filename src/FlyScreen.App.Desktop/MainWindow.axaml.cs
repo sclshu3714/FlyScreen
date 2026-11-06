@@ -102,27 +102,103 @@ public partial class MainWindow : Window
         SystemDecorations = SystemDecorations.None;
         ClientTitleBar.IsVisible = true;
         Title = "玄鸟";
-        Background = TryBrush("WinBg") ?? Brushes.White;
-        if (WindowChrome != null)
-        {
-            WindowChrome.BorderThickness = new Thickness(1);
-            UpdateWindowCornerRadius();
-        }
+        // 关掉系统装饰后窗口是直角。客户区保持透明，铺色只发生在圆角裁切内。
+        TransparencyLevelHint =
+        [
+            WindowTransparencyLevel.Transparent,
+            WindowTransparencyLevel.None
+        ];
+        Background = Brushes.Transparent;
+        TransparencyBackgroundFallback = TryBrush("WinBg") ?? Brushes.White;
+        UpdateWindowCornerRadius();
 
+        SizeChanged += (_, _) => ApplyWindowRegion();
         PropertyChanged += (_, e) =>
         {
-            if (e.Property == WindowStateProperty)
+            if (e.Property == WindowStateProperty
+                || e.Property == ActualTransparencyLevelProperty
+                || e.Property == OffScreenMarginProperty)
                 UpdateWindowCornerRadius();
         };
     }
 
+    private const double ChromeCornerRadius = 8;
+    private int _regionKey = int.MinValue;
+
+    private void ApplyWindowRegion()
+    {
+        var max = WindowState is WindowState.Maximized or WindowState.FullScreen;
+        var radius = max ? 0 : ChromeCornerRadius;
+        var key = HashCode.Combine(Bounds.Width, Bounds.Height, radius, RenderScaling);
+        if (key == _regionKey)
+            return;
+        if (WindowsWindowCorner.Apply(this, radius))
+            _regionKey = key;
+    }
+
     private void UpdateWindowCornerRadius()
     {
-        if (WindowChrome == null) return;
-        // Win11 DWMWCP_ROUND ≈ 8px；最大化时取消圆角
-        WindowChrome.CornerRadius = WindowState == WindowState.Maximized
-            ? default
-            : new CornerRadius(8);
+        if (_updatingChrome || WindowChrome == null) return;
+        _updatingChrome = true;
+        try
+        {
+            // 分层透明窗在 Windows 最大化后整条标题栏收不到鼠标：按钮无悬停、双击/拖动也不还原。
+            var max = WindowState is WindowState.Maximized or WindowState.FullScreen;
+            var wantTransparent = !max;
+            if (_chromeWantsTransparent != wantTransparent)
+            {
+                _chromeWantsTransparent = wantTransparent;
+                if (wantTransparent)
+                {
+                    TransparencyLevelHint =
+                    [
+                        WindowTransparencyLevel.Transparent,
+                        WindowTransparencyLevel.None
+                    ];
+                    Background = Brushes.Transparent;
+                }
+                else
+                {
+                    TransparencyLevelHint = [WindowTransparencyLevel.None];
+                    Background = TryBrush("WinBg") ?? Brushes.White;
+                }
+            }
+
+            if (max)
+            {
+                if (Background is SolidColorBrush { Color.A: 0 })
+                    Background = TryBrush("WinBg") ?? Brushes.White;
+                ApplyChromeShape(round: false);
+                // 无边框最大化时系统把窗口伸出屏幕，不内缩则标题栏落在屏幕外
+                if (WindowClip != null)
+                    WindowClip.Margin = OffScreenMargin;
+                ApplyWindowRegion();
+                return;
+            }
+
+            // 还原后继续透明。不要因 ActualTransparencyLevel 还不是 Transparent 就把整窗铺成不透明直角。
+            Background = Brushes.Transparent;
+            TransparencyBackgroundFallback = TryBrush("WinBg") ?? Brushes.White;
+            if (WindowClip != null)
+                WindowClip.Margin = default;
+            ApplyChromeShape(round: true);
+            ApplyWindowRegion();
+        }
+        finally
+        {
+            _updatingChrome = false;
+        }
+    }
+
+    /// <summary>外层按圆角裁切并铺色，直角不画，不描边。</summary>
+    private void ApplyChromeShape(bool round)
+    {
+        if (WindowClip == null) return;
+        WindowClip.ClipToBounds = round;
+        WindowClip.CornerRadius = round ? new CornerRadius(ChromeCornerRadius) : default;
+        WindowClip.Background = round
+            ? TryBrush("WinBg") ?? Brushes.White
+            : Brushes.Transparent;
     }
 
     private void ClientTitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -137,10 +213,15 @@ public partial class MainWindow : Window
         if (e.ClickCount >= 2)
         {
             EndTitleMove(e.Pointer);
-            TitleMax_Click(sender, e);
+            // 拖动过程中已经还原过时，第二次按下不要再最大化回去
+            if (!_restoredByTitleDrag)
+                TitleMax_Click(sender, e);
+            _restoredByTitleDrag = false;
             e.Handled = true;
             return;
         }
+
+        _restoredByTitleDrag = false;
 
         // Wayland 只能走平台拖动；X11/WSL 上 BeginMoveDrag 常“假成功”却不动窗，必须用手势
         var wayland = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
@@ -196,11 +277,36 @@ public partial class MainWindow : Window
             py = screen.Y;
         }
 
+        if (WindowState is WindowState.Maximized or WindowState.FullScreen)
+        {
+            RestoreFromTitleDrag(px, py);
+            e.Handled = true;
+            return;
+        }
+
         var next = new PixelPoint(px - _titleGrabOffsetX, py - _titleGrabOffsetY);
         if (next != Position)
             Position = next;
 
         e.Handled = true;
+    }
+
+    /// <summary>最大化时拖标题栏先还原，并让光标仍落在标题栏抓取点附近。</summary>
+    private void RestoreFromTitleDrag(int pointerX, int pointerY)
+    {
+        _restoredByTitleDrag = true;
+        var scale = RenderScaling > 0 ? RenderScaling : 1;
+        var maxWidthPx = Math.Max(1, Bounds.Width * scale);
+        var ratio = Math.Clamp(_titleGrabOffsetX / maxWidthPx, 0, 1);
+        WindowState = WindowState.Normal;
+
+        var restoredPx = Math.Max(1, (int)Math.Round(Width * scale));
+        var x = pointerX - (int)Math.Round(ratio * restoredPx);
+        var captionGrab = (int)Math.Min(Math.Max(0, _titleGrabOffsetY), 32 * scale);
+        var y = pointerY - captionGrab;
+        Position = new PixelPoint(x, y);
+        _titleGrabOffsetX = pointerX - Position.X;
+        _titleGrabOffsetY = pointerY - Position.Y;
     }
 
     private void ClientTitleBar_PointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -228,6 +334,9 @@ public partial class MainWindow : Window
     }
 
     private bool _titleProjectHovered;
+    private bool _updatingChrome;
+    private bool? _chromeWantsTransparent;
+    private bool _restoredByTitleDrag;
 
     private void TitleProject_Click(object? sender, RoutedEventArgs e)
         => _ = OpenProjectionFromUiAsync();
@@ -359,6 +468,7 @@ public partial class MainWindow : Window
 
     private async void OnOpened(object? sender, EventArgs e)
     {
+        UpdateWindowCornerRadius();
         _edgeFileDrag = new EdgeFileDragOverlay(this, _host);
         // 应用层可能已写入含 CJK 的 UiFont
         if (Application.Current?.Resources.TryGetResource("UiFont", null, out var font) == true
@@ -936,17 +1046,27 @@ public partial class MainWindow : Window
     private void Nav_Changed(object? sender, RoutedEventArgs e)
     {
         if (_syncingNav) return;
-        // IsCheckedChanged 在勾选/取消时都会触发，只处理变为选中
-        if (sender is RadioButton { IsChecked: not true }) return;
-        if (NavBasic.IsChecked == true) ShowPage(0);
-        else if (NavNetwork.IsChecked == true) ShowPage(2);
-        else if (NavShare.IsChecked == true) ShowPage(3);
-        else if (NavSecurity.IsChecked == true) ShowPage(4);
-        else if (NavAdvanced.IsChecked == true) ShowPage(1);
-        else if (NavPrograms.IsChecked == true) ShowPage(8);
-        else if (NavLog.IsChecked == true) ShowPage(7);
-        else if (NavAbout.IsChecked == true) ShowPage(5);
-        else if (NavHelp.IsChecked == true) ShowPage(6);
+        // IsCheckedChanged 在勾选/取消时都会触发，只处理变为选中。
+        // 此时同组旧项仍为选中（组管理器在事件之后才取消），不能按控件顺序扫 IsChecked，
+        // 否则第一次点击会被判回当前页，要点第二次才切走。
+        if (sender is not RadioButton { IsChecked: true } rb) return;
+        var index = NavPageIndex(rb);
+        if (index >= 0)
+            ShowPage(index);
+    }
+
+    private int NavPageIndex(RadioButton rb)
+    {
+        if (ReferenceEquals(rb, NavBasic)) return 0;
+        if (ReferenceEquals(rb, NavAdvanced)) return 1;
+        if (ReferenceEquals(rb, NavNetwork)) return 2;
+        if (ReferenceEquals(rb, NavShare)) return 3;
+        if (ReferenceEquals(rb, NavSecurity)) return 4;
+        if (ReferenceEquals(rb, NavAbout)) return 5;
+        if (ReferenceEquals(rb, NavHelp)) return 6;
+        if (ReferenceEquals(rb, NavLog)) return 7;
+        if (ReferenceEquals(rb, NavPrograms)) return 8;
+        return -1;
     }
 
     private void ShowPage(int index)
