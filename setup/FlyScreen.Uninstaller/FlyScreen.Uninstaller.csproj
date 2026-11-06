@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -8,7 +10,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>FlyScreen.Uninstaller</RootNamespace>
     <AssemblyName>Uninstall</AssemblyName>
-    <ApplicationIcon Condition="Exists('..\FlyScreen.Installer\Assets\app.ico')">..\FlyScreen.Installer\Assets\app.ico</ApplicationIcon>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyTitle>玄鸟卸载程序</AssemblyTitle>
     <Product>玄鸟</Product>

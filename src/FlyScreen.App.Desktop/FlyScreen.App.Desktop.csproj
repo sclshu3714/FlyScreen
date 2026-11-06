@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
   <PropertyGroup>
     <!-- Avalonia 共用 UI 类库（Mac/Linux 引用）；非独立端应用 -->
     <TargetFramework>net10.0</TargetFramework>
@@ -18,11 +20,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="$(FlyScreenAppPng64)">
+      <Link>Assets\app_icon.png</Link>
+    </AvaloniaResource>
+    <AvaloniaResource Include="$(FlyScreenAppIco)">
+      <Link>Assets\wlogo_tu.ico</Link>
+    </AvaloniaResource>
     <AvaloniaResource Include="Themes\**" />
   </ItemGroup>
 

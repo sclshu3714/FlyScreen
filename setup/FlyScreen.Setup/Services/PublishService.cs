@@ -153,7 +153,7 @@ public sealed class PublishService
         AssetGenerator.EnsureInstallerProject(installerDir, log);
 
         var carouselSource = string.IsNullOrWhiteSpace(options.CarouselDir)
-            ? Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "carousel")
+            ? Path.Combine(_repoRoot, "src", "FlyScreen.Assets", "Installer")
             : options.CarouselDir;
         var licenseSource = string.IsNullOrWhiteSpace(options.LicenseFile)
             ? Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "license.txt")

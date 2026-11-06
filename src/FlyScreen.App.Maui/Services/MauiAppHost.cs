@@ -853,6 +853,8 @@ public sealed class MauiAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         try { await StopProjectionAsync().ConfigureAwait(false); }
         catch { /* ignore */ }
 

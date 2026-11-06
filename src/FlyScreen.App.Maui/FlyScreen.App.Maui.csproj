@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
   <PropertyGroup>
     <!-- 与 VS MAUI 模板一致（勿用自定义属性包一层，否则 VS 设计时还原常漏 TFM → NETSDK1005）。
          仅 Windows：-p:FlyScreenMauiTfms=windows -->
@@ -57,7 +59,7 @@
 
   <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe 名不变，显示名见 WindowsAppUserModel -->
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-    <ApplicationIcon>Platforms\Windows\Assets\appicon.ico</ApplicationIcon>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
     <AssemblyTitle>玄鸟</AssemblyTitle>
     <Product>玄鸟</Product>
   </PropertyGroup>
@@ -79,16 +81,16 @@
   </Target>
 
   <ItemGroup>
-    <!-- Windows / iOS 等：原透明底图标；勿设不透明 Color（否则 Win 托盘黑底方块）。 -->
-    <MauiIcon Include="Resources\AppIcon\appicon.png" BaseSize="256,256"
+    <!-- 源文件在 FlyScreen.Assets，文件名保持 appicon.png 才能生成 mipmap/appicon。
+         Windows / iOS：勿设不透明 Color（否则 Win 托盘黑底方块）。
+         Android：暖杏底 + 内边距，避免自适应图标裁玄鸟。 -->
+    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
               Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'" />
-    <!-- Android：专用暖杏底 + 内边距版，避免自适应图标裁玄鸟、黑底过重。仅影响 Android。
-         文件名须为 appicon.png，才能生成 Manifest 所需的 mipmap/appicon(_round)。
-         ForegroundScale 再留安全区，防止圆形/圆角遮罩裁剪。 -->
-    <MauiIcon Include="Resources\AppIcon\Android\appicon.png" BaseSize="256,256"
+    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
               Color="#FFF1E8" ForegroundScale="0.78"
               Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
-    <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#0F172A" BaseSize="256,256" />
+    <MauiSplashScreen Include="$(FlyScreenAppPng)" Color="#0F172A" BaseSize="256,256" />
+    <MauiImage Include="$(FlyScreenCursorPng)" Link="Resources\Images\cursor.png" />
   </ItemGroup>
 
   <!-- 显式打包 Monaco 等 Raw 资源（默认 MauiAsset 在本工程评估为空，导致 HybridWebView 404） -->
@@ -100,12 +102,12 @@
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-    <Content Include="Platforms\Windows\Assets\**\*">
-      <Link>Assets\%(Filename)%(Extension)</Link>
+    <Content Include="$(FlyScreenAppIco)">
+      <Link>Assets\appicon.ico</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Platforms\Windows\Assets\appiconLogo.png">
-      <Link>Square44x44Logo.png</Link>
+    <Content Include="$(FlyScreenAppPng64)">
+      <Link>Assets\appiconLogo.png</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -149,6 +151,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 

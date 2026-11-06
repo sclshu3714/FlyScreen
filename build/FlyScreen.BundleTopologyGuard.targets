@@ -13,14 +13,13 @@
     <_FsGuardBundleDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\bundled-topology-guard\$(_FsGuardBundleRid)\</_FsGuardBundleDir>
     <_FsGuardBundleExe>$(_FsGuardBundleDir)FlyScreen.TopologyGuard.exe</_FsGuardBundleExe>
     <_FsGuardBundleBin>$(_FsGuardBundleDir)FlyScreen.TopologyGuard.bin</_FsGuardBundleBin>
-    <_FsGuardIconSource>$(MSBuildThisFileDirectory)..\src\FlyScreen.App.Windows\Assets\wlogo_tu.ico</_FsGuardIconSource>
+    <_FsGuardIconSource>$(MSBuildThisFileDirectory)..\src\FlyScreen.Assets\Icons\app.ico</_FsGuardIconSource>
     <_FsGuardBmpIcon>$(_FsGuardBundleDir)guard.bmp.ico</_FsGuardBmpIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <_FsGuardBundleInputs Include="$(_FsTopologyGuardProj)" />
     <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\**\*.cs" />
-    <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.TopologyGuard\guard.ico" />
     <_FsGuardBundleInputs Include="$(MSBuildThisFileDirectory)Convert-PngIcoToBmpIco.ps1" />
     <_FsGuardBundleInputs Include="$(_FsGuardIconSource)" />
   </ItemGroup>

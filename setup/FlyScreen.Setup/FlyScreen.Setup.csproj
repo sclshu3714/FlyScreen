@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -8,7 +10,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>FlyScreen.Setup</RootNamespace>
     <AssemblyName>FlyScreen.Setup</AssemblyName>
-    <ApplicationIcon>..\..\src\FlyScreen.App.Windows\Assets\wlogo_tu.ico</ApplicationIcon>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
     <AssemblyTitle>玄鸟发布工具</AssemblyTitle>
     <Product>玄鸟发布工具</Product>
     <Description>FlyScreen 多端发布与安装包制作</Description>

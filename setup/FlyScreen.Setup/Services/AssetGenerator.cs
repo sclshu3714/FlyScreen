@@ -72,7 +72,7 @@ public static class AssetGenerator
         }
 
         // 复制应用图标（若有）
-        var iconSrc = Path.GetFullPath(Path.Combine(installerDir, "..", "..", "src", "FlyScreen.App.Windows", "Assets", "wlogo_tu.ico"));
+        var iconSrc = Path.GetFullPath(Path.Combine(installerDir, "..", "..", "src", "FlyScreen.Assets", "Icons", "app.ico"));
         var iconDest = Path.Combine(assets, "app.ico");
         if (File.Exists(iconSrc) && !File.Exists(iconDest))
         {

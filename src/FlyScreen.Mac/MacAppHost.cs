@@ -293,6 +293,8 @@ public sealed class MacAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         LayoutSync.Detach();
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();

@@ -610,6 +610,8 @@ public sealed class AppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         try { await StopProjectionAsync().ConfigureAwait(false); }
         catch { /* ignore */ }
 

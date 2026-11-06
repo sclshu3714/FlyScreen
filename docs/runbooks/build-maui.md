@@ -184,7 +184,7 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 - MAUI 包 **不替代** WPF `FlyScreen-{ver}-win-x64.exe` stable。  
 - Android 正式上架签名 / Mac 公证（notarize）需另行配置；本脚本产出供内测分发。  
 - Avalonia Mac 正式桌面包仍见 [build-macos.md](build-macos.md)（Rid：`osx-arm64` / `osx-x64`）。  
-- **应用图标：** `Resources/AppIcon/appicon.png`（`MauiIcon` + `MauiSplashScreen`）；Android 须在 `AndroidManifest` / `MainActivity` 声明 `@mipmap/appicon`，否则启动器可能显示默认图标。换图标后建议清 `bin/obj` 再 `publish`。  
+- **应用图标：** `src/FlyScreen.Assets/Icons/appicon.png`（Maui 通过 `MauiIcon` + `MauiSplashScreen` 引用，不要在 Maui 工程里再放一份）。Android 须在 `AndroidManifest` / `MainActivity` 声明 `@mipmap/appicon`，否则启动器可能显示默认图标。换图标后建议清 `bin/obj` 再 `publish`。  
 - **APK 签名：** Release 使用 `build/android/flyscreen-sideload.keystore`（内测旁加载）。请安装 **`FlyScreen.apk`** 或 **`com.xuanniao.flyscreen-Signed.apk`**（须为**已签名**包；勿把未签名 plain 当 Signed 覆盖安装，否则报 `INSTALL_PARSE_FAILED_NOT_APK`）。  
   - 构建目标 `FlyScreen_EnsureSignedApk`（`_Sign` / `SignAndroidPackage` / `Build` 后）调用 `build/Ensure-MauiSignedApk.ps1`：校验签名块，缺失时用 keystore `apksigner sign` 补齐 Signed + `FlyScreen.apk`，并登记 `FileWrites` 防止 VS `IncrementalClean` 删掉 Signed。  
   - 发布脚本 `Publish-FlyScreenMaui.ps1` 在 Android 发布后也会再跑一次该脚本。  

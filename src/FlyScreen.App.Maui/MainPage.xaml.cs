@@ -311,6 +311,8 @@ public partial class MainPage : ContentPage
 #if WINDOWS
         Platforms.Windows.MauiCloseToTray.RequestExit();
 #else
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         Application.Current?.Quit();
 #endif
     }

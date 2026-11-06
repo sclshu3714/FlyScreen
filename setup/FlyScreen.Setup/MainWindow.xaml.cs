@@ -33,7 +33,7 @@ public partial class MainWindow : Window
         InstallDirBox.Text = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao");
         LicenseUrlBox.Text = "https://github.com/sclshu3714/FlyScreen";
-        CarouselDirBox.Text = Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "carousel");
+        CarouselDirBox.Text = Path.Combine(_repoRoot, "src", "FlyScreen.Assets", "Installer");
 
         try
         {
