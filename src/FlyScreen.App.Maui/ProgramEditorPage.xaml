@@ -5,8 +5,7 @@
              Title="编辑程序"
              BackgroundColor="{DynamicResource WinBg}">
   <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
-    <Grid ColumnDefinitions="*,Auto">
-      <HorizontalStackLayout x:Name="ToolBar" Spacing="6" HorizontalOptions="Start">
+    <HorizontalStackLayout x:Name="ToolBar" Spacing="6" HorizontalOptions="Start">
         <!-- 返回：覆盖 SoftBlueBtn 的 MinWidth=88，避免撑宽叠到保存钮 -->
         <Grid x:Name="BtnCloseHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32">
           <Button x:Name="BtnClose" Style="{StaticResource SoftBlueBtn}"
@@ -62,11 +61,6 @@
                 FontSize="18" TextColor="#DC2626"
                 Clicked="Stop_Clicked" ToolTipProperties.Text="停止" />
       </HorizontalStackLayout>
-      <Label x:Name="BpHintText" Grid.Column="1"
-             TextColor="{DynamicResource Muted}" FontSize="11"
-             VerticalOptions="Center" Margin="8,0,0,0"
-             LineBreakMode="TailTruncation" />
-    </Grid>
 
     <Border Grid.Row="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
             BackgroundColor="{DynamicResource CardBg}">
@@ -77,8 +71,16 @@
                      RawMessageReceived="OnHybridMessage" />
     </Border>
 
+    <!-- 行数状态放在编辑器与输出之间，避免窄屏盖住工具条按钮 -->
+    <Grid Grid.Row="2" RowDefinitions="Auto,Auto" RowSpacing="4">
+    <Label x:Name="BpHintText"
+           TextColor="{DynamicResource Muted}" FontSize="11"
+           HorizontalOptions="Fill" HorizontalTextAlignment="End"
+           VerticalOptions="Center" Margin="2,0"
+           LineBreakMode="TailTruncation" />
+
     <!-- 底部可折叠输出停靠窗 -->
-    <Border Grid.Row="2" Stroke="{DynamicResource Line}" StrokeThickness="1"
+    <Border Grid.Row="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
             StrokeShape="RoundRectangle 8" BackgroundColor="{DynamicResource CardBg}">
       <Grid RowDefinitions="Auto,Auto">
         <Grid x:Name="OutputHeader" HeightRequest="30" Padding="10,0"
@@ -114,5 +116,6 @@
         </Grid>
       </Grid>
     </Border>
+    </Grid>
   </Grid>
 </ContentPage>
