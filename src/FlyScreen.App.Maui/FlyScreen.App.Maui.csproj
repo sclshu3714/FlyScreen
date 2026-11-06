@@ -83,11 +83,12 @@
   <ItemGroup>
     <!-- 源文件在 FlyScreen.Assets，文件名保持 appicon.png 才能生成 mipmap/appicon。
          Windows / iOS：勿设不透明 Color（否则 Win 托盘黑底方块）。
-         Android：暖杏底 + 内边距，避免自适应图标裁玄鸟。 -->
+         Android 自适应图标画布 108dp，启动器遮罩只保留中心约 66dp（66/108≈0.61）。
+         源图圆形徽标几乎贴满 256 画布，ForegroundScale 必须 ≤0.62，否则外圈被圆角/圆形遮罩裁掉。 -->
     <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
               Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'" />
     <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
-              Color="#FFF1E8" ForegroundScale="0.78"
+              Color="#FFF1E8" ForegroundScale="0.60"
               Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
     <MauiSplashScreen Include="$(FlyScreenAppPng)" Color="#0F172A" BaseSize="256,256" />
     <MauiImage Include="$(FlyScreenCursorPng)" Link="Resources\Images\cursor.png" />
