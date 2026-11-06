@@ -62,9 +62,10 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         get
         {
             var trusted = AccessibilityPermission.IsTrusted();
-            return AccessibilityPermission.IsMacOS
-                ? $"macOS · 辅助功能={(trusted ? "已授权" : "未授权")} · Caps={string.Join(",", LocalPeerIdentity.Caps)}"
-                : $"非 macOS 运行 · Caps={string.Join(",", LocalPeerIdentity.Caps)}";
+            if (AccessibilityPermission.IsMacOS)
+                return $"macOS · 辅助功能={(trusted ? "已授权" : "未授权")} · Caps={string.Join(",", LocalPeerIdentity.Caps)}";
+            var hook = _host.WindowsEdge?.HookInstalled == true ? "穿屏钩子已安装" : "穿屏钩子未安装";
+            return $"非 macOS 运行 · {hook} · Caps={string.Join(",", LocalPeerIdentity.Caps)}";
         }
     }
 
