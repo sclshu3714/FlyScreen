@@ -52,6 +52,18 @@ internal static class MauiProjectionTitleBar
 
     public static void Refresh() => ScheduleRefresh();
 
+    /// <summary>标题栏模板被换掉后，重新找到当前按钮并接上点击 / 悬停。</summary>
+    public static void Rebind(Microsoft.UI.Xaml.Window native)
+    {
+        try
+        {
+            if (native.Content is not DependencyObject tree) return;
+            if (FindByName(tree, "TitleProjectBtn") is not WinButton btn) return;
+            Attach(btn, native);
+        }
+        catch { /* ignore */ }
+    }
+
     /// <summary>兼容旧调用：仅 Hosting/Idle。</summary>
     public static void SetProjecting(bool on) => ScheduleRefresh();
 
@@ -102,6 +114,9 @@ internal static class MauiProjectionTitleBar
         _btn.MinWidth = chrome.SuggestedWidth;
         _btn.Padding = new WinThickness(8, 0, 8, 0);
         _btn.Foreground = brush;
+        _btn.Background = _hovered
+            ? ResolveHoverBrush()
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
 
         // ToolTip 也是 COM 出站；仅在文案变化时更新，避免悬停风暴
         if (!string.Equals(_lastTooltip, chrome.Tooltip, StringComparison.Ordinal))
@@ -127,10 +142,25 @@ internal static class MauiProjectionTitleBar
             : global::Windows.UI.Color.FromArgb(255, 0x11, 0x18, 0x27));
     }
 
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush ResolveHoverBrush()
+    {
+        var dark = false;
+        try { dark = MauiThemeService.IsDark(MauiThemeService.Current); }
+        catch { /* ignore */ }
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(dark
+            ? global::Windows.UI.Color.FromArgb(255, 0x1E, 0x29, 0x3B)
+            : global::Windows.UI.Color.FromArgb(255, 0xE5, 0xE7, 0xEB));
+    }
+
     private static void EnsureContentHost()
     {
         if (_btn == null) return;
-        if (_iconTb != null && _labelTb != null && _btn.Content is WinStackPanel)
+        if (_iconTb != null && _labelTb != null)
+            return;
+
+        _iconTb = FindByName(_btn, "TitleProjectIcon") as WinTextBlock;
+        _labelTb = FindByName(_btn, "TitleProjectLabel") as WinTextBlock;
+        if (_iconTb != null && _labelTb != null)
             return;
 
         _iconTb = new WinTextBlock
@@ -161,49 +191,54 @@ internal static class MauiProjectionTitleBar
             if (native.Content is not DependencyObject tree)
                 return;
 
-            var btn = FindByName(tree, "TitleProjectBtn") as WinButton;
-            if (btn == null) return;
-            if (!ReferenceEquals(_btn, btn))
-            {
-                _btn = btn;
-                _iconTb = null;
-                _labelTb = null;
-                _lastTooltip = null;
-            }
-
-            btn.Click -= OnClick;
-            btn.Click += OnClick;
-
-            if (!_pointerHooked)
-            {
-                _pointerHooked = true;
-                // 只改标志位，UI 刷新延后到队列——避免 RPC_E_CANTCALLOUT_ININPUTSYNCCALL
-                btn.PointerEntered += (_, _) =>
-                {
-                    _hovered = true;
-                    ScheduleRefresh();
-                };
-                btn.PointerExited += (_, _) =>
-                {
-                    _hovered = false;
-                    ScheduleRefresh();
-                };
-            }
-
-            try
-            {
-                var hwnd = WindowNative.GetWindowHandle(native);
-                var wid = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-                var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(wid);
-                var inset = (int)appWindow.TitleBar.RightInset;
-                if (inset > 0)
-                    btn.Margin = new WinThickness(0, 0, Math.Max(inset, 140), 0);
-            }
-            catch { /* keep default margin */ }
-
-            ScheduleRefresh();
+            if (FindByName(tree, "TitleProjectBtn") is not WinButton btn) return;
+            Attach(btn, native);
         }
         catch { /* ignore */ }
+    }
+
+    private static void Attach(WinButton btn, Microsoft.UI.Xaml.Window native)
+    {
+        if (!ReferenceEquals(_btn, btn))
+        {
+            _btn = btn;
+            _iconTb = null;
+            _labelTb = null;
+            _lastTooltip = null;
+            _pointerHooked = false;
+        }
+
+        btn.Click -= OnClick;
+        btn.Click += OnClick;
+
+        if (!_pointerHooked)
+        {
+            _pointerHooked = true;
+            // 只改标志位，UI 刷新延后到队列——避免 RPC_E_CANTCALLOUT_ININPUTSYNCCALL
+            btn.PointerEntered += (_, _) =>
+            {
+                _hovered = true;
+                ScheduleRefresh();
+            };
+            btn.PointerExited += (_, _) =>
+            {
+                _hovered = false;
+                ScheduleRefresh();
+            };
+        }
+
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(native);
+            var wid = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(wid);
+            var inset = (int)appWindow.TitleBar.RightInset;
+            if (inset > 0)
+                btn.Margin = new WinThickness(0, 0, Math.Max(inset, 140), 0);
+        }
+        catch { /* keep default margin */ }
+
+        ScheduleRefresh();
     }
 
     private static void OnClick(object sender, RoutedEventArgs e)

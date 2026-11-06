@@ -68,8 +68,22 @@
                     BorderThickness="0"
                     ToolTipService.ToolTip="投影到电脑"
                     FontSize="11"
-                    Foreground="{ThemeResource FlyTitleBarFgBrush}"
-                    Content="投影"/>
+                    Foreground="{ThemeResource FlyTitleBarFgBrush}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="TitleProjectIcon"
+                           FontFamily="Segoe MDL2 Assets"
+                           FontSize="13"
+                           Text="&#xE8B9;"
+                           VerticalAlignment="Center"
+                           Margin="0,0,5,0"
+                           Foreground="{ThemeResource FlyTitleBarFgBrush}"/>
+                <TextBlock x:Name="TitleProjectLabel"
+                           FontSize="11"
+                           Text="投影"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource FlyTitleBarFgBrush}"/>
+              </StackPanel>
+            </Button>
           </Grid>
         </Border>
       </DataTemplate>

@@ -178,12 +178,16 @@ internal sealed class MauiTrayPopup : IDisposable
         EnsureWndClass();
         _proc = WndProcImpl;
         var hInstance = GetModuleHandle(null);
+        // 创建时就放在光标处。先建在 (0,0) 再挪过去，首次显示会从屏幕左上角闪到鼠标。
+        GetCursorPos(out var pt);
+        var scale = GetDpiScaleAt(pt.X, pt.Y);
+        ComputePlacement(scale, out var left, out var top, out var widthPx, out var heightPx);
         _hwnd = CreateWindowEx(
             WsExLayered | WsExToolWindow | WsExTopmost,
             WndClassName,
             "",
             WsPopup,
-            0, 0, _width, _height,
+            left, top, widthPx, heightPx,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
         if (_hwnd == IntPtr.Zero)
@@ -196,23 +200,43 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private void ShowAtCursor()
     {
-        GetCursorPos(out var pt);
         var scale = GetDpiScale();
-        // 逻辑像素 → 物理（CreateWindow 用的是物理像素；我们按 96dpi 逻辑绘制后缩放位图）
-        var widthPx = Math.Max(1, (int)Math.Ceiling(_width * scale));
-        var heightPx = Math.Max(1, (int)Math.Ceiling(_height * scale));
-
-        var left = pt.X - widthPx + (int)(28 * scale);
-        var top = pt.Y - heightPx + (int)(8 * scale);
-        var wa = GetWorkAreaNear(pt.X, pt.Y);
-        left = Math.Max(wa.Left + 4, Math.Min(left, wa.Right - widthPx - 4));
-        top = Math.Max(wa.Top + 4, Math.Min(top, wa.Bottom - heightPx - 4));
-
-        SetWindowPos(_hwnd, HwndTopmost, left, top, widthPx, heightPx,
-            SwpShowWindow | SwpNoActivate);
+        ComputePlacement(scale, out var left, out var top, out var widthPx, out var heightPx);
+        // 仍隐藏时就位并画好，再显示，避免空白窗从左上角移过来。
+        SetWindowPos(_hwnd, HwndTopmost, left, top, widthPx, heightPx, SwpNoActivate);
         Render(scale);
         ShowWindow(_hwnd, SwShowNoActivate);
         SetForegroundWindow(_hwnd);
+    }
+
+    private void ComputePlacement(double scale, out int left, out int top, out int widthPx, out int heightPx)
+    {
+        GetCursorPos(out var pt);
+        widthPx = Math.Max(1, (int)Math.Ceiling(_width * scale));
+        heightPx = Math.Max(1, (int)Math.Ceiling(_height * scale));
+        left = pt.X - widthPx + (int)(28 * scale);
+        top = pt.Y - heightPx + (int)(8 * scale);
+        var wa = GetWorkAreaNear(pt.X, pt.Y);
+        left = Math.Max(wa.Left + 4, Math.Min(left, wa.Right - widthPx - 4));
+        top = Math.Max(wa.Top + 4, Math.Min(top, wa.Bottom - heightPx - 4));
+    }
+
+    private static double GetDpiScaleAt(int x, int y)
+    {
+        try
+        {
+            var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, 2);
+            if (monitor != IntPtr.Zero
+                && GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0
+                && dpiX > 0)
+                return dpiX / 96.0;
+        }
+        catch
+        {
+            /* 96dpi */
+        }
+
+        return 1;
     }
 
     private void Render(double scale)
@@ -605,6 +629,7 @@ internal sealed class MauiTrayPopup : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
     [DllImport("user32.dll")] private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);

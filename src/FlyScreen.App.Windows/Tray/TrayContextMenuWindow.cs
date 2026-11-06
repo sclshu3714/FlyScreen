@@ -81,10 +81,20 @@ public sealed class TrayContextMenuWindow : Window
 
         var w = new TrayContextMenuWindow(onOpen, onReconnect, onProject, projectPhase, onAbout, onExit);
         _open = w;
+        // 先在光标处就位再显示。直接 Show 会先画在 (0,0)，再跳到鼠标，看起来从左上角闪过来。
+        w.WindowStartupLocation = WindowStartupLocation.Manual;
+        w.Opacity = 0;
+        if (w.Content is FrameworkElement root)
+        {
+            root.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            PlaceNearCursor(w, root.DesiredSize.Width, root.DesiredSize.Height);
+        }
+
         if (!w.IsVisible)
             w.Show();
         w.UpdateLayout();
-        PlaceNearCursor(w);
+        PlaceNearCursor(w, w.ActualWidth, w.ActualHeight);
+        w.Opacity = 1;
         BringAboveShell(w);
         w.Activate();
         try { w.Focus(); } catch { /* ignore */ }
@@ -294,8 +304,12 @@ public sealed class TrayContextMenuWindow : Window
         try { Close(); } catch { /* ignore */ }
     }
 
-    private static void PlaceNearCursor(Window w)
+    private static void PlaceNearCursor(Window w, double width, double height)
     {
+        if (width < 1) width = w.ActualWidth;
+        if (height < 1) height = w.ActualHeight;
+        if (width < 1 || height < 1) return;
+
         var mouse = WinForms.Control.MousePosition;
         double scaleX = 1d, scaleY = 1d;
         var source = PresentationSource.FromVisual(w);
@@ -304,9 +318,12 @@ public sealed class TrayContextMenuWindow : Window
             scaleX = source.CompositionTarget.TransformToDevice.M11;
             scaleY = source.CompositionTarget.TransformToDevice.M22;
         }
-
-        var width = w.ActualWidth;
-        var height = w.ActualHeight;
+        else
+        {
+            var dpi = GetDpiForPoint(mouse.X, mouse.Y);
+            if (dpi > 0)
+                scaleX = scaleY = dpi / 96d;
+        }
         var x = mouse.X / scaleX - width + 28;
         var y = mouse.Y / scaleY - height + 8;
 
@@ -345,9 +362,40 @@ public sealed class TrayContextMenuWindow : Window
         catch { /* ignore */ }
     }
 
+    private static uint GetDpiForPoint(int x, int y)
+    {
+        try
+        {
+            var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, 2);
+            if (monitor != IntPtr.Zero
+                && GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0
+                && dpiX > 0)
+                return dpiX;
+        }
+        catch
+        {
+            /* 96dpi */
+        }
+
+        return 96;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
 }

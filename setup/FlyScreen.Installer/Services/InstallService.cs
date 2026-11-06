@@ -56,7 +56,8 @@ public sealed class InstallService
                     backupDir = Path.Combine(session, "backup");
                     if (Directory.Exists(backupDir))
                         DeleteDirectoryBestEffort(backupDir);
-                    Directory.Move(installDir, backupDir);
+                    // 安装目录与 %TEMP% 不在同一盘时，Directory.Move 会失败。
+                    RelocateDirectory(installDir, backupDir, ct);
                 }, ct).ConfigureAwait(false);
                 Report(progress, 45, "旧版本已移出…");
             }
@@ -140,7 +141,7 @@ public sealed class InstallService
                 && !Directory.Exists(installDir))
             {
                 // finally 再兜底一次
-                try { Directory.Move(backupDir, installDir); } catch { /* ignore */ }
+                try { RelocateDirectory(backupDir, installDir, CancellationToken.None); } catch { /* ignore */ }
             }
         }
     }
@@ -219,7 +220,7 @@ public sealed class InstallService
             try
             {
                 if (!Directory.Exists(installDir))
-                    Directory.Move(backupDir, installDir);
+                    RelocateDirectory(backupDir, installDir, CancellationToken.None);
             }
             catch
             {
@@ -255,6 +256,41 @@ public sealed class InstallService
                 });
         }
         catch { return null; }
+    }
+
+    /// <summary>同一磁盘用移动；跨盘则复制后再删除源目录。</summary>
+    private static void RelocateDirectory(string source, string dest, CancellationToken ct)
+    {
+        if (SameVolume(source, dest))
+        {
+            Directory.Move(source, dest);
+            return;
+        }
+
+        CopyDirectory(source, dest, null, 0, 0, ct);
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            {
+                try { File.SetAttributes(file, FileAttributes.Normal); } catch { /* ignore */ }
+            }
+
+            Directory.Delete(source, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            throw new IOException(
+                "旧版本与临时目录不在同一磁盘，已复制备份，但无法删除原目录。请关闭正在运行的玄鸟后重试。",
+                ex);
+        }
+    }
+
+    private static bool SameVolume(string a, string b)
+    {
+        var left = Path.GetPathRoot(Path.GetFullPath(a));
+        var right = Path.GetPathRoot(Path.GetFullPath(b));
+        return !string.IsNullOrEmpty(left)
+               && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void EnsureParentDirectory(string installDir)

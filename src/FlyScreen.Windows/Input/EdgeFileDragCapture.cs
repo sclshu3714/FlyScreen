@@ -12,6 +12,8 @@ namespace FlyScreen.Input;
 /// 切勿在「左键按下后的任意移动」就 Arm：顶层接收条一碰到拖放就会 GetData，
 /// 与资源管理器拖影抢 IDataObject，偶发只剩空矩形框。
 /// DragEnter 只探测格式，真正 GetData 推迟到消息队列，减轻拖影空白。
+/// Windows 11 在拖动过程中对 CF_HDROP 做 GetData，会得到拖影 preview-dark-256.png，
+/// 而不是用户选中的文件；拖动中优先读 Shell IDList。
 /// </para>
 /// </summary>
 public static class EdgeFileDragCapture
@@ -276,6 +278,15 @@ public static class EdgeFileDragCapture
         internal static string[] ReadFiles(IntPtr data)
         {
             if (data == IntPtr.Zero) return [];
+            // 拖动中先读 Shell 真实项。此时读 CF_HDROP 会拿到资源管理器拖影图。
+            var fromShell = ReadShellIdList(data);
+            if (fromShell.Length > 0)
+                return fromShell;
+            return WithoutDragPreview(ReadHdrop(data));
+        }
+
+        private static string[] ReadHdrop(IntPtr data)
+        {
             var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
             var format = HdropFormat();
             STGMEDIUM medium = default;
@@ -314,9 +325,142 @@ public static class EdgeFileDragCapture
             }
         }
 
-        private static FORMATETC HdropFormat() => new()
+        /// <summary>Shell IDList Array：父 PIDL + 相对子项，得到用户实际拖动的路径。</summary>
+        private static string[] ReadShellIdList(IntPtr data)
         {
-            cfFormat = 15,
+            var formatId = ShellIdListFormat();
+            if (formatId == 0) return [];
+            var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
+            var format = HglobalFormat(formatId);
+            try
+            {
+                if (obj.QueryGetData(ref format) != 0)
+                    return [];
+            }
+            catch
+            {
+                Marshal.ReleaseComObject(obj);
+                return [];
+            }
+
+            STGMEDIUM medium = default;
+            try
+            {
+                obj.GetData(ref format, out medium);
+            }
+            catch
+            {
+                Marshal.ReleaseComObject(obj);
+                return [];
+            }
+
+            try
+            {
+                if (medium.unionmember == IntPtr.Zero) return [];
+                var ptr = GlobalLock(medium.unionmember);
+                if (ptr == IntPtr.Zero) return [];
+                try
+                {
+                    var bytes = (long)GlobalSize(medium.unionmember);
+                    if (bytes < 8) return [];
+                    var cidl = Marshal.ReadInt32(ptr);
+                    if (cidl <= 0 || cidl > 500) return [];
+                    if (bytes < 4L * (cidl + 2)) return [];
+
+                    var parentOffset = Marshal.ReadInt32(ptr, 4);
+                    if (parentOffset < 0 || parentOffset >= bytes) return [];
+                    var parent = IntPtr.Add(ptr, parentOffset);
+                    var list = new List<string>(cidl);
+                    for (var i = 1; i <= cidl; i++)
+                    {
+                        var childOffset = Marshal.ReadInt32(ptr, 4 * (i + 1));
+                        if (childOffset < 0 || childOffset >= bytes) continue;
+                        var child = IntPtr.Add(ptr, childOffset);
+                        var absolute = ILCombine(parent, child);
+                        if (absolute == IntPtr.Zero) continue;
+                        try
+                        {
+                            var buf = new StringBuilder(1024);
+                            if (!SHGetPathFromIDList(absolute, buf)) continue;
+                            var path = buf.ToString();
+                            if (File.Exists(path) || Directory.Exists(path))
+                                list.Add(path);
+                        }
+                        finally
+                        {
+                            ILFree(absolute);
+                        }
+                    }
+
+                    return list.ToArray();
+                }
+                finally
+                {
+                    GlobalUnlock(medium.unionmember);
+                }
+            }
+            finally
+            {
+                ReleaseStgMedium(ref medium);
+                Marshal.ReleaseComObject(obj);
+            }
+        }
+
+        private static short _shellIdListFormat;
+
+        private static short ShellIdListFormat()
+        {
+            if (_shellIdListFormat != 0) return _shellIdListFormat;
+            var id = RegisterClipboardFormat("Shell IDList Array");
+            _shellIdListFormat = (short)id;
+            return _shellIdListFormat;
+        }
+
+        private static string[] WithoutDragPreview(string[] paths)
+        {
+            if (paths.Length == 0) return paths;
+            var real = new List<string>(paths.Length);
+            foreach (var path in paths)
+            {
+                if (!IsShellDragPreview(path))
+                    real.Add(path);
+            }
+
+            return real.Count == 0 ? [] : real.ToArray();
+        }
+
+        /// <summary>资源管理器拖影：%TEMP% 或 Explorer 缓存里的 preview-dark-256.png。</summary>
+        private static bool IsShellDragPreview(string path)
+        {
+            var name = Path.GetFileName(path);
+            if (!name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return false;
+            var prefix = name.StartsWith("preview-dark-", StringComparison.OrdinalIgnoreCase) ? 13
+                : name.StartsWith("preview-light-", StringComparison.OrdinalIgnoreCase) ? 14
+                : 0;
+            if (prefix == 0 || name.Length <= prefix + 4) return false;
+            var digits = name.AsSpan(prefix, name.Length - prefix - 4);
+            foreach (var c in digits)
+            {
+                if (c is < '0' or > '9') return false;
+            }
+
+            string full;
+            try { full = Path.GetFullPath(path); }
+            catch { return false; }
+
+            var temp = Path.GetTempPath();
+            if (full.StartsWith(temp, StringComparison.OrdinalIgnoreCase)) return true;
+            var explorer = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft", "Windows", "Explorer");
+            return full.StartsWith(explorer, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static FORMATETC HdropFormat() => HglobalFormat(15);
+
+        private static FORMATETC HglobalFormat(short format) => new()
+        {
+            cfFormat = format,
             dwAspect = DVASPECT.DVASPECT_CONTENT,
             lindex = -1,
             tymed = TYMED.TYMED_HGLOBAL
@@ -363,6 +507,15 @@ public static class EdgeFileDragCapture
         [PreserveSig] int Drop(IntPtr pDataObj, uint grfKeyState, long pt, ref uint pdwEffect);
     }
 
+    [DllImport("kernel32.dll")] private static extern IntPtr GlobalLock(IntPtr hMem);
+    [DllImport("kernel32.dll")] private static extern bool GlobalUnlock(IntPtr hMem);
+    [DllImport("kernel32.dll")] private static extern nuint GlobalSize(IntPtr hMem);
+    [DllImport("shell32.dll")] private static extern IntPtr ILCombine(IntPtr pidl1, IntPtr pidl2);
+    [DllImport("shell32.dll")] private static extern void ILFree(IntPtr pidl);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool SHGetPathFromIDList(IntPtr pidl, StringBuilder pszPath);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterClipboardFormat(string name);
     [DllImport("ole32.dll")] private static extern int OleInitialize(IntPtr pvReserved);
     [DllImport("ole32.dll")] private static extern int RegisterDragDrop(IntPtr hwnd, IDropTarget target);
     [DllImport("ole32.dll")] private static extern void ReleaseStgMedium(ref STGMEDIUM medium);

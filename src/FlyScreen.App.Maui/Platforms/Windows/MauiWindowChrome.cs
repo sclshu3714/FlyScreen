@@ -175,7 +175,8 @@ internal static class MauiWindowChrome
             projectBtn.Background = clear;
         }
 
-        MauiProjectionTitleBar.Refresh();
+        // 模板重绑会换掉按钮实例；只 Refresh 会改到已经不在树上的旧按钮。
+        MauiProjectionTitleBar.Rebind(native);
     }
 
     private static void PaintNamedBackgrounds(DependencyObject tree, WinSolidBrush brush, params string[] names)

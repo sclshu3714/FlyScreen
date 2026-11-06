@@ -5,7 +5,7 @@
   "ExeName": "FlyScreen.App.Maui.exe",
   "DefaultInstallDir": "C:\\Program Files\\XuanNiao",
   "LicenseUrl": "https://github.com/sclshu3714/FlyScreen",
-  "RequiredBytes": 181406437,
+  "RequiredBytes": 182432026,
   "CreateDesktopShortcut": true,
   "CreateStartMenuShortcut": true,
   "CarouselImages": [

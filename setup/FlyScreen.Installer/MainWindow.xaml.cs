@@ -39,6 +39,7 @@ public partial class MainWindow : Window
         PathBox.Text = string.IsNullOrWhiteSpace(_manifest.DefaultInstallDir)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao")
             : _manifest.DefaultInstallDir;
+        ApplyExistingInstallDir();
 
         DesktopShortcutBox.IsChecked = _manifest.CreateDesktopShortcut;
         StartMenuShortcutBox.IsChecked = _manifest.CreateStartMenuShortcut;
@@ -197,6 +198,24 @@ public partial class MainWindow : Window
 
     private void PathBox_TextChanged(object sender, TextChangedEventArgs e)
         => UpdateSpaceInfo();
+
+    /// <summary>本机已安装时，路径框直接显示当时的安装目录，而不是默认的 Program Files。</summary>
+    private void ApplyExistingInstallDir()
+    {
+        try
+        {
+            var existing = InstallProbe.DetectInstalled(PathBox.Text.Trim(), _manifest.ExeName);
+            if (!existing.IsInstalled || string.IsNullOrWhiteSpace(existing.InstallDir))
+                return;
+            if (!Directory.Exists(existing.InstallDir))
+                return;
+            PathBox.Text = existing.InstallDir.TrimEnd('\\', '/');
+        }
+        catch
+        {
+            // 探测失败时保留默认路径
+        }
+    }
 
     private void LicenseLink_Click(object sender, RoutedEventArgs e)
     {
