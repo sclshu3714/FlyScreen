@@ -14,7 +14,7 @@
 1. **标题栏**（最小化左侧）投影按钮 → 弹窗：先选 **投影方式**（复制 / 扩展），再选 **目标**（本机真副屏 + 双向已连接电脑）。扩展且本机缺可用 MTT / 管道未就绪时显示 **环境修复**。
 2. 投影中标题栏变为「投影中」，再点即 **停止**。
 3. A **采集**（复制=主屏；扩展=副屏/VDD）经局域网推到 B；B **全屏显示**。
-4. 会话期内，B 从 **穿边拓扑摘除**。**手机不作投影目标（无 Sink）**；手机可作 Host **复制**投到电脑。Mac/Linux 可 **接收**；电脑发起仍以 Windows 为主（含扩展/VDD）。
+4. 会话期内，B 从 **穿边拓扑摘除**。**手机不作投影目标（无 Sink）**；手机可作 Host **复制**投到电脑。Mac 可发起复制，扩展走第二块屏或 CGVirtualDisplay；Linux 只接收。Windows 扩展仍用 MTT VDD。
 
 > 真扩展 ≠ 把所有电脑当成扩展屏。无第二输出时无法「凭空」扩展；须虚拟 IDD 或第二物理显示器。复制模式不强制 MTT。
 
@@ -133,7 +133,7 @@
 | WPF 主机/从机 UI | `FlyScreen.App.Windows`（弹窗 + 标题栏） |
 | Maui 电脑端 | `FlyScreen.App.Maui` + `Platforms/Windows` |
 | Maui 手机 Host | `Platforms/Android`：`FlyScreenMediaProjectionService` + `AndroidScreenExtendHostController` |
-| Mac / Linux UI | `FlyScreen.App.Desktop` + `FlyScreen.App.Mac` / `FlyScreen.App.Linux`（可收流；本期不发起） |
+| Mac / Linux UI | `FlyScreen.App.Desktop` + `FlyScreen.App.Mac`（可发起复制/扩展）/ `FlyScreen.App.Linux`（只接收） |
 
 ## 7. 会话互斥（1 对 1）
 

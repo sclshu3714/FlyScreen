@@ -30,6 +30,15 @@ public sealed class MacInputInjector : IMacInputInjector
         try { CgEventNative.CGWarpMouseCursorPosition(pt); } catch { /* ignore */ }
     }
 
+    /// <summary>移到 CoreGraphics 全局坐标（点，Y 向上）。投影回控映射到采集屏时用。</summary>
+    public void MoveAbsoluteGlobal(double x, double y)
+    {
+        if (!AccessibilityPermission.IsMacOS) return;
+        var pt = new CgEventNative.CGPoint { X = x, Y = y };
+        PostMouse(CgEventNative.kCGEventMouseMoved, pt, CgEventNative.kCGMouseButtonLeft);
+        try { CgEventNative.CGWarpMouseCursorPosition(pt); } catch { /* ignore */ }
+    }
+
     public void MoveRelative(int dx, int dy)
     {
         if (!AccessibilityPermission.IsMacOS) return;
@@ -152,10 +161,9 @@ public sealed class MacInputInjector : IMacInputInjector
 
     private static void GetMainDisplaySize(out double w, out double h)
     {
-        // 简化：固定读主屏；完整多屏用 NSScreen / CGGetActiveDisplayList
         w = 1920;
         h = 1080;
-        _ = RuntimeInformation.OSDescription;
+        FlyScreen.Mac.ScreenExtend.MacDisplays.ReadPrimaryPoints(out w, out h);
     }
 
     /// <summary>Windows VK → macOS 虚拟键码（部分）。未映射则原样尝试。</summary>

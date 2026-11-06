@@ -3,7 +3,7 @@ using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.Mac.Audio;
 
-/// <summary>macOS：播放对端传来的 PCM。本端发起投影时尝试静音输出；没有系统回环则不采集。</summary>
+/// <summary>macOS：采集本机正在播放的声音并在采集期间静音；播放对端传来的 PCM。</summary>
 public sealed class MacProjectionAudio : IProjectionAudioEngine
 {
     private readonly object _gate = new();
@@ -11,17 +11,34 @@ public sealed class MacProjectionAudio : IProjectionAudioEngine
     private int _rate;
     private int _channels;
     private readonly AudioQueueOutputCallback _done = OnBufferDone;
+    private MacSystemAudioTap? _capture;
 
     public bool TryStartCapture(Action<byte[], int, int> onPcm, out string? error)
     {
-        _ = onPcm;
-        error = OperatingSystem.IsMacOS()
-            ? "macOS 暂不能采集系统声音，请从 Windows 或手机发起带声音的投影"
-            : "非 macOS";
-        return false;
+        StopCapture();
+        if (!OperatingSystem.IsMacOS())
+        {
+            error = "非 macOS";
+            return false;
+        }
+
+        var tap = new MacSystemAudioTap();
+        if (!tap.TryStart(onPcm, out error))
+        {
+            tap.Dispose();
+            return false;
+        }
+
+        _capture = tap;
+        return true;
     }
 
-    public void StopCapture() { }
+    public void StopCapture()
+    {
+        var tap = _capture;
+        _capture = null;
+        tap?.Dispose();
+    }
 
     public bool TryStartPlayback(out string? error)
     {

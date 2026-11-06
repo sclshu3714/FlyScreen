@@ -2,10 +2,36 @@
 
   <Import Project="..\..\build\FlyScreen.Assets.props" />
 
+  <!--
+    iOS / Mac Catalyst 默认仍是 net10.0-ios、net10.0-maccatalyst（要求 Xcode 27.1）。
+    macOS 上非 Release 且本机 Xcode 为 26.0.x 时，自动改用 26.0 SDK。
+    Windows 远程生成到 Xcode 26.0.1 的 Mac 时显式传入 -p:FlyScreenAppleSdk=26.0，
+    并使用 -f net10.0-ios26.0 或 -f net10.0-maccatalyst26.0。未传该属性时目标框架不变。
+  -->
+  <PropertyGroup>
+    <_FsXcodeDeveloperDir>$(DEVELOPER_DIR)</_FsXcodeDeveloperDir>
+    <_FsXcodeDeveloperDir Condition="'$(_FsXcodeDeveloperDir)' == ''">/var/db/xcode_select_link</_FsXcodeDeveloperDir>
+    <_FsXcodeDeveloperDir Condition="!Exists('$(_FsXcodeDeveloperDir)')">/Applications/Xcode.app/Contents/Developer</_FsXcodeDeveloperDir>
+    <_FsXcodeVersionPlist>$([System.IO.Path]::Combine('$(_FsXcodeDeveloperDir)', '..', 'version.plist'))</_FsXcodeVersionPlist>
+    <_FsXcodeVersionText Condition="Exists('$(_FsXcodeVersionPlist)')">$([System.IO.File]::ReadAllText('$(_FsXcodeVersionPlist)'))</_FsXcodeVersionText>
+    <_FsXcodeVersion Condition="'$(_FsXcodeVersionText)' != ''">$([System.Text.RegularExpressions.Regex]::Match('$(_FsXcodeVersionText)', 'CFBundleShortVersionString&lt;/key&gt;\s*&lt;string&gt;([0-9.]+)&lt;/string&gt;').Groups.get_Item(1).Value)</_FsXcodeVersion>
+    <_FsXcodeMajorMinor Condition="'$(_FsXcodeVersion)' != ''">$([System.Version]::Parse('$(_FsXcodeVersion)').ToString(2))</_FsXcodeMajorMinor>
+    <_FsAppleSdk>$(FLYSCREEN_XCODE_SDK)</_FsAppleSdk>
+    <_FsAppleSdk Condition="'$(FlyScreenAppleSdk)' != ''">$(FlyScreenAppleSdk)</_FsAppleSdk>
+    <_FsUseXcode26 Condition="'$(_FsAppleSdk)' == '26.0' or '$(_FsAppleSdk)' == '26'">true</_FsUseXcode26>
+    <_FsUseXcode26 Condition="$([MSBuild]::IsOSPlatform('osx')) and '$(Configuration)' != 'Release' and '$(_FsXcodeMajorMinor)' == '26.0'">true</_FsUseXcode26>
+    <_FsIosTfm>net10.0-ios</_FsIosTfm>
+    <_FsIosTfm Condition="'$(_FsUseXcode26)' == 'true'">net10.0-ios26.0</_FsIosTfm>
+    <_FsIosTfm Condition="'$(FlyScreenIosTfm)' != ''">$(FlyScreenIosTfm)</_FsIosTfm>
+    <_FsMacCatalystTfm>net10.0-maccatalyst</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(_FsUseXcode26)' == 'true'">net10.0-maccatalyst26.0</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(FlyScreenMacCatalystTfm)' != ''">$(FlyScreenMacCatalystTfm)</_FsMacCatalystTfm>
+  </PropertyGroup>
+
   <PropertyGroup>
     <!-- 与 VS MAUI 模板一致（勿用自定义属性包一层，否则 VS 设计时还原常漏 TFM → NETSDK1005）。
          仅 Windows：-p:FlyScreenMauiTfms=windows -->
-    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks>net10.0-android;$(_FsIosTfm);$(_FsMacCatalystTfm)</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
     <TargetFrameworks Condition="'$(FlyScreenMauiTfms)' == 'windows'">net10.0-windows10.0.19041.0</TargetFrameworks>
 
@@ -235,6 +261,11 @@
     </ItemGroup>
     <Message Importance="High" Text="FlyScreen APK → $(_FsApkDir)\FlyScreen.apk"
              Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
+  </Target>
+
+  <Target Name="_FlyScreenLogMacCatalystXcode26" BeforeTargets="Build"
+          Condition="'$(TargetFramework)' == '' and '$(_FsMacCatalystTfm)' == 'net10.0-maccatalyst26.0'">
+    <Message Importance="High" Text="Mac Catalyst 调试：检测到 Xcode $(_FsXcodeVersion)，使用 net10.0-maccatalyst26.0。Release 仍用 net10.0-maccatalyst。" />
   </Target>
 
 </Project>

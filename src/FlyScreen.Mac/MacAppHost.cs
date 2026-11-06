@@ -40,6 +40,7 @@ public sealed class MacAppHost : IAsyncDisposable
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
+    public FlyScreen.Mac.ScreenExtend.MacProjectionHost Projection { get; }
     private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
     public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS && AccessibilityPermission.IsTrusted();
@@ -121,17 +122,12 @@ public sealed class MacAppHost : IAsyncDisposable
         };
         DisplayInfo = new DisplayInfoService(Connections)
         {
-            GetLocalDisplayInfo = () => new DisplayInfoPayload
-            {
-                Width = 1920,
-                Height = 1080,
-                ScalePercent = 100,
-                RefreshHz = 60
-            }
+            GetLocalDisplayInfo = () => FlyScreen.Mac.ScreenExtend.MacDisplays.ReadPrimaryPayload()
         };
         Injector = new MacInputInjector();
         Capture = new MacInputCapture();
         ScreenExtend = new ScreenExtendService(Connections);
+        Projection = new FlyScreen.Mac.ScreenExtend.MacProjectionHost(ScreenExtend, Injector);
         _projectionAudio = new ProjectionAudioBridge(ScreenExtend, new MacProjectionAudio());
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         if (OperatingSystem.IsWindows())
@@ -350,6 +346,7 @@ public sealed class MacAppHost : IAsyncDisposable
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         _projectionAudio.Dispose();
+        Projection.Dispose();
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
         WindowsEdge?.Dispose();

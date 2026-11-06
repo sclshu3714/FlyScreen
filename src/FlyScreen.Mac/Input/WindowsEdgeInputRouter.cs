@@ -40,6 +40,8 @@ public sealed class WindowsEdgeInputRouter : IDisposable
     private bool _isCursorOwner = true;
     private SynchronizationContext? _hookSync;
     private long _lastCursorOwnerBroadcastTick;
+    private long _edgeFileWaitStart;
+    private bool _edgeDragSwallowLeftUp;
 
     public EdgeFileDragService? EdgeFileDrag { get; set; }
     public bool EasyMouseEnabled { get; set; } = true;
@@ -258,6 +260,24 @@ public sealed class WindowsEdgeInputRouter : IDisposable
             return Win32.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
+        if (msg == Win32.WmLButtonUp)
+        {
+            WindowsShellDragPaths.NoteButtonUp();
+            if (_edgeDragSwallowLeftUp)
+            {
+                _edgeDragSwallowLeftUp = false;
+                if (_controllingRemote)
+                    return (IntPtr)1;
+            }
+
+            if (EdgeFileDrag?.IsHolding == true)
+            {
+                EdgeFileDrag.Finish();
+                if (_controllingRemote)
+                    return (IntPtr)1;
+            }
+        }
+
         GetVirtualBounds(out var screenL, out var screenT, out var screenW, out var screenH);
         var centerX = screenL + screenW / 2;
         var centerY = screenT + screenH / 2;
@@ -275,7 +295,12 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         }
 
         if (msg is Win32.WmLButtonDown or Win32.WmRButtonDown or Win32.WmMButtonDown
-            or Win32.WmMouseWheel or Win32.WmMouseHWheel or Win32.WmMouseMove)
+            or Win32.WmMouseWheel or Win32.WmMouseHWheel)
+            TryClaimPhysicalInput();
+
+        if (msg == Win32.WmLButtonDown && !_controllingRemote && _settings.TransferFile)
+            WindowsShellDragPaths.NoteButtonDown();
+        else if (msg == Win32.WmMouseMove && !_controllingRemote)
             TryClaimPhysicalInput();
 
         if (!_controllingRemote && msg == Win32.WmMouseMove)
@@ -289,12 +314,36 @@ public sealed class WindowsEdgeInputRouter : IDisposable
                          || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
+            var leftDown = (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            var nearEdge = NearVirtualEdge(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
+            if (_settings.TransferFile && leftDown && nearEdge)
+                WindowsShellDragPaths.PrefetchIfNeeded();
+
+            var dragged = Array.Empty<string>();
+            var haveDrag = _settings.TransferFile && leftDown && onEdge
+                           && WindowsShellDragPaths.TryGet(out dragged);
+            if (_settings.TransferFile && leftDown && onEdge && !haveDrag)
+            {
+                if (_edgeFileWaitStart == 0)
+                    _edgeFileWaitStart = Environment.TickCount64;
+                if (Environment.TickCount64 - _edgeFileWaitStart < 400)
+                    return Win32.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+            }
+            else if (!onEdge || !leftDown)
+            {
+                _edgeFileWaitStart = 0;
+            }
+
             var pauseExtend = ShouldPauseEasyMouseForExtend?.Invoke() == true;
             if (EasyMouseEnabled && _settings.EasyMouse && !pauseExtend && !InSwitchCooldown()
                 && TryDetectEdgePeer(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH,
                     out var peer, out var entryX, out var entryY, out var peerSide))
             {
+                if (haveDrag)
+                    EdgeFileDrag?.TryBegin(dragged);
                 SwitchToPeer(peer!, entryX, entryY, peerSide);
+                if (haveDrag)
+                    DismissLocalDrag();
                 return (IntPtr)1;
             }
         }
@@ -333,6 +382,8 @@ public sealed class WindowsEdgeInputRouter : IDisposable
                 or Win32.WmRButtonDown or Win32.WmRButtonUp
                 or Win32.WmMButtonDown or Win32.WmMButtonUp)
             {
+                if (EdgeFileDrag?.IsHolding == true)
+                    return (IntPtr)1;
                 var (button, down) = msg switch
                 {
                     Win32.WmLButtonDown => (0, true),
@@ -348,6 +399,8 @@ public sealed class WindowsEdgeInputRouter : IDisposable
 
             if (msg is Win32.WmMouseWheel or Win32.WmMouseHWheel)
             {
+                if (EdgeFileDrag?.IsHolding == true)
+                    return (IntPtr)1;
                 var delta = (short)((info.mouseData >> 16) & 0xFFFF);
                 _ = SendWheelAsync(_activePeer, delta, msg == Win32.WmMouseHWheel);
                 return (IntPtr)1;
@@ -373,6 +426,17 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         {
             _lastPhysicalInputTick = Environment.TickCount64;
             TryClaimPhysicalInput();
+        }
+
+        if (EdgeFileDrag?.IsHolding == true && _controllingRemote)
+        {
+            if (down && info.vkCode == 0x1B)
+            {
+                EdgeFileDrag.Cancel();
+                _edgeDragSwallowLeftUp = true;
+            }
+
+            return (IntPtr)1;
         }
 
         if (_controllingRemote && !string.IsNullOrEmpty(_activePeer))
@@ -658,6 +722,30 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         return -1;
     }
 
+    private static bool NearVirtualEdge(int x, int y, int screenL, int screenT, int screenW, int screenH, int margin = 28)
+    {
+        var right = screenL + screenW - 1;
+        var bottom = screenT + screenH - 1;
+        return x <= screenL + margin || x >= right - margin
+               || y <= screenT + margin || y >= bottom - margin;
+    }
+
+    private static void DismissLocalDrag()
+    {
+        var down = new Win32.INPUT
+        {
+            type = Win32.InputKeyboard,
+            U = new Win32.InputUnion
+            {
+                ki = new Win32.KEYBDINPUT { wVk = 0x1B, dwExtraInfo = InjectMarker }
+            }
+        };
+        var up = down;
+        up.U.ki.dwFlags = Win32.KeyEventKeyUp;
+        Win32.SendInput(1, [down], Marshal.SizeOf<Win32.INPUT>());
+        Win32.SendInput(1, [up], Marshal.SizeOf<Win32.INPUT>());
+    }
+
     private static bool IsLocalMachine(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -893,6 +981,9 @@ public sealed class WindowsEdgeInputRouter : IDisposable
 
         [DllImport("user32.dll")]
         public static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int vKey);
 
         [DllImport("user32.dll")]
         public static extern uint MapVirtualKey(uint uCode, uint uMapType);
