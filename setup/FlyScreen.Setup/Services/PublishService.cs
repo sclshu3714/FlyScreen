@@ -38,7 +38,10 @@ public sealed class PublishService
             var to = (i + 1) * 100.0 / total;
             var slice = new RangeProgress(progress, from, to);
 
-            log($"======== 开始打包: {target.DisplayName} ({target.Rid}) ========");
+            target.ApplySelectedFrameworkRuntime();
+            log($"======== 开始打包: {target.DisplayName} ({target.Rid}" +
+                (string.IsNullOrWhiteSpace(target.Framework) ? "" : $", {target.Framework}") +
+                ") ========");
             Report(slice, 0, $"[{i + 1}/{total}] {target.DisplayName}");
 
             if (target.RequiresMac && !OperatingSystem.IsMacOS())
@@ -120,10 +123,13 @@ public sealed class PublishService
             var apkScript = Path.Combine(_repoRoot, "build", "Ensure-MauiSignedApk.ps1");
             if (File.Exists(apkScript))
             {
+                var androidTfm = string.IsNullOrWhiteSpace(target.Framework)
+                    ? "net10.0-android"
+                    : target.Framework;
                 var args =
                     $"-NoProfile -ExecutionPolicy Bypass -File \"{apkScript}\" " +
                     $"-OutDir \"{staging}\" -PackageId \"com.xuanniao.flyscreen\" " +
-                    $"-IntermediateDir \"src\\FlyScreen.App.Maui\\obj\\Release\\net10.0-android\\android\\bin\"";
+                    $"-IntermediateDir \"src\\FlyScreen.App.Maui\\obj\\Release\\{androidTfm}\\android\\bin\"";
                 exit = await _runner.RunAsync("powershell", args, _repoRoot, log, ct).ConfigureAwait(false);
                 if (exit != 0)
                     throw new InvalidOperationException("Ensure-MauiSignedApk 失败");
