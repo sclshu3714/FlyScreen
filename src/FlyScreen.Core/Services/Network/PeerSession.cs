@@ -11,17 +11,21 @@ public sealed class PeerSession : IAsyncDisposable
 {
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
-    private readonly Channel<byte[]> _sendQueue = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+    private readonly Channel<OutItem> _sendQueue = Channel.CreateUnbounded<OutItem>(new UnboundedChannelOptions
     {
         SingleReader = true,
         SingleWriter = false,
         AllowSynchronousContinuations = false
     });
+    private readonly object _latestGate = new();
+    private byte[]? _latestFrame;
+    private bool _latestQueued;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _sendLoop;
     private readonly Task _recvLoop;
     private DateTime _lastRecvUtc = DateTime.UtcNow;
     private DateTime _lastSendUtc = DateTime.UtcNow;
+    private int _framesSent;
     private int _disposed;
 
     public string PeerName { get; private set; } = "";
@@ -67,16 +71,51 @@ public sealed class PeerSession : IAsyncDisposable
             return ValueTask.CompletedTask;
 
         var frame = MessageCodec.Encode(type, payload ?? []);
-        _sendQueue.Writer.TryWrite(frame);
+        _sendQueue.Writer.TryWrite(OutItem.Raw(frame));
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// 同类型大帧只保留最新一份。发送循环还没写到时，后到的帧覆盖前一帧，避免投影画面在队列里越积越卡。
+    /// </summary>
+    public void SendLatest(MessageType type, byte[]? payload = null)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            return;
+
+        var frame = MessageCodec.Encode(type, payload ?? []);
+        lock (_latestGate)
+        {
+            _latestFrame = frame;
+            if (_latestQueued) return;
+            _latestQueued = true;
+        }
+
+        _sendQueue.Writer.TryWrite(OutItem.LatestMark);
     }
 
     public ValueTask SendRawAsync(byte[] frame)
     {
         if (Volatile.Read(ref _disposed) != 0)
             return ValueTask.CompletedTask;
-        _sendQueue.Writer.TryWrite(frame);
+        _sendQueue.Writer.TryWrite(OutItem.Raw(frame));
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>入队并等到发送循环写出该帧。拒绝握手后须先写出再关套接字，否则对端收不到原因。</summary>
+    public async Task SendRawAndWaitAsync(byte[] frame, int timeoutMs = 400)
+    {
+        var seen = Volatile.Read(ref _framesSent);
+        await SendRawAsync(frame).ConfigureAwait(false);
+        var start = Environment.TickCount64;
+        while (Environment.TickCount64 - start < timeoutMs)
+        {
+            if (Volatile.Read(ref _framesSent) > seen)
+                return;
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+            await Task.Delay(10).ConfigureAwait(false);
+        }
     }
 
     public async Task SendAndFlushAsync(MessageType type, byte[]? payload = null, CancellationToken ct = default)
@@ -94,13 +133,17 @@ public sealed class PeerSession : IAsyncDisposable
         {
             while (await _sendQueue.Reader.WaitToReadAsync().ConfigureAwait(false))
             {
-                while (_sendQueue.Reader.TryRead(out var frame))
+                while (_sendQueue.Reader.TryRead(out var item))
                 {
                     if (Volatile.Read(ref _disposed) != 0)
                         return;
 
+                    var frame = ResolveOutbound(item);
+                    if (frame == null) continue;
+
                     await _stream.WriteAsync(frame.AsMemory()).ConfigureAwait(false);
                     _lastSendUtc = DateTime.UtcNow;
+                    Interlocked.Increment(ref _framesSent);
                 }
             }
         }
@@ -220,5 +263,25 @@ public sealed class PeerSession : IAsyncDisposable
         catch { /* ignore timeout / faults */ }
 
         try { _cts.Dispose(); } catch { /* ignore */ }
+    }
+
+    private byte[]? ResolveOutbound(OutItem item)
+    {
+        if (!item.Latest) return item.Frame;
+        lock (_latestGate)
+        {
+            var frame = _latestFrame;
+            _latestFrame = null;
+            _latestQueued = false;
+            return frame;
+        }
+    }
+
+    private sealed class OutItem
+    {
+        public byte[]? Frame { get; private init; }
+        public bool Latest { get; private init; }
+        public static OutItem LatestMark { get; } = new() { Latest = true };
+        public static OutItem Raw(byte[] frame) => new() { Frame = frame };
     }
 }

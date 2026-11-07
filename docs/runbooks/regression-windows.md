@@ -37,13 +37,30 @@
 
 ## D. 剪贴板与文件
 
-- [ ] 文本复制 → 移到对端可粘贴
-- [ ] 截图 / 图片可同步（按现网行为）
-- [ ] 文件复制 → 移到对端后台接收 → 可粘贴；接收中键鼠不卡死
+（格式细表见 [clipboard.md](../clipboard.md)。Win ↔ Maui-Win 为必测主路径。）
+
+- [ ] 文本复制 → 移到对端可粘贴（双向：Win↔Win、Win↔Maui-Win）
+- [ ] HTML / RTF / CSV（如 Word、Excel）→ 对端粘贴仍为对应格式（Maui-Win 抽测）
+- [ ] 截图 / 图片双向可同步并可 Ctrl+V
+- [ ] 文件复制 → 移到对端 → 虚拟剪贴板可粘贴；接收中键鼠不卡死
+- [ ] 文件夹复制粘贴（抽样）
 - [ ] 直接传输到桌面 / 文档 / 自定义路径
 - [ ] 共享传输列表列完整（方向/文件名/对端/大小/进度/状态/删除）
 - [ ] 「打开收件箱」能打开本机 Inbox 目录
 - [ ] 「清除已完成」只清接收缓存，不删发送方源文件
+- [ ] **文件占用**：目标机打开同名文件后直传/粘贴，双方均失败提示（非发端 100%、收端 0%）
+- [ ] **穿边拖文件**：资源管理器拖文件穿边到对端松开可复制；同名冲突弹窗；投影会话中对端不可拖入（见 [edge-file-drag.md](../edge-file-drag.md)）
+
+## D2. 投影 / 扩展屏（抽样）
+
+（细节 [extended-display.md](../extended-display.md)。）
+
+- [ ] 标题栏投影：复制模式 → 对端全屏收流；Esc 停止后双方恢复
+- [ ] 扩展模式（有副屏或 MTT）：虚拟副屏方位合理；停止后主屏分辨率/缩放未坏
+- [ ] 声音同步开：Host 静音、Sink 出声；停投后 Host 声音恢复
+- [ ] 远程控制开：仅 Sink 全屏播放器内键鼠可回控 Host；Esc 只停投影
+- [ ] 1 对 1 互斥：Host/Sink 忙时再发起或再被投均被拒绝并有中文提示
+- [ ] 去黑边开：画面裁边合理；回控坐标不跑偏
 
 ## E. 设置与系统
 
@@ -73,6 +90,11 @@
 - [ ] 对端为 MAUI Android（Caps 含 `EdgeMouse`+`InjectInput`）且已开无障碍：边缘可切入；点击/滑动可用
 - [ ] 手机触控板：滑动移光标；轻点=左键；中区轻点=中键；系统键盘输入出现在本机（AbsPointer / SwitchFocus）
 - [ ] `dotnet test tests/FlyScreen.Core.Tests` 通过（握手 / Caps 交集；`AndroidMobile` 含 EdgeMouse/Inject、无 LayoutSync）
+
+## I. 用户程序（抽样，非 Win stable 硬门禁）
+
+- [ ] Win / MAUI：可添加 C# 程序、运行看到日志；「共享」到已连接 Android 后，同 Id 源码被覆盖
+- [ ] Android：无障碍开启后 `Fly.Ready`；简单 `HasText`/`Swipe` 脚本可跑（细节 [programs-android.md](programs-android.md)）
 
 ## 结论
 

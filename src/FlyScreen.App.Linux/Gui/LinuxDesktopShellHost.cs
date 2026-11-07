@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using FlyScreen.DesktopUi;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
@@ -6,6 +7,7 @@ using FlyScreen.Linux;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.LinuxApp.Gui;
 
@@ -15,6 +17,7 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
     private readonly AvaloniaClipboardApplySink _clipSink = new();
     private DesktopClipboardCoordinator? _clipCoord;
     private RemotePointerOverlay? _pointerOverlay;
+    private readonly ScreenExtendDesktopController _screenExtendUi;
 
     public LinuxDesktopShellHost(LinuxAppHost host)
     {
@@ -23,6 +26,8 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
         _clipCoord = new DesktopClipboardCoordinator(host.Settings, host.Transfers, _clipSink);
         _host.ReceivingRemoteControlChanged += OnReceivingRemote;
         _host.RemotePointerMoved += OnRemotePointer;
+        _screenExtendUi = new ScreenExtendDesktopController(host.ScreenExtend);
+        _host.EdgeDrag.ConfirmConflict = EdgeDragConflictPrompt.AskAsync;
     }
 
     public AppSettings Settings => _host.Settings;
@@ -48,6 +53,12 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
         remove => _host.BehaviorSyncedFromPeer -= value;
     }
 
+    public event Action<string>? SecurityKeySyncedFromPeer
+    {
+        add => _host.SecurityKeySyncedFromPeer += value;
+        remove => _host.SecurityKeySyncedFromPeer -= value;
+    }
+
     public string PlatformStatusLine
     {
         get
@@ -66,12 +77,70 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
 
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();
+    public Task ApplyNetworkingAsync(
+        int previousTcpPort,
+        int previousUdpPort,
+        string previousNicId,
+        string previousLocalIp,
+        string previousSecurityKey)
+        => _host.ApplyNetworkingAsync(previousTcpPort, previousUdpPort, previousNicId, previousLocalIp, previousSecurityKey);
     public Task BroadcastLayoutSyncAsync() => _host.BroadcastLayoutSyncAsync();
     public Task BroadcastLayoutMergeAsync() => _host.BroadcastLayoutMergeAsync();
     public Task BroadcastBehaviorSyncAsync() => _host.BroadcastBehaviorSyncAsync();
+    public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
+        => _host.SyncSecurityKeyAsync(ct);
+
+    public ScreenExtendService ScreenExtend => _host.ScreenExtend;
+
+    public async Task<(bool Ok, string? Message)> StartProjectionAsync(
+        ProjectionTarget? target,
+        DisplayProjectionMode mode,
+        bool audioSync = false,
+        bool cropBlackBars = false,
+        bool remoteControl = false)
+    {
+        _ = cropBlackBars;
+        _ = audioSync;
+        _ = remoteControl;
+        mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
+        _host.Settings.ScreenExtendProjectionMode = (int)mode;
+        if (target?.Kind == ProjectionTargetKind.Peer && !string.IsNullOrEmpty(target.Id))
+            _host.Settings.ScreenExtendPeer = target.Id;
+        _host.Settings.Save();
+        await Task.CompletedTask;
+        return (false, "Linux 暂不支持发起投影，请从 Windows 端发起；本机可接收投影");
+    }
+
+    public async Task StopProjectionAsync()
+    {
+        if (ScreenExtend.IsActive)
+            await ScreenExtend.StopAsync("stopped").ConfigureAwait(false);
+    }
 
     public bool GetAutoStartEnabled() => false;
     public void SetAutoStartEnabled(bool enabled) { }
+
+    public bool CanFollowEdgeFileDrag => _host.CanFollowEdgeFileDrag;
+
+    public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
+        => _host.OfferEdgeFileDrag(paths, exitSide);
+
+    public event Action<bool>? EdgeFileDragActiveChanged
+    {
+        add => _host.EdgeDrag.ActiveChanged += value;
+        remove => _host.EdgeDrag.ActiveChanged -= value;
+    }
+
+    public event Action<EdgeDragCue?>? EdgeDragCueChanged
+    {
+        add => _host.EdgeDrag.CueChanged += value;
+        remove => _host.EdgeDrag.CueChanged -= value;
+    }
+
+    public bool TryGetEdgeDragPointer(out int x, out int y)
+        => _host.TryGetPointerPixels(out x, out y);
+
+    public string EdgeDragDropLabel => _host.EdgeDropLabel;
 
     private void OnReceivingRemote(bool active)
     {

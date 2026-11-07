@@ -1,0 +1,18 @@
+FlyScreen (玄鸟)
+Copyright contributors
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE.txt and docs/THIRD_PARTY.md.
+
+Third-party license texts:
+  third_party/licenses/MIT-Monaco-Editor.txt
+  third_party/licenses/MIT-Virtual-Display-Driver.txt
+  tools/linux-fonts/OFL.txt  (Noto Sans SC)
+
+This project may depend on proprietary Google ML Kit Text Recognition
+(including Chinese models) for Android OCR. That SDK is not Apache-2.0;
+use of OCR is subject to the ML Kit Terms of Service
+(https://developers.google.com/ml-kit/terms).
+The project's own source code remains Apache-2.0.
+
+Linux releases that include Fonts/ also ship Licenses/ with the notices above.

@@ -24,6 +24,7 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi;
@@ -65,6 +66,7 @@ public partial class MainWindow : Window
     private bool _logToolModeUpdating;
     private bool _logToolsCompact;
     private bool _openProgramLog;
+    private EdgeFileDragOverlay? _edgeFileDrag;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -86,24 +88,19 @@ public partial class MainWindow : Window
         InitializeComponent();
         Title = "玄鸟";
         TryApplyWindowIcon();
-        ConfigureLinuxClientTitleBar();
+        ConfigureClientTitleBar();
         Opened += OnOpened;
         Closing += OnClosing;
     }
 
     /// <summary>
-    /// WSL/X11 系统标题栏常因字体/编码只画出「玄」。关闭系统标题文字，改用客户端标题栏显示完整「玄鸟」。
+    /// 自绘标题栏（含投影按钮）。Linux 另规避系统标题栏中文乱码。
     /// </summary>
-    private void ConfigureLinuxClientTitleBar()
+    private void ConfigureClientTitleBar()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            return;
-
-        // None：自绘标题栏 + 圆角；Wayland 仍走 BeginMoveDrag，X11 用手势跟指针
         SystemDecorations = SystemDecorations.None;
         ClientTitleBar.IsVisible = true;
         Title = "玄鸟";
-        // 不使用整窗透明：X11 上拖动时透明合成会严重闪烁；圆角由 WindowChrome 裁剪呈现
         Background = TryBrush("WinBg") ?? Brushes.White;
         if (WindowChrome != null)
         {
@@ -229,6 +226,38 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private async void TitleProject_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
+        {
+            await _host.StopProjectionAsync();
+            RefreshTitleProjectButton();
+            return;
+        }
+
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Sink)
+        {
+            await ConfirmDialog.ShowAsync(this, "投影",
+                ScreenExtendConflict.DescribeLocalBusy(
+                    ScreenExtendRole.Sink, _host.ScreenExtend.Peer),
+                primaryText: "确定", cancelText: null);
+            return;
+        }
+
+        var dlg = new ProjectionDialog(_host);
+        await dlg.ShowDialog(this);
+        RefreshTitleProjectButton();
+    }
+
+    private void RefreshTitleProjectButton()
+    {
+        if (TitleProjectBtn == null) return;
+        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
+        TitleProjectBtn.Content = on ? "投影中" : "⧉";
+        ToolTip.SetTip(TitleProjectBtn, on ? "正在投影（点击停止）" : "投影到电脑");
+        TitleProjectBtn.Width = on ? 64 : 40;
+    }
+
     private void TitleMin_Click(object? sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
@@ -261,6 +290,7 @@ public partial class MainWindow : Window
 
     private async void OnOpened(object? sender, EventArgs e)
     {
+        _edgeFileDrag = new EdgeFileDragOverlay(this, _host);
         // 应用层可能已写入含 CJK 的 UiFont
         if (Application.Current?.Resources.TryGetResource("UiFont", null, out var font) == true
             && font is FontFamily ff)
@@ -278,6 +308,14 @@ public partial class MainWindow : Window
         ApplyLayoutGrid();
 
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
+        _host.ScreenExtend.UserNotice += msg => Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                await ConfirmDialog.ShowAsync(this, "投影", msg, primaryText: "确定", cancelText: null);
+            }
+            catch { /* ignore */ }
+        });
         AppLog.Changed += () => Dispatcher.UIThread.Post(() =>
         {
             if (PageLog.IsVisible && _logPageFromLatest == 0)
@@ -295,8 +333,16 @@ public partial class MainWindow : Window
             ApplyBehaviorFromSettings();
             StatusText.Text = $"已同步功能与行为 ← {from}";
         });
+        _host.SecurityKeySyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
+        {
+            SetSecurityKey(_host.Settings.SecurityKey ?? "");
+            StatusText.Text = $"已同步安全密钥 ← {from}";
+        });
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.UIThread.Post(RefreshDiscovery);
+        _host.ScreenExtend.HostSessionReady += () => Dispatcher.UIThread.Post(RefreshTitleProjectButton);
+        _host.ScreenExtend.SessionEnded += () => Dispatcher.UIThread.Post(RefreshTitleProjectButton);
+        RefreshTitleProjectButton();
 
         await _host.StartAsync();
         StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
@@ -313,6 +359,8 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         _refreshTimer?.Stop();
+        _edgeFileDrag?.Dispose();
+        _edgeFileDrag = null;
     }
 
     private void BuildPlatformActions()
@@ -354,12 +402,13 @@ public partial class MainWindow : Window
         EasyMouseCheck.IsChecked = s.EasyMouse;
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
 
-        var autoStart = _host.SupportsAutoStart && (_host.GetAutoStartEnabled() || s.AutoStart);
+        // 以实际自启状态为准，禁止 settings OR 强制写回
+        var autoStart = _host.SupportsAutoStart && _host.GetAutoStartEnabled();
         AutoStartCheck.IsChecked = autoStart;
-        if (_host.SupportsAutoStart)
+        if (_host.SupportsAutoStart && s.AutoStart != autoStart)
         {
             s.AutoStart = autoStart;
-            _host.SetAutoStartEnabled(autoStart);
+            s.Save();
         }
 
         TcpPortBox.Text = s.TcpPort.ToString();
@@ -484,6 +533,8 @@ public partial class MainWindow : Window
         if (SecurityHintText != null) SecurityHintText.Text = Loc.T("Sec.Hint");
         if (ShowKeyCheck != null) ShowKeyCheck.Content = Loc.T("Sec.Show");
         if (NewKeyBtn != null) NewKeyBtn.Content = Loc.T("Sec.NewKey");
+        if (SyncKeyBtn != null) SyncKeyBtn.Content = Loc.T("Sec.SyncKey");
+        if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
 
         if (FeatTitleText != null) FeatTitleText.Text = Loc.T("Feat.Title");
         if (BehTitleText != null) BehTitleText.Text = Loc.T("Beh.Title");
@@ -612,8 +663,11 @@ public partial class MainWindow : Window
 
         if (_host.SupportsAutoStart)
         {
-            s.AutoStart = AutoStartCheck.IsChecked == true;
-            _host.SetAutoStartEnabled(s.AutoStart);
+            var wantAuto = AutoStartCheck.IsChecked == true;
+            _host.SetAutoStartEnabled(wantAuto);
+            // 以实际写入结果为准（关闭失败时不要把设置落成 false）
+            s.AutoStart = _host.GetAutoStartEnabled();
+            AutoStartCheck.IsChecked = s.AutoStart;
         }
 
         s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
@@ -648,10 +702,17 @@ public partial class MainWindow : Window
 
     private async void Apply_Click(object? sender, RoutedEventArgs e)
     {
+        var s = _host.Settings;
+        var prevTcp = s.TcpPort;
+        var prevUdp = s.UdpPort;
+        var prevNic = s.PreferredNicId ?? "";
+        var prevIp = s.PreferredLocalIp ?? "";
+        var prevKey = s.SecurityKey ?? "";
+
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
         await _host.BroadcastBehaviorSyncAsync();
-        await _host.RestartNetworkingAsync();
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         SyncSlotLocalFlags();
         StatusText.Text = Loc.T("Sys.Applied");
     }
@@ -908,9 +969,22 @@ public partial class MainWindow : Window
         RefreshProgramsPage();
     }
 
+    private async void ProgRowSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not UserProgram prog) return;
+        var win = new ProgramSettingsWindow(prog);
+        await win.ShowDialog(this);
+    }
+
     private async void ProgRowDelete_Click(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.Tag is not UserProgram prog) return;
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText.Text = Loc.T("Prog.BuiltinNoDelete");
+            return;
+        }
         try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
         catch (Exception ex) { StatusText.Text = ex.Message; }
         RefreshProgramsPage();
@@ -975,6 +1049,7 @@ public partial class MainWindow : Window
         void Add(AppLogLevelFilter f, string key)
             => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
         Add(AppLogLevelFilter.All, "Log.LevelAll");
+        Add(AppLogLevelFilter.Debug, "Log.LevelDebug");
         Add(AppLogLevelFilter.Info, "Log.LevelInfo");
         Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
         Add(AppLogLevelFilter.Error, "Log.LevelError");
@@ -1271,13 +1346,63 @@ public partial class MainWindow : Window
 
     private void RefreshAboutPage()
     {
-        var ver = typeof(MainWindow).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{Math.Max(ver.Build, 0)}";
-        var body = string.Format(Loc.T("About.Body"), verText);
-        if (!string.IsNullOrWhiteSpace(_host.PlatformStatusLine))
-            body += "\n\n" + _host.PlatformStatusLine;
         AboutTitleText.Text = Loc.T("About.Title");
-        AboutBodyText.Text = body;
+        AboutBodyHost.Children.Clear();
+        var linkBrush = this.TryFindResource("Blue", ActualThemeVariant, out var br) && br is IBrush b
+            ? b
+            : Brushes.DodgerBlue;
+
+        foreach (var para in AboutDocument.Build(AppVersionDisplay.Current))
+        {
+            if (para.Spans.Count == 0)
+            {
+                AboutBodyHost.Children.Add(new Border { Height = 8 });
+                continue;
+            }
+
+            var wrap = new WrapPanel();
+            foreach (var span in para.Spans)
+            {
+                if (!string.IsNullOrEmpty(span.Url))
+                {
+                    var url = span.Url;
+                    var btn = new HyperlinkButton
+                    {
+                        Content = span.Text,
+                        NavigateUri = new Uri(url),
+                        Padding = new Thickness(0),
+                        FontSize = 13,
+                        Foreground = linkBrush
+                    };
+                    btn.Click += (_, _) => TryOpenUrl(url);
+                    wrap.Children.Add(btn);
+                }
+                else
+                {
+                    wrap.Children.Add(new TextBlock
+                    {
+                        Text = span.Text,
+                        FontSize = 13,
+                        FontWeight = para.IsHeading ? FontWeight.SemiBold : FontWeight.Normal,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+                }
+            }
+
+            AboutBodyHost.Children.Add(wrap);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_host.PlatformStatusLine))
+        {
+            AboutBodyHost.Children.Add(new Border { Height = 8 });
+            AboutBodyHost.Children.Add(new TextBlock
+            {
+                Text = _host.PlatformStatusLine,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
     }
 
     private void RefreshHelpToolbarLabels()
@@ -1681,6 +1806,17 @@ public partial class MainWindow : Window
 
     private void NewKey_Click(object? sender, RoutedEventArgs e)
         => SetSecurityKey(AppSettings.GenerateKey());
+
+    private async void SyncKey_Click(object? sender, RoutedEventArgs e)
+    {
+        var s = _host.Settings;
+        var prevKey = s.SecurityKey ?? "";
+        ApplySettingsFromUi();
+        var (ok, msg) = await _host.SyncSecurityKeyAsync();
+        if (ok)
+            await _host.ApplyNetworkingAsync(s.TcpPort, s.UdpPort, s.PreferredNicId ?? "", s.PreferredLocalIp ?? "", prevKey);
+        StatusText.Text = msg;
+    }
 
     private async void Reconnect_Click(object? sender, RoutedEventArgs e)
     {
@@ -2155,8 +2291,7 @@ public partial class MainWindow : Window
                 await _host.BroadcastLayoutMergeAsync().ConfigureAwait(true);
             else
                 await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
-            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
-            await _host.RestartNetworkingAsync().ConfigureAwait(true);
+            await _host.Connections.RefreshConfiguredPeersAsync().ConfigureAwait(true);
         }
         catch
         {

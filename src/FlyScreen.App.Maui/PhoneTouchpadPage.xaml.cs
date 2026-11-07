@@ -13,8 +13,8 @@ public partial class PhoneTouchpadPage : ContentPage
     private static readonly TimeSpan KeyboardCommitDelay = TimeSpan.FromMilliseconds(520);
 
     private readonly MauiAppHost _host;
-    private MainPage? _settingsPage;
-    private bool _openingSettings;
+    /// <summary>布局页传入的控制目标（非本机电脑名）。</summary>
+    private readonly string? _targetPeer;
     private string? _activePeer;
     private bool _keyboardOpen;
 
@@ -32,16 +32,31 @@ public partial class PhoneTouchpadPage : ContentPage
     private bool _keyboardWasComposing;
     private CancellationTokenSource? _keyboardCommitCts;
     private long _lastClickTick;
+    private Task _keyChain = Task.CompletedTask;
+    private long _kbSessionTick;
+    private string? _kbSessionPeer;
+    private bool _latchedShift;
+    private bool _latchedCtrl;
+    private CancellationTokenSource? _modReleaseCts;
+    /// <summary>选择模式下 Shift/Ctrl 按住一小段，连按方向键不必每次重新按下修饰键。</summary>
+    private const int ModHoldMs = 220;
 
-    public PhoneTouchpadPage()
+    public PhoneTouchpadPage(string targetPeer)
     {
         InitializeComponent();
         _host = MauiAppHost.EnsureCreated();
+        _targetPeer = string.IsNullOrWhiteSpace(targetPeer) ? null : targetPeer.Trim();
+        _activePeer = _targetPeer;
         AttachPadGestures();
         AttachButtonZone(LeftZone, button: 0);
         AttachButtonZone(RightZone, button: 1);
         AttachWheelZone();
         KeyboardEntry.TextChanged += OnKeyboardTextChanged;
+        if (KeyboardEntry is PhoneImeEntry remoteKeys)
+        {
+            remoteKeys.RemoteText += OnRemoteImeText;
+            remoteKeys.RemoteKey += OnRemoteImeKey;
+        }
         KeyboardEntry.HandlerChanged += (_, _) => ApplyPhoneImeInputType();
         KeyboardEntry.Focused += (_, _) => ApplyPhoneImeInputType();
         Loaded += OnLoaded;
@@ -51,59 +66,84 @@ public partial class PhoneTouchpadPage : ContentPage
     private async void OnLoaded(object? sender, EventArgs e)
     {
         _host.StatusMessage += OnHostStatus;
+        _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
         await _host.StartAsync();
-        PickPeer();
+        ResolveActivePeer();
         RefreshStatus();
+        RefreshProjectButton();
         SetKeyboardOpen(false);
         // 触控板控制对端：屏蔽电脑穿透鼠标，避免双指针；本机外接鼠标照常
         _host.Platform.SetRemotePointerSuppressed(true);
-        // 设置页 XAML + LoadUi 很重：空闲时创建并 PrepareHeavyUi，点击时只做导航
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(200), WarmSettingsPage);
     }
 
     private void OnUnloaded(object? sender, EventArgs e)
     {
         _host.StatusMessage -= OnHostStatus;
+        _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
         _keyboardCommitCts?.Cancel();
+        _modReleaseCts?.Cancel();
+        EnqueueAlways(ReleaseLatchedModsAsync);
         _host.Platform.SetRemotePointerSuppressed(false);
     }
+
+    private void OnProjectionSessionChanged()
+        => MainThread.BeginInvokeOnMainThread(RefreshProjectButton);
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
         _host.Platform.SetRemotePointerSuppressed(true);
+        RefreshProjectButton();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        // 进入设置页时解除屏蔽，设置界面可接收电脑穿入指针
+        // 返回主界面后允许电脑键鼠穿入本机
         _host.Platform.SetRemotePointerSuppressed(false);
     }
 
     private void OnHostStatus(string msg)
-        => MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = msg);
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // 保留控制目标提示；状态消息附加在后
+            if (string.IsNullOrEmpty(_activePeer))
+                StatusLabel.Text = msg;
+            else if (!string.IsNullOrWhiteSpace(msg))
+                StatusLabel.Text = $"控制目标：{_activePeer} · {msg}";
+        });
 
     private void RefreshStatus()
     {
         StatusLabel.Text = _activePeer == null
-            ? "未连接对端：请先在设置中配置密钥并连接"
+            ? "未指定控制目标：请返回布局选中电脑后再打开触控板"
             : $"控制目标：{_activePeer}";
     }
 
-    private void PickPeer()
+    /// <summary>固定使用布局传入的目标；仅当其不可用时清空（不自动改选其它电脑）。</summary>
+    private void ResolveActivePeer()
     {
-        _activePeer = _host.Connections.GetConfiguredPeerStatuses()
-            .FirstOrDefault(s => s.AnyAlive)?.Name
-            ?? _host.Settings.MachineSlots.FirstOrDefault(s =>
-                !string.IsNullOrWhiteSpace(s)
-                && !string.Equals(s, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(s, Environment.MachineName, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(_targetPeer))
+        {
+            _activePeer = null;
+            return;
+        }
+
+        if (string.Equals(_targetPeer, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(_targetPeer, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+        {
+            _activePeer = null;
+            return;
+        }
+
+        _activePeer = _targetPeer;
     }
 
     private async Task EnsureControlSessionAsync()
     {
-        PickPeer();
+        ResolveActivePeer();
         if (string.IsNullOrEmpty(_activePeer)) return;
 
         await _host.Connections.SendToAsync(_activePeer, MessageType.SwitchFocus,
@@ -113,7 +153,11 @@ public partial class PhoneTouchpadPage : ContentPage
                 EntryX = _cursorNx,
                 EntryY = _cursorNy
             }));
-        StatusLabel.Text = $"控制目标：{_activePeer}";
+        var label = $"控制目标：{_activePeer}";
+        if (MainThread.IsMainThread)
+            StatusLabel.Text = label;
+        else
+            MainThread.BeginInvokeOnMainThread(() => StatusLabel.Text = label);
     }
 
     private void UpdateCursorDot(int dx, int dy)
@@ -156,6 +200,10 @@ public partial class PhoneTouchpadPage : ContentPage
         else
         {
             _keyboardCommitCts?.Cancel();
+            _modReleaseCts?.Cancel();
+            _kbSessionTick = 0;
+            _kbSessionPeer = null;
+            EnqueueAlways(ReleaseLatchedModsAsync);
             KeyboardEntry.Unfocus();
             RefreshStatus();
         }
@@ -195,7 +243,7 @@ public partial class PhoneTouchpadPage : ContentPage
                 _padMoved = true;
 
             UpdateCursorDot(dx, dy);
-            PickPeer();
+            ResolveActivePeer();
             if (string.IsNullOrEmpty(_activePeer)) return;
             await _host.Connections.SendToAsync(_activePeer, MessageType.MouseMove,
                 MessageCodec.JsonBytes(new MouseMovePayload { Relative = true, Dx = dx, Dy = dy }));
@@ -308,7 +356,7 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private void OnKeyboardTextChanged(object? sender, TextChangedEventArgs e)
     {
-        if (_suppressKeyboardSync || !_keyboardOpen) return;
+        if (UsesRemoteImeConnection() || _suppressKeyboardSync || !_keyboardOpen) return;
 
         // 拼音组字中：绝不提交/清空，否则系统候选栏会被掐掉
         if (IsPhoneImeComposing())
@@ -334,7 +382,165 @@ public partial class PhoneTouchpadPage : ContentPage
     }
 
     private void KeyboardEntry_Completed(object? sender, EventArgs e)
-        => _ = FlushKeyboardNowAsync();
+    {
+        if (UsesRemoteImeConnection()) return;
+        _ = FlushKeyboardNowAsync();
+    }
+
+    private bool UsesRemoteImeConnection()
+    {
+#if ANDROID
+        return KeyboardEntry.Handler?.PlatformView is Platforms.Android.PhoneRemoteEditText;
+#else
+        return false;
+#endif
+    }
+
+    private void OnRemoteImeText(string text)
+    {
+        if (!_keyboardOpen || text.Length == 0) return;
+        Enqueue(() => SendRemoteTextAsync(text));
+    }
+
+    private void OnRemoteImeKey(ushort vk, bool extended, bool shift, bool ctrl)
+    {
+        if (!_keyboardOpen) return;
+        Enqueue(() => SendTapAsync(vk, extended, shift, ctrl));
+    }
+
+    private void Enqueue(Func<Task> work)
+    {
+        var previous = _keyChain;
+        _keyChain = RunAfterAsync(previous, work, requireKeyboard: true);
+    }
+
+    /// <summary>键盘已经关掉时也要执行，用来松开还按着的 Shift/Ctrl。</summary>
+    private void EnqueueAlways(Func<Task> work)
+    {
+        var previous = _keyChain;
+        _keyChain = RunAfterAsync(previous, work, requireKeyboard: false);
+    }
+
+    private async Task RunAfterAsync(Task previous, Func<Task> work, bool requireKeyboard)
+    {
+        try { await previous.ConfigureAwait(false); }
+        catch { /* 上一笔失败不堵住后续按键 */ }
+
+        if (requireKeyboard && !_keyboardOpen) return;
+        try { await work().ConfigureAwait(false); }
+        catch { /* 单次发送失败忽略 */ }
+    }
+
+    private async Task SendRemoteTextAsync(string text)
+    {
+        var chunk = new System.Text.StringBuilder();
+        foreach (var ch in text)
+        {
+            if (ch is '\n' or '\r')
+            {
+                await FlushRemoteChunkAsync(chunk);
+                if (ch == '\n')
+                    await SendTapAsync(0x0D, extended: false, shift: false, ctrl: false);
+                continue;
+            }
+
+            chunk.Append(ch);
+        }
+
+        await FlushRemoteChunkAsync(chunk);
+    }
+
+    private async Task FlushRemoteChunkAsync(System.Text.StringBuilder chunk)
+    {
+        if (chunk.Length == 0) return;
+        var text = chunk.ToString();
+        chunk.Clear();
+        await EnsureKeyboardSessionAsync();
+        if (string.IsNullOrEmpty(_activePeer)) return;
+        await _host.Connections.SendToAsync(_activePeer, MessageType.KeyEvent,
+            MessageCodec.JsonBytes(new KeyEventPayload { Text = text }));
+    }
+
+    private async Task SendTapAsync(ushort vk, bool extended, bool shift, bool ctrl)
+    {
+        await EnsureKeyboardSessionAsync();
+        if (string.IsNullOrEmpty(_activePeer)) return;
+
+        _modReleaseCts?.Cancel();
+        if (shift != _latchedShift)
+        {
+            await SendKeyStateAsync(0x10, shift);
+            _latchedShift = shift;
+        }
+
+        if (ctrl != _latchedCtrl)
+        {
+            await SendKeyStateAsync(0x11, ctrl);
+            _latchedCtrl = ctrl;
+        }
+
+        await SendKeyStateAsync(vk, down: true, extended);
+        await SendKeyStateAsync(vk, down: false, extended);
+        if (_latchedShift || _latchedCtrl)
+            ScheduleModRelease();
+    }
+
+    /// <summary>键盘会话里只在第一次把焦点切到电脑，避免每个方向键都发一遍 SwitchFocus。</summary>
+    private async Task EnsureKeyboardSessionAsync()
+    {
+        ResolveActivePeer();
+        if (string.IsNullOrEmpty(_activePeer)) return;
+        if (_kbSessionPeer == _activePeer && _kbSessionTick != 0)
+            return;
+
+        var ok = await _host.Connections.SendToAsync(_activePeer, MessageType.SwitchFocus,
+            MessageCodec.JsonBytes(new SwitchFocusPayload
+            {
+                TargetMachine = _activePeer,
+                EntryX = _cursorNx,
+                EntryY = _cursorNy
+            }));
+        if (!ok) return;
+        _kbSessionTick = Environment.TickCount64;
+        _kbSessionPeer = _activePeer;
+    }
+
+    private void ScheduleModRelease()
+    {
+        _modReleaseCts?.Cancel();
+        _modReleaseCts = new CancellationTokenSource();
+        var ct = _modReleaseCts.Token;
+        _ = ReleaseModsAfterAsync(ct);
+    }
+
+    private async Task ReleaseModsAfterAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(ModHoldMs, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        EnqueueAlways(ReleaseLatchedModsAsync);
+    }
+
+    private async Task ReleaseLatchedModsAsync()
+    {
+        if (_latchedCtrl)
+        {
+            _latchedCtrl = false;
+            await SendKeyStateAsync(0x11, down: false);
+        }
+
+        if (_latchedShift)
+        {
+            _latchedShift = false;
+            await SendKeyStateAsync(0x10, down: false);
+        }
+    }
 
     private async Task CommitKeyboardAfterIdleAsync(CancellationToken ct)
     {
@@ -386,8 +592,11 @@ public partial class PhoneTouchpadPage : ContentPage
         {
             if (KeyboardEntry.Handler?.PlatformView is not Android.Widget.EditText edit) return;
             edit.ShowSoftInputOnFocus = true;
+            var options = Platforms.Android.PhoneRemoteEditText.RemoteImeOptions();
+            if (edit.InputType == Android.Text.InputTypes.ClassText && edit.ImeOptions == options)
+                return;
             edit.InputType = Android.Text.InputTypes.ClassText;
-            edit.ImeOptions = Android.Views.InputMethods.ImeAction.Done;
+            edit.ImeOptions = options;
             edit.SetSingleLine(true);
             try { edit.PrivateImeOptions = null; } catch { /* ignore */ }
         }
@@ -548,57 +757,64 @@ public partial class PhoneTouchpadPage : ContentPage
         await SendKeyStateAsync(vk, down: false);
     }
 
-    private async Task SendKeyStateAsync(ushort vk, bool down)
+    private async Task SendKeyStateAsync(ushort vk, bool down, bool extended = false)
     {
         if (string.IsNullOrEmpty(_activePeer)) return;
         await _host.Connections.SendToAsync(_activePeer, MessageType.KeyEvent,
-            MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down }));
+            MessageCodec.JsonBytes(new KeyEventPayload { VirtualKey = vk, Down = down, Extended = extended }));
     }
 
-    private void WarmSettingsPage()
+    private async void Back_Clicked(object? sender, EventArgs e)
     {
         try
         {
-            _settingsPage ??= ResolveSettingsPage();
-            // InitializeComponent 之后把 LoadUi/矩阵等重活做掉，避免点设置时再卡 3–4 秒
-            if (!_settingsPage.IsUiPrepared)
-                _settingsPage.PrepareHeavyUi();
+            var nav = Shell.Current?.Navigation ?? Navigation;
+            if (nav.NavigationStack.Count > 1)
+                await nav.PopAsync(animated: true);
+            else if (nav.ModalStack.Count > 0)
+                await nav.PopModalAsync(animated: true);
         }
-        catch { /* 预热失败则点击时再创建 */ }
+        catch { /* ignore */ }
     }
 
-    private MainPage ResolveSettingsPage()
+    private async void OpenProjection_Clicked(object? sender, EventArgs e)
     {
-        // MauiProgram 已注册 Singleton；勿每次 new（InitializeComponent 是卡顿主因）
-        var services = Handler?.MauiContext?.Services
-                       ?? Application.Current?.Handler?.MauiContext?.Services;
-        if (services?.GetService(typeof(MainPage)) is MainPage fromDi)
-            return fromDi;
-        return new MainPage();
-    }
-
-    private async void OpenSettings_Clicked(object? sender, EventArgs e)
-    {
-        if (_openingSettings) return;
-        _openingSettings = true;
-        SettingsBtn.IsEnabled = false;
-        var prevStatus = StatusLabel.Text;
         try
         {
-            StatusLabel.Text = "正在打开设置…";
-            var page = _settingsPage ??= ResolveSettingsPage();
-            if (!page.IsUiPrepared)
-                page.PrepareHeavyUi();
-            page.Title = "设置";
-            if (Navigation.NavigationStack.Contains(page))
+            if (_host.ScreenExtend.IsActive
+                && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
+            {
+                await _host.StopProjectionAsync();
+                RefreshProjectButton();
                 return;
-            await Navigation.PushAsync(page, animated: false);
+            }
+
+            if (_host.ScreenExtend.IsActive
+                && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
+            {
+                await DisplayAlert(
+                    "投影",
+                    FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
+                        FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
+                        _host.ScreenExtend.Peer),
+                    "确定");
+                return;
+            }
+
+            await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+            RefreshProjectButton();
         }
-        finally
+        catch (Exception ex)
         {
-            StatusLabel.Text = prevStatus ?? StatusLabel.Text;
-            _openingSettings = false;
-            SettingsBtn.IsEnabled = true;
+            StatusLabel.Text = $"投影：{ex.Message}";
         }
+    }
+
+    private void RefreshProjectButton()
+    {
+        var on = _host.ScreenExtend.IsActive
+                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
+        ProjectBtn.Text = on ? "投影中" : "投影";
+        ProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
     }
 }

@@ -9,6 +9,7 @@
     { "name": "muted", "value": "#6B7280" },
     { "name": "accent", "value": "#2563EB" },
     { "name": "line", "value": "#E5E7EB" },
-    { "name": "success", "value": "#059669" }
+    { "name": "success", "value": "#059669" },
+    { "name": "scroll_thumb", "value": "#CBD5E1" }
   ]
 }

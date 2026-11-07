@@ -1,3 +1,4 @@
+using FlyScreen.Linux.Audio;
 using FlyScreen.Linux.Environment;
 using FlyScreen.Linux.Input;
 using FlyScreen.Models;
@@ -5,6 +6,7 @@ using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.Linux;
 
@@ -32,10 +34,35 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public ILinuxInputInjector Injector { get; private set; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
+    public SecurityKeySyncHelper SecurityKeySync { get; }
+    public DisplayInfoService DisplayInfo { get; }
+    public ScreenExtendService ScreenExtend { get; }
+    private readonly ProjectionAudioBridge _projectionAudio;
+    public EdgeFileDragService EdgeDrag { get; }
+    public bool CanFollowEdgeFileDrag => Injector is X11InputInjector x11 && x11.IsAvailable;
+
+    public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
+    {
+        IEdgeDragPointer? follow = Injector is X11InputInjector x11 && x11.IsAvailable
+            ? new X11EdgeDragPointer(x11)
+            : null;
+        EdgeDrag.OfferFromEdge(paths, exitSide, follow);
+    }
+
+    public string EdgeDropLabel => "桌面";
+
+    public bool TryGetPointerPixels(out int x, out int y)
+    {
+        if (Injector is X11InputInjector x11 && x11.TryReadPointer(out x, out y, out _, out _, out _))
+            return true;
+        x = y = 0;
+        return false;
+    }
 
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
+    public event Action<string>? SecurityKeySyncedFromPeer;
     /// <summary>被远程控制时指针归一化坐标更新（供 GUI 软件光标）。</summary>
     public event Action<double, double>? RemotePointerMoved;
     /// <summary>是否处于「被对端操控本机」状态。</summary>
@@ -62,6 +89,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, DesktopDirectory);
+        EdgeDrag.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += PublishStatus;
         LayoutSync.LayoutSyncedFromPeer += peer =>
@@ -81,6 +110,33 @@ public sealed class LinuxAppHost : IAsyncDisposable
         {
             BehaviorSyncedFromPeer?.Invoke(peer);
         };
+        SecurityKeySync = new SecurityKeySyncHelper(Settings, Connections, Connections.Discovery);
+        SecurityKeySync.StatusMessage += PublishStatus;
+        SecurityKeySync.SecurityKeyAppliedFromPeer += (from, _key) =>
+        {
+            try { SecurityKeySyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+            _ = RestartNetworkingAsync();
+        };
+        DisplayInfo = new DisplayInfoService(Connections)
+        {
+            GetLocalDisplayInfo = () => new DisplayInfoPayload
+            {
+                Width = 1920,
+                Height = 1080,
+                ScalePercent = 100,
+                RefreshHz = 60
+            }
+        };
+        ScreenExtend = new ScreenExtendService(Connections);
+        _projectionAudio = new ProjectionAudioBridge(ScreenExtend, new LinuxProjectionAudio());
+        EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
+        ScreenExtend.GetSinkDisplayInfo = () =>
+        {
+            var d = DisplayInfo.GetLocalDisplayInfo?.Invoke();
+            return d == null ? (1920, 1080, 100) : (d.Width, d.Height, d.ScalePercent);
+        };
+        ScreenExtend.StatusMessage += PublishStatus;
+        ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         Connections.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
     }
@@ -107,11 +163,35 @@ public sealed class LinuxAppHost : IAsyncDisposable
         await Connections.StartAsync().ConfigureAwait(false);
     }
 
+    public async Task ApplyNetworkingAsync(
+        int previousTcpPort,
+        int previousUdpPort,
+        string previousNicId,
+        string previousLocalIp,
+        string previousSecurityKey)
+    {
+        Settings.Save();
+        var needRestart =
+            previousTcpPort != Settings.TcpPort
+            || previousUdpPort != Settings.UdpPort
+            || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+
+        if (needRestart || !Connections.IsRunning)
+            await Connections.StartAsync().ConfigureAwait(false);
+        else
+            await Connections.RefreshConfiguredPeersAsync().ConfigureAwait(false);
+    }
+
     public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
 
     public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
 
     public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
+        => SecurityKeySync.SyncCurrentKeyAsync(ct);
 
     public void RefreshCaps()
     {
@@ -218,6 +298,15 @@ public sealed class LinuxAppHost : IAsyncDisposable
         return _receivingRemote;
     }
 
+    private static string DesktopDirectory()
+    {
+        var dir = System.Environment.GetFolderPath(System.Environment.SpecialFolder.DesktopDirectory);
+        if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir)) return dir;
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        var desk = Path.Combine(home, "Desktop");
+        return Directory.Exists(desk) ? desk : home;
+    }
+
     private static bool IsLocalTarget(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -239,6 +328,11 @@ public sealed class LinuxAppHost : IAsyncDisposable
     {
         LayoutSync.Detach();
         BehaviorSync.Detach();
+        SecurityKeySync.Dispose();
+        DisplayInfo.Dispose();
+        _projectionAudio.Dispose();
+        ScreenExtend.Dispose();
+        EdgeDrag.Dispose();
         if (Injector is IDisposable d)
             d.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

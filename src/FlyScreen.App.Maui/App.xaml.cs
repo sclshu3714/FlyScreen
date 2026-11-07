@@ -23,9 +23,10 @@ public partial class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
+        // 手机/平板/桌面统一进玄鸟主界面；触控板由布局工具条按需打开
         Window window;
         if (DeviceInfo.Idiom == DeviceIdiom.Phone)
-            window = new Window(new NavigationPage(new PhoneTouchpadPage()));
+            window = new Window(new AppShell()) { Title = "玄鸟" };
         else
         {
             window = new Window(new AppShell())
@@ -41,6 +42,75 @@ public partial class App : Application
 
 #if WINDOWS
         Services.MauiWindowIcon.Apply(window);
+        // 开机自启：尽早藏主窗，避免托盘已起、主界面却是未渲染黑块
+        Platforms.Windows.MauiAutostartUi.Hook(window);
+        Platforms.Windows.MauiCloseToTray.TryHook(window);
+        Platforms.Windows.MauiProjectionTitleBar.OpenProjection = () =>
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                try
+                {
+                    var host = Services.MauiAppHost.EnsureCreated();
+                    if (host.ScreenExtend.IsActive
+                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
+                    {
+                        await host.StopProjectionAsync();
+                        Platforms.Windows.MauiProjectionTitleBar.SetProjecting(false);
+                        return;
+                    }
+
+                    if (host.ScreenExtend.IsActive
+                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
+                    {
+                        if (Current?.Windows.FirstOrDefault()?.Page is Page sinkPage)
+                        {
+                            await sinkPage.DisplayAlert(
+                                "投影",
+                                FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
+                                    FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
+                                    host.ScreenExtend.Peer),
+                                "确定");
+                        }
+                        return;
+                    }
+
+                    if (Current?.Windows.FirstOrDefault()?.Page is not Page root) return;
+                    var main = FindMainPage(root);
+                    if (main != null)
+                        await main.OpenProjectionDialogAsync();
+                    Platforms.Windows.MauiProjectionTitleBar.SetProjecting(
+                        host.ScreenExtend.IsActive
+                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host);
+                }
+                catch { /* ignore */ }
+            });
+        Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+        window.HandlerChanged += (_, _) =>
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                Platforms.Windows.MauiCloseToTray.TryHook(window);
+                Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                    Platforms.Windows.MauiAutostartUi.TryHideNative(window);
+            });
+        window.Created += (_, _) =>
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                Platforms.Windows.MauiCloseToTray.TryHook(window);
+                Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                    Platforms.Windows.MauiAutostartUi.TryHideNative(window);
+                window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), () =>
+                {
+                    Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                    Platforms.Windows.MauiCloseToTray.TryHook(window);
+                    Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
+                    if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                        Platforms.Windows.MauiAutostartUi.TryHideNative(window);
+                });
+            });
 #endif
 #if ANDROID
         Services.VirtualCursorOverlay.Attach(window);
@@ -48,6 +118,27 @@ public partial class App : Application
 #endif
         return window;
     }
+
+#if WINDOWS
+    private static MainPage? FindMainPage(Page? page)
+    {
+        switch (page)
+        {
+            case MainPage main:
+                return main;
+            case FlyoutPage flyout:
+                return FindMainPage(flyout.Detail) ?? FindMainPage(flyout.Flyout);
+            case NavigationPage nav:
+                return FindMainPage(nav.CurrentPage);
+            case TabbedPage tabs:
+                return FindMainPage(tabs.CurrentPage);
+            case Shell shell:
+                return FindMainPage(shell.CurrentPage);
+            default:
+                return null;
+        }
+    }
+#endif
 
     /// <summary>启动时居中（主显示器工作区）。</summary>
     private static void CenterWindow(Window window)
@@ -57,6 +148,9 @@ public partial class App : Application
             try
             {
 #if WINDOWS
+                // 自启隐藏期间不要 Move（部分机型会把已 Hide 的窗重新露出成黑块）
+                if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
+                    return;
                 if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
                 {
                     var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);

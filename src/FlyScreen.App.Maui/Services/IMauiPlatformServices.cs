@@ -19,6 +19,9 @@ public interface IMauiPlatformServices
     /// </summary>
     void SetRemotePointerSuppressed(bool suppressed);
 
+    /// <summary>Windows 桌面：把穿边拖文件接到键鼠钩子。其它端忽略。</summary>
+    void AttachEdgeFileDrag(EdgeFileDragService drag) { }
+
     void StartDesktopInput();
     void StopDesktopInput();
     void SetEasyMouse(bool enabled);
@@ -40,11 +43,36 @@ public interface IMauiPlatformServices
     void ArmRemoteClipboardForPaste();
 
     bool GetAutoStartEnabled();
-    void SetAutoStartEnabled(bool enabled);
+    /// <summary>写入/清除开机自启；失败返回 false（调用方应回滚设置并提示）。</summary>
+    bool SetAutoStartEnabled(bool enabled);
+
+    /// <summary>PC：仅确保托盘图标（对齐 Win InitTray，不隐藏主窗）。</summary>
+    void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null);
 
     /// <summary>PC：隐藏到托盘；Android：退到后台（无托盘）。</summary>
     void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null);
     void DisposeTray();
+
+    /// <summary>Win 扩展屏：立刻准备本机第二输出（虚拟驱动/已有副屏）。
+    /// <paramref name="layoutSide"/>：对端在布局中相对本机的方位（-1左/+1右/-2上/+2下）。</summary>
+    Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
+            FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown);
+
+    /// <summary>
+    /// 手机：弹出 MediaProjection 授权并启动采集前台服务（须在 StartHost 前）。
+    /// 桌面：空操作成功（采集由 Win 控制器在 HostSessionReady 后启动）。
+    /// </summary>
+    Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default);
+
+    /// <summary>Win 扩展屏：释放本机第二输出；手机：停止 MediaProjection 采集。</summary>
+    Task ReleaseScreenExtendHostDisplayAsync();
+
+    /// <summary>Win 扩展屏：设置采集用的投影方式。</summary>
+    void SetScreenExtendProjectionMode(FlyScreen.Services.ScreenExtend.DisplayProjectionMode mode);
+
+    /// <summary>Win 扩展屏：设置副屏分辨率/缩放选择。</summary>
+    void SetScreenExtendDisplayChoice(FlyScreen.Services.ScreenExtend.ProjectionDisplayChoice? choice);
 
     event Action<string?>? ControlTargetChanged;
 }
@@ -78,9 +106,24 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void StopClipboardMonitor() { }
     public void ArmRemoteClipboardForPaste() { }
     public bool GetAutoStartEnabled() => false;
-    public void SetAutoStartEnabled(bool enabled) { }
+    public bool SetAutoStartEnabled(bool enabled) => !enabled;
+    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
     public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null) { }
     public void DisposeTray() { }
+
+    public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        FlyScreen.Services.ScreenExtend.LayoutEdgeSide layoutSide =
+            FlyScreen.Services.ScreenExtend.LayoutEdgeSide.Unknown)
+        => Task.FromResult<(bool, string?)>((false, "当前平台不支持扩展屏主机"));
+
+    public Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default)
+        => Task.FromResult<(bool, string?)>((true, null));
+
+    public Task ReleaseScreenExtendHostDisplayAsync() => Task.CompletedTask;
+
+    public void SetScreenExtendProjectionMode(FlyScreen.Services.ScreenExtend.DisplayProjectionMode mode) { }
+
+    public void SetScreenExtendDisplayChoice(FlyScreen.Services.ScreenExtend.ProjectionDisplayChoice? choice) { }
 
     public event Action<string?>? ControlTargetChanged
     {

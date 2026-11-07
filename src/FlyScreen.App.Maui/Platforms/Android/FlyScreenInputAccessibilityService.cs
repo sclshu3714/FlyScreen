@@ -2,6 +2,7 @@
 using Android.AccessibilityServices;
 using Android.App;
 using Android.Content;
+using Android.Database;
 using Android.Graphics;
 using Android.OS;
 using Android.Provider;
@@ -80,7 +81,60 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         ProgramDevice.Current = AndroidProgramDeviceControl.Instance;
         Log.Info("FlyScreen", "a11y OnServiceConnected");
         AppLog.Info("无障碍「玄鸟键鼠注入」已连接");
+        EnsureSettingsWatch();
         RaiseEnabledChanged();
+    }
+
+    public override bool OnUnbind(Intent? intent)
+    {
+        if (ReferenceEquals(Instance, this))
+            Instance = null;
+        var rebound = base.OnUnbind(intent);
+        Log.Info("FlyScreen", "a11y OnUnbind");
+        RaiseEnabledChanged();
+        return rebound;
+    }
+
+    public override void OnConfigurationChanged(global::Android.Content.Res.Configuration? newConfig)
+    {
+        base.OnConfigurationChanged(newConfig);
+        var prevW = _screenW;
+        var prevH = _screenH;
+        RefreshScreenSize();
+        if (prevW == _screenW && prevH == _screenH)
+            return;
+
+        Log.Info("FlyScreen", $"朝向/分辨率变化 {prevW}x{prevH} → {_screenW}x{_screenH}");
+        try { InvalidateShotCache(); } catch { /* ignore */ }
+        try { InvalidateDebugOverlayContext(); } catch { /* ignore */ }
+        try { ClearAllDebugSlots_NoPost(); } catch { /* ignore */ }
+
+        // 横竖切换：旧规格是另一套区域键，丢掉等脚本重 Set；同横/同竖仅分辨率变则按归一化重放
+        var aspectFlip = ProgramRegionKeys.IsLandscape(prevW, prevH)
+                         != ProgramRegionKeys.IsLandscape(_screenW, _screenH);
+        if (aspectFlip)
+        {
+            try { ClearDebugRectSpecsOnly(); } catch { /* ignore */ }
+        }
+
+        _ui.Post(() =>
+        {
+            try { FlyScreenDebugLogHud.Relayout(); } catch { /* ignore */ }
+            try { EnsureCursorOverlay(); } catch { /* ignore */ }
+            if (!aspectFlip)
+            {
+                try { RelayoutDebugRects(); } catch { /* ignore */ }
+            }
+        });
+        // 系统旋转偶发延迟，再补一刀重放（同横/同竖）
+        if (!aspectFlip)
+        {
+            _ui.PostDelayed(() =>
+            {
+                try { RelayoutDebugRects(); } catch { /* ignore */ }
+                try { FlyScreenDebugLogHud.Relayout(); } catch { /* ignore */ }
+            }, 400);
+        }
     }
 
     public override void OnAccessibilityEvent(AccessibilityEvent? e)
@@ -112,10 +166,9 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
     public static bool IsConnected => Instance != null;
 
     /// <summary>
-    /// 对用户/UI：实例已连接，或系统设置里已打开本服务。
-    /// 脚本就绪请用 <see cref="IsReady"/>（需真正连上实例）。
+    /// 高级设置勾选：只认服务是否正在运行。系统里开关还在、但服务已停止时为 false。
     /// </summary>
-    public static bool IsEnabled => IsConnected || IsListedInSecureSettings();
+    public static bool IsEnabled => IsConnected;
 
     /// <summary>
     /// Fly / 键鼠注入是否可用。设置已开但实例未到时短暂等待系统绑定，避免刚开启就误判。
@@ -175,6 +228,34 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
 
     /// <summary>无障碍启停变化（高级设置复选框与提示入口共用）。</summary>
     public static event System.Action? EnabledChanged;
+
+    /// <summary>系统无障碍开关变化时也通知 UI（服务停掉但设置项残留时能把勾选清掉）。</summary>
+    public static void EnsureSettingsWatch()
+    {
+        if (Interlocked.Exchange(ref _settingsWatch, 1) == 1) return;
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            var uri = Settings.Secure.GetUriFor(Settings.Secure.EnabledAccessibilityServices);
+            if (ctx?.ContentResolver == null || uri == null) return;
+            _settingsObserver = new A11ySettingsObserver(new Handler(Looper.MainLooper!));
+            ctx.ContentResolver.RegisterContentObserver(uri, false, _settingsObserver);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyScreen", "a11y settings watch: " + ex.Message);
+        }
+    }
+
+    private static int _settingsWatch;
+    private static A11ySettingsObserver? _settingsObserver;
+
+    private sealed class A11ySettingsObserver : ContentObserver
+    {
+        public A11ySettingsObserver(Handler handler) : base(handler) { }
+
+        public override void OnChange(bool selfChange) => RaiseEnabledChanged();
+    }
 
     public static void OpenAccessibilitySettings()
     {
@@ -949,6 +1030,7 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
             {
                 _screenW = size.X;
                 _screenH = size.Y;
+                AlignScreenSizeWithConfiguration();
                 return;
             }
 
@@ -960,6 +1042,7 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
                 {
                     _screenW = cur.Width();
                     _screenH = cur.Height();
+                    AlignScreenSizeWithConfiguration();
                     return;
                 }
             }
@@ -973,6 +1056,34 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         if (dm == null) return;
         _screenW = dm.WidthPixels;
         _screenH = dm.HeightPixels;
+        AlignScreenSizeWithConfiguration();
+    }
+
+    /// <summary>
+    /// 部分 OEM 上 GetRealSize 与 Configuration.orientation 短暂不一致；
+    /// 以 Configuration 为准对调宽高，避免竖屏误选横屏识别区去跑 OCR。
+    /// </summary>
+    private void AlignScreenSizeWithConfiguration()
+    {
+        try
+        {
+            var orient = Resources?.Configuration?.Orientation
+                         ?? global::Android.Content.Res.Orientation.Undefined;
+            if (orient == global::Android.Content.Res.Orientation.Portrait && _screenW > _screenH)
+            {
+                (_screenW, _screenH) = (_screenH, _screenW);
+                Log.Info("FlyScreen", $"朝向对齐 Portrait → {_screenW}x{_screenH}");
+            }
+            else if (orient == global::Android.Content.Res.Orientation.Landscape && _screenW < _screenH)
+            {
+                (_screenW, _screenH) = (_screenH, _screenW);
+                Log.Info("FlyScreen", $"朝向对齐 Landscape → {_screenW}x{_screenH}");
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
 
     private void BeginDrag()

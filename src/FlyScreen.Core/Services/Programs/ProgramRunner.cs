@@ -15,6 +15,28 @@ public sealed class ProgramRunner
         _catalog = catalog;
     }
 
+    /// <summary>正在运行的程序数量变化（含 0）；Android 等宿主可据此启停保活。</summary>
+    public event Action<int>? RunningCountChanged;
+
+    public int RunningCount
+    {
+        get
+        {
+            var n = 0;
+            foreach (var kv in _running)
+            {
+                if (kv.Value.IsAlive) n++;
+            }
+            return n;
+        }
+    }
+
+    private void NotifyRunningCountChanged()
+    {
+        try { RunningCountChanged?.Invoke(RunningCount); }
+        catch { /* ignore host hooks */ }
+    }
+
     public bool IsRunning(string programId)
         => _running.TryGetValue(programId, out var r) && r.IsAlive;
 
@@ -77,6 +99,7 @@ public sealed class ProgramRunner
         AppLog.Info(debug
             ? $"调试启动「{prog.Name}」({prog.LanguageText} · 本机引擎)"
             : $"已启动「{prog.Name}」({prog.LanguageText} · 本机引擎)", prog.Id, prog.Name);
+        NotifyRunningCountChanged();
 
         ProgramDebugGate? gate = null;
         if (debug && prog.Language == ProgramLanguage.CSharp)
@@ -89,6 +112,36 @@ public sealed class ProgramRunner
         {
             try
             {
+                try
+                {
+                    var settings = ProgramSettingsStore.LoadResolved(_catalog, prog);
+                    Fly.BindSettings(settings);
+                    Fly.BindLogContext(prog.Id, prog.Name);
+                    var logLevel = ProgramSettingsSchema.ResolveLogLevel(settings);
+                    // 先宣告再设过滤：带 programId 的 Info 在 Error 级下会被丢掉
+                    AppLog.Info($"「{prog.Name}」日志级别={logLevel}（低于此级的脚本日志不写入）");
+                    AppLog.SetProgramMinWriteLevel(logLevel);
+                    var op = settings.GetValueOrDefault(ProgramRegionKeys.OcrPortrait) ?? "";
+                    var ol = settings.GetValueOrDefault(ProgramRegionKeys.OcrLandscape) ?? "";
+                    var ap = settings.GetValueOrDefault(ProgramRegionKeys.ActionPortrait) ?? "";
+                    var al = settings.GetValueOrDefault(ProgramRegionKeys.ActionLandscape) ?? "";
+                    if (!string.IsNullOrWhiteSpace(op) || !string.IsNullOrWhiteSpace(ol)
+                        || !string.IsNullOrWhiteSpace(ap) || !string.IsNullOrWhiteSpace(al))
+                        AppLog.Info(
+                            $"「{prog.Name}」区域 竖识={op} 竖操={ap} 横识={ol} 横操={al}",
+                            prog.Id, prog.Name);
+                    // 调试浮层仅由 debugLog 控制（与日志写入级别 logLevel 分离）
+                    if (ProgramSettingsSchema.AsBool(settings.GetValueOrDefault("debugLog"), false))
+                        ProgramDebugHud.Start(prog.Id, prog.Name);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn($"加载程序设置失败「{prog.Name}」: {ex.Message}", prog.Id, prog.Name);
+                    Fly.ClearSettings();
+                    Fly.ClearLogContext();
+                    AppLog.ClearProgramMinWriteLevel();
+                }
+
                 await InProcessProgramExecutor.RunAsync(
                     prog, source, cts.Token,
                     debug: debug,
@@ -113,6 +166,10 @@ public sealed class ProgramRunner
             }
             finally
             {
+                try { ProgramDebugHud.Stop(); } catch { /* ignore */ }
+                try { Fly.ClearSettings(); } catch { /* ignore */ }
+                try { Fly.ClearLogContext(); } catch { /* ignore */ }
+                try { AppLog.ClearProgramMinWriteLevel(); } catch { /* ignore */ }
                 try { gate?.EndRun(); } catch { /* ignore */ }
                 if (ProgramDebugGate.Current == gate)
                     ProgramDebugGate.Current = null;
@@ -126,6 +183,7 @@ public sealed class ProgramRunner
                         : ProgramStatus.Error;
                 }
                 try { cts.Dispose(); } catch { /* ignore */ }
+                NotifyRunningCountChanged();
             }
         }, CancellationToken.None);
 
@@ -173,6 +231,7 @@ public sealed class ProgramRunner
         AppLog.Info(debug
             ? $"调试启动「{prog.Name}」({prog.LanguageText})"
             : $"已启动「{prog.Name}」({prog.LanguageText})", prog.Id, prog.Name);
+        NotifyRunningCountChanged();
 
         _ = Task.Run(() => PumpOutputAsync(prog, job), CancellationToken.None);
         await Task.CompletedTask.ConfigureAwait(false);
@@ -185,6 +244,7 @@ public sealed class ProgramRunner
         {
             prog.RuntimeStatus = ProgramStatus.Idle;
             _running.TryRemove(prog.Id, out _);
+            NotifyRunningCountChanged();
             return;
         }
 
@@ -235,6 +295,7 @@ public sealed class ProgramRunner
                 try { job.Process.Dispose(); } catch { /* ignore */ }
             }
             AppLog.Info($"已停止「{prog.Name}」", prog.Id, prog.Name);
+            NotifyRunningCountChanged();
         }
     }
 
@@ -258,6 +319,10 @@ public sealed class ProgramRunner
 
     public async Task DeleteAsync(UserProgram prog)
     {
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"「{prog.Name}」为内置程序，不可删除");
+
         if (IsRunning(prog.Id))
             await StopAsync(prog).ConfigureAwait(false);
         _catalog.Delete(prog);
@@ -267,6 +332,12 @@ public sealed class ProgramRunner
     {
         foreach (var p in programs.ToList())
         {
+            if (p.IsBuiltin
+                || string.Equals(p.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+            {
+                AppLog.Warn($"已跳过删除内置程序「{p.Name}」", p.Id, p.Name);
+                continue;
+            }
             try { await DeleteAsync(p).ConfigureAwait(false); }
             catch (Exception ex) { AppLog.Error(ex, $"删除「{p.Name}」失败", p.Id, p.Name); }
         }
@@ -303,6 +374,7 @@ public sealed class ProgramRunner
                 ? ProgramStatus.Idle
                 : ProgramStatus.Error;
             try { p.Dispose(); } catch { /* ignore */ }
+            NotifyRunningCountChanged();
         }
     }
 

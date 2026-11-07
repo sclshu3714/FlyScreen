@@ -25,6 +25,13 @@
     <Resource Include="Assets\wlogo_tu.ico" />
   </ItemGroup>
 
+  <!-- 离线 VDD：共用 tools\VddOffline（src 仅代码；docs/mtt_vdd 供开发说明） -->
+  <ItemGroup>
+    <None Include="..\..\tools\VddOffline\**\*"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="VddOffline\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />

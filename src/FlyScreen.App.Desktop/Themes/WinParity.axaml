@@ -20,7 +20,11 @@
   <SolidColorBrush x:Key="Placeholder" Color="#9CA3AF"/>
   <SolidColorBrush x:Key="MatrixBg" Color="#F8FAFC"/>
   <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
+  <SolidColorBrush x:Key="ScrollTrack" Color="#00000000"/>
+  <SolidColorBrush x:Key="ScrollThumb" Color="#CBD5E1"/>
+  <SolidColorBrush x:Key="ScrollThumbHover" Color="#94A3B8"/>
+  <SolidColorBrush x:Key="ScrollThumbDrag" Color="#64748B"/>
 
   <!-- Inter 嵌入保证可启动；CJK 由 FontManagerOptions.FontFallbacks / 系统字体补齐 -->
-  <FontFamily x:Key="UiFont">fonts:Inter#Inter, Inter, Microsoft YaHei UI, Microsoft YaHei, Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, sans-serif</FontFamily>
+  <FontFamily x:Key="UiFont">fonts:Inter#Inter, Inter, Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, WenQuanYi Zen Hei, sans-serif</FontFamily>
 </ResourceDictionary>

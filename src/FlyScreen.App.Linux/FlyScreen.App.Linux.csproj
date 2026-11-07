@@ -27,6 +27,39 @@
     <ProjectReference Include="..\FlyScreen.App.Desktop\FlyScreen.App.Desktop.csproj" />
   </ItemGroup>
 
+  <!-- 共用 tools\VddOffline 仅 README；不复制 Windows .exe -->
+  <ItemGroup>
+    <None Include="..\..\tools\VddOffline\README.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="VddOffline\README.txt"
+          Condition="Exists('..\..\tools\VddOffline\README.txt')" />
+  </ItemGroup>
+
+  <!-- 默认随包 OFL CJK：tools/linux-fonts/* → Fonts/；许可 → Licenses/ -->
+  <ItemGroup>
+    <None Include="..\..\tools\linux-fonts\**\*.*"
+          Exclude="..\..\tools\linux-fonts\**\README.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="Fonts\%(Filename)%(Extension)"
+          Condition="Exists('..\..\tools\linux-fonts')" />
+    <None Include="..\..\tools\linux-fonts\README.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="Fonts\README.txt"
+          Condition="Exists('..\..\tools\linux-fonts\README.txt')" />
+    <None Include="..\..\third_party\licenses\**\*.*"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="Licenses\%(Filename)%(Extension)"
+          Condition="Exists('..\..\third_party\licenses')" />
+    <None Include="..\..\docs\THIRD_PARTY.md"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="Licenses\THIRD_PARTY.md"
+          Condition="Exists('..\..\docs\THIRD_PARTY.md')" />
+    <None Include="..\..\NOTICE.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="Licenses\NOTICE.txt"
+          Condition="Exists('..\..\NOTICE.txt')" />
+  </ItemGroup>
+
   <Import Project="..\..\build\FlyScreen.Version.targets" />
 
 </Project>

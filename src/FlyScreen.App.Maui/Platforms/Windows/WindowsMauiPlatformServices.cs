@@ -1,8 +1,11 @@
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers;
+using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.ScreenExtend;
+using DisplayProjectionMode = FlyScreen.Services.ScreenExtend.DisplayProjectionMode;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
@@ -12,19 +15,33 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private readonly AppSettings _settings;
     private readonly ConnectionManager _connections;
     private readonly FileTransferService _transfers;
+    private readonly ScreenExtendService _screenExtend;
     private readonly MauiClipboardApplySink _clipSink = new();
     private MauiInputRouter? _router;
+    private EdgeFileDragService? _edgeDrag;
     private MauiTextClipboardMonitor? _clipMonitor;
     private MauiTrayService? _tray;
+    private MauiScreenExtendController? _screenExtendUi;
 
     public WindowsMauiPlatformServices(
         AppSettings settings,
         ConnectionManager connections,
-        FileTransferService transfers)
+        FileTransferService transfers,
+        ScreenExtendService screenExtend)
     {
         _settings = settings;
         _connections = connections;
         _transfers = transfers;
+        _screenExtend = screenExtend;
+        _screenExtendUi = new MauiScreenExtendController(screenExtend);
+        _screenExtend.SinkSessionReady += () =>
+        {
+            try { _router?.SetEasyMousePaused(true); } catch { /* ignore */ }
+        };
+        _screenExtend.SessionEnded += () =>
+        {
+            try { _router?.SetEasyMousePaused(false); } catch { /* ignore */ }
+        };
     }
 
     public IClipboardApplySink ClipboardSink => _clipSink;
@@ -38,11 +55,32 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void SetRemotePointerSuppressed(bool suppressed) { /* 桌面不需要触控板屏蔽 */ }
 
+    public void AttachEdgeFileDrag(EdgeFileDragService drag)
+    {
+        if (_edgeDrag != null)
+            _edgeDrag.CueChanged -= OnEdgeDragCue;
+        _edgeDrag = drag;
+        drag.CueChanged += OnEdgeDragCue;
+        if (_router != null)
+            _router.EdgeFileDrag = drag;
+    }
+
+    private static void OnEdgeDragCue(EdgeDragCue? cue)
+    {
+        if (cue == null || cue.Count <= 0)
+            EdgeFileDragCue.Hide();
+        else
+            EdgeFileDragCue.Show(cue.Count, cue.Names, WindowsDropFolder.Resolve);
+    }
+
     public void StartDesktopInput()
     {
         _router?.Dispose();
         _router = new MauiInputRouter(_settings, _connections);
+        _router.EdgeFileDrag = _edgeDrag;
         _router.EasyMouseEnabled = _settings.EasyMouse;
+        _router.IsEdgeCrossExcluded = peer => _screenExtend.IsExcludedFromEdgeCross(peer);
+        _router.ShouldPauseEasyMouseForExtend = () => _screenExtend.ShouldPauseLocalEasyMouse;
         _router.TryHandleLocalFilePasteHotkey = () =>
             _clipMonitor?.TryHandlePasteHotkey() == true;
         _router.ControlTargetChanged += peer =>
@@ -58,18 +96,13 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private static void ShowMainWindow()
     {
         var window = Application.Current?.Windows.FirstOrDefault();
-        if (window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
-        {
-            native.AppWindow.Show();
-            native.Activate();
-        }
+        MauiAutostartUi.TryShowNative(window);
     }
 
     private static void HideMainWindow()
     {
         var window = Application.Current?.Windows.FirstOrDefault();
-        if (window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window native)
-            native.AppWindow.Hide();
+        MauiAutostartUi.TryHideNative(window);
     }
 
     public void StopDesktopInput()
@@ -101,10 +134,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         => MauiInputInjector.Key(new KeyEventPayload { VirtualKey = vk, Down = down, Extended = extended });
 
     public void InjectText(string text)
-    {
-        // Windows MAUI 被控时仍走键鼠注入；成段文本暂以逐字符不可靠，忽略
-        _ = text;
-    }
+        => MauiInputInjector.InsertText(text);
 
     public void BeginReceivingRemoteControl(double entryX, double entryY)
         => _router?.BeginReceivingRemoteControl(entryX, entryY);
@@ -133,10 +163,10 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public bool GetAutoStartEnabled() => AutoStartHelper.IsEnabled();
 
-    public void SetAutoStartEnabled(bool enabled)
+    public bool SetAutoStartEnabled(bool enabled)
         => AutoStartHelper.SetEnabled(enabled);
 
-    public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
     {
         _tray ??= new MauiTrayService();
         _tray.Ensure(
@@ -154,8 +184,13 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
             exit: () =>
             {
                 if (exit != null) exit();
-                else Application.Current?.Quit();
+                else MauiCloseToTray.RequestExit();
             });
+    }
+
+    public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    {
+        EnsureTray(showMain, reconnect, about, exit);
         HideMainWindow();
     }
 
@@ -164,4 +199,21 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _tray?.Dispose();
         _tray = null;
     }
+
+    public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
+        LayoutEdgeSide layoutSide = LayoutEdgeSide.Unknown)
+        => _screenExtendUi?.EnsureHostDisplayAsync(layoutSide: layoutSide)
+           ?? Task.FromResult<(bool, string?)>((false, "扩展屏控制器未初始化"));
+
+    public Task<(bool Ok, string? Error)> PrepareScreenExtendCaptureAsync(CancellationToken ct = default)
+        => Task.FromResult<(bool, string?)>((true, null));
+
+    public Task ReleaseScreenExtendHostDisplayAsync()
+        => _screenExtendUi?.ReleaseHostDisplayAsync() ?? Task.CompletedTask;
+
+    public void SetScreenExtendProjectionMode(DisplayProjectionMode mode)
+        => _screenExtendUi?.SetProjectionMode(mode);
+
+    public void SetScreenExtendDisplayChoice(ProjectionDisplayChoice? choice)
+        => _screenExtendUi?.SetDisplayChoice(choice);
 }

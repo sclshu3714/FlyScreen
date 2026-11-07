@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "VYDwqAkaQ28=",
+  "success": true,
+  "projectFilePath": "d:\\Source\\Repos\\FlyScreen\\src\\FlyScreen.Windows\\FlyScreen.Windows.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\acornima\\1.2.0\\acornima.1.2.0.nupkg.sha512",
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\jint\\4.4.1\\jint.4.4.1.nupkg.sha512",
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\microsoft.codeanalysis.analyzers\\3.11.0\\microsoft.codeanalysis.analyzers.3.11.0.nupkg.sha512",
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\microsoft.codeanalysis.common\\4.14.0\\microsoft.codeanalysis.common.4.14.0.nupkg.sha512",
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\microsoft.codeanalysis.csharp\\4.14.0\\microsoft.codeanalysis.csharp.4.14.0.nupkg.sha512",
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\microsoft.codeanalysis.csharp.scripting\\4.14.0\\microsoft.codeanalysis.csharp.scripting.4.14.0.nupkg.sha512",
+    "C:\\Users\\wuxuezhi\\.nuget\\packages\\microsoft.codeanalysis.scripting.common\\4.14.0\\microsoft.codeanalysis.scripting.common.4.14.0.nupkg.sha512"
+  ],
+  "logs": []
+}

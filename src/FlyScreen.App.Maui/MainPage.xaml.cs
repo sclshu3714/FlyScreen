@@ -47,13 +47,17 @@ public partial class MainPage : ContentPage
     private bool _uiPrepared;
     private bool _a11yInjectUpdating;
     private bool _a11yInjectWired;
+    private int _a11yRefreshGen;
+    private bool _notifyInjectUpdating;
     private bool _pageAlive = true;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
     private Action<string>? _onStatusMessage;
+    private Action<string>? _onProjectionNotice;
     private Action? _onAppLogChanged;
     private Action<string>? _onLayoutSynced;
     private Action<string>? _onBehaviorSynced;
+    private Action<string>? _onSecurityKeySynced;
     private Action<IReadOnlyList<DiscoveredPeer>>? _onPeersUpdated;
     private Action<string, bool, bool>? _onPeerLinkChanged;
 
@@ -75,7 +79,11 @@ public partial class MainPage : ContentPage
         _host = MauiAppHost.EnsureCreated();
         DiscoveryList.ItemsSource = _discovery;
         TransferList.ItemsSource = _host.Transfers.Items;
-        TrayBtn.IsVisible = true;
+        TrayBtn.IsVisible = _host.Platform.SupportsTray;
+        // 触控板入口：手机（及 Android 平板）按需打开，默认不进触控板页
+        TouchpadBtn.IsVisible =
+            DeviceInfo.Platform == DevicePlatform.Android
+            && (DeviceInfo.Idiom == DeviceIdiom.Phone || DeviceInfo.Idiom == DeviceIdiom.Tablet);
         AutoStartCheck.IsEnabled = _host.Platform.SupportsAutoStart;
         Loaded += OnLoaded;
         SizeChanged += OnPageSizeChanged;
@@ -124,6 +132,11 @@ public partial class MainPage : ContentPage
         _pageAlive = true;
 
         _onStatusMessage = msg => RunOnUi(() => StatusLabel.Text = msg);
+        _onProjectionNotice = msg => RunOnUi(async () =>
+        {
+            try { await DisplayAlert("投影", msg, "确定"); }
+            catch { /* ignore */ }
+        });
         _onAppLogChanged = () => RunOnUi(() =>
         {
             if (PageLog.IsVisible && _logPageFromLatest == 0)
@@ -140,15 +153,25 @@ public partial class MainPage : ContentPage
             LoadUi();
             ApplyLocalizedUi();
         });
+        _onSecurityKeySynced = from => RunOnUi(() =>
+        {
+            KeyEntry.Text = _host.Settings.SecurityKey ?? "";
+            StatusLabel.Text = $"已同步安全密钥 ← {from}";
+        });
         _onPeersUpdated = _ => RunOnUi(RefreshDiscovery);
         _onPeerLinkChanged = (_, _, _) => RunOnUi(RefreshSlotStatuses);
 
         _host.StatusMessage += _onStatusMessage;
+        if (_onProjectionNotice != null)
+            _host.ProjectionUserNotice += _onProjectionNotice;
         AppLog.Changed += _onAppLogChanged;
         _host.LayoutSyncedFromPeer += _onLayoutSynced;
         _host.BehaviorSyncedFromPeer += _onBehaviorSynced;
+        _host.SecurityKeySyncedFromPeer += _onSecurityKeySynced;
         _host.Connections.Discovery.PeersUpdated += _onPeersUpdated;
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
+        _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
 
         _statusTimer = Dispatcher.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2);
@@ -157,7 +180,11 @@ public partial class MainPage : ContentPage
             if (_pageAlive && Handler != null)
                 RefreshSlotStatuses();
         };
+        RefreshPhoneProjectButton();
     }
+
+    private void OnProjectionSessionChanged()
+        => RunOnUi(RefreshPhoneProjectButton);
 
     private void UnwireHost()
     {
@@ -166,21 +193,29 @@ public partial class MainPage : ContentPage
 
         if (_onStatusMessage != null)
             _host.StatusMessage -= _onStatusMessage;
+        if (_onProjectionNotice != null)
+            _host.ProjectionUserNotice -= _onProjectionNotice;
         if (_onAppLogChanged != null)
             AppLog.Changed -= _onAppLogChanged;
         if (_onLayoutSynced != null)
             _host.LayoutSyncedFromPeer -= _onLayoutSynced;
         if (_onBehaviorSynced != null)
             _host.BehaviorSyncedFromPeer -= _onBehaviorSynced;
+        if (_onSecurityKeySynced != null)
+            _host.SecurityKeySyncedFromPeer -= _onSecurityKeySynced;
         if (_onPeersUpdated != null)
             _host.Connections.Discovery.PeersUpdated -= _onPeersUpdated;
         if (_onPeerLinkChanged != null)
             _host.Connections.PeerLinkChanged -= _onPeerLinkChanged;
+        _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
+        _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
 
         _onStatusMessage = null;
+        _onProjectionNotice = null;
         _onAppLogChanged = null;
         _onLayoutSynced = null;
         _onBehaviorSynced = null;
+        _onSecurityKeySynced = null;
         _onPeersUpdated = null;
         _onPeerLinkChanged = null;
     }
@@ -229,7 +264,47 @@ public partial class MainPage : ContentPage
             StatusLabel.Text = $"网络启动失败：{ex.Message}";
         }
 
+        // 对齐 Win：启动即挂托盘；--autostart 时隐藏主窗（后台已连接）
+        if (_host.Platform.SupportsTray)
+        {
+            EnsureDesktopTray();
+#if WINDOWS
+            if (FlyScreen.Helpers.AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
+            {
+                StatusLabel.Text =
+                    $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+                _host.Platform.HideToBackground(
+                    showMain: () => { },
+                    reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+                    about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
+                    exit: RequestAppExit);
+            }
+#endif
+        }
+
         _statusTimer?.Start();
+    }
+
+    private void EnsureDesktopTray()
+    {
+        if (!_host.Platform.SupportsTray) return;
+        _host.Platform.EnsureTray(
+            showMain: () => { },
+            reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
+            exit: RequestAppExit);
+    }
+
+    /// <summary>托盘「关于」：显示关于页。</summary>
+    public void ShowAboutFromTray() => ShowPage(5);
+
+    private static void RequestAppExit()
+    {
+#if WINDOWS
+        Platforms.Windows.MauiCloseToTray.RequestExit();
+#else
+        Application.Current?.Quit();
+#endif
     }
 
     protected override void OnAppearing()
@@ -546,7 +621,9 @@ public partial class MainPage : ContentPage
         ProgMoreEditBtn.Text = $"✎  {Loc.T("Prog.ActEdit")}";
         ProgMoreLogBtn.Text = $"☰  {Loc.T("Prog.ActLog")}";
         ProgMoreShareBtn.Text = $"⇪  {Loc.T("Prog.ActShare")}";
+        ProgMoreSettingsBtn.Text = $"⚙  {Loc.T("Prog.ActSettings")}";
         ProgMoreDeleteBtn.Text = $"✕  {Loc.T("Prog.ActDelete")}";
+        ProgMoreDeleteBtn.IsVisible = prog is not { IsBuiltin: true };
 
         // 先 Invisible 定位，避免 (0,0)→锚点 闪现
         ProgMoreFlyout.Opacity = 0;
@@ -675,11 +752,30 @@ public partial class MainPage : ContentPage
         if (prog != null) await ProgRowShareAsync(prog);
     }
 
+    private async void ProgMoreSettings_Clicked(object? sender, EventArgs e)
+    {
+        var prog = _progMoreTarget;
+        HideProgMoreFlyout();
+        if (prog != null) await ProgRowSettingsAsync(prog);
+    }
+
     private async void ProgMoreDelete_Clicked(object? sender, EventArgs e)
     {
         var prog = _progMoreTarget;
         HideProgMoreFlyout();
         if (prog != null) await ProgRowDeleteAsync(prog);
+    }
+
+    private async Task ProgRowSettingsAsync(UserProgram prog)
+    {
+        try
+        {
+            await Navigation.PushAsync(new ProgramSettingsPage(prog));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(Loc.T("Prog.ActSettings"), ex.Message, "OK");
+        }
     }
 
     private void ApplyOptionsPlacement(bool compact)
@@ -743,10 +839,13 @@ public partial class MainPage : ContentPage
                 OptionsFeatGrid.ColumnSpacing = 0;
                 Grid.SetRow(FeatColumn, 0);
                 Grid.SetColumn(FeatColumn, 0);
+                Grid.SetColumnSpan(FeatColumn, 1);
                 Grid.SetRow(BehColumn, 1);
                 Grid.SetColumn(BehColumn, 0);
+                Grid.SetColumnSpan(BehColumn, 1);
                 Grid.SetRow(EdgeCrossColumn, 2);
                 Grid.SetColumn(EdgeCrossColumn, 0);
+                Grid.SetColumnSpan(EdgeCrossColumn, 1);
             }
         }
         else
@@ -801,14 +900,17 @@ public partial class MainPage : ContentPage
                 {
                     new(GridLength.Auto)
                 };
-                OptionsFeatGrid.RowSpacing = 0;
+                OptionsFeatGrid.RowSpacing = 10;
                 OptionsFeatGrid.ColumnSpacing = 12;
                 Grid.SetRow(FeatColumn, 0);
                 Grid.SetColumn(FeatColumn, 0);
+                Grid.SetColumnSpan(FeatColumn, 1);
                 Grid.SetRow(BehColumn, 0);
                 Grid.SetColumn(BehColumn, 1);
+                Grid.SetColumnSpan(BehColumn, 1);
                 Grid.SetRow(EdgeCrossColumn, 0);
                 Grid.SetColumn(EdgeCrossColumn, 2);
+                Grid.SetColumnSpan(EdgeCrossColumn, 1);
             }
         }
     }
@@ -838,9 +940,13 @@ public partial class MainPage : ContentPage
         AddMachineBtn.Text = Loc.T(iconOnly ? "Layout.AddShort" : "Layout.AddTool");
         RemoveMachineBtn.Text = Loc.T(iconOnly ? "Layout.RemoveShort" : "Layout.RemoveTool");
         ReconnectBtn.Text = Loc.T(iconOnly ? "Layout.ReconnectShort" : "Layout.ReconnectTool");
+        if (TouchpadBtn != null && TouchpadBtn.IsVisible)
+            TouchpadBtn.Text = iconOnly ? "⌨" : "⌨ 触控板";
         AddMachineBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
         RemoveMachineBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
         ReconnectBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
+        if (TouchpadBtn != null)
+            TouchpadBtn.Padding = iconOnly ? new Thickness(8, 0) : new Thickness(10, 0);
     }
 
     // 与文字同行的符号，避免 Path 叠字导致垂直错位
@@ -929,6 +1035,7 @@ public partial class MainPage : ContentPage
         HideMouseCheck.IsChecked = s.HideMouseAtEdge;
         DrawCursorCheck.IsChecked = s.DrawMouseCursor;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        SyncNotifyInjectCheck();
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
         SameSubnetCheck.IsChecked = s.SameSubnetOnly;
         ShowStatusCheck.IsChecked = s.ShowStatusMessages;
@@ -985,7 +1092,9 @@ public partial class MainPage : ContentPage
         SecurityTitleText.Text = Loc.T("Sec.Title");
         ShowKeyLabel.Text = Loc.T("Sec.Show");
         NewKeyBtn.Text = Loc.T("Sec.NewKey");
+        if (SyncKeyBtn != null) SyncKeyBtn.Text = Loc.T("Sec.SyncKey");
         SecurityHintText.Text = Loc.T("Sec.Hint");
+        if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
         LayoutTitleText.Text = Loc.T("Layout.Title");
         LayoutHintText.Text = Loc.T("Layout.Hint");
         LayoutDragTipText.Text = Loc.T("Layout.DragTip");
@@ -1005,21 +1114,25 @@ public partial class MainPage : ContentPage
         RelativeMouseLabel.Text = Loc.T("Opt.MoveRel");
         BlockCornersLabel.Text = Loc.T("Opt.BlockCorner");
         EasyMouseLabel.Text = Loc.T("Opt.EasyMouse");
+        NotifyInjectLabel.Text = Loc.T("Opt.NotifyInject");
+        NotifyInjectTipLabel.Text = Loc.T("Opt.NotifyInjectTip");
         A11yInjectLabel.Text = Loc.T("Opt.A11yInject");
         A11yInjectTipLabel.Text = Loc.T("Opt.A11yInjectTip");
         EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
-        EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
-        EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
-        EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        MauiRadioTheme.SetContent(EdgeCrossBarrierRadio, Loc.T("Opt.EdgeCross.BarrierFree"));
+        MauiRadioTheme.SetContent(EdgeCrossDoubleRadio, Loc.T("Opt.EdgeCross.DoubleTap"));
+        MauiRadioTheme.SetContent(EdgeCrossSpeedRadio, Loc.T("Opt.EdgeCross.SpeedBurst"));
         RefreshEdgeCrossTip();
+        WireNotifyInjectUi();
+        SyncNotifyInjectCheck();
         WireA11yInjectUi();
         SyncA11yInjectCheck();
 
         HotTitleText.Text = Loc.T("Hot.Title");
         HotSwitchText.Text = Loc.T("Hot.Switch");
-        HotF.Content = Loc.T("Hot.F14");
-        HotNum.Content = Loc.T("Hot.Num");
-        HotOff.Content = Loc.T("Hot.Off");
+        MauiRadioTheme.SetContent(HotF, Loc.T("Hot.F14"));
+        MauiRadioTheme.SetContent(HotNum, Loc.T("Hot.Num"));
+        MauiRadioTheme.SetContent(HotOff, Loc.T("Hot.Off"));
         HotSettingsLabel.Text = Loc.T("Hot.Settings");
         HotReconnectLabel.Text = Loc.T("Hot.Reconnect");
         HotExitLabel.Text = Loc.T("Hot.Exit");
@@ -1028,8 +1141,8 @@ public partial class MainPage : ContentPage
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
-        ThemeLight.Content = Loc.T("Sys.StyleLight");
-        ThemeDark.Content = Loc.T("Sys.StyleDark");
+        MauiRadioTheme.SetContent(ThemeLight, Loc.T("Sys.StyleLight"));
+        MauiRadioTheme.SetContent(ThemeDark, Loc.T("Sys.StyleDark"));
 
         NicTitleText.Text = Loc.T("Net.NicTitle");
         NicHintText.Text = Loc.T("Net.NicHint");
@@ -1570,6 +1683,17 @@ public partial class MainPage : ContentPage
             : $"已选 {slot.DisplayName}（按住拖到其他格子互换）";
     }
 
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v))
+                return v.Trim();
+        }
+
+        return null;
+    }
+
     private long _lastTapTicks;
 
     private void RefreshSlotStatuses()
@@ -1836,6 +1960,12 @@ public partial class MainPage : ContentPage
 
     private async Task ProgRowDeleteAsync(UserProgram prog)
     {
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            await DisplayAlertAsync(Loc.T("Prog.ActDelete"), Loc.T("Prog.BuiltinNoDelete"), "OK");
+            return;
+        }
         if (!await DisplayAlertAsync(Loc.T("Prog.ActDelete"), Loc.T("Prog.ConfirmDelete"), "OK", "Cancel"))
             return;
         try { await ProgramService.Instance.Runner.DeleteAsync(prog); }
@@ -1899,9 +2029,10 @@ public partial class MainPage : ContentPage
     {
         return LogLevelFilter.SelectedIndex switch
         {
-            1 => AppLogLevelFilter.Info,
-            2 => AppLogLevelFilter.Warn,
-            3 => AppLogLevelFilter.Error,
+            1 => AppLogLevelFilter.Debug,
+            2 => AppLogLevelFilter.Info,
+            3 => AppLogLevelFilter.Warn,
+            4 => AppLogLevelFilter.Error,
             _ => AppLogLevelFilter.All
         };
     }
@@ -1912,14 +2043,16 @@ public partial class MainPage : ContentPage
         _logFilterReady = false;
         LogLevelFilter.Items.Clear();
         LogLevelFilter.Items.Add(Loc.T("Log.LevelAll"));
+        LogLevelFilter.Items.Add(Loc.T("Log.LevelDebug"));
         LogLevelFilter.Items.Add(Loc.T("Log.LevelInfo"));
         LogLevelFilter.Items.Add(Loc.T("Log.LevelWarn"));
         LogLevelFilter.Items.Add(Loc.T("Log.LevelError"));
         LogLevelFilter.SelectedIndex = selected switch
         {
-            AppLogLevelFilter.Info => 1,
-            AppLogLevelFilter.Warn => 2,
-            AppLogLevelFilter.Error => 3,
+            AppLogLevelFilter.Debug => 1,
+            AppLogLevelFilter.Info => 2,
+            AppLogLevelFilter.Warn => 3,
+            AppLogLevelFilter.Error => 4,
             _ => 0
         };
         _logFilterReady = true;
@@ -2222,12 +2355,93 @@ public partial class MainPage : ContentPage
     }
 #endif
 
+    private void WireNotifyInjectUi()
+    {
+#if ANDROID
+        NotifyInjectRow.IsVisible = true;
+#else
+        NotifyInjectRow.IsVisible = false;
+#endif
+    }
+
+    private void SyncNotifyInjectCheck()
+    {
+#if ANDROID
+        if (!NotifyInjectRow.IsVisible) return;
+        _notifyInjectUpdating = true;
+        try { NotifyInjectCheck.IsChecked = _host.Settings.NotificationInject; }
+        finally { _notifyInjectUpdating = false; }
+#endif
+    }
+
+    private async void NotifyInject_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+#if ANDROID
+        // 仅改通知注入；不影响无障碍注入勾选/服务状态
+        if (_notifyInjectUpdating) return;
+        var want = e.Value;
+        _host.Settings.NotificationInject = want;
+        _host.Settings.Save();
+
+        if (want && OperatingSystem.IsAndroidVersionAtLeast(33))
+        {
+            try
+            {
+                var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
+                if (status != PermissionStatus.Granted)
+                    status = await Permissions.RequestAsync<Permissions.PostNotifications>();
+                if (status != PermissionStatus.Granted)
+                    StatusLabel.Text = "未授予通知权限：系统可能不显示保活通知";
+            }
+            catch { /* ignore */ }
+        }
+
+        Platforms.Android.AndroidProgramWakeLock.RefreshNotificationInject(want);
+        StatusLabel.Text = want
+            ? "已开启通知注入：有子程序运行时将显示前台通知"
+            : "已关闭通知注入：不再使用通知保活";
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    /// <summary>勾选无障碍时顺带打开通知注入（可再单独取消；取消不影响无障碍）。</summary>
+    private void EnsureNotificationInjectOnFromA11y()
+    {
+#if ANDROID
+        if (_host.Settings.NotificationInject && NotifyInjectCheck.IsChecked == true)
+            return;
+        _host.Settings.NotificationInject = true;
+        _host.Settings.Save();
+        _notifyInjectUpdating = true;
+        try { NotifyInjectCheck.IsChecked = true; }
+        finally { _notifyInjectUpdating = false; }
+        Platforms.Android.AndroidProgramWakeLock.RefreshNotificationInject(true);
+        _ = RequestNotifyPermissionQuietAsync();
+#endif
+    }
+
+#if ANDROID
+    private static async Task RequestNotifyPermissionQuietAsync()
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(33)) return;
+        try
+        {
+            var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
+            if (status != PermissionStatus.Granted)
+                await Permissions.RequestAsync<Permissions.PostNotifications>();
+        }
+        catch { /* ignore */ }
+    }
+#endif
+
     private void WireA11yInjectUi()
     {
 #if ANDROID
         A11yInjectRow.IsVisible = true;
         if (_a11yInjectWired) return;
         _a11yInjectWired = true;
+        Platforms.Android.FlyScreenInputAccessibilityService.EnsureSettingsWatch();
         Platforms.Android.FlyScreenInputAccessibilityService.EnabledChanged += () =>
             MainThread.BeginInvokeOnMainThread(SyncA11yInjectCheck);
 #else
@@ -2242,8 +2456,8 @@ public partial class MainPage : ContentPage
         _a11yInjectUpdating = true;
         try
         {
-            // 设置已开或实例已连都显示勾选（避免刚开启时 Instance 未到导致勾选弹回）
-            A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsEnabled;
+            // 只跟服务是否真的在跑。系统里开关还在、服务已停止时取消勾选。
+            A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
         }
         finally
         {
@@ -2252,8 +2466,20 @@ public partial class MainPage : ContentPage
 #endif
     }
 
-    /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。</summary>
-    public void RefreshA11yInjectFromResume() => SyncA11yInjectCheck();
+    /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。绑定可能略晚，补两次。</summary>
+    public void RefreshA11yInjectFromResume()
+    {
+        SyncA11yInjectCheck();
+        var gen = ++_a11yRefreshGen;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () =>
+        {
+            if (gen == _a11yRefreshGen) SyncA11yInjectCheck();
+        });
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), () =>
+        {
+            if (gen == _a11yRefreshGen) SyncA11yInjectCheck();
+        });
+    }
 
     private async void A11yInject_Changed(object? sender, CheckedChangedEventArgs e)
     {
@@ -2266,6 +2492,8 @@ public partial class MainPage : ContentPage
 
         if (wantOn)
         {
+            // 开启无障碍时自动勾选通知注入；之后可单独取消通知，不牵动无障碍
+            EnsureNotificationInjectOnFromA11y();
             if (connected) return;
             // 设置里已开但未连上：仍引导去设置重新开关
             var go = await DisplayAlertAsync(
@@ -2280,10 +2508,15 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        // 关闭：能 DisableSelf 则直接停；否则去设置关
+        // 关闭无障碍：不改动通知注入勾选。停用是异步的，成功时等服务断开再刷新，避免马上被旧状态勾回去。
         if (connected)
-            Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf();
-        else if (listed)
+        {
+            if (!Platforms.Android.FlyScreenInputAccessibilityService.TryDisableSelf())
+                SyncA11yInjectCheck();
+            return;
+        }
+
+        if (listed)
             Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
         SyncA11yInjectCheck();
 #else
@@ -2306,6 +2539,24 @@ public partial class MainPage : ContentPage
     {
         KeyEntry.Text = AppSettings.GenerateKey();
         KeyEntry.IsPassword = ShowKeyCheck.IsChecked != true;
+    }
+
+    private async void SyncKey_Clicked(object? sender, EventArgs e)
+    {
+        var prevKey = _host.Settings.SecurityKey ?? "";
+        _host.Settings.SecurityKey = (KeyEntry.Text ?? "").Trim();
+        _host.Settings.Save();
+        var (ok, msg) = await _host.SyncSecurityKeyAsync();
+        if (ok)
+        {
+            await _host.ApplyNetworkingAsync(
+                _host.Settings.TcpPort,
+                _host.Settings.UdpPort,
+                _host.Settings.PreferredNicId ?? "",
+                _host.Settings.PreferredLocalIp ?? "",
+                prevKey);
+        }
+        StatusLabel.Text = msg;
     }
 
     private async void Apply_Clicked(object? sender, EventArgs e)
@@ -2334,6 +2585,13 @@ public partial class MainPage : ContentPage
         var removedAny = prevSet.Any(n => !newSet.Contains(n));
         var layoutMerge = !removedAny && newSet.Count >= prevSet.Count;
 
+        var prevTcp = _host.Settings.TcpPort;
+        var prevUdp = _host.Settings.UdpPort;
+        var prevNic = _host.Settings.PreferredNicId ?? "";
+        var prevIp = _host.Settings.PreferredLocalIp ?? "";
+        var prevKey = _host.Settings.SecurityKey ?? "";
+
+        var wantAutoStart = AutoStartCheck.IsChecked == true;
         _host.ApplyFromUi(
             KeyEntry.Text ?? "",
             newSlots,
@@ -2348,7 +2606,7 @@ public partial class MainPage : ContentPage
             HideMouseCheck.IsChecked == true,
             DrawCursorCheck.IsChecked == true,
             ShowStatusCheck.IsChecked == true,
-            AutoStartCheck.IsChecked == true,
+            wantAutoStart,
             BlockSaverCheck.IsChecked == true,
             RelativeMouseCheck.IsChecked == true,
             BlockCornersCheck.IsChecked == true,
@@ -2365,14 +2623,75 @@ public partial class MainPage : ContentPage
         MauiThemeService.Apply(theme, this);
         LoadUi();
         ApplyLocalizedUi();
+        // 本地化会改 Radio 文案；再强制字色（含延迟，避免 WinUI 仍用旧主题前景）
+        RefreshOptionsRadioChrome();
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), RefreshOptionsRadioChrome);
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), RefreshOptionsRadioChrome);
         RebuildMatrix();
         if (layoutMerge)
             await _host.BroadcastLayoutMergeAsync();
         else
             await _host.BroadcastLayoutSyncAsync();
         await _host.BroadcastBehaviorSyncAsync();
-        await _host.RestartNetworkingAsync();
-        StatusLabel.Text = Loc.T("Sys.Applied");
+        // 默认保持连接；仅端口/网卡/密钥变化才整网重启
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
+        if (_host.Platform.SupportsAutoStart
+            && _host.Platform.GetAutoStartEnabled() != wantAutoStart)
+        {
+            StatusLabel.Text = wantAutoStart
+                ? "开机自启设置失败（需权限创建计划任务）"
+                : "关闭开机自启失败";
+        }
+        else
+            StatusLabel.Text = Loc.T("Sys.Applied");
+    }
+
+    public async Task OpenProjectionDialogAsync()
+    {
+        if (_host.ScreenExtend.IsActive
+            && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
+        {
+            await DisplayAlert(
+                "投影",
+                FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
+                    FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
+                    _host.ScreenExtend.Peer),
+                "确定");
+            return;
+        }
+
+        // 无 NavigationPage，避免系统顶栏白条；页内自定义标题 + 居中卡片
+        await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+    }
+
+    private async void PhoneProject_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_host.ScreenExtend.IsActive
+                && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
+            {
+                await _host.StopProjectionAsync();
+                RefreshPhoneProjectButton();
+                return;
+            }
+
+            await OpenProjectionDialogAsync();
+            RefreshPhoneProjectButton();
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
+    private void RefreshPhoneProjectButton()
+    {
+        if (PhoneProjectBtn == null) return;
+        var on = _host.ScreenExtend.IsActive
+                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
+        PhoneProjectBtn.Text = on ? "投影中" : "投影";
+        PhoneProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
     }
 
     private void LoadEdgeCrossModeUi(int mode)
@@ -2408,34 +2727,61 @@ public partial class MainPage : ContentPage
     }
 
     /// <summary>
-    /// Android 上 RadioButton 若在父级首次可见前未落地主题色，会短暂/首屏显示 Material 深色底。
-    /// 进入高级页时强制写回背景与文字色，并轻触 Content 触发原生重绘。
+    /// 主题切换或进入高级页：强制 RadioButton 字色/背景与资源 Text 一致。
+    /// WinUI 上 DynamicResource 常不刷新 Radio；Android 首次可见也会吃到 Material 深色底。
     /// </summary>
     private void RefreshOptionsRadioChrome()
-    {
-        var text = Application.Current?.Resources.TryGetValue("Text", out var tv) == true && tv is Color c
-            ? c
-            : Color.FromArgb("#111827");
-        var bg = Color.FromArgb("#01000000");
-        foreach (var rb in new RadioButton?[]
-                 {
-                     EdgeCrossBarrierRadio, EdgeCrossDoubleRadio, EdgeCrossSpeedRadio,
-                     HotF, HotNum, HotOff, ThemeLight, ThemeDark
-                 })
-        {
-            if (rb == null) continue;
-            rb.BackgroundColor = bg;
-            rb.TextColor = text;
-            // 重新赋值 Content 可迫使 Android 重建标签层，去掉残留深色底
-            if (rb.Content is string s)
-                rb.Content = s;
-        }
-    }
+        => MauiThemeService.RefreshRadioButtonsInVisualTree(this);
 
     private async void Reconnect_Clicked(object? sender, EventArgs e)
     {
         await _host.Connections.ReconnectNowAsync();
         StatusLabel.Text = "正在重新连接…";
+    }
+
+    private async void OpenTouchpad_Clicked(object? sender, EventArgs e)
+    {
+        if (_selected == null || _selected.IsEmpty)
+        {
+            StatusLabel.Text = "请先在布局中选中要控制的电脑";
+            return;
+        }
+
+        if (_selected.IsLocal)
+        {
+            StatusLabel.Text = "请选择一台非本机的电脑再打开触控板";
+            return;
+        }
+
+        var peer = (_selected.Name ?? "").Trim();
+        if (string.IsNullOrEmpty(peer))
+        {
+            StatusLabel.Text = "所选槽位无效";
+            return;
+        }
+
+        if (!_host.Connections.GetPeerStatus(peer).AnyAlive)
+        {
+            StatusLabel.Text = $"「{peer}」未连接，请先点「刷新」或检查密钥/网络";
+            return;
+        }
+
+        try
+        {
+            TouchpadBtn.IsEnabled = false;
+            var page = new PhoneTouchpadPage(peer);
+            // Shell 内 Push；若无 Shell 则用页内 Navigation
+            var nav = Shell.Current?.Navigation ?? Navigation;
+            await nav.PushAsync(page, animated: true);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"打开触控板失败：{ex.Message}";
+        }
+        finally
+        {
+            TouchpadBtn.IsEnabled = true;
+        }
     }
 
     private void RefreshNics_Clicked(object? sender, EventArgs e) => RefreshNics();
@@ -2616,6 +2962,27 @@ public partial class MainPage : ContentPage
                 FileName = dir,
                 UseShellExecute = true
             });
+#elif ANDROID
+            // 优先打开下载/XuanNiao（文件管理可直接看）；失败则提示路径
+            var ok = false;
+            try
+            {
+                var parent = Directory.GetParent(dir)?.FullName ?? dir;
+                await Launcher.Default.OpenAsync(new OpenFileRequest
+                {
+                    File = new ReadOnlyFile(Directory.Exists(parent) ? parent : dir)
+                });
+                ok = true;
+            }
+            catch { /* fall through */ }
+
+            if (!ok)
+            {
+                await DisplayAlertAsync(
+                    Loc.T("Xfer.OpenInbox"),
+                    $"请在文件管理中打开：\n下载/XuanNiao/Inbox\n\n{dir}",
+                    "OK");
+            }
 #else
             await Launcher.Default.OpenAsync(new OpenFileRequest { File = new ReadOnlyFile(dir) });
 #endif
@@ -2709,19 +3076,73 @@ public partial class MainPage : ContentPage
 
     private void Tray_Clicked(object? sender, EventArgs e)
     {
+        EnsureDesktopTray();
         _host.Platform.HideToBackground(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: () => Application.Current?.Quit());
+            exit: RequestAppExit);
     }
 
     private void RefreshAboutPage()
     {
-        var ver = typeof(MainPage).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{Math.Max(ver.Build, 0)}";
         AboutTitleText.Text = Loc.T("About.Title");
-        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
+        AboutBodyHost.Children.Clear();
+        var linkColor = Colors.DodgerBlue;
+        if (Application.Current?.Resources.TryGetValue("Blue", out var blue) == true)
+        {
+            if (blue is Color c) linkColor = c;
+            else if (blue is SolidColorBrush scb) linkColor = scb.Color;
+        }
+
+        foreach (var para in AboutDocument.Build(AppVersionDisplay.Current))
+        {
+            if (para.Spans.Count == 0)
+            {
+                AboutBodyHost.Children.Add(new BoxView { HeightRequest = 8, Color = Colors.Transparent });
+                continue;
+            }
+
+            var fs = new FormattedString();
+            foreach (var span in para.Spans)
+            {
+                if (!string.IsNullOrEmpty(span.Url))
+                {
+                    var url = span.Url;
+                    var s = new Span
+                    {
+                        Text = span.Text,
+                        TextColor = linkColor,
+                        TextDecorations = TextDecorations.Underline,
+                        FontSize = 13
+                    };
+                    s.GestureRecognizers.Add(new TapGestureRecognizer
+                    {
+                        Command = new Command(async () =>
+                        {
+                            try { await Launcher.Default.OpenAsync(url); }
+                            catch { /* ignore */ }
+                        })
+                    });
+                    fs.Spans.Add(s);
+                }
+                else
+                {
+                    fs.Spans.Add(new Span
+                    {
+                        Text = span.Text,
+                        FontSize = 13,
+                        FontAttributes = para.IsHeading ? FontAttributes.Bold : FontAttributes.None
+                    });
+                }
+            }
+
+            AboutBodyHost.Children.Add(new Label
+            {
+                FormattedText = fs,
+                LineBreakMode = LineBreakMode.WordWrap
+            });
+        }
     }
 
     private void RefreshHelpToolbarLabels()
@@ -2830,7 +3251,7 @@ public partial class MainPage : ContentPage
             {
                 ShowHelpLog(Loc.T("Help.Restarting"));
                 await Task.Delay(400).ConfigureAwait(true);
-                Application.Current?.Quit();
+                RequestAppExit();
                 Environment.Exit(0);
                 return;
             }
@@ -2977,7 +3398,7 @@ public partial class MainPage : ContentPage
     }
 
     private void Exit_Clicked(object? sender, EventArgs e)
-        => Application.Current?.Quit();
+        => RequestAppExit();
 
     /// <summary>日志列表行：自绘勾选，避免 Win CollectionView Multiple 平台勾与文字不齐。</summary>
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged

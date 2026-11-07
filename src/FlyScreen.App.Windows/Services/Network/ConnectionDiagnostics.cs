@@ -201,6 +201,9 @@ public sealed class ConnectionDiagnostics
         }
     }
 
+    public Task<(bool Ok, string Message)> EnsureListenRulesAsync()
+        => EnsureFirewallRulesAsync(_host.Settings.TcpPort, _host.Settings.UdpPort);
+
     private static async Task<(bool Ok, string Message)> EnsureFirewallRulesAsync(int tcpPort, int udpPort)
     {
         try

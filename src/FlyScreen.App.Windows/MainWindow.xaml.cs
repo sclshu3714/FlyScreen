@@ -15,7 +15,9 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Update;
+using FlyScreen.Tray;
 using WinForms = System.Windows.Forms;
 using Media = System.Windows.Media;
 
@@ -28,10 +30,6 @@ public partial class MainWindow : Window
     private readonly AppHost _host;
     private readonly ObservableCollection<MachineSlot> _slots = [];
     private WinForms.NotifyIcon? _tray;
-    private WinForms.ToolStripMenuItem? _trayOpen;
-    private WinForms.ToolStripMenuItem? _trayReconnect;
-    private WinForms.ToolStripMenuItem? _trayAbout;
-    private WinForms.ToolStripMenuItem? _trayExit;
     private System.Drawing.Icon? _trayIcon;
     private System.Windows.Point _dragStart;
     private object? _dragItem;
@@ -76,9 +74,102 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyWindowIcon();
         _host = AppHost.EnsureCreated();
+        // 开机自启：先藏主窗再挂托盘，避免未渲染完的黑块闪一下/卡住
+        if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
+        {
+            ShowInTaskbar = false;
+            Visibility = System.Windows.Visibility.Hidden;
+            WindowState = WindowState.Minimized;
+        }
         Loaded += OnLoaded;
         Closing += OnClosing;
+        UpdateTitleMaxGlyph();
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            return;
+        }
+
+        if (e.ChangedButton == MouseButton.Left)
+            DragMove();
+    }
+
+    private async void TitleProject_Click(object sender, RoutedEventArgs e)
+    {
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
+        {
+            await _host.StopProjectionAsync();
+            RefreshTitleProjectButton();
+            return;
+        }
+
+        if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Sink)
+        {
+            MessageBox.Show(this,
+                ScreenExtendConflict.DescribeLocalBusy(
+                    ScreenExtendRole.Sink, _host.ScreenExtend.Peer),
+                "投影", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new ProjectionDialog(_host) { Owner = this };
+        dlg.ShowDialog();
+        RefreshTitleProjectButton();
+    }
+
+    private void RefreshTitleProjectButton()
+    {
+        if (TitleProjectBtn == null) return;
+        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
+        TitleProjectBtn.ToolTip = on ? "正在投影（点击停止）" : "投影到电脑";
+        TitleProjectBtn.Width = on ? 72 : 46;
+        TitleProjectBtn.Content = on ? "投影中" : "\uE8B9";
+        TitleProjectBtn.FontFamily = on
+            ? new System.Windows.Media.FontFamily("Segoe UI")
+            : new System.Windows.Media.FontFamily("Segoe MDL2 Assets");
+        TitleProjectBtn.FontSize = on ? 11 : 13;
+        // Accent 只在投影弹窗里，主窗口用 Blue（同色 #2563EB）
+        TitleProjectBtn.Foreground = TryFindResource(on ? "Blue" : "Text") as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Black;
+    }
+
+    private void ApplyWindowIcon()
+    {
+        var icon = AppIconImage.Load();
+        if (icon == null) return;
+        Icon = icon;
+        if (TitleBarLogo != null)
+            TitleBarLogo.Source = icon;
+    }
+
+    private void TitleMin_Click(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void TitleMax_Click(object sender, RoutedEventArgs e)
+        => ToggleMaximize();
+
+    private void TitleClose_Click(object sender, RoutedEventArgs e)
+        => Close();
+
+    private void MainWindow_StateChanged(object? sender, EventArgs e)
+        => UpdateTitleMaxGlyph();
+
+    private void ToggleMaximize()
+        => WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+
+    private void UpdateTitleMaxGlyph()
+    {
+        if (TitleMaxBtn == null) return;
+        // 最大化后显示「还原」样式
+        TitleMaxBtn.Content = WindowState == WindowState.Maximized ? "❐" : "☐";
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -97,6 +188,11 @@ public partial class MainWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Loaded);
 
         _host.StatusMessage += msg => Dispatcher.Invoke(() => StatusText.Text = msg);
+        _host.ProjectionUserNotice += msg => Dispatcher.Invoke(() =>
+            MessageBox.Show(this, msg, "投影", MessageBoxButton.OK, MessageBoxImage.Warning));
+        _host.ScreenExtend.HostSessionReady += () => Dispatcher.Invoke(RefreshTitleProjectButton);
+        _host.ScreenExtend.SessionEnded += () => Dispatcher.Invoke(RefreshTitleProjectButton);
+        RefreshTitleProjectButton();
         AppLog.Changed += () => Dispatcher.Invoke(() =>
         {
             // 仅在「最新」页增量追加，避免整表重绑闪烁回顶
@@ -109,15 +205,17 @@ public partial class MainWindow : Window
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
         _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
         _host.BehaviorSyncedFromPeer += OnBehaviorSyncedFromPeer;
+        _host.SecurityKeySyncedFromPeer += OnSecurityKeySyncedFromPeer;
 
         _host.Clipboard.Start(this);
         await _host.StartAsync();
         StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
 
-        // 开机自启：隐藏到托盘，后台已自动连接
+        // 开机自启：隐藏到托盘，后台已自动连接（构造时已 Hidden，此处再 Hide 一次兜底）
         if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
         {
             StatusText.Text = $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+            ShowInTaskbar = false;
             Hide();
         }
 
@@ -151,36 +249,40 @@ public partial class MainWindow : Window
             Visible = true,
             Icon = _trayIcon ?? System.Drawing.SystemIcons.Application
         };
-        _tray.DoubleClick += (_, _) =>
+        _tray.DoubleClick += (_, _) => ShowFromTray();
+        // 不用 WinForms ContextMenuStrip（圆角/系统样式难控）；改用 WPF 直角投影菜单
+        _tray.MouseUp += (_, e) =>
         {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
+            if (e.Button != WinForms.MouseButtons.Right) return;
+            Dispatcher.BeginInvoke(new Action(ShowTrayContextMenu));
         };
-        var menu = new WinForms.ContextMenuStrip();
-        _trayOpen = new WinForms.ToolStripMenuItem(Loc.T("Tray.Open"), null, (_, _) => { Show(); Activate(); });
-        _trayReconnect = new WinForms.ToolStripMenuItem(Loc.T("Tray.Reconnect"), null,
-            async (_, _) => await _host.Connections.ReconnectNowAsync());
-        _trayAbout = new WinForms.ToolStripMenuItem(Loc.T("Tray.About"), null, (_, _) =>
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-            ShowPage(5);
-        });
-        _trayExit = new WinForms.ToolStripMenuItem(Loc.T("Tray.Exit"), null, (_, _) => ExitApp());
-        menu.Items.AddRange([_trayOpen, _trayReconnect, _trayAbout, _trayExit]);
-        _tray.ContextMenuStrip = menu;
+    }
+
+    private void ShowFromTray()
+    {
+        ShowInTaskbar = true;
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void ShowTrayContextMenu()
+    {
+        TrayContextMenuWindow.ShowNearCursor(
+            onOpen: ShowFromTray,
+            onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            onAbout: () =>
+            {
+                ShowFromTray();
+                ShowPage(5);
+            },
+            onExit: ExitApp);
     }
 
     private void ApplyTrayLocalized()
     {
         if (_tray != null)
             _tray.Text = Loc.T("Tray.Tip");
-        if (_trayOpen != null) _trayOpen.Text = Loc.T("Tray.Open");
-        if (_trayReconnect != null) _trayReconnect.Text = Loc.T("Tray.Reconnect");
-        if (_trayAbout != null) _trayAbout.Text = Loc.T("Tray.About");
-        if (_trayExit != null) _trayExit.Text = Loc.T("Tray.Exit");
     }
 
     private void LoadUiFromSettings()
@@ -202,11 +304,14 @@ public partial class MainWindow : Window
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
-        // 注册表与设置任一为开则视为开启，并写回一致状态
-        var autoStart = AutoStartHelper.IsEnabled() || s.AutoStart;
+        // 以计划任务实际状态为准；禁止 settings OR 强制重建（否则取消失败后下次启动又写回开启）
+        var autoStart = AutoStartHelper.IsEnabled();
         AutoStartCheck.IsChecked = autoStart;
-        s.AutoStart = autoStart;
-        AutoStartHelper.SetEnabled(autoStart);
+        if (s.AutoStart != autoStart)
+        {
+            s.AutoStart = autoStart;
+            s.Save();
+        }
         TcpPortBox.Text = s.TcpPort.ToString();
         UdpPortBox.Text = s.UdpPort.ToString();
         HotF.IsChecked = s.SwitchHotkeyMode == 0;
@@ -318,13 +423,12 @@ public partial class MainWindow : Window
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
         s.EdgeCrossMode = ReadEdgeCrossModeUi();
-        s.AutoStart = AutoStartCheck.IsChecked == true;
-        if (!AutoStartHelper.SetEnabled(s.AutoStart))
-            StatusText.Text = s.AutoStart
-                ? "开机自启设置失败（需管理员权限创建计划任务）"
-                : "关闭开机自启失败";
-        else if (s.AutoStart)
-            StatusText.Text = "已启用开机自启（登录后约 15 秒以管理员启动）";
+        // 先落地穿边/键鼠，再处理后台自启（schtasks 不可挡 UI）
+        _host.Input.EasyMouseEnabled = s.EasyMouse;
+        _host.Input.RefreshEdgeCrossFromSettings();
+
+        var wantAutoStart = AutoStartCheck.IsChecked == true;
+        s.AutoStart = wantAutoStart;
         s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
         s.HotkeySettings = HkSettings.Text.Trim();
         s.HotkeyReconnect = HkReconnect.Text.Trim();
@@ -355,8 +459,30 @@ public partial class MainWindow : Window
         s.EnsureLocalMachineSlot();
         s.Save();
 
-        _host.Input.EasyMouseEnabled = s.EasyMouse;
-        _host.Input.RefreshEdgeCrossFromSettings();
+        // 开机自启改后台写入，完成后回写勾选/状态；失败不拖住「应用」与穿边
+        _ = ApplyAutoStartAsync(wantAutoStart);
+    }
+
+    private async Task ApplyAutoStartAsync(bool wantAutoStart)
+    {
+        var ok = await Task.Run(() => AutoStartHelper.SetEnabled(wantAutoStart)).ConfigureAwait(true);
+        var actual = AutoStartHelper.IsEnabled();
+        var s = _host.Settings;
+        if (s.AutoStart != actual)
+        {
+            s.AutoStart = actual;
+            s.Save();
+        }
+
+        AutoStartCheck.IsChecked = actual;
+        if (!ok || actual != wantAutoStart)
+        {
+            StatusText.Text = wantAutoStart
+                ? "开机自启设置失败（需管理员权限创建计划任务）"
+                : "关闭开机自启失败";
+        }
+        else if (wantAutoStart)
+            StatusText.Text = "已启用开机自启（登录后约 15 秒以管理员启动）";
     }
 
     private void ApplyLocalizedUi()
@@ -418,6 +544,7 @@ public partial class MainWindow : Window
         SetStr("Str.ProgActDelete", Loc.T("Prog.ActDelete"));
         SetStr("Str.ProgActLog", Loc.T("Prog.ActLog"));
         SetStr("Str.ProgActShare", Loc.T("Prog.ActShare"));
+        SetStr("Str.ProgActSettings", Loc.T("Prog.ActSettings"));
         ProgColName.Header = Loc.T("Prog.ColName");
         ProgColLang.Header = Loc.T("Prog.ColLang");
         ProgColSize.Header = Loc.T("Prog.ColSize");
@@ -427,7 +554,10 @@ public partial class MainWindow : Window
         SecurityTitleText.Text = Loc.T("Sec.Title");
         ShowKeyCheck.Content = Loc.T("Sec.Show");
         NewKeyBtn.Content = Loc.T("Sec.NewKey");
+        if (SyncKeyBtn != null) SyncKeyBtn.Content = Loc.T("Sec.SyncKey");
+        if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
         SecurityHintText.Text = Loc.T("Sec.Hint");
+        if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
         LayoutTitleText.Text = Loc.T("Layout.Title");
         LayoutHintText.Text = Loc.T("Layout.Hint");
         LayoutDragTipText.Text = Loc.T("Layout.DragTip");
@@ -569,7 +699,9 @@ public partial class MainWindow : Window
         if (!IsLoaded || width <= 1 || FeatColumn == null || BehColumn == null || EdgeCrossColumn == null)
             return;
         var stacked = width < 640;
-        if (stacked == _optionsFeatStacked && OptionsFeatGrid.ColumnDefinitions.Count == (stacked ? 1 : 3))
+        if (stacked == _optionsFeatStacked
+            && OptionsFeatGrid.ColumnDefinitions.Count == (stacked ? 1 : 3)
+            && OptionsFeatGrid.RowDefinitions.Count == (stacked ? 3 : 1))
             return;
         _optionsFeatStacked = stacked;
 
@@ -583,13 +715,16 @@ public partial class MainWindow : Window
             OptionsFeatGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             Grid.SetRow(FeatColumn, 0);
             Grid.SetColumn(FeatColumn, 0);
+            Grid.SetColumnSpan(FeatColumn, 1);
             Grid.SetRow(BehColumn, 1);
             Grid.SetColumn(BehColumn, 0);
+            Grid.SetColumnSpan(BehColumn, 1);
             Grid.SetRow(EdgeCrossColumn, 2);
             Grid.SetColumn(EdgeCrossColumn, 0);
+            Grid.SetColumnSpan(EdgeCrossColumn, 1);
             FeatColumn.Margin = new Thickness(0, 0, 0, 12);
             BehColumn.Margin = new Thickness(0, 0, 0, 12);
-            EdgeCrossColumn.Margin = new Thickness(0);
+            EdgeCrossColumn.Margin = new Thickness(0, 0, 0, 8);
         }
         else
         {
@@ -599,10 +734,13 @@ public partial class MainWindow : Window
             OptionsFeatGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             Grid.SetRow(FeatColumn, 0);
             Grid.SetColumn(FeatColumn, 0);
+            Grid.SetColumnSpan(FeatColumn, 1);
             Grid.SetRow(BehColumn, 0);
             Grid.SetColumn(BehColumn, 1);
+            Grid.SetColumnSpan(BehColumn, 1);
             Grid.SetRow(EdgeCrossColumn, 0);
             Grid.SetColumn(EdgeCrossColumn, 2);
+            Grid.SetColumnSpan(EdgeCrossColumn, 1);
             FeatColumn.Margin = new Thickness(0, 0, 10, 0);
             BehColumn.Margin = new Thickness(5, 0, 5, 0);
             EdgeCrossColumn.Margin = new Thickness(10, 0, 0, 0);
@@ -611,10 +749,18 @@ public partial class MainWindow : Window
 
     private async void Apply_Click(object sender, RoutedEventArgs e)
     {
+        var s = _host.Settings;
+        var prevTcp = s.TcpPort;
+        var prevUdp = s.UdpPort;
+        var prevNic = s.PreferredNicId ?? "";
+        var prevIp = s.PreferredLocalIp ?? "";
+        var prevKey = s.SecurityKey ?? "";
+
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
         await _host.BroadcastBehaviorSyncAsync();
-        await _host.RestartNetworkingAsync();
+        // 默认保持连接；仅端口/网卡/密钥变化才整网重启
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         StatusText.Text = Loc.T("Sys.Applied");
         SyncSlotLocalFlags();
     }
@@ -634,6 +780,15 @@ public partial class MainWindow : Window
         {
             ApplyBehaviorFromSettings();
             StatusText.Text = $"已同步功能与行为 ← {from}";
+        });
+    }
+
+    private void OnSecurityKeySyncedFromPeer(string from)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            SetSecurityKey(_host.Settings.SecurityKey ?? "");
+            StatusText.Text = $"已同步安全密钥 ← {from}";
         });
     }
 
@@ -729,6 +884,7 @@ public partial class MainWindow : Window
     /// <summary>二次启动时激活已有窗口（含托盘隐藏状态）。</summary>
     public void BringToFront()
     {
+        ShowInTaskbar = true;
         Show();
         if (WindowState == WindowState.Minimized)
             WindowState = WindowState.Normal;
@@ -814,6 +970,17 @@ public partial class MainWindow : Window
         SetSecurityKey(AppSettings.GenerateKey());
         ShowKeyCheck.IsChecked = true;
         ShowKey_Changed(null!, null!);
+    }
+
+    private async void SyncKey_Click(object sender, RoutedEventArgs e)
+    {
+        var s = _host.Settings;
+        var prevKey = s.SecurityKey ?? "";
+        ApplySettingsFromUi();
+        var (ok, msg) = await _host.SyncSecurityKeyAsync();
+        if (ok)
+            await _host.ApplyNetworkingAsync(s.TcpPort, s.UdpPort, s.PreferredNicId ?? "", s.PreferredLocalIp ?? "", prevKey);
+        StatusText.Text = msg;
     }
 
     private void ShowKey_Changed(object sender, RoutedEventArgs e)
@@ -1052,8 +1219,8 @@ public partial class MainWindow : Window
                 await _host.BroadcastLayoutMergeAsync().ConfigureAwait(true);
             else
                 await _host.BroadcastLayoutSyncAsync().ConfigureAwait(true);
-            await _host.Connections.PruneUnconfiguredLinksAsync().ConfigureAwait(true);
-            await _host.RestartNetworkingAsync().ConfigureAwait(true);
+            // 布局变更：剪枝+补连，不断开仍在布局中的链路
+            await _host.Connections.RefreshConfiguredPeersAsync().ConfigureAwait(true);
         }
         catch
         {
@@ -1536,9 +1703,23 @@ public partial class MainWindow : Window
         RefreshProgramsPage();
     }
 
+    private void ProgRowSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        var win = new ProgramSettingsWindow(prog) { Owner = this };
+        win.ShowDialog();
+    }
+
     private async void ProgRowDelete_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not UserProgram prog) return;
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, Loc.T("Prog.BuiltinNoDelete"), Loc.T("Prog.ActDelete"),
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         if (MessageBox.Show(this, Loc.T("Prog.ConfirmDelete"), Loc.T("Prog.ActDelete"),
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
             return;
@@ -1611,6 +1792,7 @@ public partial class MainWindow : Window
         void Add(AppLogLevelFilter f, string key)
             => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
         Add(AppLogLevelFilter.All, "Log.LevelAll");
+        Add(AppLogLevelFilter.Debug, "Log.LevelDebug");
         Add(AppLogLevelFilter.Info, "Log.LevelInfo");
         Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
         Add(AppLogLevelFilter.Error, "Log.LevelError");
@@ -1915,10 +2097,54 @@ public partial class MainWindow : Window
 
     private void RefreshAboutPage()
     {
-        var ver = typeof(MainWindow).Assembly.GetName().Version;
-        var verText = ver == null ? "1.0" : $"{ver.Major}.{ver.Minor}.{ver.Build}";
         AboutTitleText.Text = Loc.T("About.Title");
-        AboutBodyText.Text = string.Format(Loc.T("About.Body"), verText);
+        AboutBodyText.Inlines.Clear();
+        var docs = AboutDocument.Build(AppVersionDisplay.Current);
+        for (var i = 0; i < docs.Count; i++)
+        {
+            var para = docs[i];
+            if (para.Spans.Count == 0)
+            {
+                AboutBodyText.Inlines.Add(new LineBreak());
+                continue;
+            }
+
+            foreach (var span in para.Spans)
+            {
+                if (!string.IsNullOrEmpty(span.Url))
+                {
+                    var link = new Hyperlink(new Run(span.Text))
+                    {
+                        NavigateUri = new Uri(span.Url),
+                        Foreground = TryFindResource("Blue") as Media.Brush ?? Media.Brushes.DodgerBlue
+                    };
+                    link.RequestNavigate += (_, e) =>
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = e.Uri.AbsoluteUri,
+                                UseShellExecute = true
+                            });
+                        }
+                        catch { /* ignore */ }
+                        e.Handled = true;
+                    };
+                    AboutBodyText.Inlines.Add(link);
+                }
+                else
+                {
+                    var run = new Run(span.Text);
+                    if (para.IsHeading)
+                        run.FontWeight = FontWeights.SemiBold;
+                    AboutBodyText.Inlines.Add(run);
+                }
+            }
+
+            if (i < docs.Count - 1)
+                AboutBodyText.Inlines.Add(new LineBreak());
+        }
     }
 
     private void RefreshHelpToolbarLabels()

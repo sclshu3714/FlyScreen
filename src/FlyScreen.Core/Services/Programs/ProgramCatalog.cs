@@ -26,12 +26,10 @@ public sealed class ProgramCatalog
 
     public ProgramCatalog(string? rootDirectory = null)
     {
-        RootDirectory = rootDirectory
-            ?? Path.Combine(
-                Path.GetDirectoryName(AppSettings.SettingsPath)!,
-                "Programs");
+        RootDirectory = rootDirectory ?? global::FlyScreen.Services.FlyScreenDataPaths.ProgramsDirectory;
         Directory.CreateDirectory(RootDirectory);
         Reload();
+        EnsureBuiltinPrograms();
     }
 
     public void Reload()
@@ -58,6 +56,8 @@ public sealed class ProgramCatalog
                     {
                         // keep as-is
                     }
+                    if (string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+                        prog.IsBuiltin = true;
                     RefreshSize(prog);
                     _items.Add(prog);
                 }
@@ -68,6 +68,104 @@ public sealed class ProgramCatalog
             }
         }
         RaiseChanged();
+    }
+
+    /// <summary>嵌入的通用识别脚本：写出/按版本升级源码，保留 settings.json。</summary>
+    public void EnsureBuiltinPrograms()
+    {
+        try
+        {
+            EnsureGenericSwipeBuiltin();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("EnsureBuiltin: " + ex.Message);
+        }
+    }
+
+    private void EnsureGenericSwipeBuiltin()
+    {
+        var id = BuiltinPrograms.GenericSwipeId;
+        var folder = Path.Combine(RootDirectory, id);
+        Directory.CreateDirectory(folder);
+
+        UserProgram? existing;
+        lock (_gate)
+            existing = _items.FirstOrDefault(p =>
+                string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        var needWriteSource = true;
+        if (existing != null
+            && existing.BuiltinSourceVersion >= BuiltinPrograms.GenericSwipeSourceVersion
+            && File.Exists(Path.Combine(folder, "main.cs")))
+        {
+            needWriteSource = false;
+        }
+
+        var embedded = ReadEmbeddedBuiltinSource();
+        if (string.IsNullOrEmpty(embedded))
+        {
+            AppLog.Warn("内置通用脚本资源缺失");
+            return;
+        }
+
+        if (needWriteSource)
+        {
+            var srcPath = Path.Combine(folder, "main.cs");
+            File.WriteAllText(srcPath, NormalizeSourceText(embedded),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+
+        var prog = existing ?? new UserProgram
+        {
+            Id = id,
+            CreatedUtc = DateTime.UtcNow
+        };
+        prog.Name = BuiltinPrograms.GenericSwipeName;
+        prog.Language = ProgramLanguage.CSharp;
+        prog.Namespace = "com.xuanniao.builtin";
+        prog.FileName = "main.cs";
+        prog.IsBuiltin = true;
+        prog.BuiltinSourceVersion = BuiltinPrograms.GenericSwipeSourceVersion;
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RefreshSize(prog);
+
+        lock (_gate)
+        {
+            if (existing == null)
+                _items.Insert(0, prog);
+            else
+            {
+                existing.Name = prog.Name;
+                existing.IsBuiltin = true;
+                existing.BuiltinSourceVersion = prog.BuiltinSourceVersion;
+                existing.FileName = prog.FileName;
+                existing.Language = prog.Language;
+                existing.Namespace = prog.Namespace;
+                RefreshSize(existing);
+            }
+        }
+        RaiseChanged();
+    }
+
+    private static string ReadEmbeddedBuiltinSource()
+    {
+        var asm = typeof(ProgramCatalog).Assembly;
+        using var stream = asm.GetManifestResourceStream(BuiltinPrograms.ResourceName);
+        if (stream == null)
+        {
+            // 兜底：扫名称后缀
+            var name = asm.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith("generic_swipe_main.cs", StringComparison.OrdinalIgnoreCase));
+            if (name == null) return "";
+            using var s2 = asm.GetManifestResourceStream(name);
+            if (s2 == null) return "";
+            using var r2 = new StreamReader(s2, Encoding.UTF8);
+            return r2.ReadToEnd();
+        }
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 
     public UserProgram Create(string name, ProgramLanguage language, string? nameSpace, string? fileName)
@@ -138,6 +236,10 @@ public sealed class ProgramCatalog
 
     public void WriteSource(UserProgram prog, string content)
     {
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("内置程序源码为只读，请用「设置」修改参数");
+
         var path = GetSourcePath(prog);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var text = NormalizeSourceText(content);
@@ -196,6 +298,10 @@ public sealed class ProgramCatalog
 
     public void Delete(UserProgram prog)
     {
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"「{prog.Name}」为内置程序，不可删除");
+
         var folder = GetFolder(prog);
         try
         {

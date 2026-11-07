@@ -102,7 +102,7 @@ public sealed class MauiConnectionDiagnostics
 
 #if WINDOWS
         progress?.Report("防火墙…");
-        var fw = await EnsureFirewallAsync(s.TcpPort, s.UdpPort).ConfigureAwait(false);
+        var fw = await EnsureListenRulesAsync(s.TcpPort, s.UdpPort).ConfigureAwait(false);
         Log("防火墙", fw.Message, fw.Ok ? MauiDiagnosticLevel.Ok : MauiDiagnosticLevel.Warn);
 #endif
 
@@ -154,11 +154,11 @@ public sealed class MauiConnectionDiagnostics
         }
     }
 
-    private static async Task<(bool Ok, string Message)> EnsureFirewallAsync(int tcp, int udp)
+    public static async Task<(bool Ok, string Message)> EnsureListenRulesAsync(int tcp, int udp)
     {
         try
         {
-            async Task Run(string args)
+            async Task<int> Run(string args)
             {
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
@@ -170,17 +170,20 @@ public sealed class MauiConnectionDiagnostics
                     CreateNoWindow = true
                 };
                 using var p = System.Diagnostics.Process.Start(psi);
-                if (p == null) return;
+                if (p == null) return -1;
                 await p.WaitForExitAsync().ConfigureAwait(false);
+                return p.ExitCode;
             }
 
             const string name = "FlyScreen-XuanNiao";
             await Run($"advfirewall firewall delete rule name=\"{name}\"").ConfigureAwait(false);
-            await Run($"advfirewall firewall add rule name=\"{name}\" dir=in action=allow protocol=TCP localport={tcp}").ConfigureAwait(false);
-            await Run($"advfirewall firewall add rule name=\"{name}\" dir=in action=allow protocol=UDP localport={udp}").ConfigureAwait(false);
-            await Run($"advfirewall firewall add rule name=\"{name}\" dir=out action=allow protocol=TCP localport={tcp}").ConfigureAwait(false);
-            await Run($"advfirewall firewall add rule name=\"{name}\" dir=out action=allow protocol=UDP localport={udp}").ConfigureAwait(false);
-            return (true, $"已添加/刷新防火墙规则（TCP {tcp} / UDP {udp}）");
+            var tcpIn = await Run($"advfirewall firewall add rule name=\"{name}\" dir=in action=allow protocol=TCP localport={tcp} profile=any").ConfigureAwait(false);
+            var udpIn = await Run($"advfirewall firewall add rule name=\"{name}\" dir=in action=allow protocol=UDP localport={udp} profile=any").ConfigureAwait(false);
+            await Run($"advfirewall firewall add rule name=\"{name}\" dir=out action=allow protocol=TCP localport={tcp} profile=any").ConfigureAwait(false);
+            await Run($"advfirewall firewall add rule name=\"{name}\" dir=out action=allow protocol=UDP localport={udp} profile=any").ConfigureAwait(false);
+            if (tcpIn == 0 && udpIn == 0)
+                return (true, $"已放行防火墙 TCP {tcp} / UDP {udp}");
+            return (false, "写入防火墙失败（需要管理员权限），对端将无法连入本机");
         }
         catch (Exception ex)
         {
