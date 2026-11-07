@@ -485,7 +485,7 @@
                                    VerticalOptions="Center" Margin="0,0,0,4" />
                             <HorizontalStackLayout x:Name="LogToolBarHost" Grid.Row="1" Spacing="3"
                                                    Margin="0,0,0,6" SizeChanged="LogToolBarHost_SizeChanged">
-                                <Picker x:Name="LogLevelFilter" WidthRequest="72" VerticalOptions="Center"
+                                <Picker x:Name="LogLevelFilter" WidthRequest="96" VerticalOptions="Center"
                                         SelectedIndexChanged="LogFilter_Changed" />
                                 <Button x:Name="LogPrevBtn" Style="{StaticResource NormalBtn}"
                                         HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
@@ -496,6 +496,9 @@
                                 <Button x:Name="LogLatestBtn" Style="{StaticResource NormalBtn}"
                                         HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
                                         Padding="6,0" Clicked="LogLatest_Clicked" />
+                                <Button x:Name="LogDateBtn" Style="{StaticResource NormalBtn}"
+                                        HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
+                                        Padding="6,0" Clicked="LogDate_Clicked" />
                                 <Button x:Name="LogDownloadBtn" Style="{StaticResource NormalBtn}"
                                         HeightRequest="32" MinimumWidthRequest="30" MaximumWidthRequest="120"
                                         Padding="6,0" Clicked="LogDownload_Clicked" />
@@ -512,23 +515,40 @@
                                 <Label x:Name="LogHintText" Text="收录运行中的状态与错误。新记录在底部。"
                                        TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                             </VerticalStackLayout>
-                            <!-- 自绘勾选，避免 Win 平台 Multiple 勾与文字顶对齐、贴死 -->
+                            <!-- SelectionMode=None：Win 平台 Multiple 会自带复选框；自绘高亮点选多选 -->
                             <CollectionView x:Name="LogList" Grid.Row="3" SelectionMode="None"
                                             Scrolled="LogList_Scrolled">
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4"
-                                              Padding="0,3" MinimumHeightRequest="28">
-                                            <CheckBox IsChecked="{Binding IsSelected}"
-                                                      VerticalOptions="Center"
-                                                      Color="{DynamicResource Blue}" />
-                                            <Label Grid.Column="1"
-                                                   Text="{Binding Display}"
-                                                   FontSize="12"
-                                                   LineBreakMode="WordWrap"
-                                                   VerticalOptions="Center"
-                                                   VerticalTextAlignment="Center" />
-                                        </Grid>
+                                        <Border Padding="6,4" Margin="0,1"
+                                                MinimumHeightRequest="28"
+                                                BackgroundColor="{Binding RowBg}"
+                                                StrokeThickness="0">
+                                            <Border.GestureRecognizers>
+                                                <TapGestureRecognizer Tapped="LogRow_Tapped" NumberOfTapsRequired="1" />
+                                            </Border.GestureRecognizers>
+                                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                                                <Label Text="{Binding TimeText}"
+                                                       FontSize="12"
+                                                       TextColor="{DynamicResource Muted}"
+                                                       VerticalOptions="Center"
+                                                       VerticalTextAlignment="Center" />
+                                                <Label Grid.Column="1"
+                                                       Text="{Binding LevelText}"
+                                                       FontSize="12"
+                                                       FontAttributes="Bold"
+                                                       MinimumWidthRequest="40"
+                                                       TextColor="{Binding Level, Converter={StaticResource LogLevelColorConverter}}"
+                                                       VerticalOptions="Center"
+                                                       VerticalTextAlignment="Center" />
+                                                <Label Grid.Column="2"
+                                                       Text="{Binding Message}"
+                                                       FontSize="12"
+                                                       LineBreakMode="WordWrap"
+                                                       VerticalOptions="Center"
+                                                       VerticalTextAlignment="Center" />
+                                            </Grid>
+                                        </Border>
                                     </DataTemplate>
                                 </CollectionView.ItemTemplate>
                             </CollectionView>

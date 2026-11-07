@@ -65,6 +65,8 @@ public partial class MainWindow : Window
     private bool _openProgramLog;
     private int _logPageFromLatest;
     private int _logTotalPages;
+    private DateTime? _logFrom;
+    private DateTime? _logTo;
     private readonly ObservableCollection<AppLogEntry> _logItems = new();
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
@@ -259,8 +261,8 @@ public partial class MainWindow : Window
         RefreshTitleProjectButton();
         AppLog.Changed += () => Dispatcher.Invoke(() =>
         {
-            // 仅在「最新」页增量追加，避免整表重绑闪烁回顶
-            if (PageLog.Visibility == Visibility.Visible && _logPageFromLatest == 0)
+            // 仅在「实时」页增量追加，避免整表重绑闪烁回顶
+            if (PageLog.Visibility == Visibility.Visible && IsLogLiveMode())
                 RefreshLogPageLive();
         });
         LogList.ItemsSource = _logItems;
@@ -586,12 +588,14 @@ public partial class MainWindow : Window
         LogPrevBtnText.Text = Loc.T("Log.Prev");
         LogNextBtnText.Text = Loc.T("Log.Next");
         LogLatestBtnText.Text = Loc.T("Log.Latest");
+        LogDateBtnText.Text = Loc.T("Log.Date");
         LogDownloadBtn.ToolTip = LogDownloadBtnText.Text;
         LogCopyBtn.ToolTip = Loc.T("Log.SelectTip");
         LogClearBtn.ToolTip = LogClearBtnText.Text;
         LogPrevBtn.ToolTip = LogPrevBtnText.Text;
         LogNextBtn.ToolTip = LogNextBtnText.Text;
         LogLatestBtn.ToolTip = LogLatestBtnText.Text;
+        LogDateBtn.ToolTip = LogDateBtnText.Text;
         EnsureLogLevelFilterItems();
         Dispatcher.BeginInvoke(UpdateLogToolMode, System.Windows.Threading.DispatcherPriority.Loaded);
         ProgTitleText.Text = Loc.T("Prog.Title");
@@ -1883,15 +1887,31 @@ public partial class MainWindow : Window
         _logPageFromLatest = page.PageFromLatest;
         _logTotalPages = page.TotalPages;
         _logKnownTotal = page.TotalCount;
-        LogPageText.Text = page.TotalCount == 0
-            ? Loc.T("Log.Empty")
-            : page.PageFromLatest == 0
-                ? string.Format(Loc.T("Log.PageLatest"), page.TotalCount)
-                : string.Format(Loc.T("Log.Page"), page.PageFromLatest + 1, page.TotalPages, page.TotalCount);
+        LogPageText.Text = FormatLogPageText(page.TotalCount, page.PageFromLatest, page.TotalPages);
         LogPrevBtn.IsEnabled = page.HasOlder;
         LogNextBtn.IsEnabled = page.HasNewer;
-        LogLatestBtn.IsEnabled = page.HasNewer;
+        LogLatestBtn.IsEnabled = page.HasNewer || _logFrom != null || _logTo != null;
     }
+
+    private string FormatLogPageText(int totalCount, int pageFromLatest, int totalPages)
+    {
+        if (totalCount == 0)
+            return Loc.T("Log.Empty");
+        if (_logFrom != null || _logTo != null)
+        {
+            var from = _logFrom ?? DateTime.MinValue;
+            var to = _logTo ?? DateTime.MaxValue;
+            return pageFromLatest == 0
+                ? string.Format(Loc.T("Log.PageDateLatest"), from, to, totalCount)
+                : string.Format(Loc.T("Log.PageDate"), from, to, pageFromLatest + 1, totalPages, totalCount);
+        }
+        return pageFromLatest == 0
+            ? string.Format(Loc.T("Log.PageLatest"), totalCount)
+            : string.Format(Loc.T("Log.Page"), pageFromLatest + 1, totalPages, totalCount);
+    }
+
+    private bool IsLogLiveMode()
+        => _logPageFromLatest == 0 && _logFrom == null && _logTo == null;
 
     private void ReplaceLogItems(IReadOnlyList<AppLogEntry> items)
     {
@@ -1912,14 +1932,14 @@ public partial class MainWindow : Window
         {
             var available = LogToolBarHost.ActualWidth;
             LogToolsCompact = false;
-            LogLevelFilter.Width = 72;
+            LogLevelFilter.Width = 96;
             LogToolBar.Measure(new System.Windows.Size(double.PositiveInfinity, 48));
             var need = LogToolBar.DesiredSize.Width;
             LogToolsCompact = need > available + 0.5;
-            // 极窄：图标按钮 + 缩短筛选框
+            // 极窄：图标按钮 + 缩短筛选框（仍保证两字级别完整可见）
             LogLevelFilter.Width = LogToolsCompact
-                ? (available < 240 ? 52 : 64)
-                : 72;
+                ? (available < 240 ? 72 : 84)
+                : 96;
         }
         finally
         {
@@ -1949,10 +1969,12 @@ public partial class MainWindow : Window
     /// <summary>最新页：水印增量追加；失配时整页替换尾部（禁止按时间重放整表）。</summary>
     private void RefreshLogPageLive()
     {
+        if (!IsLogLiveMode()) return;
         var level = CurrentLogLevelFilter();
         var stick = _logStickToBottom;
         var delta = AppLog.DeltaSince(
-            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize,
+            _logFrom, _logTo);
         var uiChanged = false;
 
         if (delta.Reset)
@@ -1978,9 +2000,7 @@ public partial class MainWindow : Window
         if (!uiChanged)
             return;
 
-        LogPageText.Text = _logKnownTotal == 0
-            ? Loc.T("Log.Empty")
-            : string.Format(Loc.T("Log.PageLatest"), _logKnownTotal);
+        LogPageText.Text = FormatLogPageText(_logKnownTotal, 0, _logTotalPages);
         LogPrevBtn.IsEnabled = _logKnownTotal > AppLog.DefaultPageSize || _logTotalPages > 1;
         LogNextBtn.IsEnabled = false;
         LogLatestBtn.IsEnabled = false;
@@ -2006,12 +2026,15 @@ public partial class MainWindow : Window
             AppLog.DefaultPageSize,
             level,
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         ApplyLogPageChrome(page);
-        if (page.PageFromLatest == 0)
+        if (page.PageFromLatest == 0 && IsLogLiveMode())
         {
-            // 最新页始终用水印增量源（内存）；内存空时才回退磁盘页（无水印，后续 live 会 Reset 到内存）
-            var delta = AppLog.DeltaSince(null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            // 实时页用水印增量源（内存）；内存空时才回退磁盘页
+            var delta = AppLog.DeltaSince(
+                null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize, _logFrom, _logTo);
             if (delta.Items.Count > 0)
                 ReplaceLogItems(delta.Items);
             else
@@ -2024,7 +2047,9 @@ public partial class MainWindow : Window
         {
             ReplaceLogItems(page.Items);
             _logWatermark = null;
-            _logStickToBottom = false;
+            _logStickToBottom = page.PageFromLatest == 0;
+            if (_logStickToBottom)
+                Dispatcher.BeginInvoke(ScrollLogToEndQuiet, System.Windows.Threading.DispatcherPriority.Loaded);
         }
     }
 
@@ -2060,6 +2085,26 @@ public partial class MainWindow : Window
 
     private void LogLatest_Click(object sender, RoutedEventArgs e)
     {
+        _logFrom = null;
+        _logTo = null;
+        _logPageFromLatest = 0;
+        RefreshLogPage();
+    }
+
+    private void LogDate_Click(object sender, RoutedEventArgs e)
+    {
+        var (kind, from, to) = LogDateRangeDialog.Show(this, _logFrom, _logTo);
+        if (kind == LogDateRangeDialog.ResultKind.Cancel) return;
+        if (kind == LogDateRangeDialog.ResultKind.Clear)
+        {
+            _logFrom = null;
+            _logTo = null;
+        }
+        else
+        {
+            _logFrom = from;
+            _logTo = to;
+        }
         _logPageFromLatest = 0;
         RefreshLogPage();
     }
@@ -2070,6 +2115,8 @@ public partial class MainWindow : Window
         _logPageFromLatest = 0;
         _logTotalPages = 0;
         _logKnownTotal = 0;
+        _logFrom = null;
+        _logTo = null;
         _logWatermark = null;
         _logItems.Clear();
         LogPageText.Text = Loc.T("Log.Empty");
@@ -2083,7 +2130,9 @@ public partial class MainWindow : Window
         var text = AppLog.FormatExport(
             CurrentLogLevelFilter(),
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         if (string.IsNullOrEmpty(text))
         {
             StatusText.Text = Loc.T("Log.DownloadEmpty");

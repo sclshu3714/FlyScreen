@@ -1,0 +1,95 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.LogDateRangeDialog"
+        Title="选择时间范围"
+        Width="440"
+        MinWidth="380"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13">
+  <Window.Resources>
+    <StreamGeometry x:Key="GeoClock">M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z</StreamGeometry>
+  </Window.Resources>
+  <Border Padding="20" Background="{DynamicResource WinBg}">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+      <TextBlock x:Name="TitleText" Text="选择时间范围" FontSize="15" FontWeight="SemiBold"
+                 Margin="0,0,0,14"/>
+
+      <Grid Grid.Row="1" ColumnDefinitions="48,*,118" Margin="0,0,0,10">
+        <TextBlock x:Name="FromLabel" Text="起始" VerticalAlignment="Center"
+                   Foreground="{DynamicResource Muted}"/>
+        <CalendarDatePicker x:Name="FromDate" Grid.Column="1" Margin="0,0,8,0"
+                            HorizontalAlignment="Stretch"/>
+        <Grid Grid.Column="2">
+          <TextBox x:Name="FromTime" Watermark="HH:mm" MaxLength="5"
+                   Padding="6,0,28,0" VerticalContentAlignment="Center"/>
+          <Button Width="26" Height="26" HorizontalAlignment="Right" Margin="0,0,3,0"
+                  Padding="0" Background="Transparent" BorderThickness="0"
+                  Click="FromTimePick_Click" ToolTip.Tip="选择时间">
+            <Viewbox Width="14" Height="14">
+              <Path Fill="{DynamicResource Muted}" Data="{StaticResource GeoClock}"/>
+            </Viewbox>
+          </Button>
+          <Popup x:Name="FromTimePopup" Placement="Bottom" IsLightDismissEnabled="True">
+            <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                    BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,0">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <ComboBox x:Name="FromHour" Width="64" MinHeight="32"
+                          SelectionChanged="FromTimeCombo_Changed"/>
+                <TextBlock Text=":" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                <ComboBox x:Name="FromMinute" Width="64" MinHeight="32"
+                          SelectionChanged="FromTimeCombo_Changed"/>
+              </StackPanel>
+            </Border>
+          </Popup>
+        </Grid>
+      </Grid>
+
+      <Grid Grid.Row="2" ColumnDefinitions="48,*,118" Margin="0,0,0,8">
+        <TextBlock x:Name="ToLabel" Text="结束" VerticalAlignment="Center"
+                   Foreground="{DynamicResource Muted}"/>
+        <CalendarDatePicker x:Name="ToDate" Grid.Column="1" Margin="0,0,8,0"
+                            HorizontalAlignment="Stretch"/>
+        <Grid Grid.Column="2">
+          <TextBox x:Name="ToTime" Watermark="HH:mm" MaxLength="5"
+                   Padding="6,0,28,0" VerticalContentAlignment="Center"/>
+          <Button Width="26" Height="26" HorizontalAlignment="Right" Margin="0,0,3,0"
+                  Padding="0" Background="Transparent" BorderThickness="0"
+                  Click="ToTimePick_Click" ToolTip.Tip="选择时间">
+            <Viewbox Width="14" Height="14">
+              <Path Fill="{DynamicResource Muted}" Data="{StaticResource GeoClock}"/>
+            </Viewbox>
+          </Button>
+          <Popup x:Name="ToTimePopup" Placement="Bottom" IsLightDismissEnabled="True">
+            <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                    BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,0">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <ComboBox x:Name="ToHour" Width="64" MinHeight="32"
+                          SelectionChanged="ToTimeCombo_Changed"/>
+                <TextBlock Text=":" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                <ComboBox x:Name="ToMinute" Width="64" MinHeight="32"
+                          SelectionChanged="ToTimeCombo_Changed"/>
+              </StackPanel>
+            </Border>
+          </Popup>
+        </Grid>
+      </Grid>
+
+      <TextBlock x:Name="ErrorText" Grid.Row="3" Foreground="#DC2626" FontSize="12"
+                 TextWrapping="Wrap" Margin="0,0,0,10" IsVisible="False"/>
+
+      <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="ClearBtn" Classes="normal" Content="清除筛选" MinWidth="88" Margin="0"
+                Click="Clear_Click"/>
+        <Button x:Name="CancelBtn" Classes="normal" Content="取消" MinWidth="88" Margin="0"
+                Click="Cancel_Click"/>
+        <Button x:Name="OkBtn" Classes="primary" Content="确定" MinWidth="96" Margin="0"
+                Click="Ok_Click"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

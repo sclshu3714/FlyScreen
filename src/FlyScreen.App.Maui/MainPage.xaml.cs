@@ -35,7 +35,11 @@ public partial class MainPage : ContentPage
     private string? _logProgramName;
     private int _logPageFromLatest;
     private int _logTotalPages;
+    private DateTime? _logFrom;
+    private DateTime? _logTo;
     private readonly ObservableCollection<LogListItem> _logItems = new();
+    private static readonly Color LogRowSelectedBg = Color.FromArgb("#DBEAFE");
+    private static readonly Color LogRowNormalBg = Colors.Transparent;
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
     private int _logKnownTotal;
@@ -140,7 +144,7 @@ public partial class MainPage : ContentPage
         });
         _onAppLogChanged = () => RunOnUi(() =>
         {
-            if (PageLog.IsVisible && _logPageFromLatest == 0)
+            if (PageLog.IsVisible && IsLogLiveMode())
                 RefreshLogPageLive();
         });
         _onLayoutSynced = _ => RunOnUi(() =>
@@ -965,8 +969,9 @@ public partial class MainPage : ContentPage
     private const string ProgIcStart = "▶";
     private const string ProgIcStop = "■";
     private const string LogIcPrev = "◀";
-    private const string LogIcNext = "↻";
-    private const string LogIcLatest = "≡";
+    private const string LogIcNext = "▶";
+    private const string LogIcLatest = "↻";
+    private const string LogIcDate = "▦";
     private const string LogIcDownload = "⇩";
     private const string LogIcCopy = "⎘";
     private const string LogIcClear = "✕";
@@ -2074,15 +2079,31 @@ public partial class MainPage : ContentPage
         _logPageFromLatest = page.PageFromLatest;
         _logTotalPages = page.TotalPages;
         _logKnownTotal = page.TotalCount;
-        LogPageText.Text = page.TotalCount == 0
-            ? Loc.T("Log.Empty")
-            : page.PageFromLatest == 0
-                ? string.Format(Loc.T("Log.PageLatest"), page.TotalCount)
-                : string.Format(Loc.T("Log.Page"), page.PageFromLatest + 1, page.TotalPages, page.TotalCount);
+        LogPageText.Text = FormatLogPageText(page.TotalCount, page.PageFromLatest, page.TotalPages);
         LogPrevBtn.IsEnabled = page.HasOlder;
         LogNextBtn.IsEnabled = page.HasNewer;
-        LogLatestBtn.IsEnabled = page.HasNewer;
+        LogLatestBtn.IsEnabled = page.HasNewer || _logFrom != null || _logTo != null;
     }
+
+    private string FormatLogPageText(int totalCount, int pageFromLatest, int totalPages)
+    {
+        if (totalCount == 0)
+            return Loc.T("Log.Empty");
+        if (_logFrom != null || _logTo != null)
+        {
+            var from = _logFrom ?? DateTime.MinValue;
+            var to = _logTo ?? DateTime.MaxValue;
+            return pageFromLatest == 0
+                ? string.Format(Loc.T("Log.PageDateLatest"), from, to, totalCount)
+                : string.Format(Loc.T("Log.PageDate"), from, to, pageFromLatest + 1, totalPages, totalCount);
+        }
+        return pageFromLatest == 0
+            ? string.Format(Loc.T("Log.PageLatest"), totalCount)
+            : string.Format(Loc.T("Log.Page"), pageFromLatest + 1, totalPages, totalCount);
+    }
+
+    private bool IsLogLiveMode()
+        => _logPageFromLatest == 0 && _logFrom == null && _logTo == null;
 
     private void ReplaceLogItems(IReadOnlyList<AppLogEntry> items)
     {
@@ -2098,6 +2119,7 @@ public partial class MainPage : ContentPage
         LogPrevBtn.Text = iconOnly ? LogIcPrev : $"{LogIcPrev}  {Loc.T("Log.Prev")}";
         LogNextBtn.Text = iconOnly ? LogIcNext : $"{LogIcNext}  {Loc.T("Log.Next")}";
         LogLatestBtn.Text = iconOnly ? LogIcLatest : $"{LogIcLatest}  {Loc.T("Log.Latest")}";
+        LogDateBtn.Text = iconOnly ? LogIcDate : $"{LogIcDate}  {Loc.T("Log.Date")}";
         LogDownloadBtn.Text = iconOnly ? LogIcDownload : $"{LogIcDownload}  {Loc.T("Log.Download")}";
         LogCopyBtn.Text = iconOnly ? LogIcCopy : $"{LogIcCopy}  {Loc.T("Log.Copy")}";
         LogClearBtn.Text = iconOnly ? LogIcClear : $"{LogIcClear}  {Loc.T("Log.Clear")}";
@@ -2105,7 +2127,7 @@ public partial class MainPage : ContentPage
         var minW = iconOnly ? 30.0 : 0.0;
         var maxW = iconOnly ? 30.0 : 120.0;
         var pad = iconOnly ? new Thickness(0) : new Thickness(8, 0);
-        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogCopyBtn, LogClearBtn })
+        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDateBtn, LogDownloadBtn, LogCopyBtn, LogClearBtn })
         {
             b.Padding = pad;
             b.MinimumWidthRequest = minW;
@@ -2114,11 +2136,12 @@ public partial class MainPage : ContentPage
         }
         var hostW = LogToolBarHost?.Width ?? 0;
         LogLevelFilter.WidthRequest = iconOnly
-            ? (hostW > 0 && hostW < 240 ? 52 : 64)
-            : 72;
+            ? (hostW > 0 && hostW < 240 ? 72 : 84)
+            : 96;
         ToolTipProperties.SetText(LogPrevBtn, Loc.T("Log.Prev"));
         ToolTipProperties.SetText(LogNextBtn, Loc.T("Log.Next"));
         ToolTipProperties.SetText(LogLatestBtn, Loc.T("Log.Latest"));
+        ToolTipProperties.SetText(LogDateBtn, Loc.T("Log.Date"));
         ToolTipProperties.SetText(LogDownloadBtn, Loc.T("Log.Download"));
         ToolTipProperties.SetText(LogCopyBtn, Loc.T("Log.SelectTip"));
         ToolTipProperties.SetText(LogClearBtn, Loc.T("Log.Clear"));
@@ -2156,10 +2179,12 @@ public partial class MainPage : ContentPage
 
     private void RefreshLogPageLive()
     {
+        if (!IsLogLiveMode()) return;
         var level = CurrentLogLevelFilter();
         var stick = _logStickToBottom;
         var delta = AppLog.DeltaSince(
-            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize,
+            _logFrom, _logTo);
         var uiChanged = false;
 
         if (delta.Reset)
@@ -2185,9 +2210,7 @@ public partial class MainPage : ContentPage
         if (!uiChanged)
             return;
 
-        LogPageText.Text = _logKnownTotal == 0
-            ? Loc.T("Log.Empty")
-            : string.Format(Loc.T("Log.PageLatest"), _logKnownTotal);
+        LogPageText.Text = FormatLogPageText(_logKnownTotal, 0, _logTotalPages);
         LogPrevBtn.IsEnabled = _logKnownTotal > AppLog.DefaultPageSize || _logTotalPages > 1;
         LogNextBtn.IsEnabled = false;
         LogLatestBtn.IsEnabled = false;
@@ -2205,11 +2228,14 @@ public partial class MainPage : ContentPage
             AppLog.DefaultPageSize,
             level,
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         ApplyLogPageChrome(page);
-        if (page.PageFromLatest == 0)
+        if (page.PageFromLatest == 0 && IsLogLiveMode())
         {
-            var delta = AppLog.DeltaSince(null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            var delta = AppLog.DeltaSince(
+                null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize, _logFrom, _logTo);
             if (delta.Items.Count > 0)
                 ReplaceLogItems(delta.Items);
             else
@@ -2222,8 +2248,19 @@ public partial class MainPage : ContentPage
         {
             ReplaceLogItems(page.Items);
             _logWatermark = null;
-            _logStickToBottom = false;
+            _logStickToBottom = page.PageFromLatest == 0;
+            if (_logStickToBottom)
+                ScrollLogToEnd();
         }
+    }
+
+    private void LogRow_Tapped(object? sender, TappedEventArgs e)
+    {
+        // sender 可能是 GestureRecognizer 或 Border
+        var item = (sender as BindableObject)?.BindingContext as LogListItem
+                   ?? ((sender as TapGestureRecognizer)?.Parent as BindableObject)?.BindingContext as LogListItem;
+        if (item == null) return;
+        item.IsSelected = !item.IsSelected;
     }
 
     private void LogList_Scrolled(object? sender, ItemsViewScrolledEventArgs e)
@@ -2254,6 +2291,29 @@ public partial class MainPage : ContentPage
 
     private void LogLatest_Clicked(object? sender, EventArgs e)
     {
+        _logFrom = null;
+        _logTo = null;
+        _logPageFromLatest = 0;
+        RefreshLogPage();
+    }
+
+    private async void LogDate_Clicked(object? sender, EventArgs e)
+    {
+        var page = new LogDateRangePage(_logFrom, _logTo);
+        NavigationPage.SetHasNavigationBar(page, false);
+        await Navigation.PushModalAsync(page).ConfigureAwait(true);
+        // 模态关闭后读取结果
+        if (page.Result == LogDateRangePage.ResultKind.Cancel) return;
+        if (page.Result == LogDateRangePage.ResultKind.Clear)
+        {
+            _logFrom = null;
+            _logTo = null;
+        }
+        else
+        {
+            _logFrom = page.From;
+            _logTo = page.To;
+        }
         _logPageFromLatest = 0;
         RefreshLogPage();
     }
@@ -2264,6 +2324,8 @@ public partial class MainPage : ContentPage
         _logPageFromLatest = 0;
         _logTotalPages = 0;
         _logKnownTotal = 0;
+        _logFrom = null;
+        _logTo = null;
         _logWatermark = null;
         _logItems.Clear();
         LogPageText.Text = Loc.T("Log.Empty");
@@ -2298,7 +2360,9 @@ public partial class MainPage : ContentPage
         var text = AppLog.FormatExport(
             CurrentLogLevelFilter(),
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         if (string.IsNullOrEmpty(text))
         {
             await DisplayAlertAsync(Loc.T("Log.Download"), Loc.T("Log.DownloadEmpty"), "OK");
@@ -3464,13 +3528,21 @@ public partial class MainPage : ContentPage
     private void Exit_Clicked(object? sender, EventArgs e)
         => RequestAppExit();
 
-    /// <summary>日志列表行：自绘勾选，避免 Win CollectionView Multiple 平台勾与文字不齐。</summary>
+    /// <summary>
+    /// 日志行：点选切换选中高亮（无复选框）。
+    /// Win CollectionView Multiple 会画平台勾选框，故用 SelectionMode=None + 自绘背景。
+    /// </summary>
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
     {
         private bool _isSelected;
 
         public AppLogEntry Entry { get; } = entry;
+        public string TimeText => Entry.TimeText;
+        public string LevelText => Entry.LevelText;
+        public string Message => Entry.Message;
+        public AppLogLevel Level => Entry.Level;
         public string Display => Entry.Display;
+        public Color RowBg => _isSelected ? LogRowSelectedBg : LogRowNormalBg;
 
         public bool IsSelected
         {
@@ -3480,6 +3552,7 @@ public partial class MainPage : ContentPage
                 if (_isSelected == value) return;
                 _isSelected = value;
                 PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(RowBg)));
             }
         }
 

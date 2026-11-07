@@ -4,6 +4,7 @@
         xmlns:net="using:FlyScreen.Services.Network"
         xmlns:diag="using:FlyScreen.Services"
         xmlns:prog="using:FlyScreen.Services.Programs"
+        xmlns:local="using:FlyScreen.DesktopUi"
         x:Class="FlyScreen.DesktopUi.MainWindow"
         Title="玄鸟"
         Icon="/Assets/app_icon.png"
@@ -33,8 +34,9 @@
     <StreamGeometry x:Key="GeoStop">M6,6H18V18H6V6Z</StreamGeometry>
     <StreamGeometry x:Key="GeoEdit">M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z</StreamGeometry>
     <StreamGeometry x:Key="GeoChevronLeft">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoChevronRight">M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z</StreamGeometry>
     <StreamGeometry x:Key="GeoRefresh">M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoToEnd">M4,6H20V8H4V6M4,18H20V16H4V18M4,11H20V13H4V11Z</StreamGeometry>
+    <StreamGeometry x:Key="GeoCalendar">M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z</StreamGeometry>
     <StreamGeometry x:Key="GeoDownload">M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z</StreamGeometry>
     <StreamGeometry x:Key="GeoCopy">M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z</StreamGeometry>
   </Window.Resources>
@@ -982,33 +984,42 @@
                 <Border x:Name="LogToolBarHost" DockPanel.Dock="Top" Margin="0,0,0,6" ClipToBounds="True"
                         SizeChanged="LogToolBarHost_SizeChanged">
                   <StackPanel x:Name="LogToolBar" Orientation="Horizontal" Spacing="3" HorizontalAlignment="Left">
-                    <ComboBox x:Name="LogLevelFilter" MinWidth="52" Width="72" VerticalAlignment="Center"
+                    <ComboBox x:Name="LogLevelFilter" MinWidth="72" Width="96" VerticalAlignment="Center"
                               SelectionChanged="LogFilter_Changed"/>
                     <Button x:Name="LogPrevBtn" Classes="progTool" MinWidth="30" Click="LogPrev_Click"
-                            ToolTip.Tip="更早">
+                            ToolTip.Tip="上一页">
                       <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                         <Viewbox Width="13" Height="13" VerticalAlignment="Center">
                           <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoChevronLeft}"/>
                         </Viewbox>
-                        <TextBlock x:Name="LogPrevBtnText" Text="更早" VerticalAlignment="Center" FontSize="13"/>
+                        <TextBlock x:Name="LogPrevBtnText" Text="上一页" VerticalAlignment="Center" FontSize="13"/>
                       </StackPanel>
                     </Button>
                     <Button x:Name="LogNextBtn" Classes="progTool" MinWidth="30" Click="LogNext_Click"
-                            ToolTip.Tip="更新">
+                            ToolTip.Tip="下一页">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Viewbox Width="13" Height="13" VerticalAlignment="Center">
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoChevronRight}"/>
+                        </Viewbox>
+                        <TextBlock x:Name="LogNextBtnText" Text="下一页" VerticalAlignment="Center" FontSize="13"/>
+                      </StackPanel>
+                    </Button>
+                    <Button x:Name="LogLatestBtn" Classes="progTool" MinWidth="30" Click="LogLatest_Click"
+                            ToolTip.Tip="实时">
                       <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                         <Viewbox Width="13" Height="13" VerticalAlignment="Center">
                           <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoRefresh}"/>
                         </Viewbox>
-                        <TextBlock x:Name="LogNextBtnText" Text="更新" VerticalAlignment="Center" FontSize="13"/>
+                        <TextBlock x:Name="LogLatestBtnText" Text="实时" VerticalAlignment="Center" FontSize="13"/>
                       </StackPanel>
                     </Button>
-                    <Button x:Name="LogLatestBtn" Classes="progTool" MinWidth="30" Click="LogLatest_Click"
-                            ToolTip.Tip="最新">
+                    <Button x:Name="LogDateBtn" Classes="progTool" MinWidth="30" Click="LogDate_Click"
+                            ToolTip.Tip="日期">
                       <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                         <Viewbox Width="13" Height="13" VerticalAlignment="Center">
-                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoToEnd}"/>
+                          <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoCalendar}"/>
                         </Viewbox>
-                        <TextBlock x:Name="LogLatestBtnText" Text="最新" VerticalAlignment="Center" FontSize="13"/>
+                        <TextBlock x:Name="LogDateBtnText" Text="日期" VerticalAlignment="Center" FontSize="13"/>
                       </StackPanel>
                     </Button>
                     <Button x:Name="LogDownloadBtn" Classes="progTool" MinWidth="30" Click="LogDownload_Click"
@@ -1050,7 +1061,15 @@
                          SelectionMode="Multiple" KeyDown="LogList_KeyDown">
                   <ListBox.ItemTemplate>
                     <DataTemplate DataType="diag:AppLogEntry">
-                      <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Margin="0,2"/>
+                      <Grid Margin="0,2" ColumnDefinitions="Auto,Auto,*">
+                        <TextBlock Text="{Binding TimeText}" Margin="0,0,8,0"
+                                   Foreground="{DynamicResource Muted}"
+                                   FontFamily="Menlo, Monaco, Consolas, monospace"/>
+                        <TextBlock Grid.Column="1" Text="{Binding LevelText}" MinWidth="40"
+                                   Margin="0,0,8,0" FontWeight="SemiBold"
+                                   Foreground="{Binding Level, Converter={x:Static local:LogLevelBrushConverter.Instance}}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"/>
+                      </Grid>
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>

@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private string? _logProgramName;
     private int _logPageFromLatest;
     private int _logTotalPages;
+    private DateTime? _logFrom;
+    private DateTime? _logTo;
     private readonly ObservableCollection<AppLogEntry> _logItems = new();
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
@@ -497,7 +499,7 @@ public partial class MainWindow : Window
         });
         AppLog.Changed += () => Dispatcher.UIThread.Post(() =>
         {
-            if (PageLog.IsVisible && _logPageFromLatest == 0)
+            if (PageLog.IsVisible && IsLogLiveMode())
                 RefreshLogPageLive();
         });
         LogList.ItemsSource = _logItems;
@@ -759,12 +761,14 @@ public partial class MainWindow : Window
         LogPrevBtnText.Text = Loc.T("Log.Prev");
         LogNextBtnText.Text = Loc.T("Log.Next");
         LogLatestBtnText.Text = Loc.T("Log.Latest");
+        LogDateBtnText.Text = Loc.T("Log.Date");
         ToolTip.SetTip(LogDownloadBtn, Loc.T("Log.Download"));
         ToolTip.SetTip(LogCopyBtn, Loc.T("Log.SelectTip"));
         ToolTip.SetTip(LogClearBtn, Loc.T("Log.Clear"));
         ToolTip.SetTip(LogPrevBtn, Loc.T("Log.Prev"));
         ToolTip.SetTip(LogNextBtn, Loc.T("Log.Next"));
         ToolTip.SetTip(LogLatestBtn, Loc.T("Log.Latest"));
+        ToolTip.SetTip(LogDateBtn, Loc.T("Log.Date"));
         EnsureLogLevelFilterItems();
         RefreshLogHint();
         Dispatcher.UIThread.Post(UpdateLogToolMode, DispatcherPriority.Loaded);
@@ -1363,15 +1367,31 @@ public partial class MainWindow : Window
         _logPageFromLatest = page.PageFromLatest;
         _logTotalPages = page.TotalPages;
         _logKnownTotal = page.TotalCount;
-        LogPageText.Text = page.TotalCount == 0
-            ? Loc.T("Log.Empty")
-            : page.PageFromLatest == 0
-                ? string.Format(Loc.T("Log.PageLatest"), page.TotalCount)
-                : string.Format(Loc.T("Log.Page"), page.PageFromLatest + 1, page.TotalPages, page.TotalCount);
+        LogPageText.Text = FormatLogPageText(page.TotalCount, page.PageFromLatest, page.TotalPages);
         LogPrevBtn.IsEnabled = page.HasOlder;
         LogNextBtn.IsEnabled = page.HasNewer;
-        LogLatestBtn.IsEnabled = page.HasNewer;
+        LogLatestBtn.IsEnabled = page.HasNewer || _logFrom != null || _logTo != null;
     }
+
+    private string FormatLogPageText(int totalCount, int pageFromLatest, int totalPages)
+    {
+        if (totalCount == 0)
+            return Loc.T("Log.Empty");
+        if (_logFrom != null || _logTo != null)
+        {
+            var from = _logFrom ?? DateTime.MinValue;
+            var to = _logTo ?? DateTime.MaxValue;
+            return pageFromLatest == 0
+                ? string.Format(Loc.T("Log.PageDateLatest"), from, to, totalCount)
+                : string.Format(Loc.T("Log.PageDate"), from, to, pageFromLatest + 1, totalPages, totalCount);
+        }
+        return pageFromLatest == 0
+            ? string.Format(Loc.T("Log.PageLatest"), totalCount)
+            : string.Format(Loc.T("Log.Page"), pageFromLatest + 1, totalPages, totalCount);
+    }
+
+    private bool IsLogLiveMode()
+        => _logPageFromLatest == 0 && _logFrom == null && _logTo == null;
 
     private void ReplaceLogItems(IReadOnlyList<AppLogEntry> items)
     {
@@ -1409,19 +1429,20 @@ public partial class MainWindow : Window
         LogPrevBtnText.IsVisible = !compact;
         LogNextBtnText.IsVisible = !compact;
         LogLatestBtnText.IsVisible = !compact;
+        LogDateBtnText.IsVisible = !compact;
         LogDownloadBtnText.IsVisible = !compact;
         LogCopyBtnText.IsVisible = !compact;
         LogClearBtnText.IsVisible = !compact;
         var pad = compact ? new Thickness(0) : new Thickness(8, 0);
         var w = compact ? 30.0 : double.NaN;
-        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDownloadBtn, LogCopyBtn, LogClearBtn })
+        foreach (var b in new[] { LogPrevBtn, LogNextBtn, LogLatestBtn, LogDateBtn, LogDownloadBtn, LogCopyBtn, LogClearBtn })
         {
             b.Padding = pad;
             b.MinWidth = 30;
             b.Width = w;
         }
         var avail = LogToolBarHost.Bounds.Width;
-        LogLevelFilter.Width = compact ? (avail < 240 ? 52 : 64) : 72;
+        LogLevelFilter.Width = compact ? (avail < 240 ? 72 : 84) : 96;
     }
 
     private void ScrollLogToEndQuiet()
@@ -1440,10 +1461,12 @@ public partial class MainWindow : Window
 
     private void RefreshLogPageLive()
     {
+        if (!IsLogLiveMode()) return;
         var level = CurrentLogLevelFilter();
         var stick = _logStickToBottom;
         var delta = AppLog.DeltaSince(
-            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize,
+            _logFrom, _logTo);
         var uiChanged = false;
 
         if (delta.Reset)
@@ -1469,9 +1492,7 @@ public partial class MainWindow : Window
         if (!uiChanged)
             return;
 
-        LogPageText.Text = _logKnownTotal == 0
-            ? Loc.T("Log.Empty")
-            : string.Format(Loc.T("Log.PageLatest"), _logKnownTotal);
+        LogPageText.Text = FormatLogPageText(_logKnownTotal, 0, _logTotalPages);
         LogPrevBtn.IsEnabled = _logKnownTotal > AppLog.DefaultPageSize || _logTotalPages > 1;
         LogNextBtn.IsEnabled = false;
         LogLatestBtn.IsEnabled = false;
@@ -1489,11 +1510,14 @@ public partial class MainWindow : Window
             AppLog.DefaultPageSize,
             level,
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         ApplyLogPageChrome(page);
-        if (page.PageFromLatest == 0)
+        if (page.PageFromLatest == 0 && IsLogLiveMode())
         {
-            var delta = AppLog.DeltaSince(null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            var delta = AppLog.DeltaSince(
+                null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize, _logFrom, _logTo);
             if (delta.Items.Count > 0)
                 ReplaceLogItems(delta.Items);
             else
@@ -1506,7 +1530,9 @@ public partial class MainWindow : Window
         {
             ReplaceLogItems(page.Items);
             _logWatermark = null;
-            _logStickToBottom = false;
+            _logStickToBottom = page.PageFromLatest == 0;
+            if (_logStickToBottom)
+                Dispatcher.UIThread.Post(ScrollLogToEndQuiet, DispatcherPriority.Loaded);
         }
     }
 
@@ -1533,6 +1559,26 @@ public partial class MainWindow : Window
 
     private void LogLatest_Click(object? sender, RoutedEventArgs e)
     {
+        _logFrom = null;
+        _logTo = null;
+        _logPageFromLatest = 0;
+        RefreshLogPage();
+    }
+
+    private async void LogDate_Click(object? sender, RoutedEventArgs e)
+    {
+        var (kind, from, to) = await LogDateRangeDialog.ShowAsync(this, _logFrom, _logTo).ConfigureAwait(true);
+        if (kind == LogDateRangeDialog.ResultKind.Cancel) return;
+        if (kind == LogDateRangeDialog.ResultKind.Clear)
+        {
+            _logFrom = null;
+            _logTo = null;
+        }
+        else
+        {
+            _logFrom = from;
+            _logTo = to;
+        }
         _logPageFromLatest = 0;
         RefreshLogPage();
     }
@@ -1543,6 +1589,8 @@ public partial class MainWindow : Window
         _logPageFromLatest = 0;
         _logTotalPages = 0;
         _logKnownTotal = 0;
+        _logFrom = null;
+        _logTo = null;
         _logWatermark = null;
         _logItems.Clear();
         LogPageText.Text = Loc.T("Log.Empty");
@@ -1556,7 +1604,9 @@ public partial class MainWindow : Window
         var text = AppLog.FormatExport(
             CurrentLogLevelFilter(),
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         if (string.IsNullOrEmpty(text))
         {
             StatusText.Text = Loc.T("Log.DownloadEmpty");
