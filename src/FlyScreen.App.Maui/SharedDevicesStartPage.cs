@@ -126,71 +126,88 @@ public sealed class SharedDevicesStartPage : ContentPage
         };
         okBtn.Clicked += Ok_Clicked;
 
+        var dialogCard = new Border
+        {
+            Stroke = line,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 12 },
+            BackgroundColor = card,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            MaximumWidthRequest = 480,
+            Margin = new Thickness(12, 0),
+            Padding = 16,
+            Content = new VerticalStackLayout
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new Label
+                    {
+                        Text = Loc.T("Tool.SharedDevices.StartTitle"),
+                        FontSize = 15,
+                        FontAttributes = FontAttributes.Bold,
+                        TextColor = text
+                    },
+                    new Label
+                    {
+                        Text = Loc.T("Tool.SharedDevices.PickPeer"),
+                        FontSize = 12,
+                        TextColor = muted
+                    },
+                    new Border
+                    {
+                        Stroke = line,
+                        StrokeThickness = 1,
+                        StrokeShape = new RoundRectangle { CornerRadius = 8 },
+                        BackgroundColor = ColorOf("ListBg") ?? Color.FromArgb("#F9FAFB"),
+                        Padding = 4,
+                        Content = _peerList
+                    },
+                    new Label
+                    {
+                        Text = Loc.T("Tool.SharedDevices.PickKinds"),
+                        FontSize = 12,
+                        TextColor = muted,
+                        Margin = new Thickness(0, 4, 0, 0)
+                    },
+                    KindRow(_kindSpeaker, Loc.T("Tool.SharedDevices.Speaker"), text),
+                    KindRow(_kindMicrophone, Loc.T("Tool.SharedDevices.Microphone"), text),
+                    KindRow(_kindCamera, Loc.T("Tool.SharedDevices.Camera"), text),
+                    _hint,
+                    new HorizontalStackLayout
+                    {
+                        Spacing = 8,
+                        HorizontalOptions = LayoutOptions.End,
+                        Margin = new Thickness(0, 8, 0, 0),
+                        Children = { cancelBtn, okBtn }
+                    }
+                }
+            }
+        };
+
         Content = new Grid
         {
             BackgroundColor = Color.FromRgba(0, 0, 0, 0.35),
-            Padding = 24,
-            Children =
+            Padding = new Thickness(12, 16),
+            Children = { dialogCard }
+        };
+
+        SizeChanged += (_, _) =>
+        {
+            if (Width <= 0) return;
+            // 竖屏窄：铺满；横屏/宽屏：居中限宽
+            var landscape = Width > Height;
+            var narrow = DeviceInfo.Idiom == DeviceIdiom.Phone || Width < 600;
+            if (narrow && !landscape)
             {
-                new Border
-                {
-                    Stroke = line,
-                    StrokeThickness = 1,
-                    StrokeShape = new RoundRectangle { CornerRadius = 12 },
-                    BackgroundColor = card,
-                    HorizontalOptions = LayoutOptions.Center,
-                    VerticalOptions = LayoutOptions.Center,
-                    WidthRequest = 420,
-                    MaximumWidthRequest = 480,
-                    Padding = 16,
-                    Content = new VerticalStackLayout
-                    {
-                        Spacing = 10,
-                        Children =
-                        {
-                            new Label
-                            {
-                                Text = Loc.T("Tool.SharedDevices.StartTitle"),
-                                FontSize = 15,
-                                FontAttributes = FontAttributes.Bold,
-                                TextColor = text
-                            },
-                            new Label
-                            {
-                                Text = Loc.T("Tool.SharedDevices.PickPeer"),
-                                FontSize = 12,
-                                TextColor = muted
-                            },
-                            new Border
-                            {
-                                Stroke = line,
-                                StrokeThickness = 1,
-                                StrokeShape = new RoundRectangle { CornerRadius = 8 },
-                                BackgroundColor = ColorOf("ListBg") ?? Color.FromArgb("#F9FAFB"),
-                                Padding = 4,
-                                Content = _peerList
-                            },
-                            new Label
-                            {
-                                Text = Loc.T("Tool.SharedDevices.PickKinds"),
-                                FontSize = 12,
-                                TextColor = muted,
-                                Margin = new Thickness(0, 4, 0, 0)
-                            },
-                            KindRow(_kindSpeaker, Loc.T("Tool.SharedDevices.Speaker"), text),
-                            KindRow(_kindMicrophone, Loc.T("Tool.SharedDevices.Microphone"), text),
-                            KindRow(_kindCamera, Loc.T("Tool.SharedDevices.Camera"), text),
-                            _hint,
-                            new HorizontalStackLayout
-                            {
-                                Spacing = 8,
-                                HorizontalOptions = LayoutOptions.End,
-                                Margin = new Thickness(0, 8, 0, 0),
-                                Children = { cancelBtn, okBtn }
-                            }
-                        }
-                    }
-                }
+                dialogCard.MaximumWidthRequest = double.PositiveInfinity;
+                dialogCard.HorizontalOptions = LayoutOptions.Fill;
+            }
+            else
+            {
+                dialogCard.MaximumWidthRequest = 480;
+                dialogCard.HorizontalOptions = LayoutOptions.Center;
             }
         };
     }
