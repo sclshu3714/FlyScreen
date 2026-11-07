@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.SharedDevicesManageWindow"
+        Width="480" Height="420"
+        MinWidth="420" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Title="共享设备管理"
+        Background="{DynamicResource WinBg}">
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button x:Name="SaveBtn" Classes="primary" Click="Save_Click"/>
+      <Button x:Name="CloseBtn" Classes="normal" Click="Close_Click"/>
+    </StackPanel>
+    <StackPanel Spacing="10">
+      <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold"/>
+      <TextBlock x:Name="HintText" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+      <TextBlock x:Name="SpeakerLabel"/>
+      <ComboBox x:Name="SpeakerCombo" MinHeight="30"/>
+      <TextBlock x:Name="MicLabel"/>
+      <ComboBox x:Name="MicCombo" MinHeight="30"/>
+      <TextBlock x:Name="CameraLabel"/>
+      <ComboBox x:Name="CameraCombo" MinHeight="30"/>
+      <Button x:Name="ClearRememberBtn" Classes="normal" HorizontalAlignment="Left" Click="ClearRemember_Click"/>
+      <TextBlock x:Name="ClearStatus" FontSize="12" Foreground="{DynamicResource Muted}"/>
+    </StackPanel>
+  </DockPanel>
+</Window>

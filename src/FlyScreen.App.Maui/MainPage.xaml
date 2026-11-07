@@ -2,12 +2,17 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:FlyScreen.AppMaui"
+             xmlns:helpers="clr-namespace:FlyScreen.AppMaui.Helpers"
              xmlns:models="clr-namespace:FlyScreen.Models;assembly=FlyScreen.Core"
              x:Class="FlyScreen.AppMaui.MainPage"
              Title="玄鸟"
              Shell.NavBarIsVisible="False"
              NavigationPage.HasNavigationBar="False"
              BackgroundColor="{DynamicResource WinBg}">
+
+    <ContentPage.Resources>
+        <helpers:HexToColorConverter x:Key="HexToColor"/>
+    </ContentPage.Resources>
 
     <Grid>
     <Grid x:Name="RootGrid" RowDefinitions="Auto,*">
@@ -419,6 +424,23 @@
                     </Border>
                 </Grid>
 
+                <!-- ===== 工具（独立卡片 · 左→右/上→下自适应 · 三态底色 · 安装进度；对齐 Win） ===== -->
+                <Grid x:Name="PageTools" IsVisible="False">
+                    <Border Style="{StaticResource Card}" Padding="16">
+                        <Grid RowDefinitions="Auto,Auto,*">
+                            <Label x:Name="ToolsTitleText" Text="工具" FontSize="15" FontAttributes="Bold" />
+                            <Label x:Name="ToolsHintText" Grid.Row="1"
+                                   TextColor="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,12" />
+                            <ScrollView x:Name="ToolsScroll" Grid.Row="2"
+                                        VerticalScrollBarVisibility="Default"
+                                        HorizontalScrollBarVisibility="Never">
+                                <!-- Android 上 FlexLayout+ScrollView 首次高度常为 0；改用可测高的纵向堆叠，窄屏铺满、宽屏左对齐固定宽 -->
+                                <VerticalStackLayout x:Name="ToolsStack" Spacing="0" />
+                            </ScrollView>
+                        </Grid>
+                    </Border>
+                </Grid>
+
                 <!-- ===== 程序 ===== -->
                 <Grid x:Name="PagePrograms" IsVisible="False">
                     <Border Style="{StaticResource Card}" Padding="16">
@@ -687,6 +709,17 @@
                                       Fill="#14B8A6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavProgramsText" Text="程序" Style="{StaticResource SideNavLabel}"
+                                       Margin="10,0,0,0" />
+                            </HorizontalStackLayout>
+                        </Grid>
+                        <Grid HeightRequest="40" Margin="8,2">
+                            <Button x:Name="NavTools" Style="{StaticResource SideNavBtn}" Text=" "
+                                    Margin="0" Clicked="Nav_Clicked" CommandParameter="tools" />
+                            <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
+                                <Path Data="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"
+                                      Fill="#8B5CF6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
+                                      VerticalOptions="Center" />
+                                <Label x:Name="NavToolsText" Text="工具" Style="{StaticResource SideNavLabel}"
                                        Margin="10,0,0,0" />
                             </HorizontalStackLayout>
                         </Grid>

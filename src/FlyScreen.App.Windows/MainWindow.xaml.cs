@@ -16,6 +16,8 @@ using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
+using FlyScreen.Services.Tools;
+using FlyScreen.Services.Tools.SharedDevices;
 using FlyScreen.Services.Update;
 using FlyScreen.Tray;
 using WinForms = System.Windows.Forms;
@@ -267,6 +269,14 @@ public partial class MainWindow : Window
         });
         LogList.ItemsSource = _logItems;
         ProgramService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshProgramsPage);
+        ToolService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+        ToolService.Instance.InstallProgress.Changed += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+        var shared = ToolService.Instance.SharedDevices;
+        if (shared != null)
+        {
+            shared.SessionChanged += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+            shared.IncomingRequest += OnSharedDevicesIncomingRequest;
+        }
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
         _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
@@ -579,7 +589,11 @@ public partial class MainWindow : Window
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
         NavLogText.Text = Loc.T("Nav.Log");
         NavProgramsText.Text = Loc.T("Nav.Programs");
+        NavToolsText.Text = Loc.T("Nav.Tools");
+        ToolsTitleText.Text = Loc.T("Tool.Title");
+        ToolsHintText.Text = Loc.T("Tool.Hint");
         SearchPlaceholderText.Text = Loc.T("Search.Placeholder");
+        RefreshToolsPage();
         LogTitleText.Text = Loc.T("Log.Title");
         RefreshLogHint();
         LogDownloadBtnText.Text = Loc.T("Log.Download");
@@ -1533,6 +1547,7 @@ public partial class MainWindow : Window
         else if (NavSecurity.IsChecked == true) ShowPage(4);
         else if (NavAdvanced.IsChecked == true) ShowPage(1);
         else if (NavPrograms.IsChecked == true) ShowPage(8);
+        else if (NavTools.IsChecked == true) ShowPage(9);
         else if (NavLog.IsChecked == true) ShowPage(7);
         else if (NavAbout.IsChecked == true) ShowPage(5);
         else if (NavHelp.IsChecked == true) ShowPage(6);
@@ -1550,6 +1565,7 @@ public partial class MainWindow : Window
         PageHelp.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
         PageLog.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
         PagePrograms.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
+        PageTools.Visibility = index == 9 ? Visibility.Visible : Visibility.Collapsed;
 
         _syncingNav = true;
         try
@@ -1583,6 +1599,9 @@ public partial class MainWindow : Window
                 case 8:
                     NavPrograms.IsChecked = true;
                     break;
+                case 9:
+                    NavTools.IsChecked = true;
+                    break;
             }
         }
         finally { _syncingNav = false; }
@@ -1595,6 +1614,8 @@ public partial class MainWindow : Window
             RefreshAboutPage();
         else if (index == 6)
             ShowHelpDocument();
+        else if (index == 9)
+            RefreshToolsPage();
         else if (index == 7)
         {
             if (!_openProgramLog)
@@ -2203,6 +2224,8 @@ public partial class MainWindow : Window
             ShowPage(4);
         else if (q.Contains("程序") || q.Contains("脚本") || q.Contains("python"))
             ShowPage(8);
+        else if (q.Contains("工具") || q.Contains("共享设备") || q.Contains("摄像头") || q.Contains("麦克风") || q.Contains("扬声器"))
+            ShowPage(9);
         else if (q.Contains("日志") || q.Contains("错误"))
             ShowPage(7);
         else if (q.Contains("关于") || q.Contains("版本"))
@@ -2655,5 +2678,217 @@ public partial class MainWindow : Window
         var cw = w / cols;
         var ch = h / rows;
         return (c * cw + cw / 2, r * ch + ch / 2);
+    }
+
+    private void RefreshToolsPage()
+    {
+        if (ToolsList == null) return;
+        var running = ToolService.Instance.SharedDevices?.IsRunning == true;
+        ToolsList.ItemsSource = ToolCardRows.Build(running);
+    }
+
+    private async void ToolCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ToolCardRow row }) return;
+        // 单击主操作（安装 / 启动）；运行中不停止，避免误触
+        if (e.ClickCount != 1) return;
+        if (row.IsRunning) return;
+        await HandleToolActionAsync(row, primary: true);
+    }
+
+    private void ToolCardMore_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // 避免点三点时触发卡片主操作
+        e.Handled = true;
+    }
+
+    private void ToolCardMore_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        var row = fe.DataContext as ToolCardRow
+                  ?? (fe.Tag as ToolCardRow);
+        if (row == null)
+        {
+            for (DependencyObject? p = fe; p != null; p = VisualTreeHelper.GetParent(p))
+            {
+                if (p is FrameworkElement { Tag: ToolCardRow r })
+                {
+                    row = r;
+                    break;
+                }
+            }
+        }
+
+        if (row == null) return;
+        OpenToolCardMenu(fe, row);
+        e.Handled = true;
+    }
+
+    private void OpenToolCardMenu(FrameworkElement? placementTarget, ToolCardRow row)
+    {
+        var menu = new System.Windows.Controls.ContextMenu();
+        if (placementTarget != null)
+        {
+            menu.PlacementTarget = placementTarget;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        }
+
+        if (!row.IsInstalled)
+        {
+            var install = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Install") };
+            install.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+            menu.Items.Add(install);
+        }
+        else
+        {
+            if (row.CanStart)
+            {
+                var start = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Start") };
+                start.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+                menu.Items.Add(start);
+            }
+
+            if (row.IsRunning)
+            {
+                var stop = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Stop") };
+                stop.Click += async (_, _) => await HandleToolActionAsync(row, primary: true, fromMenu: true);
+                menu.Items.Add(stop);
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (row.CanConsume)
+                {
+                    var test = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Test") };
+                    test.Click += (_, _) => OpenSharedDevicesTestDialog();
+                    menu.Items.Add(test);
+                }
+
+                if (row.CanProvide)
+                {
+                    var manage = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Manage") };
+                    manage.Click += (_, _) => OpenSharedDevicesManageDialog();
+                    menu.Items.Add(manage);
+                }
+            }
+
+            if (row.SecondaryEnabled || row.IsInstalled)
+            {
+                var uninstall = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Uninstall") };
+                uninstall.Click += async (_, _) => await HandleToolActionAsync(row, primary: false);
+                menu.Items.Add(uninstall);
+            }
+        }
+
+        menu.IsOpen = true;
+    }
+
+    private void OpenSharedDevicesTestDialog()
+    {
+        var dlg = new SharedDevicesTestDialog { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private void OpenSharedDevicesManageDialog()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null) return;
+        var dlg = new SharedDevicesManageDialog(sd) { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private async Task HandleToolActionAsync(ToolCardRow row, bool primary, bool fromMenu = false)
+    {
+        try
+        {
+            if (!row.IsInstalled && primary)
+            {
+                if (row.IsInstalling) return;
+                var r = await ToolService.Instance.InstallAsync(row.Id);
+                StatusText.Text = r.Message;
+                if (!r.Success)
+                    MessageBox.Show(this, r.Message, Loc.T("Tool.Install"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                RefreshToolsPage();
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu) return; // 仅 ⋯ 菜单可停止
+                    var sd = ToolService.Instance.SharedDevices;
+                    if (sd != null) await sd.StopAsync();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    await StartSharedDevicesAsync();
+                    return;
+                }
+
+                // 接收端已安装：单击无操作；卸载仅三点菜单（primary=false）
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
+                return;
+            }
+
+            if (!primary && row.IsInstalled)
+            {
+                var r = await ToolService.Instance.UninstallAsync(row.Id);
+                StatusText.Text = r.Message;
+                RefreshToolsPage();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, Loc.T("Tool.Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async Task StartSharedDevicesAsync()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null)
+        {
+            MessageBox.Show(this, "共享设备服务未就绪", Loc.T("Tool.Title"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var dlg = new SharedDevicesStartDialog(sd.ListApplicantTargets()) { Owner = this };
+        if (dlg.ShowDialog() != true || string.IsNullOrEmpty(dlg.SelectedPeer))
+            return;
+
+        var (ok, message) = await sd.StartRequestAsync(dlg.SelectedPeer, dlg.SelectedKinds);
+        StatusText.Text = message;
+        if (!ok)
+            MessageBox.Show(this, message, Loc.T("Tool.SharedDevices.StartTitle"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        RefreshToolsPage();
+    }
+
+    private void OnSharedDevicesIncomingRequest(SharedDevicesIncomingRequest req)
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            var sd = ToolService.Instance.SharedDevices;
+            if (sd == null) return;
+
+            var dlg = new SharedDevicesIncomingDialog(sd, req) { Owner = this };
+            var ok = dlg.ShowDialog() == true && dlg.Accepted;
+            if (!ok)
+                await sd.RejectIncomingAsync(req);
+            else
+                await sd.AcceptIncomingAsync(req, remember: dlg.Remember, deviceIds: dlg.SelectedDevices);
+            RefreshToolsPage();
+        });
     }
 }

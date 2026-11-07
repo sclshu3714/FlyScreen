@@ -4,6 +4,7 @@ using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
+using FlyScreen.Services.Tools.SharedDevices;
 
 namespace FlyScreen.AppMaui.Services;
 
@@ -16,6 +17,10 @@ public sealed class MauiAppHost : IAsyncDisposable
     private static MauiAppHost? _instance;
     private int _started;
     private IMauiPlatformServices _platform = NullMauiPlatformServices.Instance;
+    private SharedDevicesAudioBridge? _sharedDevicesAudio;
+#if ANDROID
+    private Platforms.Android.AndroidSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
+#endif
 
     public static MauiAppHost Instance =>
         _instance ?? throw new InvalidOperationException("MauiAppHost 未创建");
@@ -65,6 +70,21 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
+        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        sharedDevices.StatusMessage += msg =>
+        {
+            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
+        };
+#if ANDROID
+        sharedDevices.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
+        _sharedDevicesAudio = new SharedDevicesAudioBridge(
+            sharedDevices, new Platforms.Android.AndroidProjectionAudio());
+        _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sharedDevices);
+#elif WINDOWS
+        sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
+        _sharedDevicesAudio = new SharedDevicesAudioBridge(
+            sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+#endif
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, ResolveEdgeDropDirectory);
@@ -866,6 +886,12 @@ public sealed class MauiAppHost : IAsyncDisposable
         {
             try { winPlat.DisposeScreenExtendUi(); } catch { /* ignore */ }
         }
+#endif
+        try { _sharedDevicesAudio?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesAudio = null;
+#if ANDROID
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = null;
 #endif
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();

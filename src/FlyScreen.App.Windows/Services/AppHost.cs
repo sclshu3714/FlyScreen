@@ -7,6 +7,7 @@ using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
+using FlyScreen.Services.Tools.SharedDevices;
 
 namespace FlyScreen.Services;
 
@@ -38,6 +39,7 @@ public sealed class AppHost : IAsyncDisposable
     private LayoutSyncHelper? _layoutSync;
     private SecurityKeySyncHelper? _securityKeySync;
     private DisplayInfoService? _displayInfo;
+    private SharedDevicesAudioBridge? _sharedDevicesAudio;
 
     private AppHost()
     {
@@ -45,6 +47,11 @@ public sealed class AppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
+        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
+        sharedDevices.StatusMessage += PublishStatus;
+        _sharedDevicesAudio = new SharedDevicesAudioBridge(
+            sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, WindowsDropFolder.Resolve);
@@ -623,6 +630,8 @@ public sealed class AppHost : IAsyncDisposable
         _securityKeySync = null;
         _displayInfo?.Dispose();
         _displayInfo = null;
+        try { _sharedDevicesAudio?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesAudio = null;
         ScreenExtendUi.Dispose();
         ScreenExtend.Dispose();
         Clipboard.Dispose();

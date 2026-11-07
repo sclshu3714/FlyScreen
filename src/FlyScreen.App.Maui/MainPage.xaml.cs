@@ -8,7 +8,10 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.Tools;
+using FlyScreen.Services.Tools.SharedDevices;
 using FlyScreen.Services.Update;
+using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.AppMaui;
@@ -177,6 +180,14 @@ public partial class MainPage : ContentPage
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
         _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
+        ToolService.Instance.Catalog.Changed += OnToolsCatalogChanged;
+        ToolService.Instance.InstallProgress.Changed += OnToolsCatalogChanged;
+        var shared = ToolService.Instance.SharedDevices;
+        if (shared != null)
+        {
+            shared.SessionChanged += OnToolsCatalogChanged;
+            shared.IncomingRequest += OnSharedDevicesIncomingRequest;
+        }
 
         _statusTimer = Dispatcher.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2);
@@ -190,6 +201,9 @@ public partial class MainPage : ContentPage
 
     private void OnProjectionSessionChanged()
         => RunOnUi(RefreshPhoneProjectButton);
+
+    private void OnToolsCatalogChanged()
+        => RunOnUi(RefreshToolsPage);
 
     private void UnwireHost()
     {
@@ -214,6 +228,14 @@ public partial class MainPage : ContentPage
             _host.Connections.PeerLinkChanged -= _onPeerLinkChanged;
         _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
+        ToolService.Instance.Catalog.Changed -= OnToolsCatalogChanged;
+        ToolService.Instance.InstallProgress.Changed -= OnToolsCatalogChanged;
+        var shared = ToolService.Instance.SharedDevices;
+        if (shared != null)
+        {
+            shared.SessionChanged -= OnToolsCatalogChanged;
+            shared.IncomingRequest -= OnSharedDevicesIncomingRequest;
+        }
 
         _onStatusMessage = null;
         _onProjectionNotice = null;
@@ -365,6 +387,8 @@ public partial class MainPage : ContentPage
         ApplyXferToolbarLabels(iconOnly: compact || width < 640);
         ApplyProgListColumns();
         ApplyXferListColumns();
+        if (PageTools.IsVisible)
+            RefreshToolsPage();
     }
 
     // 方向 / 文件名 / 状态 / 操作必显；窄屏先藏大小，再藏对端；状态与操作固定窄宽
@@ -1012,9 +1036,13 @@ public partial class MainPage : ContentPage
         NavSecurityText.Text = Loc.T("Nav.Security");
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
         NavProgramsText.Text = Loc.T("Nav.Programs");
+        NavToolsText.Text = Loc.T("Nav.Tools");
+        ToolsTitleText.Text = Loc.T("Tool.Title");
+        ToolsHintText.Text = Loc.T("Tool.Hint");
         NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
+        RefreshToolsPage();
         EnsureLogLevelFilterItems();
         ApplyLogToolbarLabels(_logToolsIconOnly);
         RefreshLogHint();
@@ -1753,6 +1781,7 @@ public partial class MainPage : ContentPage
         PageHelp.IsVisible = index == 6;
         PageLog.IsVisible = index == 7;
         PagePrograms.IsVisible = index == 8;
+        PageTools.IsVisible = index == 9;
         if (index == 3)
         {
             ApplyXferToolbarLabels(_compactLayout || Width > 0 && Width < 640);
@@ -1781,6 +1810,7 @@ public partial class MainPage : ContentPage
             SetNav(NavHelp, HelpBtnText, index == 6);
             SetNav(NavLog, NavLogText, index == 7);
             SetNav(NavPrograms, NavProgramsText, index == 8);
+            SetNav(NavTools, NavToolsText, index == 9);
         }
         catch { /* ignore */ }
 
@@ -1808,6 +1838,12 @@ public partial class MainPage : ContentPage
         }
         else if (index == 8)
             RefreshProgramsPage();
+        else if (index == 9)
+        {
+            RefreshToolsPage();
+            // 抽屉收起/首次显示后主区宽度会变，补一次布局后刷新
+            QueueToolsRefreshAfterLayout();
+        }
 
         // 窄屏选中菜单后自动收起抽屉
         if (_compactLayout && _navOpen)
@@ -1826,6 +1862,7 @@ public partial class MainPage : ContentPage
         else if (q.Contains("高级") || q.Contains("热键") || q.Contains("选项") || q.Contains("主题")) ShowPage(1);
         else if (q.Contains("密钥") || q.Contains("安全")) ShowPage(4);
         else if (q.Contains("程序") || q.Contains("脚本") || q.Contains("python")) ShowPage(8);
+        else if (q.Contains("工具") || q.Contains("共享设备") || q.Contains("摄像头") || q.Contains("麦克风") || q.Contains("扬声器")) ShowPage(9);
         else if (q.Contains("日志") || q.Contains("错误")) ShowPage(7);
         else if (q.Contains("关于") || q.Contains("版本")) ShowPage(5);
         else if (q.Contains("帮助") || q.Contains("更新") || q.Contains("诊断") || q.Contains("修复")) ShowPage(6);
@@ -1846,7 +1883,535 @@ public partial class MainPage : ContentPage
             case "help": ShowPage(6); break;
             case "log": ShowPage(7); break;
             case "programs": ShowPage(8); break;
+            case "tools": ShowPage(9); break;
         }
+    }
+
+    private const string ToolIconSharedDevices =
+        "M4,6H14A2,2 0 0,1 16,8V14A2,2 0 0,1 14,16H10.5L8,18.5V16H4A2,2 0 0,1 2,14V8A2,2 0 0,1 4,6M18,8H20V16H18V8M21,10H22V14H21V10M7,9.5A1.5,1.5 0 0,0 5.5,11A1.5,1.5 0 0,0 7,12.5A1.5,1.5 0 0,0 8.5,11A1.5,1.5 0 0,0 7,9.5Z";
+    private const string ToolIconSharedDevicesAccent =
+        "M7,10A1,1 0 0,0 6,11A1,1 0 0,0 7,12A1,1 0 0,0 8,11A1,1 0 0,0 7,10Z";
+
+    private const double ToolCardDesktopWidth = 320;
+    private bool _toolsStackHooked;
+    private double _toolsHostWidthTracked;
+    private bool _toolsRefreshQueued;
+
+    private void RefreshToolsPage()
+    {
+        if (ToolsStack == null) return;
+        EnsureToolsStackLayoutHook();
+        ToolsStack.Children.Clear();
+        try
+        {
+            var running = ToolService.Instance.SharedDevices?.IsRunning == true;
+            var cardW = ResolveToolCardWidth();
+            var fill = ShouldFillToolCardWidth();
+            foreach (var row in ToolCardRows.Build(running))
+                ToolsStack.Children.Add(CreateToolCard(row, cardW, fill));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("刷新工具页失败: " + ex.Message);
+        }
+
+        _toolsHostWidthTracked = ResolveToolsHostWidth();
+
+        // 首次进入时宿主宽度可能尚未测到：布局后再刷一次
+        if (PageTools.IsVisible && _toolsHostWidthTracked < 8)
+            QueueToolsRefreshAfterLayout();
+    }
+
+    private void EnsureToolsStackLayoutHook()
+    {
+        if (ToolsStack == null || _toolsStackHooked) return;
+        _toolsStackHooked = true;
+        ToolsStack.SizeChanged += (_, _) => OnToolsHostSizeChanged();
+        if (ToolsScroll != null)
+            ToolsScroll.SizeChanged += (_, _) => OnToolsHostSizeChanged();
+    }
+
+    private void OnToolsHostSizeChanged()
+    {
+        if (!PageTools.IsVisible) return;
+        var w = ResolveToolsHostWidth();
+        if (w < 8 || Math.Abs(w - _toolsHostWidthTracked) < 12) return;
+        _toolsHostWidthTracked = w;
+        RefreshToolsPage();
+    }
+
+    private void QueueToolsRefreshAfterLayout()
+    {
+        if (_toolsRefreshQueued) return;
+        _toolsRefreshQueued = true;
+        Dispatcher.Dispatch(async () =>
+        {
+            try
+            {
+                await Task.Delay(32);
+                if (!PageTools.IsVisible) return;
+                RefreshToolsPage();
+            }
+            finally
+            {
+                _toolsRefreshQueued = false;
+            }
+        });
+    }
+
+    private double ResolveToolsHostWidth()
+    {
+        if (ToolsScroll?.Width > 8) return ToolsScroll.Width;
+        if (ToolsStack?.Width > 8) return ToolsStack.Width;
+        if (PageTools?.Width > 8) return Math.Max(0, PageTools.Width - 32);
+        if (MainPane?.Width > 8) return Math.Max(0, MainPane.Width - (_compactLayout ? 40 : 64));
+        return 0;
+    }
+
+    private bool ShouldFillToolCardWidth()
+        => _compactLayout
+           || DeviceInfo.Idiom == DeviceIdiom.Phone
+           || DeviceInfo.Idiom == DeviceIdiom.Tablet;
+
+    /// <summary>手机/窄屏铺满一行；桌面固定加宽卡片。</summary>
+    private double ResolveToolCardWidth()
+    {
+        var host = ResolveToolsHostWidth();
+        if (ShouldFillToolCardWidth())
+        {
+            if (host > 40)
+                return Math.Max(260, host - 4);
+            // 尚未测到宽度：先用接近竖屏内容宽的兜底，布局后再刷新
+            return 360;
+        }
+
+        return ToolCardDesktopWidth;
+    }
+
+    /// <summary>桌面（Maui-Win 等）：单击主操作、右上角三点菜单、悬停；手机：单击 + 左滑卸载。</summary>
+    private View CreateToolCard(ToolCardRow row, double cardWidth, bool fillWidth)
+    {
+        var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+        var line = ResolveThemeColor("Line") ?? Color.FromArgb(dark ? "#334155" : "#E5E7EB");
+        // 卡片自带底色：深色主题用深底+浅字，避免浅底配浅字看不清
+        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
+        var muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
+        var subtle = ResolveThemeColor("SubtleBg") ?? Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
+        var blue = ResolveThemeColor("Blue") ?? Color.FromArgb("#2563EB");
+        var blueHover = ResolveThemeColor("BlueHover") ?? Color.FromArgb(dark ? "#243447" : "#EFF6FF");
+        var progressColor = ResolveThemeColor("BlueSoft") ?? Color.FromArgb(dark ? "#3B82F6" : "#93C5FD");
+        var baseBg = Color.FromArgb(ResolveToolCardBgHex(row.VisualState, dark));
+
+        var progress = new BoxView
+        {
+            Color = progressColor,
+            Opacity = 0.55,
+            InputTransparent = true,
+            IsVisible = row.IsInstalling,
+            HorizontalOptions = LayoutOptions.Start,
+            VerticalOptions = LayoutOptions.Fill,
+            WidthRequest = Math.Max(0, cardWidth * row.InstallProgressRatio)
+        };
+
+        var hoverWash = new BoxView
+        {
+            Color = blueHover,
+            Opacity = 0.32,
+            InputTransparent = true,
+            IsVisible = false
+        };
+
+        View iconContent;
+        try
+        {
+            var iconBody = new Microsoft.Maui.Controls.Shapes.Path
+            {
+                Data = (Geometry?)new PathGeometryConverter().ConvertFromInvariantString(ToolIconSharedDevices),
+                Stroke = text,
+                StrokeThickness = 1.4,
+                Aspect = Stretch.Uniform,
+                WidthRequest = 28,
+                HeightRequest = 28,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center
+            };
+            var iconAccent = new Microsoft.Maui.Controls.Shapes.Path
+            {
+                Data = (Geometry?)new PathGeometryConverter().ConvertFromInvariantString(ToolIconSharedDevicesAccent),
+                Fill = Color.FromArgb("#F59E0B"),
+                Aspect = Stretch.Uniform,
+                WidthRequest = 28,
+                HeightRequest = 28,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+                InputTransparent = true
+            };
+            iconContent = new Grid { Children = { iconBody, iconAccent } };
+        }
+        catch
+        {
+            iconContent = new Label
+            {
+                Text = "🎙",
+                FontSize = 22,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center
+            };
+        }
+
+        var iconTile = new Border
+        {
+            WidthRequest = 48,
+            HeightRequest = 48,
+            Stroke = line,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 10 },
+            BackgroundColor = subtle,
+            VerticalOptions = LayoutOptions.Center,
+            Content = iconContent
+        };
+
+        var titleRow = new HorizontalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                new Label
+                {
+                    Text = row.Name,
+                    FontAttributes = FontAttributes.Bold,
+                    FontSize = 15,
+                    TextColor = text,
+                    LineBreakMode = LineBreakMode.TailTruncation,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Label
+                {
+                    Text = row.StatusText,
+                    FontSize = 11,
+                    TextColor = muted,
+                    VerticalOptions = LayoutOptions.Center
+                }
+            }
+        };
+
+        var summary = new Label
+        {
+            Text = row.Summary,
+            FontSize = 12,
+            Margin = new Thickness(0, 4, 0, 0),
+            TextColor = muted,
+            LineBreakMode = LineBreakMode.WordWrap,
+            MaxLines = 2,
+            HorizontalOptions = LayoutOptions.Fill
+        };
+
+        var textCol = new VerticalStackLayout
+        {
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Fill,
+            Children = { titleRow, summary }
+        };
+
+        var moreBtn = new Button
+        {
+            Text = "⋯",
+            FontSize = 16,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = muted,
+            BackgroundColor = Colors.Transparent,
+            BorderWidth = 0,
+            WidthRequest = 28,
+            HeightRequest = 28,
+            Padding = 0,
+            Margin = new Thickness(0, -2, 0, 0),
+            VerticalOptions = LayoutOptions.Start,
+            HorizontalOptions = LayoutOptions.End
+        };
+        ToolTipProperties.SetText(moreBtn, "更多操作");
+        moreBtn.Clicked += async (_, _) => await ShowToolCardMenuAsync(moreBtn, row);
+
+        var body = new Grid
+        {
+            Padding = new Thickness(12, 10, 8, 10),
+            ColumnDefinitions =
+            [
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            ],
+            Children = { iconTile, textCol, moreBtn }
+        };
+        Grid.SetColumn(iconTile, 0);
+        Grid.SetColumn(textCol, 1);
+        Grid.SetColumn(moreBtn, 2);
+        textCol.Margin = new Thickness(12, 0, 6, 0);
+
+        var border = new Border
+        {
+            HeightRequest = 104,
+            Margin = fillWidth ? new Thickness(0, 6) : new Thickness(6),
+            Stroke = line,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 10 },
+            BackgroundColor = baseBg,
+            Content = new Grid { Children = { progress, hoverWash, body } }
+        };
+        if (fillWidth)
+        {
+            border.HorizontalOptions = LayoutOptions.Fill;
+            // -1 = 随父级拉伸，避免固定 WidthRequest 在测宽前把卡片挤出可视区
+            border.WidthRequest = -1;
+        }
+        else
+        {
+            border.WidthRequest = cardWidth;
+            border.HorizontalOptions = LayoutOptions.Start;
+        }
+        ToolTipProperties.SetText(border, row.Tooltip);
+
+        var tap = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+        tap.Tapped += async (_, _) =>
+        {
+            if (row.IsRunning) return; // 运行中不点停，避免误触；停止走 ⋯ 菜单
+            await HandleToolActionAsync(row, primary: true);
+        };
+        border.GestureRecognizers.Add(tap);
+
+        var pointer = new PointerGestureRecognizer();
+        pointer.PointerEntered += (_, _) =>
+        {
+            border.Stroke = blue;
+            hoverWash.IsVisible = true;
+        };
+        pointer.PointerExited += (_, _) =>
+        {
+            border.Stroke = line;
+            hoverWash.IsVisible = false;
+        };
+        border.GestureRecognizers.Add(pointer);
+
+        // 手机无三点时仍可用左滑卸载
+        if (DeviceInfo.Platform == DevicePlatform.Android
+            || DeviceInfo.Platform == DevicePlatform.iOS)
+        {
+            var swipe = new SwipeGestureRecognizer { Direction = SwipeDirection.Left };
+            swipe.Swiped += async (_, _) =>
+            {
+                if (!row.IsInstalled) return;
+                var ok = await DisplayAlertAsync(
+                    Loc.T("Tool.Uninstall"),
+                    row.Name,
+                    Loc.T("Tool.Uninstall"),
+                    Loc.T("Tool.SharedDevices.Cancel"));
+                if (ok)
+                    await HandleToolActionAsync(row, primary: false);
+            };
+            border.GestureRecognizers.Add(swipe);
+        }
+
+        return border;
+    }
+
+    private static IEnumerable<(string Text, string Action)> EnumerateToolMenuActions(ToolCardRow row)
+    {
+        if (!row.IsInstalled)
+        {
+            yield return (Loc.T("Tool.Install"), "primary");
+            yield break;
+        }
+
+        if (row.CanStart)
+            yield return (Loc.T("Tool.Start"), "primary");
+        if (row.IsRunning)
+            yield return (Loc.T("Tool.Stop"), "stop");
+        if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+        {
+            if (row.CanConsume)
+                yield return (Loc.T("Tool.Test"), "test");
+            if (row.CanProvide)
+                yield return (Loc.T("Tool.Manage"), "manage");
+        }
+
+        if (row.SecondaryEnabled || row.IsInstalled)
+            yield return (Loc.T("Tool.Uninstall"), "uninstall");
+    }
+
+    /// <summary>三点按钮弹出操作菜单。</summary>
+    private async Task ShowToolCardMenuAsync(View anchor, ToolCardRow row)
+    {
+#if WINDOWS
+        if (anchor.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement native)
+        {
+            var flyout = new Microsoft.UI.Xaml.Controls.MenuFlyout();
+            foreach (var (text, action) in EnumerateToolMenuActions(row))
+            {
+                var item = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { Text = text };
+                var act = action;
+                item.Click += async (_, _) => await InvokeToolMenuActionAsync(row, act);
+                flyout.Items.Add(item);
+            }
+
+            flyout.ShowAt(native);
+            return;
+        }
+#endif
+        var actions = EnumerateToolMenuActions(row).Select(a => a.Text).ToArray();
+        if (actions.Length == 0) return;
+        var pick = await DisplayActionSheetAsync(
+            row.Name,
+            Loc.T("Tool.SharedDevices.Cancel"),
+            null,
+            actions);
+        if (string.IsNullOrEmpty(pick) || pick == Loc.T("Tool.SharedDevices.Cancel"))
+            return;
+        foreach (var (text, action) in EnumerateToolMenuActions(row))
+        {
+            if (string.Equals(text, pick, StringComparison.Ordinal))
+            {
+                await InvokeToolMenuActionAsync(row, action);
+                break;
+            }
+        }
+    }
+
+    private async Task InvokeToolMenuActionAsync(ToolCardRow row, string action)
+    {
+        if (action == "test")
+        {
+            var page = new SharedDevicesTestPage();
+            await Navigation.PushModalAsync(page, animated: true);
+            await page.Closed;
+            return;
+        }
+
+        if (action == "manage")
+        {
+            var sd = ToolService.Instance.SharedDevices;
+            if (sd == null) return;
+            var page = new SharedDevicesManagePage(sd);
+            await Navigation.PushModalAsync(page, animated: true);
+            await page.Closed;
+            return;
+        }
+
+        if (action == "stop")
+        {
+            await HandleToolActionAsync(row, primary: true, fromMenu: true);
+            return;
+        }
+
+        await HandleToolActionAsync(row, primary: action != "uninstall");
+    }
+
+    private static Color? ResolveThemeColor(string key)
+    {
+        if (Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c)
+            return c;
+        return null;
+    }
+
+    private static string ResolveToolCardBgHex(string visualState, bool dark)
+        => visualState switch
+        {
+            ToolVisualStates.Running => dark ? "#1E3A5F" : "#DBEAFE",
+            ToolVisualStates.Installed => dark ? "#0F3D2E" : "#ECFDF5",
+            ToolVisualStates.Installing => dark ? "#243447" : "#EFF6FF",
+            _ => dark ? "#1E293B" : "#F3F4F6"
+        };
+
+    private async Task HandleToolActionAsync(ToolCardRow row, bool primary, bool fromMenu = false)
+    {
+        try
+        {
+            if (!row.IsInstalled && primary)
+            {
+                if (row.IsInstalling) return;
+                var r = await ToolService.Instance.InstallAsync(row.Id);
+                StatusLabel.Text = r.Message;
+                if (!r.Success)
+                    await DisplayAlertAsync(Loc.T("Tool.Install"), r.Message, "OK");
+                RefreshToolsPage();
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu) return; // 仅 ⋯ 菜单可停止
+                    var sd = ToolService.Instance.SharedDevices;
+                    if (sd != null) await sd.StopAsync();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    await StartSharedDevicesAsync();
+                    return;
+                }
+
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusLabel.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
+                return;
+            }
+
+            if (!primary && row.IsInstalled)
+            {
+                var ur = await ToolService.Instance.UninstallAsync(row.Id);
+                StatusLabel.Text = ur.Message;
+                RefreshToolsPage();
+            }
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(Loc.T("Tool.Title"), ex.Message, "OK");
+        }
+    }
+
+    private async Task StartSharedDevicesAsync()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null)
+        {
+            await DisplayAlertAsync(Loc.T("Tool.Title"), "共享设备服务未就绪", "OK");
+            return;
+        }
+
+        var page = new SharedDevicesStartPage(sd.ListApplicantTargets());
+        await Navigation.PushModalAsync(page, animated: true);
+        var (peer, kinds) = await page.Result;
+        if (string.IsNullOrEmpty(peer) || kinds.Length == 0)
+            return;
+
+        var (ok, message) = await sd.StartRequestAsync(peer, kinds);
+        StatusLabel.Text = message;
+        if (!ok)
+            await DisplayAlertAsync(Loc.T("Tool.SharedDevices.StartTitle"), message, "OK");
+        RefreshToolsPage();
+    }
+
+    private void OnSharedDevicesIncomingRequest(SharedDevicesIncomingRequest req)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            var sd = ToolService.Instance.SharedDevices;
+            if (sd == null) return;
+            var page = new SharedDevicesIncomingPage(sd, req);
+            await Navigation.PushModalAsync(page, animated: true);
+            var (accept, remember, devices) = await page.Result;
+            if (!accept)
+                await sd.RejectIncomingAsync(req);
+            else
+                await sd.AcceptIncomingAsync(req, remember, devices);
+            RefreshToolsPage();
+        });
     }
 
     private void RefreshProgramsPage()
@@ -2737,6 +3302,8 @@ public partial class MainPage : ContentPage
         MauiThemeService.Apply(theme, this);
         LoadUi();
         ApplyLocalizedUi();
+        if (PageTools.IsVisible)
+            RefreshToolsPage();
         // 本地化会改 Radio 文案；再强制字色（含延迟，避免 WinUI 仍用旧主题前景）
         RefreshOptionsRadioChrome();
         Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(80), RefreshOptionsRadioChrome);
