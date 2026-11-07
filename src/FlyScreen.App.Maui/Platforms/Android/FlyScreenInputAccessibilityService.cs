@@ -957,7 +957,7 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         if (best != null)
             return best;
         if (IsEditable(node))
-            return global::Android.Views.Accessibility.AccessibilityNodeInfo.Obtain(node);
+            return AndroidA11yNodes.ObtainCopy(node);
         return null;
     }
 
@@ -1019,24 +1019,9 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         {
             _wm ??= GetSystemService(WindowService) as IWindowManager;
 
-            var size = new global::Android.Graphics.Point();
-            // Context.Display（API 30+）/ DefaultDisplay：随旋转交换宽高
-            global::Android.Views.Display? display = null;
-            if (OperatingSystem.IsAndroidVersionAtLeast(30))
-                display = Display;
-            display ??= _wm?.DefaultDisplay;
-            display?.GetRealSize(size);
-            if (size.X > 0 && size.Y > 0)
-            {
-                _screenW = size.X;
-                _screenH = size.Y;
-                AlignScreenSizeWithConfiguration();
-                return;
-            }
-
+            // 当前窗口（会随旋转），不要用 MaximumWindowMetrics
             if (OperatingSystem.IsAndroidVersionAtLeast(30))
             {
-                // 当前窗口（会随旋转），不要用 MaximumWindowMetrics
                 var cur = _wm?.CurrentWindowMetrics?.Bounds;
                 if (cur != null && cur.Width() > 0 && cur.Height() > 0)
                 {
@@ -1045,6 +1030,18 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
                     AlignScreenSizeWithConfiguration();
                     return;
                 }
+            }
+
+            global::Android.Views.Display? display = null;
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+                display = Display;
+            display ??= _wm?.DefaultDisplay;
+            if (AndroidDisplaySize.TryGetPixels(display, out var rw, out var rh))
+            {
+                _screenW = rw;
+                _screenH = rh;
+                AlignScreenSizeWithConfiguration();
+                return;
             }
         }
         catch
@@ -1175,7 +1172,13 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
             var duration = (long)Math.Clamp(Math.Sqrt(dx * dx + dy * dy), 16, 80);
             try
             {
-                // 移动段保持 willContinue；抬起由 FinishDragStroke 收尾
+                // ContinueStroke：API 26+；移动段保持 willContinue；抬起由 FinishDragStroke 收尾
+                if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+                {
+                    CancelDrag();
+                    return;
+                }
+
                 _dragStroke = _dragStroke.ContinueStroke(path, 0, duration, willContinue: true);
                 _gx = x;
                 _gy = y;
@@ -1205,6 +1208,13 @@ public sealed partial class FlyScreenInputAccessibilityService : AccessibilitySe
         path.MoveTo(_gx, _gy);
         try
         {
+            if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+            {
+                CancelDrag();
+                DispatchTap(_gx, _gy);
+                return;
+            }
+
             _dragStroke = _dragStroke.ContinueStroke(path, 0, 20, willContinue: false);
             _pendingUp = false;
             _fingerDown = false;

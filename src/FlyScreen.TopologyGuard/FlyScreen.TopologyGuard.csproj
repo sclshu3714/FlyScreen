@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.TopologyGuard</RootNamespace>
+    <!-- exe 名保持独立，避免与主应用同组被任务管理器一并结束 -->
+    <AssemblyName>FlyScreen.TopologyGuard</AssemblyName>
+    <!-- 任务管理器/文件属性显示名；不改 AssemblyName -->
+    <AssemblyTitle>玄鸟·守护</AssemblyTitle>
+    <Product>玄鸟·守护</Product>
+    <Description>扩展投影异常退出时收拢「仅电脑屏幕」。</Description>
+    <!-- 任务管理器读 exe 内图标。打包时把共享 ico 转成 BMP 帧再嵌入，避免单文件宿主退回默认图标。 -->
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
+    <ApplicationIcon Condition="'$(FlyScreenGuardBmpIcon)' != ''">$(FlyScreenGuardBmpIcon)</ApplicationIcon>
+    <UseAppHost>true</UseAppHost>
+    <!-- 由 BundleTopologyGuard 以 RID 自包含单文件打进主程序包时需要 -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
+    <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+  </ItemGroup>
+
+</Project>

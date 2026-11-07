@@ -1,0 +1,39 @@
+<UserControl x:Class="FlyScreen.Installer.Controls.CarouselView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ClipToBounds="False">
+  <!-- 外层不裁剪；圆角裁剪只作用在内层，避免底边指示点被切 -->
+  <Border Background="Transparent">
+    <Border x:Name="Root"
+            CornerRadius="12"
+            Background="#0B3D3A"
+            SizeChanged="Root_SizeChanged">
+      <Grid ClipToBounds="True">
+        <Image x:Name="SlideImage" Stretch="UniformToFill"
+               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+        <Border x:Name="FallbackBanner" Visibility="Collapsed">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+              <GradientStop Color="#0B3D3A" Offset="0"/>
+              <GradientStop Color="#0F7A5A" Offset="1"/>
+            </LinearGradientBrush>
+          </Border.Background>
+          <Grid Margin="36,28">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left" MaxWidth="320">
+              <TextBlock Text="无缝协同" FontSize="36" FontWeight="Bold" Foreground="White"/>
+              <TextBlock Text="多电脑像一台在用" FontSize="16" Foreground="#D7F5E8" Margin="0,10,0,0"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- 指示点上移一点，避开圆角裁剪区 -->
+        <StackPanel Orientation="Horizontal"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,16"
+                    x:Name="DotsPanel"/>
+      </Grid>
+    </Border>
+  </Border>
+</UserControl>

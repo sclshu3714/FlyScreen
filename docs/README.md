@@ -7,6 +7,8 @@
 | [clipboard.md](clipboard.md) | **共享剪贴板**：宣告/粘贴行为与各端格式对标表；文件占用语义 |
 | [edge-file-drag.md](edge-file-drag.md) | **穿边拖文件**：跨屏拖放、跟手提示、同名冲突 |
 | [extended-display.md](extended-display.md) | **电脑扩展屏 / 投影**：真扩展、声音同步、远程回控、1 对 1 互斥、VDD |
+| [tools.md](tools.md) | **工具系统规格（供实现）**：两端都装、分享、`.flytool`、开源哈希信任、标题栏、通用信封（未编码） |
+| [shared-devices.md](shared-devices.md) | **共享摄像头 / 麦克风 / 扬声器**：工具页三条独立工具；协议与冲突解决（未编码） |
 | [THIRD_PARTY.md](THIRD_PARTY.md) | **第三方依赖与许可**：开源清单、专有依赖（ML Kit）、Linux 字体 |
 | [../third_party/licenses/](../third_party/licenses/) | Monaco / VDD 等 MIT 许可文本 |
 | [device-matrix.md](device-matrix.md) | 设备形态（手机/平板/电视/桌面/鸿蒙电脑）× 功能矩阵 |
@@ -24,4 +26,4 @@
 
 当前产品仍以 **Windows 桌面（WPF）** 为唯一 stable 交付；Mac / Linux / Android / 鸿蒙 / MAUI 按 ROADMAP 分期，独立工程与独立安装包。
 
-**UI 同构（Win / Avalonia Desktop / MAUI）：** 侧栏七页（基础·网络·共享·安全·高级·关于·帮助）、彩色 Path 图标、安全密钥在安全页（生成按钮在标题工具栏）、高级顶栏功能/行为/穿边三列（窄屏堆叠）、共享传输列表列对齐、关于/帮助为页内内容；三端均有**程序**编辑器。Linux GUI 细节见 [runbooks/build-linux.md](runbooks/build-linux.md)。进度见 [status.md](status.md)。共享剪贴板见 [clipboard.md](clipboard.md)。穿边拖文件见 [edge-file-drag.md](edge-file-drag.md)。投影 / 扩展屏见 [extended-display.md](extended-display.md)。
+**UI 同构（Win / Avalonia Desktop / MAUI）：** 侧栏（基础·网络·共享·安全·高级·关于·帮助·程序·**工具**）、彩色 Path 图标、安全密钥在安全页（生成按钮在标题工具栏）、高级顶栏功能/行为/穿边三列（窄屏堆叠）、共享传输列表列对齐、关于/帮助为页内内容；三端均有**程序**编辑器。Linux GUI 细节见 [runbooks/build-linux.md](runbooks/build-linux.md)。进度见 [status.md](status.md)。共享剪贴板见 [clipboard.md](clipboard.md)。穿边拖文件见 [edge-file-drag.md](edge-file-drag.md)。投影 / 扩展屏见 [extended-display.md](extended-display.md)。工具系统见 [tools.md](tools.md)（投影/共享设备/VDD/标题栏/通用协议）；共享设备业务见 [shared-devices.md](shared-devices.md)；投影会话见 [extended-display.md](extended-display.md)（均未按工具态编码）。

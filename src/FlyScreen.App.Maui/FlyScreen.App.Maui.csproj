@@ -1,9 +1,43 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
+  <!--
+    配对 Mac：Xcode 26.0.1。默认 FlyScreenAppleSdk=26.0 → net10.0-ios26.0（本机已有 pack）。
+    若已安装 ios 26.2.x workload：-p:FlyScreenAppleSdk=26.2 → net10.0-ios26.2。
+    官方 26.2 要求 Xcode 26.2；与 26.0.1 混用时 ValidateXcodeVersion=false。
+    覆盖：FLYSCREEN_XCODE_SDK / FlyScreenIosTfm。
+  -->
+  <PropertyGroup>
+    <FlyScreenAppleSdk Condition="'$(FlyScreenAppleSdk)' == ''">26.0</FlyScreenAppleSdk>
+    <_FsXcodeDeveloperDir>$(DEVELOPER_DIR)</_FsXcodeDeveloperDir>
+    <_FsXcodeDeveloperDir Condition="'$(_FsXcodeDeveloperDir)' == ''">/var/db/xcode_select_link</_FsXcodeDeveloperDir>
+    <_FsXcodeDeveloperDir Condition="!Exists('$(_FsXcodeDeveloperDir)')">/Applications/Xcode.app/Contents/Developer</_FsXcodeDeveloperDir>
+    <_FsXcodeVersionPlist>$([System.IO.Path]::Combine('$(_FsXcodeDeveloperDir)', '..', 'version.plist'))</_FsXcodeVersionPlist>
+    <_FsXcodeVersionText Condition="Exists('$(_FsXcodeVersionPlist)')">$([System.IO.File]::ReadAllText('$(_FsXcodeVersionPlist)'))</_FsXcodeVersionText>
+    <_FsXcodeVersion Condition="'$(_FsXcodeVersionText)' != ''">$([System.Text.RegularExpressions.Regex]::Match('$(_FsXcodeVersionText)', 'CFBundleShortVersionString&lt;/key&gt;\s*&lt;string&gt;([0-9.]+)&lt;/string&gt;').Groups.get_Item(1).Value)</_FsXcodeVersion>
+    <_FsXcodeMajorMinor Condition="'$(_FsXcodeVersion)' != ''">$([System.Version]::Parse('$(_FsXcodeVersion)').ToString(2))</_FsXcodeMajorMinor>
+    <_FsAppleSdk>$(FLYSCREEN_XCODE_SDK)</_FsAppleSdk>
+    <_FsAppleSdk Condition="'$(FlyScreenAppleSdk)' != ''">$(FlyScreenAppleSdk)</_FsAppleSdk>
+    <!-- 只用精确字符串（勿写 '26'：MSBuild 会把 26.0==26 当成数值相等） -->
+    <_FsPinAppleSdk Condition="'$(_FsAppleSdk)' == '26.0' or '$(_FsAppleSdk)' == '26.2'">true</_FsPinAppleSdk>
+    <_FsPinAppleSdk Condition="$([MSBuild]::IsOSPlatform('osx')) and '$(Configuration)' != 'Release' and ('$(_FsXcodeMajorMinor)' == '26.0' or '$(_FsXcodeMajorMinor)' == '26.2')">true</_FsPinAppleSdk>
+    <_FsIosTfm>net10.0-ios</_FsIosTfm>
+    <_FsIosTfm Condition="'$(_FsPinAppleSdk)' == 'true' and '$(_FsAppleSdk)' != '26.2'">net10.0-ios26.0</_FsIosTfm>
+    <_FsIosTfm Condition="'$(_FsAppleSdk)' == '26.2'">net10.0-ios26.2</_FsIosTfm>
+    <_FsIosTfm Condition="'$(FlyScreenIosTfm)' != ''">$(FlyScreenIosTfm)</_FsIosTfm>
+    <_FsMacCatalystTfm>net10.0-maccatalyst</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(_FsPinAppleSdk)' == 'true' and '$(_FsAppleSdk)' != '26.2'">net10.0-maccatalyst26.0</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(_FsAppleSdk)' == '26.2'">net10.0-maccatalyst26.2</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(FlyScreenMacCatalystTfm)' != ''">$(FlyScreenMacCatalystTfm)</_FsMacCatalystTfm>
+    <!-- 26.2 SDK 官方要 Xcode 26.2；本机仍为 26.0.1 时跳过校验（原生工具仍可能因 SDK 差失败） -->
+    <ValidateXcodeVersion Condition="'$(_FsAppleSdk)' == '26.2'">false</ValidateXcodeVersion>
+  </PropertyGroup>
+
   <PropertyGroup>
     <!-- 与 VS MAUI 模板一致（勿用自定义属性包一层，否则 VS 设计时还原常漏 TFM → NETSDK1005）。
          仅 Windows：-p:FlyScreenMauiTfms=windows -->
-    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks>net10.0-android;$(_FsIosTfm);$(_FsMacCatalystTfm)</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
     <TargetFrameworks Condition="'$(FlyScreenMauiTfms)' == 'windows'">net10.0-windows10.0.19041.0</TargetFrameworks>
 
@@ -29,15 +63,35 @@
     -->
     <AndroidEnableMarshalMethods Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">false</AndroidEnableMarshalMethods>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <!-- Debug|ios：RID 与 Mac CPU 对齐（默认 x64；Apple Silicon 见 Directory.Build.props） -->
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(RuntimeIdentifier)' == ''">$(FlyScreenIosSimulatorRid)</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(RuntimeIdentifier)' == ''">iossimulator-x64</RuntimeIdentifier>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- VS 部署/设计时在带版本号的 ios TFM 下常探测不到 Platforms/*/Info.plist，显式指定 -->
+    <AppBundleManifest Condition="'$(AppBundleManifest)' == '' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">Platforms\iOS\Info.plist</AppBundleManifest>
+    <AppBundleManifest Condition="'$(AppBundleManifest)' == '' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">Platforms\MacCatalyst\Info.plist</AppBundleManifest>
     <!-- 非打包：F5 用 Project 配置；VS 项目右键「发布」对 unpackaged 常不可用，见 Properties/PublishProfiles/SingleFile-win-x64.pubxml -->
     <WindowsPackageType>None</WindowsPackageType>
     <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
     <IsPublishable>true</IsPublishable>
     <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
+
+  <!-- 给 VS iOS 部署工具可识别的 Link/LogicalName（仅文件名 Platforms/.../Info.plist 时会报找不到清单） -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+    <None Include="Platforms\iOS\Info.plist" Condition="Exists('Platforms\iOS\Info.plist')">
+      <Link>Info.plist</Link>
+      <LogicalName>Info.plist</LogicalName>
+    </None>
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <None Include="Platforms\MacCatalyst\Info.plist" Condition="Exists('Platforms\MacCatalyst\Info.plist')">
+      <Link>Info.plist</Link>
+      <LogicalName>Info.plist</LogicalName>
+    </None>
+  </ItemGroup>
 
   <!-- VS「调试 Android」要求显式符号；否则报「此项目配置未启用调试」 -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
@@ -55,9 +109,11 @@
     <AndroidSigningKeyPass>flyscreen</AndroidSigningKeyPass>
   </PropertyGroup>
 
-  <!-- Windows 用 .ico；跨平台图标/启动图用玄鸟 png（与 Desktop Assets 同源） -->
+  <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe 名不变，显示名见 WindowsAppUserModel -->
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-    <ApplicationIcon>Resources\AppIcon\appicon.ico</ApplicationIcon>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
+    <AssemblyTitle>玄鸟</AssemblyTitle>
+    <Product>玄鸟</Product>
   </PropertyGroup>
 
   <!-- win-x64 发布：单文件自包含（与 PublishProfiles/SingleFile-win-x64.pubxml / Publish-FlyScreenMaui.ps1 一致） -->
@@ -77,16 +133,17 @@
   </Target>
 
   <ItemGroup>
-    <!-- Windows / iOS 等：原透明底图标；勿设不透明 Color（否则 Win 托盘黑底方块）。 -->
-    <MauiIcon Include="Resources\AppIcon\appicon.png" BaseSize="256,256"
+    <!-- 源文件在 FlyScreen.Assets，文件名保持 appicon.png 才能生成 mipmap/appicon。
+         Windows / iOS：勿设不透明 Color（否则 Win 托盘黑底方块）。
+         Android 自适应图标画布 108dp，启动器遮罩只保留中心约 66dp（66/108≈0.61）。
+         源图圆形徽标几乎贴满 256 画布，ForegroundScale 必须 ≤0.62，否则外圈被圆角/圆形遮罩裁掉。 -->
+    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
               Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'" />
-    <!-- Android：专用暖杏底 + 内边距版，避免自适应图标裁玄鸟、黑底过重。仅影响 Android。
-         文件名须为 appicon.png，才能生成 Manifest 所需的 mipmap/appicon(_round)。
-         ForegroundScale 再留安全区，防止圆形/圆角遮罩裁剪。 -->
-    <MauiIcon Include="Resources\AppIcon\Android\appicon.png" BaseSize="256,256"
-              Color="#FFF1E8" ForegroundScale="0.78"
+    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
+              Color="#FFF1E8" ForegroundScale="0.60"
               Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
-    <MauiSplashScreen Include="Resources\AppIcon\appicon.png" Color="#0F172A" BaseSize="256,256" />
+    <MauiSplashScreen Include="$(FlyScreenAppPng)" Color="#0F172A" BaseSize="256,256" />
+    <MauiImage Include="$(FlyScreenCursorPng)" Link="Resources\Images\cursor.png" />
   </ItemGroup>
 
   <!-- 显式打包 Monaco 等 Raw 资源（默认 MauiAsset 在本工程评估为空，导致 HybridWebView 404） -->
@@ -98,12 +155,12 @@
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-    <Content Include="Platforms\Windows\Assets\**\*">
-      <Link>Assets\%(Filename)%(Extension)</Link>
+    <Content Include="$(FlyScreenAppIco)">
+      <Link>Assets\appicon.ico</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Platforms\Windows\Assets\appiconLogo.png">
-      <Link>Square44x44Logo.png</Link>
+    <Content Include="$(FlyScreenAppPng64)">
+      <Link>Assets\appiconLogo.png</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -147,6 +204,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 
@@ -155,13 +213,14 @@
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
     <!-- 托盘菜单 UpdateLayeredWindow 绘制（非 WinForms） -->
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
-    <!-- 离线 VDD：共用 tools\VddOffline（不依赖其它 App 工程） -->
-    <None Include="..\..\tools\VddOffline\**\*"
-          CopyToOutputDirectory="PreserveNewest"
-          Link="VddOffline\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <!-- Windows：TopologyGuard / VddOffline（zip 在 VddOffline\ 下）打进包 -->
+  <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+  <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
 
   <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->
   <Target Name="FlyScreen_PreClearAndroidIntermediates"
@@ -228,6 +287,11 @@
     </ItemGroup>
     <Message Importance="High" Text="FlyScreen APK → $(_FsApkDir)\FlyScreen.apk"
              Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
+  </Target>
+
+  <Target Name="_FlyScreenLogAppleSdkPin" BeforeTargets="Build"
+          Condition="'$(TargetFramework)' == '' and '$(_FsPinAppleSdk)' == 'true'">
+    <Message Importance="High" Text="Apple SDK pin：FlyScreenAppleSdk=$(_FsAppleSdk) → iOS=$(_FsIosTfm) MacCatalyst=$(_FsMacCatalystTfm)（ValidateXcodeVersion=$(ValidateXcodeVersion)）。" />
   </Target>
 
 </Project>

@@ -41,19 +41,28 @@ public static class UpdateChannelRules
         _ => "unknown"
     };
 
-    public static bool IsPreferredAsset(UpdateChannel channel, string fileName)
+    /// <param name="preferInstallerPackage">
+    /// true：优先匹配 *-Setup.exe（自定义安装包升级）；false：单文件 exe（排除 Setup）。
+    /// </param>
+    public static bool IsPreferredAsset(UpdateChannel channel, string fileName, bool preferInstallerPackage = false)
     {
         var n = fileName.ToLowerInvariant();
+        var isSetup = n.Contains("setup") && n.EndsWith(".exe");
+
         return channel switch
         {
             UpdateChannel.WinWpf =>
                 !n.Contains("maui") && !n.Contains("linux") && !n.Contains("osx") &&
                 !n.Contains("android") && !n.Contains("harmony") &&
                 !n.EndsWith(".apk") && !n.EndsWith(".hap") &&
-                ((n.EndsWith(".exe") && n.Contains("win-x64")) || n is "flyscreen.exe" or "xuanniao.exe"),
+                (preferInstallerPackage
+                    ? isSetup && n.Contains("win-x64")
+                    : !isSetup && ((n.EndsWith(".exe") && n.Contains("win-x64"))
+                                   || n is "flyscreen.exe" or "xuanniao.exe")),
 
             UpdateChannel.MauiWin =>
-                n.Contains("maui-win") && n.EndsWith(".exe"),
+                n.Contains("maui-win") && n.EndsWith(".exe") &&
+                (preferInstallerPackage ? isSetup : !isSetup),
 
             UpdateChannel.MauiAndroid =>
                 n.Contains("maui-android") && n.EndsWith(".apk"),
@@ -67,7 +76,10 @@ public static class UpdateChannelRules
 
             UpdateChannel.DesktopLinux =>
                 !n.Contains("maui") && !n.EndsWith(".apk") && !n.EndsWith(".exe") &&
-                n.Contains(Describe(UpdateChannel.DesktopLinux)),
+                n.Contains(Describe(UpdateChannel.DesktopLinux)) &&
+                (preferInstallerPackage
+                    ? n.EndsWith(".tar.gz") || n.EndsWith(".tgz") || n.EndsWith(".tar")
+                    : !n.EndsWith(".tar.gz") && !n.EndsWith(".tgz") && !n.EndsWith(".tar") && !n.EndsWith(".zip")),
 
             _ => false
         };

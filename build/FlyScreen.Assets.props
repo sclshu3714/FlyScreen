@@ -1,0 +1,10 @@
+<Project>
+  <!-- 各端 ApplicationIcon / MauiIcon / AvaloniaResource 指向这里，避免再复制 png、ico。 -->
+  <PropertyGroup>
+    <FlyScreenAssetsDir Condition="'$(FlyScreenAssetsDir)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\src\FlyScreen.Assets'))\</FlyScreenAssetsDir>
+    <FlyScreenAppIco>$(FlyScreenAssetsDir)Icons\app.ico</FlyScreenAppIco>
+    <FlyScreenAppPng>$(FlyScreenAssetsDir)Icons\appicon.png</FlyScreenAppPng>
+    <FlyScreenAppPng64>$(FlyScreenAssetsDir)Icons\appicon-64.png</FlyScreenAppPng64>
+    <FlyScreenCursorPng>$(FlyScreenAssetsDir)Images\cursor.png</FlyScreenCursorPng>
+  </PropertyGroup>
+</Project>

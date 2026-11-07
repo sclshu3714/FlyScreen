@@ -29,8 +29,9 @@ public sealed class AppSettings
     public bool ShowStatusMessages { get; set; } = true;
     public bool EasyMouse { get; set; } = true;
     /// <summary>
-    /// Android：通知注入。启用且有用户子程序运行时，以前台通知保活；
-    /// 无子程序运行时不占用通知（本机项，不参与 BehaviorSync）。
+    /// 手机通知注入（本机项，不参与 BehaviorSync）。
+    /// Android：启用且有用户子程序运行时以前台通知保活；无子程序时不占通知。
+    /// iOS：有子程序时发本地通知（无 FGS，不能强制保活）。
     /// </summary>
     public bool NotificationInject { get; set; }
     /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>

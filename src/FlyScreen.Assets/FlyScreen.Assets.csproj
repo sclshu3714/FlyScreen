@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Assets</RootNamespace>
+    <AssemblyName>FlyScreen.Assets</AssemblyName>
+    <Description>玄鸟图标与安装包图片。改图只改本项目，各端通过链接引用，不要再在端工程里留副本。</Description>
+  </PropertyGroup>
+
+  <!--
+    Icons/app.ico         exe / 托盘 / 安装包图标
+    Icons/appicon.png     Maui 图标与启动图（256，文件名须保持 appicon.png）
+    Icons/appicon-64.png  标题栏与 Avalonia 小图
+    Images/cursor.png     手机远程指针
+    Installer/*.png       安装包轮播
+  -->
+  <ItemGroup>
+    <None Remove="Icons\**\*;Images\**\*;Installer\**\*" />
+    <EmbeddedResource Include="Icons\**\*;Images\**\*;Installer\**\*" />
+  </ItemGroup>
+
+</Project>

@@ -3,7 +3,7 @@ using System.Reflection;
 namespace FlyScreen.Services.Update;
 
 /// <summary>
-/// WPF stable 更新入口：检查 + 自替换（委托 Core，通道 <see cref="UpdateChannel.WinWpf"/>）。
+/// WPF stable 更新入口：按安装形态选择单文件自替换或 Setup 安装包升级。
 /// </summary>
 public sealed class GitHubUpdateService
 {
@@ -12,18 +12,24 @@ public sealed class GitHubUpdateService
     public static string UpdateLogPath => SelfReplaceInstaller.UpdateLogPath;
 
     private readonly GitHubReleaseClient _client = new();
-    private readonly SelfReplaceInstaller _installer = new();
+    private readonly UpdateApplier _applier = new();
 
     public static Version GetLocalVersion() => GitHubReleaseClient.GetLocalVersion(Assembly.GetExecutingAssembly());
 
     public static string FormatVersion(Version v) => GitHubReleaseClient.FormatVersion(v);
 
+    public static AppInstallKind InstallKind => AppInstallLayout.Detect();
+
     public Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default)
-        => _client.CheckAsync(UpdateChannel.WinWpf, Assembly.GetExecutingAssembly(), ct);
+        => _client.CheckAsync(
+            UpdateChannel.WinWpf,
+            Assembly.GetExecutingAssembly(),
+            ct,
+            preferInstallerPackage: AppInstallLayout.PreferInstallerPackageAsset());
 
     public Task<UpdateApplyResult> DownloadAndApplyAsync(
         UpdateCheckResult check,
         IProgress<UpdateDownloadProgress>? progress = null,
         CancellationToken ct = default)
-        => _installer.DownloadAndApplyAsync(check, progress, ct);
+        => _applier.DownloadAndApplyAsync(check, progress, ct);
 }

@@ -72,28 +72,63 @@ public static class DisplayTopologyGuard
         bool usedVirtualDriver,
         CancellationToken ct = default)
     {
-        if (usedVirtualDriver)
+        try
         {
-            // 等 VDD 消失；残留副屏时 /internal 才能把其上的窗口收回
-            for (var i = 0; i < 15; i++)
+            if (usedVirtualDriver)
             {
-                ct.ThrowIfCancellationRequested();
-                if (DisplayMonitorEnum.FindBestExtendTarget() == null)
-                    break;
-                await Task.Delay(100, ct).ConfigureAwait(false);
+                // 等 VDD 消失；残留副屏时 /internal 才能把其上的窗口收回
+                for (var i = 0; i < 15; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (DisplayMonitorEnum.FindBestExtendTarget() == null)
+                        break;
+                    await Task.Delay(100, ct).ConfigureAwait(false);
+                }
+
+                try
+                {
+                    DisplayProjection.TryApply(Services.ScreenExtend.DisplayProjectionMode.Internal);
+                }
+                catch { /* ignore */ }
+
+                try { await Task.Delay(450, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { /* ignore */ }
             }
 
+            TryRestorePrimary();
+        }
+        finally
+        {
+            // 无论快照是否恢复成功，都清脏标记，避免反复 /internal
+            if (usedVirtualDriver || DisplayTopologyDirty.IsMarked)
+                DisplayTopologyDirty.Clear();
+            // 正常收拢完成：解除监视子进程，避免它再打一次 /internal
+            DisplayTopologyWatchdog.Disarm();
+        }
+    }
+
+    /// <summary>
+    /// 启动时：若上次扩展投影未正常收拢（杀进程/崩溃），补一次仅电脑屏幕。
+    /// 无内存快照时仍会 /internal；有快照则再覆盖主屏模式。
+    /// </summary>
+    public static async Task TryRecoverOrphanedExtendAsync(CancellationToken ct = default)
+    {
+        if (!DisplayTopologyDirty.IsMarked)
+            return;
+
+        try
+        {
+            await FinalizeAfterExtendStopAsync(usedVirtualDriver: true, ct).ConfigureAwait(false);
+        }
+        catch
+        {
             try
             {
                 DisplayProjection.TryApply(Services.ScreenExtend.DisplayProjectionMode.Internal);
             }
             catch { /* ignore */ }
-
-            try { await Task.Delay(450, ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { /* ignore */ }
+            DisplayTopologyDirty.Clear();
         }
-
-        TryRestorePrimary();
     }
 
     public static void Clear()

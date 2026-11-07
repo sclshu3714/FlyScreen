@@ -41,14 +41,15 @@ public partial class MainPage : ContentPage
     private int _logKnownTotal;
     private AppLogEntry? _logWatermark;
     private bool _openProgramLog;
-    private bool _progSelectAllUpdating;
     private UserProgram? _progMoreTarget;
     private bool _hostWired;
     private bool _uiPrepared;
     private bool _a11yInjectUpdating;
+#if ANDROID
     private bool _a11yInjectWired;
-    private int _a11yRefreshGen;
+#endif
     private bool _notifyInjectUpdating;
+    private int _a11yRefreshGen;
     private bool _pageAlive = true;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
@@ -134,7 +135,7 @@ public partial class MainPage : ContentPage
         _onStatusMessage = msg => RunOnUi(() => StatusLabel.Text = msg);
         _onProjectionNotice = msg => RunOnUi(async () =>
         {
-            try { await DisplayAlert("投影", msg, "确定"); }
+            try { await DisplayAlertAsync("投影", msg, "确定"); }
             catch { /* ignore */ }
         });
         _onAppLogChanged = () => RunOnUi(() =>
@@ -276,8 +277,10 @@ public partial class MainPage : ContentPage
                 _host.Platform.HideToBackground(
                     showMain: () => { },
                     reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+                    project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
                     about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-                    exit: RequestAppExit);
+                    exit: RequestAppExit,
+                    projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
             }
 #endif
         }
@@ -291,18 +294,25 @@ public partial class MainPage : ContentPage
         _host.Platform.EnsureTray(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: RequestAppExit);
+            exit: RequestAppExit,
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
     }
 
     /// <summary>托盘「关于」：显示关于页。</summary>
     public void ShowAboutFromTray() => ShowPage(5);
+
+    /// <summary>托盘「投影」：与主界面投影按钮同一流程。</summary>
+    public Task OpenProjectionFromTrayAsync() => RunProjectionEntryAsync();
 
     private static void RequestAppExit()
     {
 #if WINDOWS
         Platforms.Windows.MauiCloseToTray.RequestExit();
 #else
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         Application.Current?.Quit();
 #endif
     }
@@ -1852,7 +1862,6 @@ public partial class MainPage : ContentPage
 
     private void ProgSelectAll_Changed(object? sender, CheckedChangedEventArgs e)
     {
-        if (_progSelectAllUpdating) return;
         foreach (var p in ProgramService.Instance.Catalog.Items)
             p.IsSelected = e.Value;
     }
@@ -2332,13 +2341,18 @@ public partial class MainPage : ContentPage
             var resolver = activity?.ContentResolver;
             if (resolver == null) return null;
 
+            if (!OperatingSystem.IsAndroidVersionAtLeast(29))
+                return null;
+
             var values = new Android.Content.ContentValues();
             values.Put(Android.Provider.MediaStore.IMediaColumns.DisplayName, fileName);
             values.Put(Android.Provider.MediaStore.IMediaColumns.MimeType, "text/plain");
             values.Put(Android.Provider.MediaStore.IMediaColumns.RelativePath,
                 Android.OS.Environment.DirectoryDownloads);
 
-            var uri = resolver.Insert(Android.Provider.MediaStore.Downloads.ExternalContentUri, values);
+            var collection = Android.Provider.MediaStore.Downloads.ExternalContentUri;
+            if (collection == null) return null;
+            var uri = resolver.Insert(collection, values);
             if (uri == null) return null;
 
             await using var stream = resolver.OpenOutputStream(uri);
@@ -2355,34 +2369,36 @@ public partial class MainPage : ContentPage
     }
 #endif
 
+    /// <summary>手机端高级选项：通知/无障碍注入（Android 完整能力；iOS 通知本地提示，无障碍受系统限制）。</summary>
+    private static bool SupportsPhoneInjectUi()
+        => DeviceInfo.Platform == DevicePlatform.Android
+           || DeviceInfo.Platform == DevicePlatform.iOS;
+
     private void WireNotifyInjectUi()
     {
-#if ANDROID
-        NotifyInjectRow.IsVisible = true;
-#else
-        NotifyInjectRow.IsVisible = false;
-#endif
+        NotifyInjectRow.IsVisible = SupportsPhoneInjectUi();
+        if (!NotifyInjectRow.IsVisible) return;
+        if (DeviceInfo.Platform == DevicePlatform.iOS)
+            NotifyInjectTipLabel.Text = Loc.T("Opt.NotifyInjectTip.iOS");
     }
 
     private void SyncNotifyInjectCheck()
     {
-#if ANDROID
         if (!NotifyInjectRow.IsVisible) return;
         _notifyInjectUpdating = true;
         try { NotifyInjectCheck.IsChecked = _host.Settings.NotificationInject; }
         finally { _notifyInjectUpdating = false; }
-#endif
     }
 
     private async void NotifyInject_Changed(object? sender, CheckedChangedEventArgs e)
     {
-#if ANDROID
         // 仅改通知注入；不影响无障碍注入勾选/服务状态
-        if (_notifyInjectUpdating) return;
+        if (_notifyInjectUpdating || !SupportsPhoneInjectUi()) return;
         var want = e.Value;
         _host.Settings.NotificationInject = want;
         _host.Settings.Save();
 
+#if ANDROID
         if (want && OperatingSystem.IsAndroidVersionAtLeast(33))
         {
             try
@@ -2400,6 +2416,18 @@ public partial class MainPage : ContentPage
         StatusLabel.Text = want
             ? "已开启通知注入：有子程序运行时将显示前台通知"
             : "已关闭通知注入：不再使用通知保活";
+#elif IOS && !MACCATALYST
+        if (want)
+        {
+            var granted = await Platforms.iOS.IosProgramNotifyHelper.RequestPermissionAsync();
+            if (!granted)
+                StatusLabel.Text = "未授予通知权限：系统可能不显示运行通知";
+        }
+
+        Platforms.iOS.IosProgramNotifyHelper.RefreshNotificationInject(want);
+        StatusLabel.Text = want
+            ? "已开启通知注入：有子程序运行时将显示本地通知"
+            : "已关闭通知注入：不再显示运行通知";
 #else
         await Task.CompletedTask;
 #endif
@@ -2408,7 +2436,7 @@ public partial class MainPage : ContentPage
     /// <summary>勾选无障碍时顺带打开通知注入（可再单独取消；取消不影响无障碍）。</summary>
     private void EnsureNotificationInjectOnFromA11y()
     {
-#if ANDROID
+        if (!SupportsPhoneInjectUi()) return;
         if (_host.Settings.NotificationInject && NotifyInjectCheck.IsChecked == true)
             return;
         _host.Settings.NotificationInject = true;
@@ -2416,8 +2444,12 @@ public partial class MainPage : ContentPage
         _notifyInjectUpdating = true;
         try { NotifyInjectCheck.IsChecked = true; }
         finally { _notifyInjectUpdating = false; }
+#if ANDROID
         Platforms.Android.AndroidProgramWakeLock.RefreshNotificationInject(true);
         _ = RequestNotifyPermissionQuietAsync();
+#elif IOS && !MACCATALYST
+        Platforms.iOS.IosProgramNotifyHelper.RefreshNotificationInject(true);
+        _ = Platforms.iOS.IosProgramNotifyHelper.RequestPermissionAsync();
 #endif
     }
 
@@ -2437,33 +2469,42 @@ public partial class MainPage : ContentPage
 
     private void WireA11yInjectUi()
     {
+        A11yInjectRow.IsVisible = SupportsPhoneInjectUi();
+        if (!A11yInjectRow.IsVisible) return;
+
+        if (DeviceInfo.Platform == DevicePlatform.iOS)
+        {
+            A11yInjectTipLabel.Text = Loc.T("Opt.A11yInjectTip.iOS");
+            return;
+        }
+
 #if ANDROID
-        A11yInjectRow.IsVisible = true;
         if (_a11yInjectWired) return;
         _a11yInjectWired = true;
         Platforms.Android.FlyScreenInputAccessibilityService.EnsureSettingsWatch();
         Platforms.Android.FlyScreenInputAccessibilityService.EnabledChanged += () =>
             MainThread.BeginInvokeOnMainThread(SyncA11yInjectCheck);
-#else
-        A11yInjectRow.IsVisible = false;
 #endif
     }
 
     private void SyncA11yInjectCheck()
     {
-#if ANDROID
         if (!A11yInjectRow.IsVisible) return;
         _a11yInjectUpdating = true;
         try
         {
+#if ANDROID
             // 只跟服务是否真的在跑。系统里开关还在、服务已停止时取消勾选。
             A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
+#else
+            // iOS 无跨应用注入服务，保持未勾选
+            A11yInjectCheck.IsChecked = false;
+#endif
         }
         finally
         {
             _a11yInjectUpdating = false;
         }
-#endif
     }
 
     /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。绑定可能略晚，补两次。</summary>
@@ -2483,9 +2524,9 @@ public partial class MainPage : ContentPage
 
     private async void A11yInject_Changed(object? sender, CheckedChangedEventArgs e)
     {
-#if ANDROID
-        if (_a11yInjectUpdating) return;
+        if (_a11yInjectUpdating || !SupportsPhoneInjectUi()) return;
 
+#if ANDROID
         var wantOn = e.Value;
         var connected = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
         var listed = Platforms.Android.FlyScreenInputAccessibilityService.IsListedInSecureSettings();
@@ -2519,6 +2560,15 @@ public partial class MainPage : ContentPage
         if (listed)
             Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
         SyncA11yInjectCheck();
+#elif IOS && !MACCATALYST
+        if (e.Value)
+        {
+            await DisplayAlertAsync(
+                Loc.T("Opt.A11yInjectOpenTitle"),
+                Loc.T("Opt.A11yInjectOpenBody.iOS"),
+                "确定");
+            SyncA11yInjectCheck();
+        }
 #else
         await Task.CompletedTask;
 #endif
@@ -2651,7 +2701,7 @@ public partial class MainPage : ContentPage
         if (_host.ScreenExtend.IsActive
             && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
         {
-            await DisplayAlert(
+            await DisplayAlertAsync(
                 "投影",
                 FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
                     FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
@@ -2662,9 +2712,17 @@ public partial class MainPage : ContentPage
 
         // 无 NavigationPage，避免系统顶栏白条；页内自定义标题 + 居中卡片
         await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+#if WINDOWS
+        // Modal 会重置 WinUI 标题栏模板为浅色默认 → 跟刷，避免左右两截
+        Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
     }
 
-    private async void PhoneProject_Clicked(object? sender, EventArgs e)
+    private void PhoneProject_Clicked(object? sender, EventArgs e)
+        => _ = RunProjectionEntryAsync();
+
+    /// <summary>主界面 / 托盘投影入口：进行中则停止，接收中则提示，否则弹窗。</summary>
+    private async Task RunProjectionEntryAsync()
     {
         try
         {
@@ -2688,10 +2746,14 @@ public partial class MainPage : ContentPage
     private void RefreshPhoneProjectButton()
     {
         if (PhoneProjectBtn == null) return;
-        var on = _host.ScreenExtend.IsActive
-                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
-        PhoneProjectBtn.Text = on ? "投影中" : "投影";
-        PhoneProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
+        var phase = ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = ProjectionUi.Title(phase);
+        PhoneProjectBtn.Text = ProjectionUi.FormatLine(chrome);
+        PhoneProjectBtn.Style = (Style)Application.Current!.Resources[
+            chrome.Emphasized ? "SegBtnActive" : "NormalBtn"];
+#if WINDOWS
+        Platforms.Windows.MauiProjectionTitleBar.Refresh();
+#endif
     }
 
     private void LoadEdgeCrossModeUi(int mode)
@@ -3080,8 +3142,10 @@ public partial class MainPage : ContentPage
         _host.Platform.HideToBackground(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
-            exit: RequestAppExit);
+            exit: RequestAppExit,
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
     }
 
     private void RefreshAboutPage()

@@ -9,6 +9,7 @@ public sealed class ProgramRunner
 {
     private readonly ProgramCatalog _catalog;
     private readonly ConcurrentDictionary<string, RunningJob> _running = new();
+    private int _stoppingAll;
 
     public ProgramRunner(ProgramCatalog catalog)
     {
@@ -314,6 +315,48 @@ public sealed class ProgramRunner
         {
             try { await StopAsync(p).ConfigureAwait(false); }
             catch (Exception ex) { AppLog.Error(ex, $"停止「{p.Name}」失败", p.Id, p.Name); }
+        }
+    }
+
+    /// <summary>
+    /// 进程退出 / 任务被划掉：立刻取消本机引擎并结束子进程。
+    /// 可重复调用；不把宿主标成永久关闭，以便同一进程再次进入后仍能启动。
+    /// </summary>
+    public void StopAllForShutdown()
+    {
+        if (Interlocked.CompareExchange(ref _stoppingAll, 1, 0) != 0)
+            return;
+        try
+        {
+            try { ProgramDebugGate.Current?.EndRun(); } catch { /* ignore */ }
+            foreach (var kv in _running.ToArray())
+            {
+                var job = kv.Value;
+                job.Stopping = true;
+                job.ForceStopped = true;
+                try { job.Cancel?.Cancel(); } catch { /* ignore */ }
+                try
+                {
+                    if (job.Process is { HasExited: false })
+                        job.Process.Kill(entireProcessTree: true);
+                }
+                catch { /* ignore */ }
+                _running.TryRemove(kv.Key, out _);
+            }
+
+            try
+            {
+                foreach (var p in _catalog.Items)
+                    p.RuntimeStatus = ProgramStatus.Idle;
+            }
+            catch { /* ignore */ }
+
+            try { ProgramDebugHud.Stop(); } catch { /* ignore */ }
+            NotifyRunningCountChanged();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _stoppingAll, 0);
         }
     }
 

@@ -85,6 +85,23 @@ public partial class MainWindow : Window
         }
         Loaded += OnLoaded;
         Closing += OnClosing;
+        SourceInitialized += (_, _) =>
+        {
+            try
+            {
+                var helper = new System.Windows.Interop.WindowInteropHelper(this);
+                FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
+                    helper.Handle,
+                    FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
+                    FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
+                    System.IO.Path.Combine("Assets", "wlogo_tu.ico"),
+                    "wlogo_tu.ico");
+            }
+            catch
+            {
+                // 任务栏显示名失败不挡主窗
+            }
+        };
         UpdateTitleMaxGlyph();
     }
 
@@ -100,7 +117,13 @@ public partial class MainWindow : Window
             DragMove();
     }
 
-    private async void TitleProject_Click(object sender, RoutedEventArgs e)
+    private bool _titleProjectHovered;
+
+    private void TitleProject_Click(object sender, RoutedEventArgs e)
+        => _ = OpenProjectionFromUiAsync();
+
+    /// <summary>标题栏 / 托盘「投影」：与主界面同一流程（进行中则停止，接收中则提示，否则弹窗）。</summary>
+    private async Task OpenProjectionFromUiAsync()
     {
         if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
         {
@@ -118,25 +141,66 @@ public partial class MainWindow : Window
             return;
         }
 
+        ShowFromTray();
         var dlg = new ProjectionDialog(_host) { Owner = this };
         dlg.ShowDialog();
         RefreshTitleProjectButton();
     }
 
+    private void EnsureTitleProjectHoverHooks()
+    {
+        if (TitleProjectBtn == null || TitleProjectBtn.Tag as string == "projHover") return;
+        TitleProjectBtn.Tag = "projHover";
+        TitleProjectBtn.MouseEnter += (_, _) =>
+        {
+            _titleProjectHovered = true;
+            RefreshTitleProjectButton();
+        };
+        TitleProjectBtn.MouseLeave += (_, _) =>
+        {
+            _titleProjectHovered = false;
+            RefreshTitleProjectButton();
+        };
+    }
+
     private void RefreshTitleProjectButton()
     {
         if (TitleProjectBtn == null) return;
-        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
-        TitleProjectBtn.ToolTip = on ? "正在投影（点击停止）" : "投影到电脑";
-        TitleProjectBtn.Width = on ? 72 : 46;
-        TitleProjectBtn.Content = on ? "投影中" : "\uE8B9";
-        TitleProjectBtn.FontFamily = on
-            ? new System.Windows.Media.FontFamily("Segoe UI")
-            : new System.Windows.Media.FontFamily("Segoe MDL2 Assets");
-        TitleProjectBtn.FontSize = on ? 11 : 13;
-        // Accent 只在投影弹窗里，主窗口用 Blue（同色 #2563EB）
-        TitleProjectBtn.Foreground = TryFindResource(on ? "Blue" : "Text") as System.Windows.Media.Brush
+        EnsureTitleProjectHoverHooks();
+        var phase = ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = ProjectionUi.Title(phase, _titleProjectHovered);
+        TitleProjectBtn.ToolTip = chrome.Tooltip;
+        TitleProjectBtn.Width = chrome.SuggestedWidth;
+        TitleProjectBtn.Padding = new Thickness(8, 0, 8, 0);
+        TitleProjectBtn.Foreground = TryFindResource(chrome.Emphasized ? "Blue" : "Text") as System.Windows.Media.Brush
             ?? System.Windows.Media.Brushes.Black;
+        TitleProjectBtn.Content = BuildProjectionTitleContent(chrome);
+    }
+
+    private System.Windows.Controls.StackPanel BuildProjectionTitleContent(ProjectionUiChrome chrome)
+    {
+        var fg = TitleProjectBtn.Foreground;
+        var icon = new System.Windows.Controls.TextBlock
+        {
+            Text = chrome.Mdl2Glyph,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"),
+            FontSize = 13,
+            Foreground = fg,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        };
+        var label = new System.Windows.Controls.TextBlock
+        {
+            Text = chrome.Label,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI"),
+            FontSize = 11,
+            Foreground = fg,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var row = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        row.Children.Add(icon);
+        row.Children.Add(label);
+        return row;
     }
 
     private void ApplyWindowIcon()
@@ -271,6 +335,8 @@ public partial class MainWindow : Window
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            onProject: () => _ = OpenProjectionFromUiAsync(),
+            projectPhase: ProjectionUi.Resolve(_host.ScreenExtend),
             onAbout: () =>
             {
                 ShowFromTray();
@@ -915,15 +981,18 @@ public partial class MainWindow : Window
     private async void ExitApp()
     {
         DisposeTray();
-        await _host.DisposeAsync();
+        // DisposeAsync 内会 StopProjection 并等待 /internal，避免扩展拓扑残留
+        try { await _host.DisposeAsync(); }
+        catch { /* ignore */ }
         System.Windows.Application.Current.Shutdown();
     }
 
-    /// <summary>自动更新：释放托盘后立即退出，供外部脚本覆盖单文件 exe 并重启。</summary>
+    /// <summary>自动更新：释放托盘后退出，供外部脚本覆盖单文件 exe 并重启。</summary>
     public void ExitForUpdate()
     {
         try { DisposeTray(); } catch { /* ignore */ }
-        try { _ = _host.DisposeAsync().AsTask(); } catch { /* ignore */ }
+        // 同步等拓扑收拢，避免更新重启后仍卡在扩展屏
+        try { _host.DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { /* ignore */ }
         Environment.Exit(0);
     }
 

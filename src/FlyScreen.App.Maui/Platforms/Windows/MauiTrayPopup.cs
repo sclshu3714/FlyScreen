@@ -4,6 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using Color = System.Drawing.Color;
 using Font = System.Drawing.Font;
@@ -41,11 +42,15 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private readonly Action _onOpen;
     private readonly Action _onReconnect;
+    private readonly Action _onProject;
     private readonly Action _onAbout;
     private readonly Action _onExit;
+    private readonly ProjectionUiPhase _projectPhase;
     private readonly string[] _labels;
     private readonly Action[] _actions;
     private readonly Rectangle[] _itemRects; // 相对窗口客户区（含 CardMargin）
+    private const int PrimaryItemCount = 4; // 打开 / 重连 / 投影 / 关于（退出单独在分隔线后）
+    private const int ProjectItemIndex = 2;
 
     private IntPtr _hwnd;
     private WndProc? _proc;
@@ -56,20 +61,29 @@ internal sealed class MauiTrayPopup : IDisposable
     private int _cardW;
     private int _cardH;
 
-    private MauiTrayPopup(Action onOpen, Action onReconnect, Action onAbout, Action onExit)
+    private MauiTrayPopup(
+        Action onOpen,
+        Action onReconnect,
+        Action onProject,
+        ProjectionUiPhase projectPhase,
+        Action onAbout,
+        Action onExit)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
+        _onProject = onProject;
+        _projectPhase = projectPhase;
         _onAbout = onAbout;
         _onExit = onExit;
         _labels =
         [
             Loc.T("Tray.Open"),
             Loc.T("Tray.Reconnect"),
+            ProjectionUi.Tray(projectPhase).Label,
             Loc.T("Tray.About"),
             Loc.T("Tray.Exit")
         ];
-        _actions = [_onOpen, _onReconnect, _onAbout, _onExit];
+        _actions = [_onOpen, _onReconnect, _onProject, _onAbout, _onExit];
         _itemRects = new Rectangle[_labels.Length];
         MeasureAndBuildHwnd();
     }
@@ -77,19 +91,33 @@ internal sealed class MauiTrayPopup : IDisposable
     public static void ShowNearCursor(
         Action onOpen,
         Action onReconnect,
+        Action onProject,
+        ProjectionUiPhase projectPhase,
         Action onAbout,
         Action onExit)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
-        var popup = new MauiTrayPopup(onOpen, onReconnect, onAbout, onExit);
+        var popup = new MauiTrayPopup(onOpen, onReconnect, onProject, projectPhase, onAbout, onExit);
         _open = popup;
         popup.ShowAtCursor();
+    }
+
+    private ProjectionUiChrome ProjectChrome(bool hovered)
+        => ProjectionUi.Tray(_projectPhase, hovered);
+
+    private string LabelAt(int index, bool hovered)
+    {
+        if (index == ProjectItemIndex)
+            return ProjectChrome(hovered).Label;
+        return _labels[index];
     }
 
     private void MeasureAndBuildHwnd()
     {
         using var font = CreateFont();
+        using var iconFont = CreateMdl2Font();
         var textW = CardMinWidth - PanelPadX * 2 - ItemMargin * 2 - ItemHPad * 2;
+        const int projectIconGap = 22; // MDL2 图标占位，与标题栏一致
         using (var tmp = new Bitmap(8, 8))
         using (var g = Graphics.FromImage(tmp))
         {
@@ -98,13 +126,28 @@ internal sealed class MauiTrayPopup : IDisposable
                 var sz = g.MeasureString(label, font);
                 textW = Math.Max(textW, (int)Math.Ceiling(sz.Width));
             }
+
+            // 投影：图标 + 文案（含悬停 / 各阶段最长）
+            foreach (var chrome in new[]
+                     {
+                         ProjectChrome(false),
+                         ProjectChrome(true),
+                         ProjectionUi.Tray(ProjectionUiPhase.Hosting),
+                         ProjectionUi.Tray(ProjectionUiPhase.Receiving)
+                     })
+            {
+                var iconW = g.MeasureString(chrome.Mdl2Glyph, iconFont).Width;
+                var labelW = g.MeasureString(chrome.Label, font).Width;
+                textW = Math.Max(textW, (int)Math.Ceiling(iconW + 6 + labelW));
+                textW = Math.Max(textW, projectIconGap + (int)Math.Ceiling(labelW));
+            }
         }
 
         _cardW = Math.Max(CardMinWidth, textW + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
-        // 3 项 + 分隔 + 退出
+        // 主项 + 分隔 + 退出
         var sepBlock = 1 + 6 * 2;
         _cardH = PanelPadY * 2
-                 + 3 * (ItemHeight + ItemMargin * 2)
+                 + PrimaryItemCount * (ItemHeight + ItemMargin * 2)
                  + sepBlock
                  + (ItemHeight + ItemMargin * 2);
 
@@ -113,7 +156,7 @@ internal sealed class MauiTrayPopup : IDisposable
         _height = _cardH + CardMargin * 2;
 
         var y = CardMargin + PanelPadY;
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < PrimaryItemCount; i++)
         {
             _itemRects[i] = new Rectangle(
                 CardMargin + PanelPadX + ItemMargin,
@@ -126,7 +169,7 @@ internal sealed class MauiTrayPopup : IDisposable
         y += 6; // sep top margin
         // sep itself 1px + bottom 6
         y += 1 + 6;
-        _itemRects[3] = new Rectangle(
+        _itemRects[PrimaryItemCount] = new Rectangle(
             CardMargin + PanelPadX + ItemMargin,
             y + ItemMargin,
             _cardW - PanelPadX * 2 - ItemMargin * 2,
@@ -135,12 +178,16 @@ internal sealed class MauiTrayPopup : IDisposable
         EnsureWndClass();
         _proc = WndProcImpl;
         var hInstance = GetModuleHandle(null);
+        // 创建时就放在光标处。先建在 (0,0) 再挪过去，首次显示会从屏幕左上角闪到鼠标。
+        GetCursorPos(out var pt);
+        var scale = GetDpiScaleAt(pt.X, pt.Y);
+        ComputePlacement(scale, out var left, out var top, out var widthPx, out var heightPx);
         _hwnd = CreateWindowEx(
             WsExLayered | WsExToolWindow | WsExTopmost,
             WndClassName,
             "",
             WsPopup,
-            0, 0, _width, _height,
+            left, top, widthPx, heightPx,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
         if (_hwnd == IntPtr.Zero)
@@ -153,23 +200,43 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private void ShowAtCursor()
     {
-        GetCursorPos(out var pt);
         var scale = GetDpiScale();
-        // 逻辑像素 → 物理（CreateWindow 用的是物理像素；我们按 96dpi 逻辑绘制后缩放位图）
-        var widthPx = Math.Max(1, (int)Math.Ceiling(_width * scale));
-        var heightPx = Math.Max(1, (int)Math.Ceiling(_height * scale));
-
-        var left = pt.X - widthPx + (int)(28 * scale);
-        var top = pt.Y - heightPx + (int)(8 * scale);
-        var wa = GetWorkAreaNear(pt.X, pt.Y);
-        left = Math.Max(wa.Left + 4, Math.Min(left, wa.Right - widthPx - 4));
-        top = Math.Max(wa.Top + 4, Math.Min(top, wa.Bottom - heightPx - 4));
-
-        SetWindowPos(_hwnd, HwndTopmost, left, top, widthPx, heightPx,
-            SwpShowWindow | SwpNoActivate);
+        ComputePlacement(scale, out var left, out var top, out var widthPx, out var heightPx);
+        // 仍隐藏时就位并画好，再显示，避免空白窗从左上角移过来。
+        SetWindowPos(_hwnd, HwndTopmost, left, top, widthPx, heightPx, SwpNoActivate);
         Render(scale);
         ShowWindow(_hwnd, SwShowNoActivate);
         SetForegroundWindow(_hwnd);
+    }
+
+    private void ComputePlacement(double scale, out int left, out int top, out int widthPx, out int heightPx)
+    {
+        GetCursorPos(out var pt);
+        widthPx = Math.Max(1, (int)Math.Ceiling(_width * scale));
+        heightPx = Math.Max(1, (int)Math.Ceiling(_height * scale));
+        left = pt.X - widthPx + (int)(28 * scale);
+        top = pt.Y - heightPx + (int)(8 * scale);
+        var wa = GetWorkAreaNear(pt.X, pt.Y);
+        left = Math.Max(wa.Left + 4, Math.Min(left, wa.Right - widthPx - 4));
+        top = Math.Max(wa.Top + 4, Math.Min(top, wa.Bottom - heightPx - 4));
+    }
+
+    private static double GetDpiScaleAt(int x, int y)
+    {
+        try
+        {
+            var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, 2);
+            if (monitor != IntPtr.Zero
+                && GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0
+                && dpiX > 0)
+                return dpiX / 96.0;
+        }
+        catch
+        {
+            /* 96dpi */
+        }
+
+        return 1;
     }
 
     private void Render(double scale)
@@ -201,14 +268,15 @@ internal sealed class MauiTrayPopup : IDisposable
             }
 
             using var font = CreateFont();
+            using var iconFont = CreateMdl2Font();
             using var textBrush = new SolidBrush(TextColor);
 
             for (var i = 0; i < _labels.Length; i++)
             {
-                if (i == 3)
+                if (i == PrimaryItemCount)
                 {
                     // 分隔线（关于与退出之间）
-                    var sepY = _itemRects[2].Bottom + ItemMargin + 6;
+                    var sepY = _itemRects[PrimaryItemCount - 1].Bottom + ItemMargin + 6;
                     using var sepPen = new Pen(SepColor);
                     g.DrawLine(sepPen,
                         CardMargin + 12, sepY,
@@ -234,8 +302,23 @@ internal sealed class MauiTrayPopup : IDisposable
                     LineAlignment = StringAlignment.Center,
                     FormatFlags = StringFormatFlags.NoWrap
                 };
-                var textRect = new RectangleF(rect.X + ItemHPad, rect.Y, rect.Width - ItemHPad * 2, rect.Height);
-                g.DrawString(_labels[i], font, textBrush, textRect, sf);
+                var hovered = i == _hoverIndex;
+                if (i == ProjectItemIndex)
+                {
+                    var chrome = ProjectChrome(hovered);
+                    var fg = chrome.Emphasized ? Accent : TextColor;
+                    using var fgBrush = new SolidBrush(fg);
+                    var iconRect = new RectangleF(rect.X + ItemHPad, rect.Y, 18, rect.Height);
+                    var labelRect = new RectangleF(rect.X + ItemHPad + 22, rect.Y,
+                        Math.Max(8, rect.Width - ItemHPad * 2 - 22), rect.Height);
+                    g.DrawString(chrome.Mdl2Glyph, iconFont, fgBrush, iconRect, sf);
+                    g.DrawString(chrome.Label, font, fgBrush, labelRect, sf);
+                }
+                else
+                {
+                    var textRect = new RectangleF(rect.X + ItemHPad, rect.Y, rect.Width - ItemHPad * 2, rect.Height);
+                    g.DrawString(LabelAt(i, hovered), font, textBrush, textRect, sf);
+                }
             }
         }
 
@@ -379,6 +462,9 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private static Font CreateFont()
         => new("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+
+    private static Font CreateMdl2Font()
+        => new("Segoe MDL2 Assets", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
 
     private static GraphicsPath RoundedRect(int x, int y, int w, int h, int r)
     {
@@ -543,6 +629,7 @@ internal sealed class MauiTrayPopup : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
     [DllImport("user32.dll")] private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);

@@ -166,7 +166,13 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     public bool SetAutoStartEnabled(bool enabled)
         => AutoStartHelper.SetEnabled(enabled);
 
-    public void EnsureTray(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    public void EnsureTray(
+        Action showMain,
+        Action? reconnect = null,
+        Action? project = null,
+        Action? about = null,
+        Action? exit = null,
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null)
     {
         _tray ??= new MauiTrayService();
         _tray.Ensure(
@@ -180,17 +186,29 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 if (reconnect != null) reconnect();
                 else _ = _connections.ReconnectNowAsync();
             },
+            project: () =>
+            {
+                ShowMainWindow();
+                project?.Invoke();
+            },
             about: () => about?.Invoke(),
             exit: () =>
             {
                 if (exit != null) exit();
                 else MauiCloseToTray.RequestExit();
-            });
+            },
+            projectPhase: projectPhase);
     }
 
-    public void HideToBackground(Action showMain, Action? reconnect = null, Action? about = null, Action? exit = null)
+    public void HideToBackground(
+        Action showMain,
+        Action? reconnect = null,
+        Action? project = null,
+        Action? about = null,
+        Action? exit = null,
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null)
     {
-        EnsureTray(showMain, reconnect, about, exit);
+        EnsureTray(showMain, reconnect, project, about, exit, projectPhase);
         HideMainWindow();
     }
 
@@ -216,4 +234,11 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void SetScreenExtendDisplayChoice(ProjectionDisplayChoice? choice)
         => _screenExtendUi?.SetDisplayChoice(choice);
+
+    /// <summary>退出进程前释放扩展屏控制器（内部会等待拓扑 Finalize）。</summary>
+    public void DisposeScreenExtendUi()
+    {
+        try { _screenExtendUi?.Dispose(); } catch { /* ignore */ }
+        _screenExtendUi = null;
+    }
 }

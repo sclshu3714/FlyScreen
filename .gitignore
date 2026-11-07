@@ -24,4 +24,14 @@ mobile/harmony/.hvigor/
 mobile/harmony/.idea/
 *.hap
 *.app
-/setup/FlyScreen.Installer/Payload
+/setup/FlyScreen.Installer/Payload/payload.zip
+/_icon_backup_20261105_164053
+/_icon_backup_20261105_150546
+/_icon_backup_20261105_165407
+/_icon_backup_20261105_171055
+/_icon_backup_20261105_171614
+/_icon_backup_20261105_171743
+/_icon_backup_*/
+
+# VS Code C# Dev Tools - Auto-generated runners
+.vscodecsdt/Runners/

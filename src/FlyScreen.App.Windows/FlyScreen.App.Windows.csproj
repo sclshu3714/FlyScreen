@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows7.0</TargetFramework>
@@ -11,7 +13,8 @@
     <!-- 产物仍为 FlyScreen.exe，便于更新替换与开机自启任务名不变 -->
     <AssemblyName>FlyScreen</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\wlogo_tu.ico</ApplicationIcon>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
+    <AssemblyTitle>玄鸟</AssemblyTitle>
     <Product>玄鸟</Product>
     <Authors>sclshu3714</Authors>
     <Company>玄鸟</Company>
@@ -20,19 +23,15 @@
     <SelfContained Condition="'$(RuntimeIdentifier)' != '' and '$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
-  <!-- WPF pack:// URI 需要「资源」(Resource)，不是 Content，也不是「嵌入的资源」(EmbeddedResource) -->
+  <!-- WPF pack:// URI 需要「资源」(Resource)。Link 保持 Assets/wlogo_tu.ico，窗口代码不用改。 -->
   <ItemGroup>
-    <Resource Include="Assets\wlogo_tu.ico" />
-  </ItemGroup>
-
-  <!-- 离线 VDD：共用 tools\VddOffline（src 仅代码；docs/mtt_vdd 供开发说明） -->
-  <ItemGroup>
-    <None Include="..\..\tools\VddOffline\**\*"
-          CopyToOutputDirectory="PreserveNewest"
-          Link="VddOffline\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Resource Include="$(FlyScreenAppIco)">
+      <Link>Assets\wlogo_tu.ico</Link>
+    </Resource>
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
   </ItemGroup>
@@ -42,5 +41,8 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets" />
+  <!-- VddOffline → zip 放入发布目录 VddOffline\；单文件则打进包，运行时再落到同路径并展开到 AppData -->
+  <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets" />
 
 </Project>

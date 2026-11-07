@@ -10,69 +10,89 @@ using WinRT.Interop;
 namespace FlyScreen.AppMaui.Services;
 
 /// <summary>
-/// MAUI-Windows 窗体图标。
-/// 标题栏走自定义 AppTitleBar（默认找不存在的 Square44x44Logo.png）；
-/// 此处再确保 Image 源、任务栏 AppWindow.SetIcon、exe 内嵌图标一致。
+/// MAUI-Windows 窗体图标与任务管理器显示名。
+/// <para>
+/// WinUI 主窗默认是 ANSI 窗（<c>IsWindowUnicode=false</c>），同进程写中文标题会截成「玄」。
+/// 在 HWND 就绪时用 <c>SetWindowLongPtrW</c> 挂一次 Unicode 子类，标题消息走
+/// <c>DefWindowProcW</c>，再写一次「玄鸟」即可——无需定时器反复刷。
+/// </para>
 /// </summary>
 public static class MauiWindowIcon
 {
-    private static readonly HashSet<int> Hooked = [];
-    private static IntPtr _exeIcon;
+    private static string AppDisplayName => FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName;
+
+    private const int GwlpWndProc = -4;
+    private const uint WmSetText = 0x000C;
+    private const uint WmGetText = 0x000D;
+    private const uint WmGetTextLength = 0x000E;
+    private const int WmSetIcon = 0x0080;
+    private const int IconSmall = 0;
+    private const int IconBig = 1;
+    private const uint ImageIcon = 1;
+    private const uint LrLoadFromFile = 0x0010;
+
+    private static readonly HashSet<int> HookedWindows = [];
+    private static readonly HashSet<nint> SubclassedHwnds = [];
+    private static readonly Dictionary<nint, IntPtr> OldWndProcs = [];
+    private static WndProc? _subclassKeepAlive;
+    private static IntPtr _smallIcon;
+    private static IntPtr _bigIcon;
+
+    private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     public static void Apply(Microsoft.Maui.Controls.Window window)
     {
         var id = RuntimeHelpers.GetHashCode(window);
-        if (Hooked.Add(id))
+        if (HookedWindows.Add(id))
         {
-            window.HandlerChanged += (_, _) => Schedule(window);
-            window.Created += (_, _) => Schedule(window);
+            // HWND 可能尚未创建：等 Handler/Created，各试一次即可
+            window.HandlerChanged += (_, _) => TryApply(window);
+            window.Created += (_, _) => TryApply(window);
         }
 
-        Schedule(window);
-    }
-
-    private static void Schedule(Microsoft.Maui.Controls.Window window)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            TryApply(window);
-            window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), () => TryApply(window));
-            window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), () => TryApply(window));
-        });
+        window.Title = AppDisplayName;
+        TryApply(window);
     }
 
     private static void TryApply(Microsoft.Maui.Controls.Window window)
     {
         try
         {
+            window.Title = AppDisplayName;
+
             if (window.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
                 return;
 
-            // 任务栏 / Alt-Tab：用 exe 内嵌 ApplicationIcon
-            try
-            {
-                native.GetType().GetMethod("SetIcon", Type.EmptyTypes)?.Invoke(native, null);
-            }
-            catch { /* ignore */ }
-
             var hwnd = WindowNative.GetWindowHandle(native);
+            if (hwnd == IntPtr.Zero) return;
+
+            EnsureUnicodeSubclass(hwnd);
+            _ = SetWindowTextW(hwnd, AppDisplayName);
+            // 任务栏右键顶栏显示「玄鸟」（进程名列仍为 FlyScreen.App.Maui.exe）
+            FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
+                hwnd,
+                FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
+                FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
+                Path.Combine("Assets", "appicon.ico"),
+                Path.Combine("Resources", "AppIcon", "appicon.ico"),
+                "appicon.ico");
+
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = AppWindow.GetFromWindowId(windowId);
 
-            EnsureExeIcon(appWindow);
-
-            // 优先 Assets 透明 ico；勿先用根目录 MauiIcon 生成的实心黑底 appicon.ico
             var ico = ResolvePath(
                 Path.Combine("Assets", "appicon.ico"),
+                Path.Combine("Platforms", "Windows", "Assets", "appicon.ico"),
                 Path.Combine("Resources", "AppIcon", "appicon.ico"),
                 "appicon.ico");
             if (ico != null)
             {
                 try { appWindow.SetIcon(ico); } catch { /* ignore */ }
+                ApplyWin32Icons(hwnd, ico);
             }
 
-            // 标题栏 Image：修掉默认坏掉的 Square44x44Logo.png
             FixTitleBarImage(native);
+            FixTitleBarText(native);
         }
         catch
         {
@@ -80,29 +100,56 @@ public static class MauiWindowIcon
         }
     }
 
-    private static void EnsureExeIcon(AppWindow appWindow)
+    /// <summary>仅安装一次：ANSI → Unicode 子类；标题读写走 DefWindowProcW。</summary>
+    private static void EnsureUnicodeSubclass(IntPtr hwnd)
     {
-        if (_exeIcon != IntPtr.Zero) return;
-        var exe = Environment.ProcessPath;
-        if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return;
+        if (!SubclassedHwnds.Add(hwnd))
+            return;
+        if (IsWindowUnicode(hwnd))
+            return;
 
-        var idx = IntPtr.Zero;
-        _exeIcon = ExtractAssociatedIcon(IntPtr.Zero, exe, ref idx);
-        if (_exeIcon == IntPtr.Zero) return;
-        try
+        _subclassKeepAlive ??= UnicodeSubclassProc;
+        var procPtr = Marshal.GetFunctionPointerForDelegate(_subclassKeepAlive);
+        Marshal.SetLastPInvokeError(0);
+        var old = SetWindowLongPtrW(hwnd, GwlpWndProc, procPtr);
+        if (old == IntPtr.Zero && Marshal.GetLastPInvokeError() != 0)
         {
-            var iconId = Microsoft.UI.Win32Interop.GetIconIdFromIcon(_exeIcon);
-            appWindow.SetIcon(iconId);
+            SubclassedHwnds.Remove(hwnd);
+            return;
         }
-        catch { /* ignore */ }
+
+        OldWndProcs[hwnd] = old;
+    }
+
+    private static IntPtr UnicodeSubclassProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        // 标题必须走 Unicode；回 ANSI 旧过程会再次截断中文
+        if (msg is WmSetText or WmGetText or WmGetTextLength)
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        if (!OldWndProcs.TryGetValue(hWnd, out var old) || old == IntPtr.Zero)
+            return DefWindowProcW(hWnd, msg, wParam, lParam);
+        return CallWindowProcW(old, hWnd, msg, wParam, lParam);
+    }
+
+    private static void ApplyWin32Icons(IntPtr hwnd, string icoPath)
+    {
+        if (_smallIcon == IntPtr.Zero)
+            _smallIcon = LoadImage(IntPtr.Zero, icoPath, ImageIcon, 16, 16, LrLoadFromFile);
+        if (_bigIcon == IntPtr.Zero)
+            _bigIcon = LoadImage(IntPtr.Zero, icoPath, ImageIcon, 32, 32, LrLoadFromFile);
+
+        if (_smallIcon != IntPtr.Zero)
+            _ = SendMessageW(hwnd, WmSetIcon, (IntPtr)IconSmall, _smallIcon);
+        if (_bigIcon != IntPtr.Zero)
+            _ = SendMessageW(hwnd, WmSetIcon, (IntPtr)IconBig, _bigIcon);
     }
 
     private static void FixTitleBarImage(Microsoft.UI.Xaml.Window native)
     {
         if (native.Content is not DependencyObject root) return;
-
-        var img = FindByName(root, "AppFontIcon") as Microsoft.UI.Xaml.Controls.Image;
-        if (img == null) return;
+        if (FindByName(root, "AppFontIcon") is not Microsoft.UI.Xaml.Controls.Image img)
+            return;
 
         var png = ResolvePath(
             Path.Combine("Assets", "appiconLogo.png"),
@@ -119,6 +166,14 @@ public static class MauiWindowIcon
             img.Source = new BitmapImage(new Uri(png, UriKind.Absolute));
         }
         catch { /* ignore */ }
+    }
+
+    private static void FixTitleBarText(Microsoft.UI.Xaml.Window native)
+    {
+        if (native.Content is not DependencyObject root) return;
+        if (FindByName(root, "AppTitle") is not Microsoft.UI.Xaml.Controls.TextBlock title)
+            return;
+        try { title.Text = AppDisplayName; } catch { /* ignore */ }
     }
 
     private static DependencyObject? FindByName(DependencyObject parent, string name)
@@ -148,7 +203,37 @@ public static class MauiWindowIcon
         return null;
     }
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr ExtractAssociatedIcon(IntPtr hInst, string lpIconPath, ref IntPtr lpiIcon);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowUnicode(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtrW_x64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowLongW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongW_x86(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    private static IntPtr SetWindowLongPtrW(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+        => IntPtr.Size == 8
+            ? SetWindowLongPtrW_x64(hWnd, nIndex, dwNewLong)
+            : SetWindowLongW_x86(hWnd, nIndex, dwNewLong);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr CallWindowProcW(
+        IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr DefWindowProcW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageW(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadImage(
+        IntPtr hInst, string name, uint type, int cx, int cy, uint fuLoad);
 }
 #endif

@@ -13,6 +13,7 @@ public partial class ScreenExtendSinkWindow : Window
 {
     private readonly Action _onCloseRequest;
     private readonly SinkLocalCursorIdleHide _cursorIdle = new();
+    private readonly ScreenExtendReverseMoveGate _reverseGate = new();
     private bool _closingFromSession;
     private bool _userCloseRaised;
     private ScreenExtendService? _session;
@@ -66,6 +67,7 @@ public partial class ScreenExtendSinkWindow : Window
         if (_captureBound) return;
         if (_session?.CanSendReverseInput != true) return;
         _captureBound = true;
+        _reverseGate.OnCaptureAttached();
         PreviewMouseMove += OnPreviewMouseMove;
         PreviewMouseDown += OnPreviewMouseDown;
         PreviewMouseUp += OnPreviewMouseUp;
@@ -78,6 +80,7 @@ public partial class ScreenExtendSinkWindow : Window
     {
         if (!_captureBound) return;
         _captureBound = false;
+        _reverseGate.OnCaptureDetached();
         PreviewMouseMove -= OnPreviewMouseMove;
         PreviewMouseDown -= OnPreviewMouseDown;
         PreviewMouseUp -= OnPreviewMouseUp;
@@ -97,12 +100,14 @@ public partial class ScreenExtendSinkWindow : Window
     {
         _cursorIdle.NotifyLocalMouseMoved();
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendMove(nx, ny)) return;
         _ = _session.SendReverseMoveAsync(nx, ny);
     }
 
     private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var button = MapButton(e.ChangedButton);
         if (button < 0) return;
         e.Handled = true;
@@ -112,6 +117,7 @@ public partial class ScreenExtendSinkWindow : Window
     private void OnPreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         var button = MapButton(e.ChangedButton);
         if (button < 0) return;
         e.Handled = true;
@@ -121,6 +127,7 @@ public partial class ScreenExtendSinkWindow : Window
     private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
+        if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
         e.Handled = true;
         _ = _session.SendReverseWheelAsync(nx, ny, e.Delta, horizontal: false);
     }

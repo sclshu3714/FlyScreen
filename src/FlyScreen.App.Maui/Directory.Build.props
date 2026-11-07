@@ -1,0 +1,11 @@
+<Project>
+  <!--
+    模拟器 RID 必须与 Mac 主机 CPU 一致，否则 simctl install 报：
+    Failed to find matching arch / 「此App需要开发者更新…」
+      Intel / 多数云 Mac（uname -m = x86_64）→ iossimulator-x64（默认）
+      Apple Silicon（uname -m = arm64）→ -p:FlyScreenIosSimulatorRid=iossimulator-arm64
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == '' or '$(Configuration)' == 'Debug'">
+    <FlyScreenIosSimulatorRid Condition="'$(FlyScreenIosSimulatorRid)' == ''">iossimulator-x64</FlyScreenIosSimulatorRid>
+  </PropertyGroup>
+</Project>

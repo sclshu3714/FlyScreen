@@ -183,10 +183,13 @@ public sealed class MauiClipboardApplySink : IClipboardApplySink
                 if (uri != null)
                 {
                     var clip = global::Android.Content.ClipData.NewUri(ctx.ContentResolver, "image", uri);
-                    if (!string.IsNullOrEmpty(data.Text))
-                        clip.AddItem(new global::Android.Content.ClipData.Item(data.Text));
-                    cm.PrimaryClip = clip;
-                    return Task.CompletedTask;
+                    if (clip != null)
+                    {
+                        if (!string.IsNullOrEmpty(data.Text))
+                            clip.AddItem(new global::Android.Content.ClipData.Item(data.Text));
+                        cm.PrimaryClip = clip;
+                        return Task.CompletedTask;
+                    }
                 }
             }
 

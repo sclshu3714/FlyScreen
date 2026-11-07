@@ -656,7 +656,9 @@ public sealed partial class FlyScreenInputAccessibilityService
         var ids = new List<int>();
         try
         {
-            var id = Display?.DisplayId ?? 0;
+            var id = 0;
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+                id = Display?.DisplayId ?? 0;
             ids.Add(id);
             if (id != 0) ids.Add(0);
         }
@@ -693,6 +695,12 @@ public sealed partial class FlyScreenInputAccessibilityService
 
     private Bitmap? CaptureScreenBitmapOnce(int displayId, TimeSpan timeout)
     {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            _lastShotFailDetail = "TakeScreenshot 需要 Android 11+";
+            return null;
+        }
+
         var tcs = new TaskCompletionSource<Bitmap?>(TaskCreationOptions.RunContinuationsAsynchronously);
         IExecutorService? executor = null;
         ShotCallback? callback = null;
@@ -702,11 +710,18 @@ public sealed partial class FlyScreenInputAccessibilityService
             callback = new ShotCallback(tcs, detail => _lastShotFailDetail = detail);
             _pinnedShotCallback = callback; // 钉住 JNI 回调，避免 GC
 
-            // 部分 OEM 要求在主线程发起 TakeScreenshot
+            // 部分 OEM 要求在主线程发起 TakeScreenshot（守卫需在闭包内，供 CA1416 识别）
             void Start()
             {
                 try
                 {
+                    if (!OperatingSystem.IsAndroidVersionAtLeast(30))
+                    {
+                        _lastShotFailDetail = "TakeScreenshot 需要 Android 11+";
+                        tcs.TrySetResult(null);
+                        return;
+                    }
+
                     TakeScreenshot(displayId, executor!, callback);
                 }
                 catch (Exception ex)
@@ -834,6 +849,13 @@ public sealed partial class FlyScreenInputAccessibilityService
 
         public void OnSuccess(AccessibilityService.ScreenshotResult? screenshot)
         {
+            if (!OperatingSystem.IsAndroidVersionAtLeast(30))
+            {
+                _onFailDetail("截屏需要 Android 11+");
+                _tcs.TrySetResult(null);
+                return;
+            }
+
             if (screenshot == null)
             {
                 _onFailDetail("截屏结果为空");
@@ -879,7 +901,10 @@ public sealed partial class FlyScreenInputAccessibilityService
             }
             finally
             {
-                try { buffer?.Close(); } catch { /* ignore */ }
+                if (OperatingSystem.IsAndroidVersionAtLeast(26))
+                {
+                    try { buffer?.Close(); } catch { /* ignore */ }
+                }
             }
         }
 

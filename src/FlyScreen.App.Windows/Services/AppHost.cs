@@ -159,6 +159,14 @@ public sealed class AppHost : IAsyncDisposable
 
     public async Task StartAsync()
     {
+        // 上次扩展投影异常退出：补 /internal 收拢仅电脑屏幕
+        try
+        {
+            await FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRecoverOrphanedExtendAsync()
+                .ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+
         await EnsureWindowsFirewallAsync().ConfigureAwait(false);
         await Connections.StartAsync().ConfigureAwait(false);
 
@@ -221,15 +229,18 @@ public sealed class AppHost : IAsyncDisposable
 
     /// <summary>
     /// 开始投影：复制推主屏；扩展需真副屏或 MTT。缺环境时返回 NeedEnvironmentRepair。
+    /// 扩展模式下在此创建虚拟显示通道；停止投影时再收拢为仅电脑屏幕。
     /// </summary>
     public async Task<ProjectionStartResult> StartProjectionAsync(
         ProjectionTarget? target,
         DisplayProjectionMode mode,
         ProjectionDisplayChoice? display = null,
         bool audioSync = false,
-        bool remoteControl = false)
+        bool remoteControl = false,
+        IProgress<string>? progress = null)
     {
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
+        progress?.Report("① 校验投影目标…");
         if (target == null)
             return ProjectionStartResult.Fail("请选择目标");
 
@@ -278,9 +289,9 @@ public sealed class AppHost : IAsyncDisposable
 
         if (mode == DisplayProjectionMode.Extend)
         {
+            progress?.Report("② 检查扩展环境（驱动/控制台）…");
             if (target.Kind == ProjectionTargetKind.Peer)
             {
-                // 扩展 + 对端设备 → 虚拟屏路径：检查真副屏或 MTT
                 var (ready, detail) = await FlyScreen.ScreenExtend.MttVddEnvironment.CheckExtendReadyAsync()
                     .ConfigureAwait(false);
                 if (!ready)
@@ -291,6 +302,7 @@ public sealed class AppHost : IAsyncDisposable
                 return ProjectionStartResult.Fail("未找到本机副屏，请刷新或改选电脑目标");
             }
 
+            progress?.Report("③ 创建虚拟显示通道并配置拓扑…");
             var layoutSide = target.Kind == ProjectionTargetKind.Peer
                 ? LayoutPeerDirection.Resolve(
                     Settings.MachineSlots,
@@ -302,15 +314,22 @@ public sealed class AppHost : IAsyncDisposable
             var (dispOk, dispInfo) = await ScreenExtendUi.EnsureHostDisplayAsync(layoutSide: layoutSide)
                 .ConfigureAwait(false);
             if (!dispOk)
-                return ProjectionStartResult.NeedRepair(dispInfo ?? "无法创建第二输出");
+            {
+                // 已装驱动但通道拉不起（黄叹号/冲突/控制台未起）→ 可自动修复
+                var canRepair = FlyScreen.ScreenExtend.MttVddEnvironment.IsProductInstalled()
+                    || FlyScreen.ScreenExtend.MttVddInstaller.HasAnyControlExecutable();
+                return canRepair
+                    ? ProjectionStartResult.NeedRepair(dispInfo ?? "无法创建第二输出（通道）")
+                    : ProjectionStartResult.Fail(dispInfo ?? "无法创建第二输出（通道）");
+            }
             PublishStatus($"投影：本机第二输出已就绪 {dispInfo}"
                           + (layoutSide == LayoutEdgeSide.Unknown
                               ? ""
                               : $"，方位={layoutSide}"));
-            // EnsureHostDisplay 内已按需 DisplaySwitch 一次；此处勿再 /extend（重复调用会卡死显示栈）
         }
         else
         {
+            progress?.Report("② 切换为复制模式…");
             FlyScreen.ScreenExtend.DisplayProjection.TryApply(DisplayProjectionMode.Clone);
         }
 
@@ -318,11 +337,11 @@ public sealed class AppHost : IAsyncDisposable
             && ScreenExtend.AudioSync == audioSync
             && ScreenExtend.RemoteControl == remoteControl)
         {
+            progress?.Report("⑤ 投影已开始");
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
         }
 
-        // 仅允许对同一接收端重开（改声音/回控）；接收中或投向其他端一律冲突
         if (ScreenExtend.IsActive)
         {
             if (!sameHostPeer)
@@ -334,12 +353,14 @@ public sealed class AppHost : IAsyncDisposable
             await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
         }
 
+        progress?.Report("④ 向目标发起投影会话…");
         var (ok, err) = await ScreenExtend.StartHostAsync(
                 peer, choice.Width, choice.Height, audioSync: audioSync, remoteControl: remoteControl)
             .ConfigureAwait(false);
         if (!ok)
             return ProjectionStartResult.Fail(err ?? "发起投影失败");
 
+        progress?.Report("⑤ 投影已开始");
         PublishStatus(
             $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
             + (audioSync ? " · 声音同步" : "")
@@ -589,6 +610,11 @@ public sealed class AppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
+        try { await StopProjectionAsync().ConfigureAwait(false); }
+        catch { /* ignore */ }
+
         _layoutSync?.Detach();
         _layoutSync = null;
         _behaviorSync?.Detach();

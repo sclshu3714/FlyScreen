@@ -326,6 +326,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         LayoutSync.Detach();
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();

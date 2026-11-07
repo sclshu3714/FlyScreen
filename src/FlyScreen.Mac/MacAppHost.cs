@@ -33,11 +33,14 @@ public sealed class MacAppHost : IAsyncDisposable
     public FileTransferService Transfers { get; }
     public MacInputInjector Injector { get; }
     public MacInputCapture Capture { get; }
+    /// <summary>在 Windows 上跑 Mac 程序时的穿屏钩子。真机 macOS 仍走 <see cref="Capture"/>。</summary>
+    public WindowsEdgeInputRouter? WindowsEdge { get; private set; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
+    public FlyScreen.Mac.ScreenExtend.MacProjectionHost Projection { get; }
     private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
     public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS && AccessibilityPermission.IsTrusted();
@@ -119,19 +122,24 @@ public sealed class MacAppHost : IAsyncDisposable
         };
         DisplayInfo = new DisplayInfoService(Connections)
         {
-            GetLocalDisplayInfo = () => new DisplayInfoPayload
-            {
-                Width = 1920,
-                Height = 1080,
-                ScalePercent = 100,
-                RefreshHz = 60
-            }
+            GetLocalDisplayInfo = () => FlyScreen.Mac.ScreenExtend.MacDisplays.ReadPrimaryPayload()
         };
         Injector = new MacInputInjector();
         Capture = new MacInputCapture();
         ScreenExtend = new ScreenExtendService(Connections);
+        Projection = new FlyScreen.Mac.ScreenExtend.MacProjectionHost(ScreenExtend, Injector);
         _projectionAudio = new ProjectionAudioBridge(ScreenExtend, new MacProjectionAudio());
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
+        if (OperatingSystem.IsWindows())
+        {
+            WindowsEdge = new WindowsEdgeInputRouter(Settings, Connections)
+            {
+                EdgeFileDrag = EdgeDrag,
+                EasyMouseEnabled = Settings.EasyMouse,
+                IsEdgeCrossExcluded = peer => ScreenExtend.IsExcludedFromEdgeCross(peer),
+                ShouldPauseEasyMouseForExtend = () => ScreenExtend.ShouldPauseLocalEasyMouse
+            };
+        }
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         ScreenExtend.GetSinkDisplayInfo = () =>
@@ -156,6 +164,15 @@ public sealed class MacAppHost : IAsyncDisposable
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
 
         RefreshCapsForPermission();
+        // 钩子必须装在带消息泵的 UI 线程上，且要在 ConfigureAwait(false) 之前。
+        if (WindowsEdge != null)
+        {
+            var ok = WindowsEdge.Start();
+            PublishStatus(ok
+                ? "穿屏钩子已安装。"
+                : "穿屏钩子安装失败，边缘切换不可用。");
+        }
+
         await Connections.StartAsync().ConfigureAwait(false);
         PublishStatus(AccessibilityPermission.IsTrusted()
             ? "网络已启动；辅助功能已授权。"
@@ -201,7 +218,8 @@ public sealed class MacAppHost : IAsyncDisposable
     public void RefreshCapsForPermission()
     {
         var caps = PeerCaps.MacDesktopW1.ToList();
-        if (!AccessibilityPermission.IsTrusted())
+        // Windows 上用本机钩子穿屏，不能因为没有 macOS 辅助功能授权就把 EdgeMouse 拿掉。
+        if (!OperatingSystem.IsWindows() && !AccessibilityPermission.IsTrusted())
         {
             caps.Remove(PeerCaps.InjectInput);
             caps.Remove(PeerCaps.CaptureInput);
@@ -220,7 +238,12 @@ public sealed class MacAppHost : IAsyncDisposable
                 if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
-                if (p.Relative) Injector.MoveRelative(p.Dx, p.Dy);
+                if (WindowsEdge != null)
+                {
+                    if (p.Relative) WindowsEdge.MoveRelative(p.Dx, p.Dy);
+                    else WindowsEdge.MoveAbsoluteNormalized(p.Nx, p.Ny);
+                }
+                else if (p.Relative) Injector.MoveRelative(p.Dx, p.Dy);
                 else Injector.MoveAbsoluteNormalized(p.Nx, p.Ny);
                 break;
             }
@@ -228,21 +251,27 @@ public sealed class MacAppHost : IAsyncDisposable
             {
                 if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
-                if (p != null) Injector.MouseButton(p);
+                if (p == null) return;
+                if (WindowsEdge != null) WindowsEdge.MouseButton(p);
+                else Injector.MouseButton(p);
                 break;
             }
             case MessageType.MouseWheel:
             {
                 if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
-                if (p != null) Injector.MouseWheel(p);
+                if (p == null) return;
+                if (WindowsEdge != null) WindowsEdge.MouseWheel(p);
+                else Injector.MouseWheel(p);
                 break;
             }
             case MessageType.KeyEvent:
             {
                 if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
-                if (p != null) Injector.Key(p);
+                if (p == null) return;
+                if (WindowsEdge != null) WindowsEdge.Key(p);
+                else Injector.Key(p);
                 break;
             }
             case MessageType.SwitchFocus:
@@ -250,15 +279,23 @@ public sealed class MacAppHost : IAsyncDisposable
                 var p = MessageCodec.DecodeJson<SwitchFocusPayload>(msg.Payload);
                 if (p == null) return;
                 if (!IsLocalTarget(p.TargetMachine)) return;
-                _receivingRemote = true;
-                Injector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
+                if (WindowsEdge != null)
+                    WindowsEdge.BeginReceivingRemoteControl(p.EntryX, p.EntryY);
+                else
+                {
+                    _receivingRemote = true;
+                    Injector.MoveAbsoluteNormalized(p.EntryX, p.EntryY);
+                }
                 break;
             }
             case MessageType.CursorOwner:
             {
                 var p = MessageCodec.DecodeJson<CursorOwnerPayload>(msg.Payload);
                 if (p == null) return;
-                _receivingRemote = IsLocalTarget(p.OwnerMachine);
+                if (WindowsEdge != null)
+                    WindowsEdge.OnCursorOwnerChanged(p.OwnerMachine);
+                else
+                    _receivingRemote = IsLocalTarget(p.OwnerMachine);
                 break;
             }
         }
@@ -269,6 +306,15 @@ public sealed class MacAppHost : IAsyncDisposable
     /// </summary>
     private bool EnsureAcceptsRemoteInput(string peer)
     {
+        if (WindowsEdge != null)
+        {
+            if (WindowsEdge.IsReceivingRemoteControl) return true;
+            if (WindowsEdge.IsControllingRemote) return false;
+            if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
+            WindowsEdge.BeginReceivingRemoteControl(0.5, 0.5);
+            return WindowsEdge.IsReceivingRemoteControl;
+        }
+
         if (_receivingRemote) return true;
         if (!Connections.PeerSupports(peer, PeerCaps.AbsPointer)) return false;
         _receivingRemote = true;
@@ -293,13 +339,17 @@ public sealed class MacAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         LayoutSync.Detach();
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         _projectionAudio.Dispose();
+        Projection.Dispose();
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
+        WindowsEdge?.Dispose();
         Capture.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         if (ReferenceEquals(_instance, this))

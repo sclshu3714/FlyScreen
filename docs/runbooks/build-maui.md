@@ -55,9 +55,21 @@
 | TFM | 何时包含 |
 |-----|----------|
 | `net10.0-android` | **默认** |
-| `net10.0-ios` | **默认** |
-| `net10.0-maccatalyst` | **默认** |
+| `net10.0-ios26.0` | **默认**（`FlyScreenAppleSdk=26.0`，对齐 Xcode **26.0.1**） |
+| `net10.0-maccatalyst26.0` | **默认**（同上） |
 | `net10.0-windows10.0.19041.0` | Windows 主机上自动追加 |
+
+`.NET SDK` 用仓库根 `global.json` 钉 **10.0.402**。
+
+若要切到 ios **26.2.x**（NuGet 最新为 **26.2.10233**，无 `26.2.10274`；官方要求 Xcode **26.2**）：
+
+```powershell
+# 管理员 PowerShell；UAC 需同意。VS MSI 工作负载冲突时可能失败。
+dotnet workload install ios maccatalyst --version 10.0.203
+dotnet workload list
+```
+
+然后构建加 `-p:FlyScreenAppleSdk=26.2`（TFM → `net10.0-ios26.2`）。仅有 Xcode 26.0.1 时工程会对 26.2 自动 `ValidateXcodeVersion=false`。
 
 仅编 Windows（无 Android SDK / 快速 CI）：
 
@@ -184,7 +196,7 @@ powershell -File build\Name-FlyScreenPackage.ps1 -Source <单文件可执行> -R
 - MAUI 包 **不替代** WPF `FlyScreen-{ver}-win-x64.exe` stable。  
 - Android 正式上架签名 / Mac 公证（notarize）需另行配置；本脚本产出供内测分发。  
 - Avalonia Mac 正式桌面包仍见 [build-macos.md](build-macos.md)（Rid：`osx-arm64` / `osx-x64`）。  
-- **应用图标：** `Resources/AppIcon/appicon.png`（`MauiIcon` + `MauiSplashScreen`）；Android 须在 `AndroidManifest` / `MainActivity` 声明 `@mipmap/appicon`，否则启动器可能显示默认图标。换图标后建议清 `bin/obj` 再 `publish`。  
+- **应用图标：** `src/FlyScreen.Assets/Icons/appicon.png`（Maui 通过 `MauiIcon` + `MauiSplashScreen` 引用，不要在 Maui 工程里再放一份）。Android 须在 `AndroidManifest` / `MainActivity` 声明 `@mipmap/appicon`，否则启动器可能显示默认图标。换图标后建议清 `bin/obj` 再 `publish`。  
 - **APK 签名：** Release 使用 `build/android/flyscreen-sideload.keystore`（内测旁加载）。请安装 **`FlyScreen.apk`** 或 **`com.xuanniao.flyscreen-Signed.apk`**（须为**已签名**包；勿把未签名 plain 当 Signed 覆盖安装，否则报 `INSTALL_PARSE_FAILED_NOT_APK`）。  
   - 构建目标 `FlyScreen_EnsureSignedApk`（`_Sign` / `SignAndroidPackage` / `Build` 后）调用 `build/Ensure-MauiSignedApk.ps1`：校验签名块，缺失时用 keystore `apksigner sign` 补齐 Signed + `FlyScreen.apk`，并登记 `FileWrites` 防止 VS `IncrementalClean` 删掉 Signed。  
   - 发布脚本 `Publish-FlyScreenMaui.ps1` 在 Android 发布后也会再跑一次该脚本。  

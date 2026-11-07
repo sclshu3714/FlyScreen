@@ -7,12 +7,20 @@ using FlyScreen.Services;
 namespace FlyScreen.Input;
 
 /// <summary>
-/// 按住左键时在虚拟屏幕外缘放一条接收区，读出正在拖的文件和文件夹。
+/// 靠近屏幕外缘时放一条接收区，读出正在拖的文件和文件夹。
+/// <para>
+/// 切勿在「左键按下后的任意移动」就 Arm：顶层接收条一碰到拖放就会 GetData，
+/// 与资源管理器拖影抢 IDataObject，偶发只剩空矩形框。
+/// DragEnter 只探测格式，真正 GetData 推迟到消息队列，减轻拖影空白。
+/// Windows 11 在拖动过程中对 CF_HDROP 做 GetData，会得到拖影 preview-dark-256.png，
+/// 而不是用户选中的文件；拖动中优先读 Shell IDList。
+/// </para>
 /// </summary>
 public static class EdgeFileDragCapture
 {
     private const int WmArm = 0x8000 + 41;
     private const int WmDisarm = 0x8000 + 42;
+    private const int WmDeferredRead = 0x8000 + 43;
     private const int Strip = 12;
 
     private static readonly object Gate = new();
@@ -23,6 +31,7 @@ public static class EdgeFileDragCapture
     private static int _wantShown;
     private static int _dropFailed;
     private static DropSink? _sink;
+    private static IntPtr _pendingData;
 
     public static bool HasPaths
     {
@@ -133,12 +142,57 @@ public static class EdgeFileDragCapture
                 Place(hwnds, show: true);
             else if (msg.message == WmDisarm)
             {
+                ClearPendingData();
                 lock (Gate) _paths = [];
                 Place(hwnds, show: false);
             }
+            else if (msg.message == WmDeferredRead)
+                ConsumePendingData();
 
             TranslateMessage(ref msg);
             DispatchMessage(ref msg);
+        }
+    }
+
+    private static void ClearPendingData()
+    {
+        var p = Interlocked.Exchange(ref _pendingData, IntPtr.Zero);
+        if (p != IntPtr.Zero)
+        {
+            try { Marshal.Release(p); }
+            catch { /* ignore */ }
+        }
+    }
+
+    private static void QueueDeferredRead(IntPtr data)
+    {
+        if (data == IntPtr.Zero) return;
+        Marshal.AddRef(data);
+        var prev = Interlocked.Exchange(ref _pendingData, data);
+        if (prev != IntPtr.Zero)
+        {
+            try { Marshal.Release(prev); }
+            catch { /* ignore */ }
+        }
+
+        if (_signal != IntPtr.Zero)
+            PostMessage(_signal, WmDeferredRead, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private static void ConsumePendingData()
+    {
+        var data = Interlocked.Exchange(ref _pendingData, IntPtr.Zero);
+        if (data == IntPtr.Zero) return;
+        try
+        {
+            var paths = DropSink.ReadFiles(data);
+            if (paths.Length > 0)
+                Remember(paths);
+        }
+        finally
+        {
+            try { Marshal.Release(data); }
+            catch { /* ignore */ }
         }
     }
 
@@ -168,45 +222,73 @@ public static class EdgeFileDragCapture
     {
         public int DragEnter(IntPtr data, uint keyState, long pt, ref uint effect)
         {
-            var paths = ReadFiles(data);
-            if (paths.Length == 0)
+            // 勿在 DragEnter 同步 GetData：会与源端拖影抢 IDataObject。
+            if (!QueryHasHdrop(data))
             {
                 effect = 0;
                 return 0;
             }
 
-            Remember(paths);
+            QueueDeferredRead(data);
             effect = 1;
             return 0;
         }
 
         public int DragOver(uint keyState, long pt, ref uint effect)
         {
-            effect = HasPaths ? 1u : 0u;
+            // 若推迟读取尚未完成，仍允许继续悬停（路径稍后补齐）
+            effect = HasPaths || Volatile.Read(ref _pendingData) != IntPtr.Zero ? 1u : 0u;
             return 0;
         }
 
-        public int DragLeave() => 0;
+        public int DragLeave()
+        {
+            ClearPendingData();
+            return 0;
+        }
 
         public int Drop(IntPtr data, uint keyState, long pt, ref uint effect)
         {
+            ClearPendingData();
             var paths = ReadFiles(data);
             if (paths.Length > 0) Remember(paths);
             effect = 0;
             return 0;
         }
 
-        private static string[] ReadFiles(IntPtr data)
+        private static bool QueryHasHdrop(IntPtr data)
+        {
+            if (data == IntPtr.Zero) return false;
+            var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
+            try
+            {
+                var format = HdropFormat();
+                return obj.QueryGetData(ref format) == 0;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(obj);
+            }
+        }
+
+        internal static string[] ReadFiles(IntPtr data)
         {
             if (data == IntPtr.Zero) return [];
+            // 拖动中先读 Shell 真实项。此时读 CF_HDROP 会拿到资源管理器拖影图。
+            var fromShell = ReadShellIdList(data);
+            if (fromShell.Length > 0)
+                return fromShell;
+            return WithoutDragPreview(ReadHdrop(data));
+        }
+
+        private static string[] ReadHdrop(IntPtr data)
+        {
             var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
-            var format = new FORMATETC
-            {
-                cfFormat = 15,
-                dwAspect = DVASPECT.DVASPECT_CONTENT,
-                lindex = -1,
-                tymed = TYMED.TYMED_HGLOBAL
-            };
+            var format = HdropFormat();
             STGMEDIUM medium = default;
             try
             {
@@ -242,6 +324,147 @@ public static class EdgeFileDragCapture
                 Marshal.ReleaseComObject(obj);
             }
         }
+
+        /// <summary>Shell IDList Array：父 PIDL + 相对子项，得到用户实际拖动的路径。</summary>
+        private static string[] ReadShellIdList(IntPtr data)
+        {
+            var formatId = ShellIdListFormat();
+            if (formatId == 0) return [];
+            var obj = (IDataObject)Marshal.GetObjectForIUnknown(data);
+            var format = HglobalFormat(formatId);
+            try
+            {
+                if (obj.QueryGetData(ref format) != 0)
+                    return [];
+            }
+            catch
+            {
+                Marshal.ReleaseComObject(obj);
+                return [];
+            }
+
+            STGMEDIUM medium = default;
+            try
+            {
+                obj.GetData(ref format, out medium);
+            }
+            catch
+            {
+                Marshal.ReleaseComObject(obj);
+                return [];
+            }
+
+            try
+            {
+                if (medium.unionmember == IntPtr.Zero) return [];
+                var ptr = GlobalLock(medium.unionmember);
+                if (ptr == IntPtr.Zero) return [];
+                try
+                {
+                    var bytes = (long)GlobalSize(medium.unionmember);
+                    if (bytes < 8) return [];
+                    var cidl = Marshal.ReadInt32(ptr);
+                    if (cidl <= 0 || cidl > 500) return [];
+                    if (bytes < 4L * (cidl + 2)) return [];
+
+                    var parentOffset = Marshal.ReadInt32(ptr, 4);
+                    if (parentOffset < 0 || parentOffset >= bytes) return [];
+                    var parent = IntPtr.Add(ptr, parentOffset);
+                    var list = new List<string>(cidl);
+                    for (var i = 1; i <= cidl; i++)
+                    {
+                        var childOffset = Marshal.ReadInt32(ptr, 4 * (i + 1));
+                        if (childOffset < 0 || childOffset >= bytes) continue;
+                        var child = IntPtr.Add(ptr, childOffset);
+                        var absolute = ILCombine(parent, child);
+                        if (absolute == IntPtr.Zero) continue;
+                        try
+                        {
+                            var buf = new StringBuilder(1024);
+                            if (!SHGetPathFromIDList(absolute, buf)) continue;
+                            var path = buf.ToString();
+                            if (File.Exists(path) || Directory.Exists(path))
+                                list.Add(path);
+                        }
+                        finally
+                        {
+                            ILFree(absolute);
+                        }
+                    }
+
+                    return list.ToArray();
+                }
+                finally
+                {
+                    GlobalUnlock(medium.unionmember);
+                }
+            }
+            finally
+            {
+                ReleaseStgMedium(ref medium);
+                Marshal.ReleaseComObject(obj);
+            }
+        }
+
+        private static short _shellIdListFormat;
+
+        private static short ShellIdListFormat()
+        {
+            if (_shellIdListFormat != 0) return _shellIdListFormat;
+            var id = RegisterClipboardFormat("Shell IDList Array");
+            _shellIdListFormat = (short)id;
+            return _shellIdListFormat;
+        }
+
+        private static string[] WithoutDragPreview(string[] paths)
+        {
+            if (paths.Length == 0) return paths;
+            var real = new List<string>(paths.Length);
+            foreach (var path in paths)
+            {
+                if (!IsShellDragPreview(path))
+                    real.Add(path);
+            }
+
+            return real.Count == 0 ? [] : real.ToArray();
+        }
+
+        /// <summary>资源管理器拖影：%TEMP% 或 Explorer 缓存里的 preview-dark-256.png。</summary>
+        private static bool IsShellDragPreview(string path)
+        {
+            var name = Path.GetFileName(path);
+            if (!name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return false;
+            var prefix = name.StartsWith("preview-dark-", StringComparison.OrdinalIgnoreCase) ? 13
+                : name.StartsWith("preview-light-", StringComparison.OrdinalIgnoreCase) ? 14
+                : 0;
+            if (prefix == 0 || name.Length <= prefix + 4) return false;
+            var digits = name.AsSpan(prefix, name.Length - prefix - 4);
+            foreach (var c in digits)
+            {
+                if (c is < '0' or > '9') return false;
+            }
+
+            string full;
+            try { full = Path.GetFullPath(path); }
+            catch { return false; }
+
+            var temp = Path.GetTempPath();
+            if (full.StartsWith(temp, StringComparison.OrdinalIgnoreCase)) return true;
+            var explorer = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft", "Windows", "Explorer");
+            return full.StartsWith(explorer, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static FORMATETC HdropFormat() => HglobalFormat(15);
+
+        private static FORMATETC HglobalFormat(short format) => new()
+        {
+            cfFormat = format,
+            dwAspect = DVASPECT.DVASPECT_CONTENT,
+            lindex = -1,
+            tymed = TYMED.TYMED_HGLOBAL
+        };
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -284,6 +507,15 @@ public static class EdgeFileDragCapture
         [PreserveSig] int Drop(IntPtr pDataObj, uint grfKeyState, long pt, ref uint pdwEffect);
     }
 
+    [DllImport("kernel32.dll")] private static extern IntPtr GlobalLock(IntPtr hMem);
+    [DllImport("kernel32.dll")] private static extern bool GlobalUnlock(IntPtr hMem);
+    [DllImport("kernel32.dll")] private static extern nuint GlobalSize(IntPtr hMem);
+    [DllImport("shell32.dll")] private static extern IntPtr ILCombine(IntPtr pidl1, IntPtr pidl2);
+    [DllImport("shell32.dll")] private static extern void ILFree(IntPtr pidl);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool SHGetPathFromIDList(IntPtr pidl, StringBuilder pszPath);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterClipboardFormat(string name);
     [DllImport("ole32.dll")] private static extern int OleInitialize(IntPtr pvReserved);
     [DllImport("ole32.dll")] private static extern int RegisterDragDrop(IntPtr hwnd, IDropTarget target);
     [DllImport("ole32.dll")] private static extern void ReleaseStgMedium(ref STGMEDIUM medium);

@@ -21,11 +21,13 @@ public partial class ProjectionDialog : Window
         _host = host;
         InitializeComponent();
         TryApplyWindowIcon();
+        LayoutUpdated += (_, _) => SyncBodyWidth();
         DesktopThemeService.Apply(DesktopThemeService.Current, this);
         StartBtn.IsEnabled = false;
         Opened += (_, _) =>
         {
             if (_host == null) return;
+            SetOptionsExpanded(false);
             DesktopThemeService.Apply(DesktopThemeService.Current, this);
             ModeCombo.Items.Clear();
             foreach (var m in DisplayProjectionModeInfo.PickerModes)
@@ -52,11 +54,19 @@ public partial class ProjectionDialog : Window
             AudioSyncCheck.IsChecked = _host.Settings.ScreenExtendAudioSync;
             RemoteControlCheck.IsChecked = _host.Settings.ScreenExtendRemoteControl;
             CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
+            AudioSyncCheck.IsCheckedChanged += (_, _) => UpdateOptionsSummary();
+            RemoteControlCheck.IsCheckedChanged += (_, _) => UpdateOptionsSummary();
+            CropBlackBarsCheck.IsCheckedChanged += (_, _) => UpdateOptionsSummary();
+            ResolutionCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
+            ScaleCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
+            FpsCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
+            QualityCombo.SelectionChanged += (_, _) => UpdateOptionsSummary();
             Closed += (_, _) => RememberChoices();
             RefreshTargets();
             RefreshDisplayPresets();
             UpdateHints();
             RefreshEnvCheck();
+            SetOptionsExpanded(false);
         };
     }
 
@@ -73,7 +83,9 @@ public partial class ProjectionDialog : Window
         else if (!SelectRememberedResolution())
             ResolutionCombo.SelectedIndex = ReadMode() == DisplayProjectionMode.Clone ? 0 : 1;
         _displaySelectionReady = true;
-        DisplayHint.Text = "分辨率、帧率、画质会记住上次的选择。Mac/Linux 本期不发起投影。";
+        DisplayHint.Text = _host.CanStartProjection
+            ? "分辨率、帧率、画质会记住上次的选择。"
+            : "分辨率、帧率、画质会记住上次的选择。本端不发起投影，可接收来自其他电脑的画面。";
     }
 
     private bool SelectRememberedResolution()
@@ -229,10 +241,14 @@ public partial class ProjectionDialog : Window
         var t = ReadTarget();
         if (t == null)
             TargetHint.Text = "暂无双向已连接电脑。";
+        else if (_host.CanStartProjection && mode == DisplayProjectionMode.Extend)
+            TargetHint.Text = "扩展：采集虚拟副屏或已连接的第二块屏幕，推到所选电脑。";
+        else if (_host.CanStartProjection)
+            TargetHint.Text = "复制：采集本机主屏，推到所选电脑。";
         else if (mode == DisplayProjectionMode.Extend)
-            TargetHint.Text = "Mac/Linux 本期不发起扩展投影；请在 Windows 主机操作。";
+            TargetHint.Text = "本端不发起扩展投影；请在 Windows 或 Mac 主机操作。";
         else
-            TargetHint.Text = "Mac/Linux 本期不发起复制投影；可接收来自 Windows 的投影。";
+            TargetHint.Text = "本端不发起复制投影；可接收来自 Windows 或 Mac 的投影。";
     }
 
     private void UpdateStartEnabled()
@@ -242,11 +258,87 @@ public partial class ProjectionDialog : Window
         StartBtn.Opacity = StartBtn.IsEnabled ? 1 : 0.5;
     }
 
+    private bool _optionsExpanded;
+
+    /// <summary>
+    /// 选项展开后，内部提示文字的期望宽度会大于滚动区。把内容锁在视口宽度内，卡片才不会比上面两张更宽。
+    /// </summary>
+    private void SyncBodyWidth()
+    {
+        if (BodyScroll == null || BodyGrid == null) return;
+        var width = BodyScroll.Viewport.Width;
+        if (width < 1)
+            width = BodyScroll.Bounds.Width - BodyScroll.Padding.Left - BodyScroll.Padding.Right;
+        if (width < 1 || (!double.IsNaN(BodyGrid.MaxWidth) && Math.Abs(BodyGrid.MaxWidth - width) < 0.5))
+            return;
+        BodyGrid.MaxWidth = width;
+        // 星号列会按无限宽测量，不换行的期望宽度会把卡片撑出滚动区。锁到卡片内宽，长说明才会换行。
+        var textWidth = width - 58;
+        if (textWidth < 1) return;
+        if (DisplayHint != null) DisplayHint.MaxWidth = textWidth;
+        if (FeatureHint != null) FeatureHint.MaxWidth = textWidth;
+        if (EnvHint != null) EnvHint.MaxWidth = textWidth;
+        if (EnvStatus != null) EnvStatus.MaxWidth = textWidth;
+    }
+
+    private void OptionsToggle_Click(object? sender, RoutedEventArgs e)
+        => SetOptionsExpanded(!_optionsExpanded);
+
+    private void SetOptionsExpanded(bool expanded)
+    {
+        _optionsExpanded = expanded;
+        if (OptionsBody != null)
+            OptionsBody.IsVisible = expanded;
+        if (OptionsToggleBtn != null)
+            OptionsToggleBtn.Content = expanded ? "▾" : "▸";
+        if (OptionsSummary != null)
+            OptionsSummary.IsVisible = !expanded;
+        if (!expanded)
+            UpdateOptionsSummary();
+    }
+
+    private void UpdateOptionsSummary()
+    {
+        if (OptionsSummary == null || ResolutionCombo == null) return;
+        try
+        {
+            var res = ResolutionCombo.SelectedItem?.ToString() ?? "";
+            var scale = ScaleCombo.SelectedItem?.ToString() ?? "";
+            var fps = FpsCombo.SelectedItem?.ToString() ?? "";
+            var quality = QualityCombo.SelectedItem?.ToString() ?? "";
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(res)) parts.Add(res);
+            if (!string.IsNullOrWhiteSpace(scale)) parts.Add(scale);
+            if (!string.IsNullOrWhiteSpace(fps)) parts.Add(fps);
+            if (!string.IsNullOrWhiteSpace(quality)) parts.Add(quality);
+            if (AudioSyncCheck?.IsChecked == true) parts.Add("声音同步");
+            if (RemoteControlCheck?.IsChecked == true) parts.Add("远程控制");
+            if (CropBlackBarsCheck?.IsChecked == true) parts.Add("去黑边");
+            OptionsSummary.Text = string.Join(" · ", parts);
+        }
+        catch
+        {
+            OptionsSummary.Text = "";
+        }
+    }
+
     private void SetEnvUi(string hint, bool ready, string? status = null)
     {
         _envReady = ready;
         EnvHint.Text = hint;
         EnvStatus.Text = status ?? "";
+        if (EnvTitleStatus != null)
+        {
+            var h = (hint ?? "").Trim();
+            var text = h.StartsWith("正在检查", StringComparison.Ordinal)
+                ? "正在检查…"
+                : ready ? "环境正常" : "环境异常";
+            EnvTitleStatus.Text = text;
+            EnvTitleStatus.Foreground = new Avalonia.Media.SolidColorBrush(
+                Avalonia.Media.Color.Parse(ready ? "#059669"
+                    : text is "正在检查…" ? "#6B7280" : "#B91C1C"));
+        }
+
         UpdateStartEnabled();
     }
 
@@ -274,12 +366,19 @@ public partial class ProjectionDialog : Window
             return;
         }
 
-        // Mac/Linux 本期不发起：任意方式环境检查均不通过
         if (seq != _envSeq) return;
-        if (mode == DisplayProjectionMode.Extend)
-            SetEnvUi("扩展投影需 Windows 主机与虚拟显示驱动；本端本期不发起投影。", false);
-        else
-            SetEnvUi("复制投影请在 Windows 主机发起；本端可接收来自 Windows 的投影。", false);
+        if (!_host.CanStartProjection)
+        {
+            if (mode == DisplayProjectionMode.Extend)
+                SetEnvUi("本端不发起扩展投影；请在 Windows 或 Mac 主机操作。", false);
+            else
+                SetEnvUi("本端不发起复制投影；可接收来自 Windows 或 Mac 的画面。", false);
+            return;
+        }
+
+        var (ready, hint) = _host.DescribeProjectionEnvironment(mode);
+        if (seq != _envSeq) return;
+        SetEnvUi(hint, ready);
     }
 
     private async void Start_Click(object? sender, RoutedEventArgs e)
@@ -289,6 +388,7 @@ public partial class ProjectionDialog : Window
         UpdateStartEnabled();
         try
         {
+            RememberChoices();
             var (ok, msg) = await _host.StartProjectionAsync(
                 ReadTarget(), ReadMode(), AudioSyncCheck.IsChecked == true,
                 CropBlackBarsCheck.IsChecked == true,

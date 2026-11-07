@@ -8,6 +8,7 @@
     <RootNamespace>FlyScreen.MacApp</RootNamespace>
     <AssemblyName>FlyScreen</AssemblyName>
     <ApplicationId>com.xuanniao.flyscreen</ApplicationId>
+    <AssemblyTitle>玄鸟</AssemblyTitle>
     <Product>玄鸟</Product>
     <Description>玄鸟 macOS — 跨电脑键鼠与剪贴板共享</Description>
     <!-- Windows 上可编译验证；真机发布：-r osx-arm64 / osx-x64 -->

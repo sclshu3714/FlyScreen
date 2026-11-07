@@ -46,6 +46,12 @@ public static class CompositionCaretAnchor
             /* ignore */
         }
 #else
+        lock (Gate)
+        {
+            _x = _y = 0;
+            _updatedAt = 0;
+            _valid = false;
+        }
         _ = cssX;
         _ = cssY;
         _ = webView;
