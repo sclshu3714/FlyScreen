@@ -55,9 +55,21 @@
 | TFM | 何时包含 |
 |-----|----------|
 | `net10.0-android` | **默认** |
-| `net10.0-ios` | **默认** |
-| `net10.0-maccatalyst` | **默认** |
+| `net10.0-ios26.0` | **默认**（`FlyScreenAppleSdk=26.0`，对齐 Xcode **26.0.1**） |
+| `net10.0-maccatalyst26.0` | **默认**（同上） |
 | `net10.0-windows10.0.19041.0` | Windows 主机上自动追加 |
+
+`.NET SDK` 用仓库根 `global.json` 钉 **10.0.402**。
+
+若要切到 ios **26.2.x**（NuGet 最新为 **26.2.10233**，无 `26.2.10274`；官方要求 Xcode **26.2**）：
+
+```powershell
+# 管理员 PowerShell；UAC 需同意。VS MSI 工作负载冲突时可能失败。
+dotnet workload install ios maccatalyst --version 10.0.203
+dotnet workload list
+```
+
+然后构建加 `-p:FlyScreenAppleSdk=26.2`（TFM → `net10.0-ios26.2`）。仅有 Xcode 26.0.1 时工程会对 26.2 自动 `ValidateXcodeVersion=false`。
 
 仅编 Windows（无 Android SDK / 快速 CI）：
 

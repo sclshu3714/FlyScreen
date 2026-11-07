@@ -3,12 +3,13 @@
   <Import Project="..\..\build\FlyScreen.Assets.props" />
 
   <!--
-    iOS / Mac Catalyst 默认仍是 net10.0-ios、net10.0-maccatalyst（要求 Xcode 27.1）。
-    macOS 上非 Release 且本机 Xcode 为 26.0.x 时，自动改用 26.0 SDK。
-    Windows 远程生成到 Xcode 26.0.1 的 Mac 时显式传入 -p:FlyScreenAppleSdk=26.0，
-    并使用 -f net10.0-ios26.0 或 -f net10.0-maccatalyst26.0。未传该属性时目标框架不变。
+    配对 Mac：Xcode 26.0.1。默认 FlyScreenAppleSdk=26.0 → net10.0-ios26.0（本机已有 pack）。
+    若已安装 ios 26.2.x workload：-p:FlyScreenAppleSdk=26.2 → net10.0-ios26.2。
+    官方 26.2 要求 Xcode 26.2；与 26.0.1 混用时 ValidateXcodeVersion=false。
+    覆盖：FLYSCREEN_XCODE_SDK / FlyScreenIosTfm。
   -->
   <PropertyGroup>
+    <FlyScreenAppleSdk Condition="'$(FlyScreenAppleSdk)' == ''">26.0</FlyScreenAppleSdk>
     <_FsXcodeDeveloperDir>$(DEVELOPER_DIR)</_FsXcodeDeveloperDir>
     <_FsXcodeDeveloperDir Condition="'$(_FsXcodeDeveloperDir)' == ''">/var/db/xcode_select_link</_FsXcodeDeveloperDir>
     <_FsXcodeDeveloperDir Condition="!Exists('$(_FsXcodeDeveloperDir)')">/Applications/Xcode.app/Contents/Developer</_FsXcodeDeveloperDir>
@@ -18,14 +19,19 @@
     <_FsXcodeMajorMinor Condition="'$(_FsXcodeVersion)' != ''">$([System.Version]::Parse('$(_FsXcodeVersion)').ToString(2))</_FsXcodeMajorMinor>
     <_FsAppleSdk>$(FLYSCREEN_XCODE_SDK)</_FsAppleSdk>
     <_FsAppleSdk Condition="'$(FlyScreenAppleSdk)' != ''">$(FlyScreenAppleSdk)</_FsAppleSdk>
-    <_FsUseXcode26 Condition="'$(_FsAppleSdk)' == '26.0' or '$(_FsAppleSdk)' == '26'">true</_FsUseXcode26>
-    <_FsUseXcode26 Condition="$([MSBuild]::IsOSPlatform('osx')) and '$(Configuration)' != 'Release' and '$(_FsXcodeMajorMinor)' == '26.0'">true</_FsUseXcode26>
+    <!-- 只用精确字符串（勿写 '26'：MSBuild 会把 26.0==26 当成数值相等） -->
+    <_FsPinAppleSdk Condition="'$(_FsAppleSdk)' == '26.0' or '$(_FsAppleSdk)' == '26.2'">true</_FsPinAppleSdk>
+    <_FsPinAppleSdk Condition="$([MSBuild]::IsOSPlatform('osx')) and '$(Configuration)' != 'Release' and ('$(_FsXcodeMajorMinor)' == '26.0' or '$(_FsXcodeMajorMinor)' == '26.2')">true</_FsPinAppleSdk>
     <_FsIosTfm>net10.0-ios</_FsIosTfm>
-    <_FsIosTfm Condition="'$(_FsUseXcode26)' == 'true'">net10.0-ios26.0</_FsIosTfm>
+    <_FsIosTfm Condition="'$(_FsPinAppleSdk)' == 'true' and '$(_FsAppleSdk)' != '26.2'">net10.0-ios26.0</_FsIosTfm>
+    <_FsIosTfm Condition="'$(_FsAppleSdk)' == '26.2'">net10.0-ios26.2</_FsIosTfm>
     <_FsIosTfm Condition="'$(FlyScreenIosTfm)' != ''">$(FlyScreenIosTfm)</_FsIosTfm>
     <_FsMacCatalystTfm>net10.0-maccatalyst</_FsMacCatalystTfm>
-    <_FsMacCatalystTfm Condition="'$(_FsUseXcode26)' == 'true'">net10.0-maccatalyst26.0</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(_FsPinAppleSdk)' == 'true' and '$(_FsAppleSdk)' != '26.2'">net10.0-maccatalyst26.0</_FsMacCatalystTfm>
+    <_FsMacCatalystTfm Condition="'$(_FsAppleSdk)' == '26.2'">net10.0-maccatalyst26.2</_FsMacCatalystTfm>
     <_FsMacCatalystTfm Condition="'$(FlyScreenMacCatalystTfm)' != ''">$(FlyScreenMacCatalystTfm)</_FsMacCatalystTfm>
+    <!-- 26.2 SDK 官方要 Xcode 26.2；本机仍为 26.0.1 时跳过校验（原生工具仍可能因 SDK 差失败） -->
+    <ValidateXcodeVersion Condition="'$(_FsAppleSdk)' == '26.2'">false</ValidateXcodeVersion>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -57,15 +63,35 @@
     -->
     <AndroidEnableMarshalMethods Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">false</AndroidEnableMarshalMethods>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <!-- Debug|ios：RID 与 Mac CPU 对齐（默认 x64；Apple Silicon 见 Directory.Build.props） -->
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(RuntimeIdentifier)' == ''">$(FlyScreenIosSimulatorRid)</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(RuntimeIdentifier)' == ''">iossimulator-x64</RuntimeIdentifier>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- VS 部署/设计时在带版本号的 ios TFM 下常探测不到 Platforms/*/Info.plist，显式指定 -->
+    <AppBundleManifest Condition="'$(AppBundleManifest)' == '' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">Platforms\iOS\Info.plist</AppBundleManifest>
+    <AppBundleManifest Condition="'$(AppBundleManifest)' == '' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">Platforms\MacCatalyst\Info.plist</AppBundleManifest>
     <!-- 非打包：F5 用 Project 配置；VS 项目右键「发布」对 unpackaged 常不可用，见 Properties/PublishProfiles/SingleFile-win-x64.pubxml -->
     <WindowsPackageType>None</WindowsPackageType>
     <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
     <IsPublishable>true</IsPublishable>
     <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
+
+  <!-- 给 VS iOS 部署工具可识别的 Link/LogicalName（仅文件名 Platforms/.../Info.plist 时会报找不到清单） -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+    <None Include="Platforms\iOS\Info.plist" Condition="Exists('Platforms\iOS\Info.plist')">
+      <Link>Info.plist</Link>
+      <LogicalName>Info.plist</LogicalName>
+    </None>
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <None Include="Platforms\MacCatalyst\Info.plist" Condition="Exists('Platforms\MacCatalyst\Info.plist')">
+      <Link>Info.plist</Link>
+      <LogicalName>Info.plist</LogicalName>
+    </None>
+  </ItemGroup>
 
   <!-- VS「调试 Android」要求显式符号；否则报「此项目配置未启用调试」 -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
@@ -263,9 +289,9 @@
              Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
   </Target>
 
-  <Target Name="_FlyScreenLogMacCatalystXcode26" BeforeTargets="Build"
-          Condition="'$(TargetFramework)' == '' and '$(_FsMacCatalystTfm)' == 'net10.0-maccatalyst26.0'">
-    <Message Importance="High" Text="Mac Catalyst 调试：检测到 Xcode $(_FsXcodeVersion)，使用 net10.0-maccatalyst26.0。Release 仍用 net10.0-maccatalyst。" />
+  <Target Name="_FlyScreenLogAppleSdkPin" BeforeTargets="Build"
+          Condition="'$(TargetFramework)' == '' and '$(_FsPinAppleSdk)' == 'true'">
+    <Message Importance="High" Text="Apple SDK pin：FlyScreenAppleSdk=$(_FsAppleSdk) → iOS=$(_FsIosTfm) MacCatalyst=$(_FsMacCatalystTfm)（ValidateXcodeVersion=$(ValidateXcodeVersion)）。" />
   </Target>
 
 </Project>

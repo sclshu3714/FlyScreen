@@ -84,11 +84,9 @@ public sealed class ProjectionDialogPage : ContentPage
     public ProjectionDialogPage(MauiAppHost host)
     {
         _host = host;
-#if ANDROID
-        _phoneOnlyClone = true;
-#else
-        _phoneOnlyClone = false;
-#endif
+        // 手机/平板：仅复制投影；桌面（含 Maui-Win / MacCatalyst）保留完整选项
+        _phoneOnlyClone = DeviceInfo.Platform == DevicePlatform.Android
+            || DeviceInfo.Platform == DevicePlatform.iOS;
         Title = "投影";
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = Color.FromArgb("#80000000");
@@ -524,17 +522,10 @@ public sealed class ProjectionDialogPage : ContentPage
             Content = bodyStack
         };
 
-        // 固定高度：折叠/展开「选项」不改变弹窗高度，中间区滚动查看
-        const double dialogHeight = 480;
+        // 理想尺寸 520×480；手机竖屏/横屏按视口收缩，避免宽高溢出（中间区仍可滚动）
         _dialogShell = new Border
         {
             StrokeThickness = 1,
-            WidthRequest = 520,
-            MaximumWidthRequest = 520,
-            MinimumWidthRequest = 320,
-            HeightRequest = dialogHeight,
-            MaximumHeightRequest = dialogHeight,
-            MinimumHeightRequest = dialogHeight,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
             Padding = 0,
@@ -554,20 +545,85 @@ public sealed class ProjectionDialogPage : ContentPage
         Microsoft.Maui.Controls.Grid.SetRow(body, 1);
         Microsoft.Maui.Controls.Grid.SetRow(_footerBar, 2);
 
-        Content = new Grid
+        var root = new Grid
         {
             Padding = new Thickness(24),
             Children = { _dialogShell }
         };
+        Content = root;
+        SizeChanged += (_, _) => ApplyDialogShellSize();
+        ApplyDialogShellSize();
 
         ApplyTheme();
         Appearing += OnAppearing;
         Disappearing += OnDisappearing;
     }
 
+    /// <summary>按当前页尺寸限制弹窗外壳，竖屏不超宽、横屏不超高。</summary>
+    private void ApplyDialogShellSize()
+    {
+        const double idealW = 520;
+        const double idealH = 480;
+        const double minW = 280;
+        const double minH = 240;
+
+        var pageW = Width > 1 ? Width : EstimatePageWidth();
+        var pageH = Height > 1 ? Height : EstimatePageHeight();
+        // 窄屏缩小外边距，给弹窗多留可用宽高
+        var pad = pageW < 420 || pageH < 420 ? 12d : 24d;
+        if (Content is Grid root)
+            root.Padding = new Thickness(pad);
+
+        var maxW = Math.Max(minW, pageW - pad * 2);
+        var maxH = Math.Max(minH, pageH - pad * 2);
+        var shellW = Math.Min(idealW, maxW);
+        var shellH = Math.Min(idealH, maxH);
+
+        _dialogShell.WidthRequest = shellW;
+        _dialogShell.MaximumWidthRequest = shellW;
+        _dialogShell.MinimumWidthRequest = Math.Min(320, shellW);
+        _dialogShell.HeightRequest = shellH;
+        _dialogShell.MaximumHeightRequest = shellH;
+        _dialogShell.MinimumHeightRequest = shellH;
+
+        // 窄宽时降低按钮最小宽，避免底栏「取消 / 开始投影」挤出
+        if (_cancelBtn != null)
+            _cancelBtn.MinimumWidthRequest = shellW < 360 ? 64 : 88;
+        if (_startBtn != null)
+            _startBtn.MinimumWidthRequest = shellW < 360 ? 72 : 100;
+    }
+
+    private static double EstimatePageWidth()
+    {
+        try
+        {
+            var d = DeviceDisplay.MainDisplayInfo;
+            if (d.Width > 0 && d.Density > 0)
+                return d.Width / d.Density;
+        }
+        catch { /* ignore */ }
+        return idealFallbackW;
+    }
+
+    private static double EstimatePageHeight()
+    {
+        try
+        {
+            var d = DeviceDisplay.MainDisplayInfo;
+            if (d.Height > 0 && d.Density > 0)
+                return d.Height / d.Density;
+        }
+        catch { /* ignore */ }
+        return idealFallbackH;
+    }
+
+    private const double idealFallbackW = 520;
+    private const double idealFallbackH = 480;
+
     private void OnAppearing(object? sender, EventArgs e)
     {
         ApplyTheme();
+        ApplyDialogShellSize();
 #if WINDOWS
         Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
 #endif

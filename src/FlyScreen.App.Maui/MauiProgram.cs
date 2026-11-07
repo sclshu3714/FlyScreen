@@ -150,8 +150,13 @@ public static class MauiProgram
         // 用户程序 Fly.* 控机：无障碍服务连上后也会再设一次
         ProgramDevice.Current = Platforms.Android.AndroidProgramDeviceControl.Instance;
         Platforms.Android.FlyScreenDebugLogHud.Register();
-#elif MACCATALYST || IOS
-        // Mac / iOS：壳可跑；键鼠注入等仍走 Null（正式桌面 Mac 见 Avalonia）
+#elif IOS && !MACCATALYST
+        // iOS 手机：壳 + 通知注入本地提示；键鼠/无障碍跨应用注入受系统限制，仍走 Null
+        host.AttachPlatform(NullMauiPlatformServices.Instance);
+        ProgramService.Instance.Runner.RunningCountChanged += count =>
+            Platforms.iOS.IosProgramNotifyHelper.SetProgramsRunning(count);
+#elif MACCATALYST
+        // Mac Catalyst：壳可跑；正式桌面 Mac 见 Avalonia
         host.AttachPlatform(NullMauiPlatformServices.Instance);
 #endif
 

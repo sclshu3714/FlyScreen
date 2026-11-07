@@ -44,11 +44,11 @@ public partial class MainPage : ContentPage
     private UserProgram? _progMoreTarget;
     private bool _hostWired;
     private bool _uiPrepared;
-#if ANDROID
     private bool _a11yInjectUpdating;
+#if ANDROID
     private bool _a11yInjectWired;
-    private bool _notifyInjectUpdating;
 #endif
+    private bool _notifyInjectUpdating;
     private int _a11yRefreshGen;
     private bool _pageAlive = true;
 
@@ -2369,34 +2369,36 @@ public partial class MainPage : ContentPage
     }
 #endif
 
+    /// <summary>手机端高级选项：通知/无障碍注入（Android 完整能力；iOS 通知本地提示，无障碍受系统限制）。</summary>
+    private static bool SupportsPhoneInjectUi()
+        => DeviceInfo.Platform == DevicePlatform.Android
+           || DeviceInfo.Platform == DevicePlatform.iOS;
+
     private void WireNotifyInjectUi()
     {
-#if ANDROID
-        NotifyInjectRow.IsVisible = true;
-#else
-        NotifyInjectRow.IsVisible = false;
-#endif
+        NotifyInjectRow.IsVisible = SupportsPhoneInjectUi();
+        if (!NotifyInjectRow.IsVisible) return;
+        if (DeviceInfo.Platform == DevicePlatform.iOS)
+            NotifyInjectTipLabel.Text = Loc.T("Opt.NotifyInjectTip.iOS");
     }
 
     private void SyncNotifyInjectCheck()
     {
-#if ANDROID
         if (!NotifyInjectRow.IsVisible) return;
         _notifyInjectUpdating = true;
         try { NotifyInjectCheck.IsChecked = _host.Settings.NotificationInject; }
         finally { _notifyInjectUpdating = false; }
-#endif
     }
 
     private async void NotifyInject_Changed(object? sender, CheckedChangedEventArgs e)
     {
-#if ANDROID
         // 仅改通知注入；不影响无障碍注入勾选/服务状态
-        if (_notifyInjectUpdating) return;
+        if (_notifyInjectUpdating || !SupportsPhoneInjectUi()) return;
         var want = e.Value;
         _host.Settings.NotificationInject = want;
         _host.Settings.Save();
 
+#if ANDROID
         if (want && OperatingSystem.IsAndroidVersionAtLeast(33))
         {
             try
@@ -2414,6 +2416,18 @@ public partial class MainPage : ContentPage
         StatusLabel.Text = want
             ? "已开启通知注入：有子程序运行时将显示前台通知"
             : "已关闭通知注入：不再使用通知保活";
+#elif IOS && !MACCATALYST
+        if (want)
+        {
+            var granted = await Platforms.iOS.IosProgramNotifyHelper.RequestPermissionAsync();
+            if (!granted)
+                StatusLabel.Text = "未授予通知权限：系统可能不显示运行通知";
+        }
+
+        Platforms.iOS.IosProgramNotifyHelper.RefreshNotificationInject(want);
+        StatusLabel.Text = want
+            ? "已开启通知注入：有子程序运行时将显示本地通知"
+            : "已关闭通知注入：不再显示运行通知";
 #else
         await Task.CompletedTask;
 #endif
@@ -2422,7 +2436,7 @@ public partial class MainPage : ContentPage
     /// <summary>勾选无障碍时顺带打开通知注入（可再单独取消；取消不影响无障碍）。</summary>
     private void EnsureNotificationInjectOnFromA11y()
     {
-#if ANDROID
+        if (!SupportsPhoneInjectUi()) return;
         if (_host.Settings.NotificationInject && NotifyInjectCheck.IsChecked == true)
             return;
         _host.Settings.NotificationInject = true;
@@ -2430,8 +2444,12 @@ public partial class MainPage : ContentPage
         _notifyInjectUpdating = true;
         try { NotifyInjectCheck.IsChecked = true; }
         finally { _notifyInjectUpdating = false; }
+#if ANDROID
         Platforms.Android.AndroidProgramWakeLock.RefreshNotificationInject(true);
         _ = RequestNotifyPermissionQuietAsync();
+#elif IOS && !MACCATALYST
+        Platforms.iOS.IosProgramNotifyHelper.RefreshNotificationInject(true);
+        _ = Platforms.iOS.IosProgramNotifyHelper.RequestPermissionAsync();
 #endif
     }
 
@@ -2451,33 +2469,42 @@ public partial class MainPage : ContentPage
 
     private void WireA11yInjectUi()
     {
+        A11yInjectRow.IsVisible = SupportsPhoneInjectUi();
+        if (!A11yInjectRow.IsVisible) return;
+
+        if (DeviceInfo.Platform == DevicePlatform.iOS)
+        {
+            A11yInjectTipLabel.Text = Loc.T("Opt.A11yInjectTip.iOS");
+            return;
+        }
+
 #if ANDROID
-        A11yInjectRow.IsVisible = true;
         if (_a11yInjectWired) return;
         _a11yInjectWired = true;
         Platforms.Android.FlyScreenInputAccessibilityService.EnsureSettingsWatch();
         Platforms.Android.FlyScreenInputAccessibilityService.EnabledChanged += () =>
             MainThread.BeginInvokeOnMainThread(SyncA11yInjectCheck);
-#else
-        A11yInjectRow.IsVisible = false;
 #endif
     }
 
     private void SyncA11yInjectCheck()
     {
-#if ANDROID
         if (!A11yInjectRow.IsVisible) return;
         _a11yInjectUpdating = true;
         try
         {
+#if ANDROID
             // 只跟服务是否真的在跑。系统里开关还在、服务已停止时取消勾选。
             A11yInjectCheck.IsChecked = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
+#else
+            // iOS 无跨应用注入服务，保持未勾选
+            A11yInjectCheck.IsChecked = false;
+#endif
         }
         finally
         {
             _a11yInjectUpdating = false;
         }
-#endif
     }
 
     /// <summary>从系统设置返回时可调用，刷新无障碍勾选状态。绑定可能略晚，补两次。</summary>
@@ -2497,9 +2524,9 @@ public partial class MainPage : ContentPage
 
     private async void A11yInject_Changed(object? sender, CheckedChangedEventArgs e)
     {
-#if ANDROID
-        if (_a11yInjectUpdating) return;
+        if (_a11yInjectUpdating || !SupportsPhoneInjectUi()) return;
 
+#if ANDROID
         var wantOn = e.Value;
         var connected = Platforms.Android.FlyScreenInputAccessibilityService.IsConnected;
         var listed = Platforms.Android.FlyScreenInputAccessibilityService.IsListedInSecureSettings();
@@ -2533,6 +2560,15 @@ public partial class MainPage : ContentPage
         if (listed)
             Platforms.Android.FlyScreenInputAccessibilityService.OpenAccessibilitySettings();
         SyncA11yInjectCheck();
+#elif IOS && !MACCATALYST
+        if (e.Value)
+        {
+            await DisplayAlertAsync(
+                Loc.T("Opt.A11yInjectOpenTitle"),
+                Loc.T("Opt.A11yInjectOpenBody.iOS"),
+                "确定");
+            SyncA11yInjectCheck();
+        }
 #else
         await Task.CompletedTask;
 #endif
