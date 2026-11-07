@@ -2,17 +2,18 @@ using FlyScreen.AppMaui.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.SharedDevices;
-using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.AppMaui;
 
 public sealed class SharedDevicesIncomingPage : ContentPage
 {
+    private const double ContentMaxWidth = 440;
     private readonly TaskCompletionSource<(bool Accept, bool Remember, Dictionary<string, string> Devices)> _result = new();
     private readonly SharedDevicesService _sd;
-    private readonly SharedDevicesIncomingRequest _req;
     private readonly CheckBox _remember;
-    private readonly Dictionary<string, (Picker Picker, List<SharedLocalDevice> Items)> _picks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<SharedDevicesDeviceSelector> _selectors = [];
+    private readonly Grid _host;
+    private readonly VerticalStackLayout _column;
     private bool _completed;
 
     public Task<(bool Accept, bool Remember, Dictionary<string, string> Devices)> Result => _result.Task;
@@ -20,7 +21,6 @@ public sealed class SharedDevicesIncomingPage : ContentPage
     public SharedDevicesIncomingPage(SharedDevicesService sd, SharedDevicesIncomingRequest req)
     {
         _sd = sd;
-        _req = req;
         Title = Loc.T("Tool.SharedDevices.IncomingTitle");
         NavigationPage.SetHasNavigationBar(this, false);
         MauiThemeService.Apply(MauiThemeService.Current, this);
@@ -31,6 +31,7 @@ public sealed class SharedDevicesIncomingPage : ContentPage
         var card = ColorOf("CardBg") ?? Colors.White;
         var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
         var winBg = ColorOf("WinBg") ?? Color.FromArgb("#F7F8FA");
+        var controlBg = ColorOf("ControlBg") ?? ColorOf("ListBg") ?? card;
 
         var kinds = string.Join("、", req.Kinds.Select(ToolCardRows.LocalizeKind));
         var body = string.Format(Loc.T("Tool.SharedDevices.IncomingBody"), req.FromPeer, kinds);
@@ -38,32 +39,11 @@ public sealed class SharedDevicesIncomingPage : ContentPage
         var deviceStack = new VerticalStackLayout { Spacing = 10 };
         foreach (var kind in req.Kinds)
         {
-            var picker = new Picker { Title = ToolCardRows.LocalizeKind(kind) };
-            var bag = new List<SharedLocalDevice>();
-            Fill(picker, bag, kind);
-            _picks[kind] = (picker, bag);
-            deviceStack.Children.Add(new Border
-            {
-                Stroke = line,
-                StrokeThickness = 1,
-                StrokeShape = new RoundRectangle { CornerRadius = 10 },
-                BackgroundColor = card,
-                Padding = 12,
-                Content = new VerticalStackLayout
-                {
-                    Spacing = 6,
-                    Children =
-                    {
-                        new Label
-                        {
-                            Text = ToolCardRows.LocalizeKind(kind),
-                            FontAttributes = FontAttributes.Bold,
-                            TextColor = text
-                        },
-                        picker
-                    }
-                }
-            });
+            var sel = new SharedDevicesDeviceSelector(
+                this, sd, kind, ToolCardRows.LocalizeKind(kind),
+                text, muted, line, card, controlBg);
+            _selectors.Add(sel);
+            deviceStack.Children.Add(sel.View);
         }
 
         _remember = new CheckBox { IsChecked = false, Color = blue };
@@ -97,77 +77,102 @@ public sealed class SharedDevicesIncomingPage : ContentPage
             await Navigation.PopModalAsync();
         };
 
-        Content = new ScrollView
+        _column = new VerticalStackLayout
         {
-            BackgroundColor = winBg,
-            Content = new VerticalStackLayout
+            Spacing = 12,
+            HorizontalOptions = LayoutOptions.Fill,
+            Children =
             {
-                Padding = 16,
-                Spacing = 12,
-                Children =
+                new Label
                 {
-                    new Label
-                    {
-                        Text = Loc.T("Tool.SharedDevices.IncomingTitle"),
-                        FontSize = 15,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = text
-                    },
-                    new Label { Text = body, TextColor = text, LineBreakMode = LineBreakMode.WordWrap },
-                    deviceStack,
-                    rememberRow,
-                    new Label
-                    {
-                        Text = Loc.T("Tool.SharedDevices.RememberHint"),
-                        FontSize = 12,
-                        TextColor = muted,
-                        LineBreakMode = LineBreakMode.WordWrap
-                    },
-                    new HorizontalStackLayout { Spacing = 8, Children = { accept, reject } }
+                    Text = Loc.T("Tool.SharedDevices.IncomingTitle"),
+                    FontSize = 18,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = text,
+                    HorizontalTextAlignment = TextAlignment.Center
+                },
+                new Label
+                {
+                    Text = body,
+                    TextColor = text,
+                    LineBreakMode = LineBreakMode.WordWrap,
+                    HorizontalTextAlignment = TextAlignment.Center
+                },
+                deviceStack,
+                rememberRow,
+                new Label
+                {
+                    Text = Loc.T("Tool.SharedDevices.RememberHint"),
+                    FontSize = 12,
+                    TextColor = muted,
+                    LineBreakMode = LineBreakMode.WordWrap
+                },
+                new HorizontalStackLayout
+                {
+                    Spacing = 10,
+                    HorizontalOptions = LayoutOptions.Center,
+                    Children = { accept, reject }
                 }
             }
         };
+
+        _host = new Grid
+        {
+            Padding = new Thickness(12, 16),
+            Children = { _column }
+        };
+
+        Content = new ScrollView
+        {
+            BackgroundColor = winBg,
+            Orientation = ScrollOrientation.Vertical,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Never,
+            Content = _host
+        };
+
+        SizeChanged += OnPageSizeChanged;
+        ApplyResponsiveLayout(Width, Height);
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        SizeChanged -= OnPageSizeChanged;
         if (!_completed)
             _result.TrySetResult((false, false, new Dictionary<string, string>()));
     }
 
-    private void Fill(Picker picker, List<SharedLocalDevice> bag, string kind)
+    private void OnPageSizeChanged(object? sender, EventArgs e)
+        => ApplyResponsiveLayout(Width, Height);
+
+    private void ApplyResponsiveLayout(double width, double height)
     {
-        bag.Clear();
-        picker.Items.Clear();
-        var list = _sd.EnumerateLocalDevices(kind);
-        if (list.Count == 0)
-        {
-            picker.Items.Add(Loc.T("Tool.SharedDevices.NoLocalDevice"));
-            picker.SelectedIndex = 0;
-            picker.IsEnabled = false;
-            return;
-        }
+        if (width <= 0 || double.IsNaN(width)) return;
+        var landscape = width > height;
+        var narrow = DeviceInfo.Idiom == DeviceIdiom.Phone || width < 600;
+        _host.Padding = new Thickness(
+            narrow ? (landscape ? 20 : 12) : 20,
+            narrow ? (landscape ? 10 : 14) : 20);
 
-        var selected = _sd.GetSelectedDeviceId(kind);
-        var idx = 0;
-        for (var i = 0; i < list.Count; i++)
+        if (narrow && !landscape)
         {
-            bag.Add(list[i]);
-            picker.Items.Add(list[i].Name);
-            if (list[i].Id == selected) idx = i;
+            _column.MaximumWidthRequest = double.PositiveInfinity;
+            _column.HorizontalOptions = LayoutOptions.Fill;
         }
-
-        picker.SelectedIndex = idx;
+        else
+        {
+            _column.MaximumWidthRequest = ContentMaxWidth;
+            _column.HorizontalOptions = LayoutOptions.Center;
+        }
     }
 
     private Dictionary<string, string> Collect()
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (kind, (picker, bag)) in _picks)
+        foreach (var sel in _selectors)
         {
-            if (picker.SelectedIndex < 0 || picker.SelectedIndex >= bag.Count) continue;
-            map[kind] = bag[picker.SelectedIndex].Id;
+            if (string.IsNullOrEmpty(sel.SelectedId)) continue;
+            map[sel.Kind] = sel.SelectedId!;
         }
 
         return map;
@@ -175,14 +180,26 @@ public sealed class SharedDevicesIncomingPage : ContentPage
 
     private static Button Primary(string t, Color blue) => new()
     {
-        Text = t, BackgroundColor = blue, TextColor = Colors.White, CornerRadius = 8,
-        Padding = new Thickness(14, 8)
+        Text = t,
+        BackgroundColor = blue,
+        TextColor = Colors.White,
+        CornerRadius = 8,
+        Padding = new Thickness(18, 10),
+        MinimumHeightRequest = 40,
+        MinimumWidthRequest = 88
     };
 
     private static Button Outline(string t, Color fg, Color line) => new()
     {
-        Text = t, BackgroundColor = Colors.Transparent, TextColor = fg, BorderColor = line,
-        BorderWidth = 1, CornerRadius = 8, Padding = new Thickness(14, 8)
+        Text = t,
+        BackgroundColor = Colors.Transparent,
+        TextColor = fg,
+        BorderColor = line,
+        BorderWidth = 1,
+        CornerRadius = 8,
+        Padding = new Thickness(18, 10),
+        MinimumHeightRequest = 40,
+        MinimumWidthRequest = 88
     };
 
     private static Color? ColorOf(string key)
