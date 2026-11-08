@@ -94,7 +94,12 @@ public enum MessageType : byte
     EdgeDragHover = 88,
 
     /// <summary>投影回控：从机播放器 → 主机采集区键鼠（勿与普通 MouseMove/KeyEvent 混用）。</summary>
-    ScreenExtendInput = 89
+    ScreenExtendInput = 89,
+
+    /// <summary>通用工具信令（JSON 信封，见 docs/tools.md §8）。</summary>
+    ToolSignal = 100,
+    /// <summary>通用工具媒体/二进制（Bulk；信封头 + 载荷）。</summary>
+    ToolData = 101
 }
 
 public readonly struct NetMessage
@@ -180,6 +185,11 @@ public static class PeerCaps
     /// <summary>可作为扩展屏从机（全屏收流）。</summary>
     public const string ScreenExtendSink = "ScreenExtendSink";
 
+    /// <summary>已安装共享设备工具（扬声器/麦克风/摄像头）。</summary>
+    public const string ToolSharedDevices = "Tool:shared-devices";
+
+    public static string ToolCap(string toolId) => "Tool:" + toolId;
+
     public static readonly string[] DesktopFull =
     [
         EdgeMouse, AbsPointer, ClipboardText, ClipboardFiles,
@@ -263,9 +273,20 @@ public static class BulkMessageTypes
             or MessageType.ClipboardImageChunk or MessageType.ClipboardImageComplete
             or MessageType.ScreenExtendFrame
             or MessageType.ScreenExtendAudio
+            or MessageType.ToolData
             => true,
         _ => false
     };
+}
+
+/// <summary>通用工具信封（ToolSignal / ToolData）。</summary>
+public sealed class ToolEnvelope
+{
+    public string ToolId { get; set; } = "";
+    public string Op { get; set; } = "";
+    public int SchemaVersion { get; set; } = 1;
+    public string SessionId { get; set; } = "";
+    public string? BodyJson { get; set; }
 }
 
 public static class PeerPlatform

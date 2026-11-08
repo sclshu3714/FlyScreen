@@ -31,6 +31,8 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public event Action<string, bool, bool>? PeerLinkChanged;
     public event Action<string, NetMessage>? MessageReceived;
+    /// <summary>对端中途更新了身份/Caps（如安装工具后 PeerInfo）。</summary>
+    public event Action<string>? PeerInfoUpdated;
     public event Action<string>? StatusMessage;
     /// <summary>入站握手密钥正确，且对端请求加入布局。返回 false 则拒绝连接。</summary>
     public Func<string, bool>? TryAcceptLayoutJoin;
@@ -274,6 +276,20 @@ public sealed class ConnectionManager : IAsyncDisposable
                 continue;
             await SendToAsync(name, type, payload).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>向已连接对端广播本机最新 Platform/DeviceClass/Caps（工具安装后无需重连）。</summary>
+    public Task BroadcastLocalPeerInfoAsync()
+    {
+        var payload = LocalPeerIdentity.Enrich(new HandshakePayload
+        {
+            MachineName = LocalMachine,
+            LocalIp = _bindIp,
+            IsReply = false
+        });
+        // 不带密钥：仅身份/能力刷新
+        payload.SecurityKey = "";
+        return BroadcastAsync(MessageType.PeerInfo, MessageCodec.JsonBytes(payload));
     }
 
     /// <summary>随后约 45 秒内，连向该电脑的握手会请求对方把本机加入布局。</summary>
@@ -788,12 +804,50 @@ public sealed class ConnectionManager : IAsyncDisposable
             if (!session.Authenticated || string.IsNullOrEmpty(session.PeerName))
                 return;
 
+            if (msg.Type == MessageType.PeerInfo)
+            {
+                ApplyPeerInfoUpdate(session.PeerName, msg);
+                return;
+            }
+
             MessageReceived?.Invoke(session.PeerName, msg);
         }
         catch
         {
             // ignore
         }
+    }
+
+    private void ApplyPeerInfoUpdate(string peerName, NetMessage msg)
+    {
+        var hs = MessageCodec.DecodeJson<HandshakePayload>(msg.Payload);
+        if (hs == null) return;
+        if (!_links.TryGetValue(peerName, out var link)) return;
+
+        // 保留已有字段，避免对端发残缺包把 Caps 清空
+        var prev = link.RemoteInfo;
+        var next = PeerRemoteInfo.FromHandshake(hs);
+        if (next.Caps.Length == 0 && prev.Caps.Length > 0)
+            next = new PeerRemoteInfo
+            {
+                ProtocolVersion = next.ProtocolVersion > 0 ? next.ProtocolVersion : prev.ProtocolVersion,
+                Platform = string.IsNullOrWhiteSpace(next.Platform) ? prev.Platform : next.Platform,
+                DeviceClass = string.IsNullOrWhiteSpace(next.DeviceClass) ? prev.DeviceClass : next.DeviceClass,
+                Caps = prev.Caps,
+                AppVersion = string.IsNullOrWhiteSpace(next.AppVersion) ? prev.AppVersion : next.AppVersion
+            };
+        else if (string.IsNullOrWhiteSpace(next.Platform) || string.IsNullOrWhiteSpace(next.DeviceClass))
+            next = new PeerRemoteInfo
+            {
+                ProtocolVersion = next.ProtocolVersion > 0 ? next.ProtocolVersion : prev.ProtocolVersion,
+                Platform = string.IsNullOrWhiteSpace(next.Platform) ? prev.Platform : next.Platform,
+                DeviceClass = string.IsNullOrWhiteSpace(next.DeviceClass) ? prev.DeviceClass : next.DeviceClass,
+                Caps = next.Caps.Length > 0 ? next.Caps : prev.Caps,
+                AppVersion = string.IsNullOrWhiteSpace(next.AppVersion) ? prev.AppVersion : next.AppVersion
+            };
+
+        link.UpdateRemoteInfo(next);
+        try { PeerInfoUpdated?.Invoke(peerName); } catch { /* ignore */ }
     }
 
     private async Task CompleteInboundHandshakeAsync(PeerSession session, NetMessage msg)

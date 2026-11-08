@@ -522,7 +522,7 @@ public partial class MainWindow : Window
         if (!job.CanRetry) return;
 
         job.PrepareRetry();
-        AppendSystemLog($"任务重试：{job.Title}");
+        AppendSystemLog($"重新打包：{job.Title}");
         if (_logFocusJob?.Id == job.Id)
             ScrollLogToEnd();
         RefreshStatusBar();

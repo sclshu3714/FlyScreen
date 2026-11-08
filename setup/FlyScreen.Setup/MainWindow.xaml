@@ -268,7 +268,7 @@
                                            FontSize="14" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                               </Button>
                               <Button Style="{StaticResource QueueActionButton}"
-                                      ToolTip="重试打包"
+                                      ToolTip="重新打包（不新增队列项）"
                                       Visibility="{Binding CanRetry, Converter={StaticResource BoolToVis}}"
                                       Click="JobRetry_Click" Tag="{Binding}">
                                 <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE72C;"

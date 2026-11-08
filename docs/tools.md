@@ -2,17 +2,18 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.5 |
-| 状态 | 需求规格，**未编码**；本文是工具相关实现的权威说明 |
+| 文档版本 | 1.11 |
+| 状态 | 需求规格；`shared-devices` / 本机 `color-picker` / 工具工作区**已编码**；完整 `.flytool` 管线等仍见正文 |
 | 读者 | 实现本功能的开发者 / AI 代理 |
-| 统计日 | 2026-11-03 |
+| 统计日 | 2026-11-08 |
 
-**关联文档（业务细节，冲突时以本文「工具宿主 / 清单 / 标题栏 / 通用协议」为准）：**
+**关联文档（业务细节，冲突时以本文「工具宿主 / 清单 / 标题栏 / 通用协议 / 第一期工具清单」为准）：**
 
-- [shared-devices.md](shared-devices.md) — 共享摄像头 / 麦克风 / 扬声器会话与冲突规则
-- [extended-display.md](extended-display.md) — 投影会话、采集、互斥、声音同步（迁入工具后的行为仍适用）
+- [shared-devices.md](shared-devices.md) — 共享设备媒体格式、虚拟设备、与投影声音冲突等技术细节（**会话建立流程以本文 §6.1 为准**；该文档旧「装完即开」叙述待对齐）
+- [color-picker.md](color-picker.md) — 本机颜色拾取器（滴管、格式、内嵌工作区）；跨屏取色仍见 §8.6
+- [extended-display.md](extended-display.md) — 投影会话、采集、互斥、声音同步（**本期仍内置于主程序**，行为仍适用）
 - [protocol.md](protocol.md) — 现有消息与 Caps；工具信封落地后须回写
-- [mtt_vdd/README.md](mtt_vdd/README.md) — VDD 离线包
+- [mtt_vdd/README.md](mtt_vdd/README.md) — VDD 离线包（投影迁工具时再用）
 
 **用词：**
 
@@ -23,14 +24,16 @@
 | SHOULD | 默认要做；有明确理由可延期并在 PR 说明 |
 | 主机 / 宿主 | 玄鸟主程序（连接、侧栏、标题栏、工具加载） |
 | 工具 | 可安装的能力单元，有唯一 `ToolId` |
-| 跨屏工具 | 需要至少两端参与会话的工具（投影、共享设备、跨屏取色等） |
+| 跨屏工具 | 需要至少两端参与会话的工具（共享设备、跨屏取色等；投影迁工具后亦属此类） |
 | 发送端 / 接收端 | 同一跨屏工具内的两种角色；**不是**两个 ToolId，而是同一安装包在会话中的分工 |
+| 申请端 | 需要使用共享扬声器 / 麦克风 / 摄像头的一端；本端操作含安装、启动、停止、卸载 |
+| 接收端 | 被申请使用其真实扬声器 / 麦克风 / 摄像头的一端；本端操作只需**安装**（收到申请后同意或拒绝） |
 | `.flytool` | 单文件工具包（见 §5.3）；安装/分享/导入的唯一交付物 |
 | 已知摘要 | 发布时公开的 `contentSha256`（随 Release / 仓库校验文件）；开源项目以此防篡改，**不用**私有「工具根密钥」（见 §5.5） |
 | 电脑 | `DeviceClass=Desktop`（含鸿蒙电脑目标态） |
 | 手机 | `DeviceClass=Phone` 或 `Tablet` |
 
-**范围声明：** 键鼠穿边、布局、剪贴板、文件传输、用户「程序」页 **不是** 工具，MUST NOT 迁入工具页。投影（复制+扩展）**是**独立工具，不是键鼠本体。
+**范围声明：** 键鼠穿边、布局、剪贴板、文件传输、用户「程序」页 **不是** 工具，MUST NOT 迁入工具页。**本期（v1.7）暂不把投影抽成独立工具**——投影继续走主程序内置路径（见 [extended-display.md](extended-display.md)）。工具页**优先交付**合并后的共享扬声器 / 麦克风 / 摄像头（`shared-devices`）。
 
 ---
 
@@ -42,17 +45,20 @@
 2. 工具可按设备形态（电脑 / 手机）提供不同清单项与不同标题栏操作。
 3. 每个已启用且需要入口的工具，向标题栏注入 **恰好一个** 菜单项；多操作用下拉；按钮支持多视觉状态（含运行中与悬停）。
 4. 需要跨机通信的工具走 **通用工具信封**（见 §8）；不靠为每个工具新增一串 `MessageType` 枚举值（过渡期除外，见 §8.5）。
-5. 投影整体（复制+扩展）作为独立工具 `projection`；未安装则无投影入口、不宣告投影 Caps。
+5. **本期优先交付 `shared-devices`：** 扬声器 / 麦克风 / 摄像头合并为一个工具；申请端与接收端都装后，申请端双击启动 → 选布局内**任意已装工具且具备扬声器/麦克风/摄像头之一的设备**（电脑、手机、平板均可作外设）→ 确认后向接收端申请，同意后即可使用（见 §6.1）。
 6. Win / Maui / Desktop 同一信息架构，同一任务内改齐，禁止只改一端。
-7. **跨屏工具两端都装：** 发起端与对端 MUST 均已安装同一 `ToolId`，否则 MUST NOT 建立该工具会话（见 §2.1）。
+7. **跨屏工具两端都装：** 申请端与接收端 MUST 均已安装同一 `ToolId`，否则 MUST NOT 建立该工具会话（见 §2.1）。
 8. **工具可分享到布局内已连接设备**（全部或勾选），分享时 MUST 按接收端 DeviceClass/Platform 过滤（见 §4.1）。
 9. **单文件交付：** 每个工具 MUST 打成一个 `.flytool`；支持工具页安装、导入安装、外部打开安装、对端分享安装（见 §5.3）。
 10. **工具安全（开源友好）：** 公开哈希 + 确认 + 加载复验；**MUST NOT** 依赖私有根密钥（见 §5.5）。
-11. **无障碍隔离（致命级）：** 无障碍服务 **MUST NOT** 交给工具代码；投影远程控制等若需无障碍，由**宿主内置路径**代注，工具只发会话意图（见 §5.5.9 / §5.5.10）。
+11. **无障碍隔离（致命级）：** 无障碍服务 **MUST NOT** 交给工具代码；将来投影迁工具后若需无障碍回控，仍由**宿主内置路径**代注（见 §5.5.9 / §5.5.10）。
 
 ### 1.2 非目标（本期 MUST NOT）
 
-- 工具页上的「启动 / 停止」作为通用按钮（会话由工具自己的标题栏操作或业务 UI 触发）。
+- **把投影（复制+扩展）抽成独立工具 `projection`**（后期再迁；本期投影保持主程序内置，见 §6.2）。
+- 把扬声器 / 麦克风 / 摄像头拆成三个独立 ToolId 或三个安装包（MUST 合并为 `shared-devices`）。
+- 装完共享设备工具后**无需申请、随系统打开虚拟设备即自动建会话**的旧流程（MUST 改为 §6.1 申请 / 授权）。
+- 给**所有**工具在工具页统一放通用「启动 / 停止」（`shared-devices` 例外：申请端在工具卡片上提供启动/停止，见 §3.2 / §6.1；其它工具仍按各自入口）。
 - 用户程序（侧栏「程序」）合并进工具页。
 - 工具自行操作 HWND / 原生标题栏控件绕过宿主（MUST 经 §7 注入 API）。
 - 卸载 ToDesk / Oray 等第三方虚拟显示驱动。
@@ -73,9 +79,9 @@
 
 | 类型 | 定义 | 跨机协议 | 例子 |
 |------|------|----------|------|
-| A. 独立增强工具 | 不装不影响键鼠；装了才有该能力 | 若需跨机：通用信封 `Tool:<id>` | `shared-camera`、`shared-microphone`、`shared-speaker`；将来 `color-picker` |
-| B. 独立会话工具 | 不装无该会话能力；装后有完整业务 UI/协议处理 | 可继续使用已有专用消息并由工具模块注册，或迁信封（见 §6） | `projection` |
-| C. 本机组件依赖 | 不单独占「跨机能力」；被某工具依赖 | 无独立跨机协议 | VDD：归属 `projection` 的依赖，打进同一 `.flytool` 或由其安装器拉起 |
+| A. 独立增强工具 | 不装不影响键鼠；装了才有该能力 | 若需跨机：通用信封 `Tool:<id>` | `shared-devices`；本机 `color-picker`（跨屏取色后期） |
+| B. 独立会话工具 | 不装无该会话能力；装后有完整业务 UI/协议处理 | 可继续使用已有专用消息并由工具模块注册，或迁信封（见 §6） | `projection`（**后期**迁入；本期非交付） |
+| C. 本机组件依赖 | 不单独占「跨机能力」；被某工具依赖 | 无独立跨机协议 | VDD：归属将来的 `projection`；本期不随工具交付 |
 
 实现 MUST：用清单字段 `kind`: `enhancement` | `session` | `component` 区分。  
 `component` MUST NOT 单独向标题栏注入项（由所属会话工具注入）。  
@@ -83,23 +89,19 @@
 
 ### 2.1 跨屏工具：发送端与接收端（同一工具）
 
-下列规则适用于所有 `crossScreen=true` 的工具（含投影、共享设备、跨屏取色等）。
+下列规则适用于所有 `crossScreen=true` 的工具（含共享设备、跨屏取色等；投影迁工具后亦适用）。
 
 | 规则 | MUST |
 |------|------|
 | 单 Id | 发送端能力与接收端能力 MUST 打在 **同一个** `ToolId` / 同一个 `.flytool` 内，按本机 `DeviceClass` 与会话角色启用不同 feature |
 | 两端安装 | 跨屏会话建立前，**参与双方** MUST 均已安装该 `ToolId`（版本兼容见下） |
-| 能力探测 | 以握手 Caps 为准：增强类看 `Tool:<id>`；投影第一期看双方均宣告相应 `ScreenExtendHost`/`ScreenExtendSink`（且均由已装投影工具注册）。缺一侧 → MUST NOT 开始会话，UI MUST 提示「对端未安装 xxx」或「请先安装投影工具」 |
-| 角色 | 会话内再区分 Host/Sink、提供方/使用方、取色请求方/采样方；**不是**安装两个工具 |
+| 能力探测 | 以握手 Caps 为准：增强类看 `Tool:<id>`。缺一侧 → MUST NOT 开始会话，UI MUST 提示「对端未安装 xxx」 |
+| 角色 | 会话内再区分申请端/接收端、取色请求方/采样方等；**不是**安装两个工具 |
 | 版本 | `schemaVersion` / 包 `version`：次版本 SHOULD 兼容；主版本不兼容时 MUST 拒绝会话并提示升级。分享时 SHOULD 带完整包，避免对端缺依赖 |
 
-**投影特例（无歧义）：**
+**共享设备（本期）：** 申请端与接收端均为同一 `shared-devices` ToolId；双方 MUST 均已安装。仅安装不等于可传媒体——MUST 由申请端启动并经接收端同意（§6.1）。
 
-- 电脑 A 投向电脑 B：A、B **都** MUST 已安装 `projection`。仅 A 安装则 MUST NOT 出现可对 B 成功的投影；目标列表 MUST 禁用未装投影的对端或选中后明确失败原因。
-- 手机复制投向电脑：手机与电脑 **都** MUST 已安装 `projection`（手机仅 Host/copy，电脑作 Sink）。
-- 仅本机真副屏、不经网络的「投影到本机显示器」若保留：不要求对端工具；一经网络对端，仍适用两端都装。
-
-**共享设备：** 提供方与使用方均为同一 `shared-*` ToolId；使用方电脑与提供方手机/电脑均 MUST 已安装对应工具。
+**投影（本期例外）：** 仍内置于主程序，**不**要求 `projection` 工具安装；迁工具后的两端都装规则见 §6.2（后期）。
 
 ---
 
@@ -115,14 +117,27 @@
 
 | 需求 | 规格 |
 |------|------|
-| 分组 | 按清单 `group` 显示。预置：`shared-devices`（共享设备）、`display`（显示，含投影） |
-| 筛选 | MUST：`全部` \| `未安装` \| `已安装` \| `需修复` |
-| 卡片字段 | MUST：名称、一句话说明、分组、安装状态徽章、适用角色/端提示（若有）、操作按钮 |
-| 操作 | 未安装 →「安装」+「导入…」（选 `.flytool`）。已安装且正常 →「卸载」；若 `crossScreen=true` → 另显「分享到设备…」。已安装且异常且 `supportsRepair=true` →「修复」+「卸载」 |
-| 使用中 | SHOULD 显示「使用中」徽章；用户仍可卸载；卸载前 MUST 结束该工具会话 |
-| 禁止 | MUST NOT 在工具页放通用「启动」「停止」 |
+| 分组 | 按清单 `group` 显示。本期预置：`shared-devices`（共享设备）、`utilities`（含 `color-picker`）。`display`（投影）留给后期迁工具 |
+| 筛选 | SHOULD：`全部` \| `未安装` \| `已安装` \| `需修复`（可后置；网格态用透明度/提示区分） |
+| **展示形态** | **独立卡片**，左→右、上→下 **自适应换行**（Wrap）：每项 = 图标 + 标题 + 状态文案 + 一句话说明。MUST NOT 再做成右侧大按钮条的列表卡 |
+| 卡片底色 | MUST 区分：**未安装** / **已安装** / **已启动** 三种背景；**安装中**另用安装底色，并在卡片背景上显示 **自左向右进度条** |
+| 卡片字段 | MUST：图标、名称、状态文案、一句话说明；操作经单击 / 右键，不靠常驻按钮 |
+| 操作（通用） | **单击** → 主操作（未安装则安装；已装且可启动则启动；运行中则停止）。**右键菜单** → 卸载（及分享/修复等）。导入 `.flytool` 可用页级入口（后期） |
+| 操作（`shared-devices`） | 见下表；MUST NOT 给其它无关工具套用同一套「单击启动」 |
+| 操作（`color-picker`） | 已装单击 → 打开**内嵌工作区**（非弹窗）；运行中停止仅 ⋯ / 关页签 |
+| 使用中 | `shared-devices` / 有工作区工具运行中 MUST NOT 单击卡片停止（防误触），停止仅在 ⋯ 菜单；卸载前 MUST 结束该工具会话 |
+| **工作区宿主** | 凡 `hasWorkspace=true`（或约定有主界面）的工具，主界面 MUST 嵌入工具页，MUST NOT 独立弹出为主窗。有已打开工具页时 MUST 显示导航条：首项「工具」（目录）+ 各打开页签（可关）。点「工具」回目录且**保留页签** |
+| 禁止 | MUST NOT 在网格项上常驻并列「安装/启动/停止/卸载」按钮条 |
 
-状态徽章 MUST 可区分：未安装 / 已安装 / 需修复（颜色或文案，禁止只靠按钮文字区分）。
+**`shared-devices` 网格项操作（MUST）：**
+
+| 本端角色 | 已安装后 |
+|----------|----------|
+| 申请端（需要使用共享设备） | 单击 → 启动申请面板；运行中停止改走 ⋯ 菜单（避免误触）；⋯ / 右键 → 卸载 |
+| 接收端（被申请提供真实设备） | 安装后待命；右键 → 卸载；**无**启动。收到申请弹窗（同意 / 拒绝，可「记住适配」） |
+| 未安装（任一角色） | 单击 → 安装 |
+
+同一台机器若既可申请又可被申请：单击仍走启动（作申请端）；接收申请与是否本机已启动无关，只要已安装即可应答。
 
 ### 3.3 按设备过滤可见工具
 
@@ -193,38 +208,30 @@
 
 编码时模型字段名 MUST 与下表一致。示例：
 
+本期主交付示例（`shared-devices`）：
+
 ```json
 {
-  "id": "projection",
-  "kind": "session",
+  "id": "shared-devices",
+  "kind": "enhancement",
   "crossScreen": true,
-  "group": "display",
-  "nameKey": "Tool.Projection.Name",
-  "summaryKey": "Tool.Projection.Summary",
+  "group": "shared-devices",
+  "nameKey": "Tool.SharedDevices.Name",
+  "summaryKey": "Tool.SharedDevices.Summary",
   "schemaVersion": 1,
   "minAppVersion": "1.0.0",
   "deviceClasses": ["Desktop", "Phone", "Tablet"],
   "platforms": ["Windows", "Android", "macOS", "Linux"],
   "featuresByDeviceClass": {
-    "Desktop": ["copy", "extend", "sink"],
-    "Phone": ["copy"],
-    "Tablet": ["copy"]
+    "Desktop": ["speaker", "microphone", "camera", "provide", "consume"],
+    "Phone": ["speaker", "microphone", "camera", "provide"],
+    "Tablet": ["speaker", "microphone", "camera", "provide"]
   },
-  "roles": ["send", "receive"],
+  "roles": ["request", "authorize"],
   "supportsRepair": false,
-  "capNames": ["ScreenExtendHost", "ScreenExtendSink"],
-  "titleBar": true,
-  "dependencies": [
-    {
-      "id": "virtual-display",
-      "kind": "component",
-      "requiredForFeatures": ["extend"],
-      "deviceClasses": ["Desktop"],
-      "platforms": ["Windows"],
-      "supportsRepair": true,
-      "embeddedPath": "components/virtual-display/"
-    }
-  ],
+  "capNames": ["Tool:shared-devices"],
+  "titleBar": false,
+  "permissions": ["camera", "microphone", "speaker", "virtualAudio", "peerNetwork"],
   "package": {
     "version": "1.0.0",
     "format": "flytool",
@@ -233,6 +240,8 @@
 }
 ```
 
+后期 `projection` 清单仍可含 `dependencies`（如 `virtual-display`）与 `featuresByDeviceClass` 的 `copy`/`extend`/`sink`；格式约束同下表。
+
 ### 5.2 字段约束
 
 | 字段 | 约束 |
@@ -240,12 +249,12 @@
 | `id` | 全局唯一；小写 kebab-case；与 Caps `Tool:<id>`（若使用）一致 |
 | `kind` | `enhancement` \| `session` \| `component` |
 | `crossScreen` | true：适用 §2.1 / §4.1；false：纯本机工具，无分享跨屏会话要求 |
-| `roles` | 跨屏工具 MUST 含语义上的收发（可用 `send`/`receive` 或工具自定义，但 MUST 在同一包）；禁止拆包 |
+| `roles` | 跨屏工具 MUST 含语义上的收发（`shared-devices`：`request`=申请端、`authorize`=接收端；其它可用 `send`/`receive`）；禁止拆包 |
 | `deviceClasses` | 非空；取值同协议 `DeviceClass` |
-| `featuresByDeviceClass` | 可选；缺省表示该端清单声明的能力全开。手机投影 MUST 不含 `extend` |
-| `supportsRepair` | 默认 false；VDD 依赖为 true |
+| `featuresByDeviceClass` | 可选；缺省表示该端清单声明的能力全开。`shared-devices` 手机第一期 SHOULD 不含 `consume`。后期投影手机 MUST 不含 `extend` |
+| `supportsRepair` | 默认 false；VDD 依赖为 true（后期） |
 | `titleBar` | true 时 MUST 实现 §7；每个 `id` 最多一个标题栏贡献 |
-| `capNames` | 安装且对本端启用后，握手 MUST 并入这些 Cap（投影）；增强类跨机工具用 `Tool:<id>` 见 §8 |
+| `capNames` | 安装且对本端启用后，握手 MUST 并入这些 Cap；增强类跨机工具用 `Tool:<id>` 见 §8 |
 | `package.format` | MUST 为 `flytool` |
 | `dependencies[].embeddedPath` | 组件 MUST 打进同一 `.flytool`，路径相对包根；MUST NOT 依赖用户再下第二份散文件 |
 
@@ -471,69 +480,148 @@ VDD 等系统驱动：同意书 MUST 写明将安装系统组件；仍受 OS UAC
 
 ## 6. 第一期工具清单（必须交付的 Id）
 
-### 6.1 `shared-camera` / `shared-microphone` / `shared-speaker`
+### 6.1 `shared-devices`（共享扬声器 / 麦克风 / 摄像头）
+
+扬声器、麦克风、摄像头 **合并为一个工具**（一个 `ToolId`、一个 `.flytool`）。三路能力是工具内的可选申请项，不是三个安装包。
 
 | 项 | 值 |
 |----|-----|
+| id | `shared-devices` |
 | kind | `enhancement` |
 | crossScreen | **true** |
 | group | `shared-devices` |
-| titleBar | false（第一期；会话按 [shared-devices.md](shared-devices.md) 随应用打开设备建立） |
-| supportsRepair | false |
-| 操作 | 安装 / 卸载 / 分享（§4.1） |
-| 协议 | MUST 走 §8 通用信封；`ToolId` 分别为三 Id；Caps 宣告 `Tool:shared-camera` 等 |
-| 两端 | 提供方与使用方 MUST 均已安装同一 `shared-*` |
-| 业务规则 | 全部以 [shared-devices.md](shared-devices.md) 为准 |
-| 包 | 各一条 `.flytool`（或 monorepo 组三个文件）；每文件自包含 |
+| titleBar | **false**（本期；启动/停止在工具页，见 §3.2 / §6.1.2。运行中徽章在工具卡片即可；后期若需标题栏状态再开） |
+| supportsRepair | false（虚拟音频组件若缺失，可在安装流程内提示安装；不单列修复卡片） |
+| 协议 | MUST 走 §8 通用信封；Caps 宣告 **`Tool:shared-devices`**（单 Cap，不再分三 Id） |
+| 两端 | 申请端与接收端 MUST 均已安装 `shared-devices` |
+| 媒体 / 虚拟设备 / 与投影声音冲突 | 技术细节仍见 [shared-devices.md](shared-devices.md)；**会话如何建立以本节为准** |
+| 包 | 一条 `.flytool`，自包含申请端与接收端逻辑 |
 
-手机：仅提供方语义可装。电脑：按有无真实硬件显示提供方或使用方安装含义（见共享设备文档）。
+**两端需要的操作（MUST，同一工具包内按角色启用）：**
 
-### 6.2 `projection`（投影：复制 + 扩展）
+| 角色 | 本端需要 |
+|------|----------|
+| 申请端 | **安装**、**启动**（双击工具）、**停止**、**卸载** |
+| 接收端 | **安装**（以及卸载；无启动/停止）。安装后即可接收申请并同意/拒绝 |
+
+**features（同一包内）：**
+
+| feature | 含义 |
+|---------|------|
+| `speaker` | 可申请 / 可提供扬声器 |
+| `microphone` | 可申请 / 可提供麦克风 |
+| `camera` | 可申请 / 可提供摄像头 |
+| `provide` | 本端可作为接收端（有真实硬件可被申请） |
+| `consume` | 本端可作为申请端（使用方：注册虚拟设备等） |
+
+申请目标：**布局内任意其它设备**（`Desktop` / `Phone` / `Tablet`），只要已装本工具且至少具备扬声器 / 麦克风 / 摄像头之一即可作接收端外设（手机当然可以）。有真实可共享硬件的端宣告 `provide`；需要使用对端设备的端宣告 `consume`（判定见 shared-devices.md §5）。手机第一期以 `provide` 为主，亦可在具备 `consume` 时作申请端。
+
+#### 6.1.1 安装（两端共同前提）
+
+- **要使用共享设备功能的端（申请端）MUST 先安装本工具**；**被申请的设备（接收端）也 MUST 已安装**，否则不能出现在可选目标里、也不能应答。
+- 未安装 → MUST NOT 出现在申请端的目标列表中；MUST NOT 建立媒体会话。
+- 安装本身 **不等于** 开始采集或传流；申请端 MUST 再「启动」并发起申请，接收端同意后才可用。
+
+#### 6.1.2 操作流程（本期 MUST）
+
+旧流程（作废）：装完 → 选定提供方 → 本机软件打开虚拟设备即自动 `Open`。
+
+新流程：
+
+```text
+【申请端】
+1. 安装 shared-devices。
+2. 双击工具（或点「启动」）打开启动面板。
+3. 在布局中选择其它设备作为目标（电脑 / 手机 / 平板等）：
+   - 目标 MUST 已连接、在布局内、已安装 shared-devices；
+   - 目标 MUST 至少具备扬声器 / 麦克风 / 摄像头中的一种可共享能力（无任何可共享种类 MUST NOT 出现在列表，或置灰并说明原因）。
+4. 勾选本次要使用的可共享设备（扬声器 / 麦克风 / 摄像头，可多选；仅列出目标实际可提供的种类）。
+5. 用户确认启动 → 向所选设备发出申请。
+6. 等待接收端同意或拒绝。
+7. 同意 → 申请端即可使用该设备上已选中的扬声器 / 麦克风 / 摄像头（注册/启用本机虚拟设备并建媒体会话）。
+8. 需要结束时：申请端点「停止」或卸载 / 断连 → 结束会话。
+
+【接收端】
+1. 安装 shared-devices（只需安装，不必启动工具）。
+2. 收到申请弹窗：申请端机器名、申请的种类；可同意 / 拒绝；可选「记住适配」。
+3. 同意后按种类提供采集或播放通道；拒绝则回拒绝原因，不建会话。
+```
+
+| 步骤细节 | MUST |
+|----------|------|
+| 启动入口 | **申请端**工具页：**双击**已安装的工具卡片（或等价「启动」按钮）打开启动面板 |
+| 停止入口 | **申请端**运行中经工具卡片 ⋯ 菜单点「停止」（MUST NOT 单击卡片停止）；停止 MUST 结束进行中的申请与媒体会话 |
+| 接收端 UI | 无启动面板；仅安装后待命 + 申请弹窗 |
+| 目标范围 | 布局内**其它已装本工具的设备**（含手机）；须至少有一种可共享设备 |
+| 多选种类 | 确认启动前勾选 1～N 种（N≤目标可提供数）；未勾选的 MUST NOT 进入本次申请 |
+| 确认启动 | 用户明确确认后才发 `request`；关闭面板不发申请 |
+| 通过后即用 | 接收端同意后申请端 MUST 直接进入可用状态，不必再点第二次开始；会议等软件随后选用虚拟设备即可 |
+| 一路占用 | 每一路硬件同时仍只服务一台申请端（冲突见 shared-devices.md） |
+
+#### 6.1.3 记住适配
+
+接收端在**接收申请**时 MAY/SHOULD 提供勾选：**记住适配**。
+
+| 规则 | MUST |
+|------|------|
+| 含义 | 记住「某申请端机器 + 已通过的种类」；下次该申请端再次启动并对本机发起**相同种类**申请时，可直接通过，不再弹确认框 |
+| 粒度 | 按（申请端设备身份，种类）记忆；三种类可分别记住 |
+| 范围 | 仅本机接收侧持久化；MUST NOT 进 `BehaviorSync` |
+| 取消 | 用户可在工具设置 / 授权记录中清除某条或全部；清除后下次须再确认 |
+| 变更 | 申请种类超出已记住集合时，对**新增种类**仍 MUST 弹确认（可再次勾选记住） |
+| 安全 | 记住适配 **不能** 跳过工具安装确认或 `.flytool` 哈希；仅跳过「媒体共享申请」确认 |
+
+无「记住适配」或未勾选：每次申请都须接收端手动同意。
+
+#### 6.1.4 信封 Op（共享设备，实现时对齐命名）
+
+在 `ToolId=shared-devices` 下建议 Op（宿主不解释 Body 业务字段，工具模块处理）：
+
+| Op | 方向 | 用途 |
+|----|------|------|
+| `request` | 申请端 → 接收端 | Body：`kinds[]`（`speaker`/`microphone`/`camera`）、`SessionId` |
+| `request-accept` | 接收端 → 申请端 | 同意；可含采样参数 |
+| `request-reject` | 接收端 → 申请端 | 拒绝；`Reason`：`busy` / `denied` / `no-device` / `no-bulk` / `not-installed` 等 |
+| `session-close` | 任一方 | 结束一路或多路 |
+| `media-state` | 接收端 → 申请端（可选） | 硬件插拔 / 可提供状态变化 |
+
+媒体帧走 `ToolData`（或过渡期见 §8.5）；音视频格式与优先级仍以 shared-devices.md 为准。
+
+#### 6.1.5 与旧三工具文档的关系
+
+- 旧 `shared-camera` / `shared-microphone` / `shared-speaker` **三 Id 作废**，统一为 `shared-devices`。
+- Caps 旧名 `SharedCamera*` 等若曾预留，实现时改用 `Tool:shared-devices`，并回写 protocol / shared-devices。
+
+---
+
+### 6.2 `projection`（投影：复制 + 扩展）— **本期不做**
+
+| 项 | 值 |
+|----|-----|
+| 本期状态 | **暂不抽成独立工具**；继续主程序内置，行为以 [extended-display.md](extended-display.md) 为准 |
+| 工具页 | MUST NOT 出现「投影」工具卡片（本期） |
+| 标题栏 | 投影入口仍由主程序提供，**不**经 `TitleBarToolSlot` |
+| Caps | 仍由主程序宣告 `ScreenExtendHost` / `ScreenExtendSink`（与是否安装工具无关） |
+
+**后期迁入时（非本期验收）预留规格摘要：**
 
 | 项 | 值 |
 |----|-----|
 | kind | `session` |
 | group | `display` |
 | titleBar | **true** |
-| supportsRepair | false（修复落在依赖 `virtual-display`） |
 | crossScreen | **true** |
-| 未安装 | MUST NOT 显示标题栏投影入口；MUST NOT 宣告 `ScreenExtendHost` / `ScreenExtendSink` |
-| 已安装 | 按 `featuresByDeviceClass` 提供能力；会话行为以 [extended-display.md](extended-display.md) 为准 |
-| 两端 | 发起端与目标端 MUST 均已安装 `projection`（§2.1）；目标未装 → 不可选或明确失败 |
-| Desktop | features MUST 含 `copy`；作 Sink 时含 `sink`；有 VDD 或真副屏时 `extend` 可用 |
-| Phone / Tablet | features MUST 仅 `copy`（MediaProjection Host）；MUST NOT 提供扩展；MUST NOT 作 Sink |
-| 远程控制 | 允许；Android Host 无障碍注入走 **宿主**（§5.5.10），不交给工具代码 |
-| 依赖 | Desktop+Windows 上 `extend` 依赖组件 `virtual-display`，MUST 打进同一 `.flytool` |
-| 分享 | 支持 §4.1；分享列表按对端是否电脑/手机过滤 features |
+| 两端 | 发起端与目标端均已安装 `projection` |
+| 依赖 | Desktop+Windows `extend` → 组件 `virtual-display` 打进同一 `.flytool` |
+| 远程控制 | Android Host 无障碍注入走宿主（§5.5.10） |
 
-**协议过渡（实现 MUST 选一种并写进代码注释 + 本文修订）：**
+迁入完成前：现网投影行为不变。迁入后：内置入口拆除，仅工具提供；并补两端都装与分享规则。
 
-- **推荐第一期：** 安装后由投影工具模块注册处理现有 `ScreenExtend*` 消息；Caps 仍用 `ScreenExtendHost` / `ScreenExtendSink`。未安装则不注册、不宣告。
-- **后期可选：** 迁到 §8 信封 `ToolId=projection`；届时升文档并做旧消息兼容。
+### 6.3 组件 `virtual-display`（VDD）— **随投影后期**
 
-**与现网关系：** 现网投影内置于主程序。迁移完成前现网行为不变；迁移后内置入口拆除，仅工具提供。
+本期不随工具页交付。投影扩展屏安装/修复继续走主程序现有路径（[extended-display.md](extended-display.md) / [mtt_vdd/README.md](mtt_vdd/README.md)）。
 
-### 6.3 组件 `virtual-display`（VDD）
-
-| 项 | 值 |
-|----|-----|
-| kind | `component` |
-| 归属 | `projection.dependencies` |
-| titleBar | false |
-| supportsRepair | true |
-| 可见性 | Windows Desktop；其它端不适用 |
-| 未就绪 | `projection` 下拉中「扩展」禁用或隐藏；复制仍可用 |
-| 需修复 | 设备管理器中 `Virtual Display Driver` 带感叹号、或管道不可 PING |
-| 安装/修复/卸载 | 复用 `MttVddInstaller` / `MttVddEnvironment` + `tools/VddOffline`；逻辑见 [extended-display.md](extended-display.md) / [mtt_vdd/README.md](mtt_vdd/README.md) |
-| 投影「环境修复」 | MUST 调用同一修复 API，MUST NOT 复制第二套安装代码 |
-| MUST NOT | 卸载 ToDesk / Oray 等非本程序驱动 |
-
-工具页展示方式（二选一，产品内统一）：
-
-1. 单独卡片「虚拟扩展屏」；或  
-2. 仅在「投影」卡片上显示依赖状态 + 修复按钮。  
-
-推荐 **2**（减少入口）；若用 1，卸载投影 MUST 明确是否级联卸 VDD（推荐：询问用户或仅卸投影标记、VDD 保留）。
+后期归属 `projection.dependencies`；`supportsRepair=true`；MUST NOT 卸载 ToDesk / Oray 等非本程序驱动。
 
 ---
 
@@ -588,22 +676,28 @@ TitleBarAction {
 
 宿主 MUST 根据 `CurrentStateId` 绘制对应 State；悬停时若存在 `Hover*` 则使用，否则统一悬停样式 + `Tooltip`。
 
-### 7.4 投影工具标题栏（规范示例，实现 MUST 对齐语义）
+### 7.4 投影工具标题栏（后期迁工具时适用）
+
+本期投影不经工具槽位。下列为后期迁入后的规范示例：
 
 | StateId | Label | IsActive | 左键建议 |
 |---------|-------|----------|----------|
 | `idle` | 投影 | false | 打开下拉 |
-| `projecting` | 投影中 | true | 执行 `stop`（MUST 在文档/实现中固定；禁止与「再开下拉」混用而不说明） |
+| `projecting` | 投影中 | true | 执行 `stop` |
 | `error` | 投影异常 | false | 打开下拉 |
 
 | ActionId | Label | Desktop | Phone |
 |----------|-------|---------|-------|
 | `copy` | 复制投影… | 有 | 有 |
-| `extend` | 扩展投影… | 有（VDD/真副屏未就绪则 IsEnabled=false 或隐藏并提示修复） | **MUST NOT 出现** |
+| `extend` | 扩展投影… | 有（VDD/真副屏未就绪则禁用或隐藏） | **MUST NOT 出现** |
 | `stop` | 停止投影 | 仅 `projecting` | 同左 |
 | `repair-vdd` | 修复虚拟屏 | 仅需修复时 | MUST NOT |
 
-多工具同时贡献时：宿主并排显示多项；空间不足时 SHOULD 收入溢出菜单，但每工具仍只占逻辑一项。
+### 7.5 `shared-devices` 与标题栏（本期）
+
+本期 `titleBar=false`：**不**向标题栏注入入口。申请端启动 / 停止在工具页完成（§3.2 / §6.1.2）；接收端仅安装 + 申请弹窗。
+
+后期若需要「共享中」常驻标题栏状态，再开 `titleBar=true` 并补贡献模型；不得与工具页双击启动语义冲突。
 
 ---
 
@@ -611,8 +705,8 @@ TitleBarAction {
 
 ### 8.1 何时使用
 
-- `kind=enhancement` 且需要跨机传信令/媒体：MUST 用本节。
-- `projection` 第一期：见 §6.2 过渡策略。
+- `kind=enhancement` 且需要跨机传信令/媒体：MUST 用本节（本期核心：`shared-devices`）。
+- `projection`：本期仍用主程序专用消息；后期迁工具见 §6.2。
 - 将来如 `color-picker` 跨屏取色：MUST 用本节。
 
 ### 8.2 宿主新增消息（落地时写入 Protocol.cs 与 protocol.md）
@@ -628,7 +722,7 @@ TitleBarAction {
 
 ```text
 ToolEnvelope {
-  ToolId: string           // 如 "shared-camera" / "color-picker"
+  ToolId: string           // 如 "shared-devices" / "color-picker"
   Op: string               // 工具自定义；宿主不解释业务
   SchemaVersion: int
   SessionId: string        // GUID 字符串
@@ -645,23 +739,26 @@ ToolEnvelope {
 
 ### 8.4 Caps 与「两端都装」
 
-- 增强工具安装后宣告：`Tool:<id>`（例：`Tool:shared-camera`）。  
+- 增强工具安装后宣告：`Tool:<id>`（例：`Tool:shared-devices`）。  
 - 跨屏会话：双方 Caps 交集 MUST 含该工具所需 Cap；否则 MUST NOT 开会话，UI MUST 提示对端未安装。  
-- 投影第一期：双方均由已装 `projection` 注册并宣告 `ScreenExtendHost` 和/或 `ScreenExtendSink`；仅一端安装 → 对端无对应 Cap → 同失败路径。  
+- 申请目标列表：MUST 用 Caps（及布局连接状态）过滤未装本工具的对端。  
+- 投影本期：主程序宣告 `ScreenExtendHost` / `ScreenExtendSink`，与工具 Caps 无关。  
 - 探测对端是否已装：优先 Caps；分享 UI 可另用「工具安装查询」信令（可选 Op，如 `ToolSignal` `Op=query-installed`），有则展示更友好，无则以 Caps 为准。
 
 ### 8.5 共享设备与 90–96
 
-[shared-devices.md](shared-devices.md) 曾预留 MessageType 90–96。实现时：
+[shared-devices.md](shared-devices.md) 曾预留 MessageType 90–96，且旧稿按三路独立 Open。实现时：
 
-- **优先**直接用 §8 信封，不再占用 90–96；并回写 shared-devices / protocol。  
-- 若短期保留 90–96，MUST 在代码与文档标明 Deprecated，下一协议整理删除。
+- **优先**直接用 §8 信封 + §6.1.4 Op（`request` / `request-accept` 等），不再占用 90–96；并回写 shared-devices / protocol。  
+- 若短期保留 90–96，MUST 在代码与文档标明 Deprecated，下一协议整理删除；语义上仍应对齐「先申请后建会话」，不得回退为无确认自动 Open。
 
-### 8.6 跨屏颜色拾取（示例，非第一期交付）
+### 8.6 颜色拾取
 
-仅作接入样板，第一期 MUST NOT 实现业务，但宿主设计 MUST 能支撑：
+**本机取色（已交付）：** 见 [color-picker.md](color-picker.md)。`crossScreen=false`；桌面端内嵌工作区 + 滴管；不占用 Caps / 工具信封。
 
-1. 两边安装同一 `color-picker` `.flytool`，Caps 含 `Tool:color-picker`。  
+**跨屏取色（后期样板，本期 MUST NOT 实现）：**
+
+1. 两边安装同一 `color-picker`（或后续升为 `crossScreen=true`），Caps 含 `Tool:color-picker`。  
 2. 甲发 `ToolSignal` Op=`sample` Body=`{x,y}` 或归一化坐标。  
 3. 乙工具读像素，回 Op=`sample-result` Body=`{r,g,b,hex}`。  
 4. 标题栏：若需要入口，仅一项；下拉可含「取色」等。  
@@ -696,27 +793,31 @@ ToolEnvelope {
 
 ## 10. 多端矩阵（第一期）
 
-| 端 | 工具页 | shared-* | projection | virtual-display |
-|----|--------|----------|------------|-----------------|
-| Win WPF / Maui-Win | 完整+分享+导入 | 是（两端都装） | 是 Host+Sink（两端都装） | 打进 projection 包 |
-| Maui Android | 完整+分享+导入 | 提供方 | 仅 copy Host（对端电脑也须装 projection） | 否 |
-| Mac / Linux Desktop | 壳+过滤 | 提示不支持或后期 | Sink 优先（与 extended-display 一致；两端都装） | 否 |
-| 鸿蒙 | 随 UI | 后期 | 后期 | 否 |
+| 端 | 工具页 | `shared-devices` | 本机 `color-picker` | 投影（主程序内置） |
+|----|--------|------------------|---------------------|--------------------|
+| Win WPF / Maui-Win | 完整+工作区 | 是（申请端+接收端；申请端启动） | 是（内嵌+滴管） | 现有内置，不经工具页 |
+| Maui Android | 完整+工作区骨架 | 可作接收端外设（提供） | **否**（清单过滤） | 现有内置 copy Host |
+| Mac / Linux Desktop | 壳+工作区 | 硬件视实现 | 是（内嵌；采样视 GDI/系统库） | 与 extended-display 一致 |
+| 鸿蒙 | 随 UI | 后期 | 后期 | 后期 |
 
 ---
 
 ## 11. 实施顺序（给 AI / 排期）
 
-必须按序，避免半套入口：
+必须按序，避免半套入口。**本期到步骤 7 为止；投影迁工具不排进本期。**
 
 1. **`.flytool` 格式 + 公开哈希信任（§5.5）+ `ToolInstaller`/`ToolTrust` + 组包与 SHA256SUMS 脚本。**  
 2. **宿主骨架：** 侧栏工具页 + `ToolCatalog` + 安装/导入/卸载（全部走哈希门禁）。  
 3. **标题栏槽位 API** + mock 工具验证多状态与下拉。  
-4. **`projection` 迁出为 `.flytool`：** 未安装无入口；**开会话前检查对端已装**；已装行为对齐 E1。  
-5. **`virtual-display` 打进投影包**；环境修复 → 同一修复 API。  
-6. **`ToolShareService`：** 分享到布局设备 + 接收确认。  
-7. **`ToolSignal`/`ToolData` + Caps `Tool:`。**  
-8. **`shared-*` 三条** `.flytool` + 两端都装检查。  
+4. **`ToolShareService`：** 分享到布局设备 + 接收确认。  
+5. **`ToolSignal`/`ToolData` + Caps `Tool:`。**  
+6. **`shared-devices` 一条 `.flytool`：** 两端都装；申请端工具页双击启动 / 停止；选布局内已装工具且具备音视频硬件的设备（含手机）+ 可共享种类；接收端同意/拒绝 +「记住适配」；通过后建媒体会话。  
+7. **媒体与虚拟设备：** 对齐 shared-devices.md 中格式 / 虚拟摄像头音频 / 与投影声音冲突规则（会话触发改为申请通过后，不再「装完即随 Open」）。  
+
+**后期（非本期）：**
+
+8. **`projection` 迁出为 `.flytool`：** 未安装无入口；开会话前检查对端已装。  
+9. **`virtual-display` 打进投影包**；环境修复 → 同一修复 API。  
 
 每步 MUST：三端 UI 同构改动；Win 回归门禁不因工具页失败而跳过键鼠用例。
 
@@ -728,7 +829,8 @@ ToolEnvelope {
 
 - [ ] 三端侧栏有「工具」，位于「程序」下。  
 - [ ] 筛选四态可用；未安装/已安装/需修复外观可区分。  
-- [ ] 每个已发布工具仅需一个 `.flytool` 即可完成安装（无缺文件）。  
+- [ ] `shared-devices` 仅需一个 `.flytool` 即可完成安装（扬声器/麦克风/摄像头同包）。  
+- [ ] 工具页**无**投影工具卡片（本期）。  
 - [ ] 导入本地 `.flytool` 与工具页「安装」结果一致。  
 - [ ] 外部打开 `.flytool` 能进入同一安装器（至少 Windows）。  
 
@@ -742,34 +844,37 @@ ToolEnvelope {
 - [ ] 实现与文档均**不依赖**私有工具根密钥；校验材料可公开审计。  
 - [ ] 分享传输单个原包；接收端装后入口正确。  
 - [ ] 工具宿主 API **无**通用无障碍/Fly 注入方法；含禁止权限的包无法安装。  
-- [ ] 投影远程控制在手机上仍可用，且注入代码在宿主侧（§5.5.10 检查清单通过）。  
-- [ ] 工具程序集不能直接 dispatch 无障碍手势。  
-- [ ] 同意框含工具不持有无障碍、回控由主程序代注的说明。  
+- [ ] 同意框含工具不持有无障碍的说明（投影回控仍在主程序，§5.5.10）。  
 
-### 12.2 两端都装与分享
+### 12.2 两端都装与分享（`shared-devices`）
 
-- [ ] 仅本机安装投影、对端未装时，无法完成对对端的投影，并有明确提示。  
-- [ ] 两边都装投影后，复制/扩展（条件满足时）可用。  
+- [ ] 仅本机安装、对端未装时，申请目标列表不含该对端或选中后明确失败。  
+- [ ] 两边都装后，可完成申请 → 授权 → 使用。  
 - [ ] 「分享到设备」只列出 DeviceClass/Platform 匹配的已连接布局设备。  
 - [ ] 接收端必须确认后才安装；拒绝不影响连接。  
-### 12.3 投影工具 UI
 
-- [ ] 卸载投影后标题栏无投影项。  
-- [ ] 安装后标题栏仅 **一个** 投影项；多操作为下拉。  
-- [ ] 投影中状态为「投影中」且 IsActive；停止语义与 §7.4 一致。  
-- [ ] 手机下拉无「扩展」。  
-- [ ] 扩展缺 VDD 时修复走统一 API。  
+### 12.3 共享设备操作流程
+
+- [ ] 申请端已安装后：可单击工具启动；运行中经 ⋯ 菜单停止（单击卡片不停止）；可卸载。  
+- [ ] 接收端已安装后：无启动/停止；能弹出申请并同意/拒绝。  
+- [ ] 启动面板：列出布局中已装本工具、且至少有一种可共享设备的其它设备（电脑/手机/平板均可）。  
+- [ ] 可勾选扬声器 / 麦克风 / 摄像头中目标实际可提供的一个或多个，确认后才发申请。  
+- [ ] 接收端同意后，申请端即可使用所选电脑上对应设备；拒绝有明确提示。  
+- [ ] 接收端可勾选「记住适配」；下次相同申请端 + 已记种类可直接通过。  
+- [ ] 申请端停止 / 任一方卸载 / 断连会结束会话；未装工具无法传媒体。  
+- [ ] 本期标题栏无共享设备入口（`titleBar=false`）。  
+- [ ] MUST NOT 再出现「只安装、不经申请就自动建共享会话」的旧路径。  
 
 ### 12.4 通用协议
 
 - [ ] 未知 `ToolSignal` 不断连。  
 - [ ] 未装对应工具时不分发进业务导致崩溃。  
-- [ ] 共享设备（实现后）对端无 `Tool:shared-*` 时有明确 UI 提示。  
+- [ ] 对端无 `Tool:shared-devices` 时有明确 UI 提示。  
 
 ### 12.5 回归
 
 - [ ] 未装任何新工具时，键鼠 / 剪贴板 / 文件与迁移前一致。  
-- [ ] 两边都装投影工具时，E1 投影用例（复制、扩展、声音、回控、互斥）仍通过。  
+- [ ] **投影仍走主程序：** E1 投影用例（复制、扩展、声音、回控、互斥）不因工具页引入而回退。  
 
 ---
 
@@ -784,3 +889,8 @@ ToolEnvelope {
 | 2026-11-03 | 1.3 | **开源安全模型**：去掉工具根密钥；公开 contentSha256 + Bundled/KnownRelease/Unknown；可选仓库内维护者公钥分离签名；配对密钥不证明包完整性 |
 | 2026-11-03 | 1.4 | **无障碍隔离 §5.5.9**：工具永不获得 A11y/Fly 控机；禁止权限名单；与用户程序拆分；同意框明示；哈希正确也不开放无障碍 |
 | 2026-11-03 | 1.5 | **§5.5.10**：投影远程控制需要无障碍时由宿主代注；澄清「工具禁 A11y」≠「禁止投影回控」 |
+| 2026-11-07 | 1.6 | **本期不抽投影**；工具优先 `shared-devices`（扬声器/麦克风/摄像头合并）；流程改为布局内申请→授权方可「记住适配」→通过即用；废除三独立 ToolId 与「装完即自动建会话」 |
+| 2026-11-07 | 1.7 | 明确申请端=安装/双击启动/停止/卸载，接收端=安装后应答；启动选布局内其它电脑与可共享种类再确认申请；本期 `titleBar=false` |
+| 2026-11-07 | 1.8 | 工具页改为**图标网格**（图标+标题+说明，约 3 列）；单击主操作、右键卸载，去掉项内按钮条 |
+| 2026-11-07 | 1.9 | 独立卡片 + 未安装/已安装/已启动三态底色；安装耗时在卡片背景显示进度；左→右上→下自适应换行 |
+| 2026-11-07 | 1.10 | 申请目标放开为布局内任意已装工具且具备扬声器/麦克风/摄像头之一的设备（手机可作外设）；去掉「仅电脑」限制 |

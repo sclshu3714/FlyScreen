@@ -18,6 +18,7 @@ using Avalonia.VisualTree;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
+using FlyScreen.DesktopUi.Tools;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
@@ -25,6 +26,8 @@ using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
+using FlyScreen.Services.Tools;
+using FlyScreen.Services.Tools.SharedDevices;
 using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi;
@@ -489,6 +492,17 @@ public partial class MainWindow : Window
         ApplyLayoutGrid();
 
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
+        ToolService.Instance.AttachColorSampler(new DesktopScreenColorSampler());
+        ToolService.Instance.Catalog.Changed += () => Dispatcher.UIThread.Post(RefreshToolsPage);
+        ToolService.Instance.InstallProgress.Changed += () => Dispatcher.UIThread.Post(RefreshToolsPage);
+        ToolService.Instance.Workspace.Changed += () => Dispatcher.UIThread.Post(RefreshToolsWorkspace);
+        ToolService.Instance.ColorPicker.SessionChanged += () => Dispatcher.UIThread.Post(RefreshToolsPage);
+        var sharedDevices = ToolService.Instance.SharedDevices;
+        if (sharedDevices != null)
+        {
+            sharedDevices.SessionChanged += () => Dispatcher.UIThread.Post(RefreshToolsPage);
+            sharedDevices.IncomingRequest += OnSharedDevicesIncomingRequest;
+        }
         _host.ScreenExtend.UserNotice += msg => Dispatcher.UIThread.Post(async () =>
         {
             try
@@ -752,9 +766,13 @@ public partial class MainWindow : Window
         NavSecurityText.Text = Loc.T("Nav.Security");
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
         NavProgramsText.Text = Loc.T("Nav.Programs");
+        NavToolsText.Text = Loc.T("Nav.Tools");
+        ToolsTitleText.Text = Loc.T("Tool.Title");
+        ToolsHintText.Text = Loc.T("Tool.Hint");
         NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
+        RefreshToolsPage();
         LogDownloadBtnText.Text = Loc.T("Log.Download");
         LogCopyBtnText.Text = Loc.T("Log.Copy");
         LogClearBtnText.Text = Loc.T("Log.Clear");
@@ -1070,6 +1088,7 @@ public partial class MainWindow : Window
         if (ReferenceEquals(rb, NavHelp)) return 6;
         if (ReferenceEquals(rb, NavLog)) return 7;
         if (ReferenceEquals(rb, NavPrograms)) return 8;
+        if (ReferenceEquals(rb, NavTools)) return 9;
         return -1;
     }
 
@@ -1087,6 +1106,7 @@ public partial class MainWindow : Window
             PageHelp.IsVisible = index == 6;
             PageLog.IsVisible = index == 7;
             PagePrograms.IsVisible = index == 8;
+            PageTools.IsVisible = index == 9;
 
             NavBasic.IsChecked = index == 0;
             NavAdvanced.IsChecked = index == 1;
@@ -1097,6 +1117,7 @@ public partial class MainWindow : Window
             NavHelp.IsChecked = index == 6;
             NavLog.IsChecked = index == 7;
             NavPrograms.IsChecked = index == 8;
+            NavTools.IsChecked = index == 9;
         }
         finally
         {
@@ -1123,6 +1144,8 @@ public partial class MainWindow : Window
             RefreshProgramsPage();
             Dispatcher.UIThread.Post(UpdateProgToolMode, DispatcherPriority.Loaded);
         }
+        else if (index == 9)
+            RefreshToolsPage();
     }
 
     private void RefreshProgramsPage()
@@ -1135,6 +1158,442 @@ public partial class MainWindow : Window
         }
         ProgList.ItemsSource = null;
         ProgList.ItemsSource = svc.Catalog.Items;
+    }
+
+    private void RefreshToolsPage()
+    {
+        if (ToolsList == null) return;
+        var running = ToolService.Instance.SharedDevices?.IsRunning == true;
+        var colorRunning = ToolService.Instance.ColorPicker.IsRunning;
+        ToolsList.ItemsSource = ToolCardRows.Build(running, colorRunning);
+        Dispatcher.UIThread.Post(ApplyToolsWrapColumns, DispatcherPriority.Loaded);
+        RefreshToolsWorkspace();
+    }
+
+    private void ToolsCatalogHost_SizeChanged(object? sender, SizeChangedEventArgs e)
+        => ApplyToolsWrapColumns();
+
+    /// <summary>桌面默认两列；更宽/全屏按宽度加列。</summary>
+    private void ApplyToolsWrapColumns()
+    {
+        if (ToolsCatalogHost == null || ToolsList == null) return;
+        var host = ToolsCatalogHost.Bounds.Width;
+        if (host < 80) return;
+        const double minCardSlot = 240;
+        var byWidth = Math.Max(1, (int)Math.Floor(host / minCardSlot));
+        var cols = host >= 400 ? Math.Max(2, byWidth) : byWidth;
+        var grid = ToolsList.GetVisualDescendants().OfType<UniformGrid>().FirstOrDefault();
+        if (grid != null && grid.Columns != cols)
+            grid.Columns = cols;
+    }
+
+    private void RefreshToolsWorkspace()
+    {
+        if (ToolsWorkspaceNavPanel == null || ToolsCatalogHost == null || ToolsWorkspaceHost == null)
+            return;
+
+        var ws = ToolService.Instance.Workspace;
+        var hasTabs = ws.HasOpenTabs;
+        ToolsHintText.IsVisible = !hasTabs || ws.IsShowingCatalog;
+        ToolsTitleText.IsVisible = !hasTabs;
+
+        ToolsWorkspaceNavPanel.Children.Clear();
+        if (hasTabs)
+        {
+            ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(
+                Loc.T("Tool.Workspace.Catalog"), ws.IsShowingCatalog, null, showSep: false));
+            foreach (var tab in ws.OpenTabs)
+            {
+                var active = !ws.IsShowingCatalog
+                    && string.Equals(ws.ActiveToolId, tab.ToolId, StringComparison.OrdinalIgnoreCase);
+                ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(tab.Title, active, tab.ToolId, showSep: true));
+            }
+        }
+
+        if (ws.IsShowingCatalog || !hasTabs)
+        {
+            ToolsCatalogHost.IsVisible = true;
+            ToolsWorkspaceHost.IsVisible = false;
+            ToolsWorkspaceHost.Content = null;
+        }
+        else
+        {
+            ToolsCatalogHost.IsVisible = false;
+            ToolsWorkspaceHost.IsVisible = true;
+            if (string.Equals(ws.ActiveToolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase)
+                && ToolsWorkspaceHost.Content is not ColorPickerPanel)
+                ToolsWorkspaceHost.Content = new ColorPickerPanel();
+        }
+    }
+
+    private Control CreateWorkspaceCrumb(string title, bool isActive, string? toolId, bool showSep)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = toolId ?? ""
+        };
+        if (showSep)
+        {
+            var sep = new TextBlock
+            {
+                Text = "»",
+                FontSize = 15,
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0)
+            };
+            if (TryGetThemeBrush("Muted", out var muted)) sep.Foreground = muted;
+            row.Children.Add(sep);
+        }
+
+        var link = new TextBlock
+        {
+            Text = title,
+            FontSize = 15,
+            FontWeight = isActive ? FontWeight.SemiBold : FontWeight.Normal,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+            Tag = toolId ?? ""
+        };
+        if (TryGetThemeBrush(isActive ? "Blue" : "Text", out var fg)) link.Foreground = fg;
+        link.PointerReleased += WorkspaceNavChip_Click;
+        row.Children.Add(link);
+
+        if (toolId != null)
+        {
+            var close = new Button
+            {
+                Content = "×",
+                Width = 22,
+                Height = 22,
+                Margin = new Thickness(8, 0, 0, 0),
+                Padding = new Thickness(0),
+                FontSize = 13,
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = toolId
+            };
+            if (TryGetThemeBrush("Muted", out var closeFg)) close.Foreground = closeFg;
+            if (TryGetThemeBrush("Line", out var closeLine)) close.BorderBrush = closeLine;
+            close.BorderThickness = new Thickness(1);
+            close.Background = Brushes.Transparent;
+            close.PointerEntered += (_, _) =>
+            {
+                if (TryGetThemeBrush("BlueSoft", out var bg)) close.Background = bg;
+                if (TryGetThemeBrush("Blue", out var blue))
+                {
+                    close.Foreground = blue;
+                    close.BorderBrush = blue;
+                }
+            };
+            close.PointerExited += (_, _) =>
+            {
+                close.Background = Brushes.Transparent;
+                if (TryGetThemeBrush("Muted", out var fg)) close.Foreground = fg;
+                if (TryGetThemeBrush("Line", out var line)) close.BorderBrush = line;
+            };
+            close.Click += WorkspaceNavClose_Click;
+            row.Children.Add(close);
+        }
+
+        return row;
+    }
+
+    private void WorkspaceNavChip_Click(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is not Control fe) return;
+        if (e.Source is Button) return;
+        var id = fe.Tag as string;
+        if (string.IsNullOrEmpty(id))
+            ToolService.Instance.Workspace.ShowCatalog();
+        else
+            ToolService.Instance.Workspace.Activate(id);
+        e.Handled = true;
+    }
+
+    private void WorkspaceNavClose_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: string toolId }) return;
+        if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            ToolService.Instance.StopColorPickerWorkspace();
+        else
+            ToolService.Instance.Workspace.Close(toolId);
+        RefreshToolsPage();
+    }
+
+    private async void ToolCard_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control { Tag: ToolCardRow row }) return;
+        // 三点按钮自行弹出菜单，勿触发卡片主操作
+        if (e.Source is Button)
+            return;
+
+        var props = e.GetCurrentPoint(sender as Visual).Properties;
+        if (props.IsLeftButtonPressed)
+        {
+            // 已打开则跳转工作区；停止仍走 ⋯ 菜单
+            await HandleToolActionAsync(row, primary: true);
+            e.Handled = true;
+        }
+    }
+
+    private void ToolCard_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (sender is not Border card) return;
+        if (TryGetThemeBrush("Blue", out var brush))
+            card.BorderBrush = brush;
+        SetToolCardHoverWash(card, visible: true);
+    }
+
+    private void ToolCard_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is not Border card) return;
+        if (TryGetThemeBrush("Line", out var brush))
+            card.BorderBrush = brush;
+        SetToolCardHoverWash(card, visible: false);
+    }
+
+    private bool TryGetThemeBrush(string key, out IBrush brush)
+    {
+        if (Application.Current?.TryGetResource(key, ActualThemeVariant, out var res) == true
+            && res is IBrush b)
+        {
+            brush = b;
+            return true;
+        }
+
+        brush = Brushes.Transparent;
+        return false;
+    }
+
+    private static void SetToolCardHoverWash(Border card, bool visible)
+    {
+        if (card.Child is not Panel panel) return;
+        foreach (var child in panel.Children)
+        {
+            if (child is Border wash && wash.Classes.Contains("toolCardHoverWash"))
+                wash.IsVisible = visible;
+        }
+    }
+
+    private void ToolCardMore_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control fe) return;
+        var row = fe.DataContext as ToolCardRow;
+        if (row == null)
+        {
+            for (var p = fe.Parent; p != null; p = p.Parent)
+            {
+                if (p is Control { Tag: ToolCardRow r })
+                {
+                    row = r;
+                    break;
+                }
+            }
+        }
+
+        if (row == null) return;
+        OpenToolCardMenu(fe, row);
+        e.Handled = true;
+    }
+
+    private void OpenToolCardMenu(Control? anchor, ToolCardRow row)
+    {
+        var menu = new ContextMenu();
+        if (!row.IsInstalled)
+        {
+            var install = new MenuItem { Header = Loc.T("Tool.Install") };
+            install.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+            menu.Items.Add(install);
+        }
+        else
+        {
+            if (row.CanStart)
+            {
+                var start = new MenuItem { Header = Loc.T("Tool.Start") };
+                start.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+                menu.Items.Add(start);
+            }
+
+            if (row.IsRunning)
+            {
+                var stop = new MenuItem { Header = Loc.T("Tool.Stop") };
+                stop.Click += async (_, _) => await HandleToolActionAsync(row, primary: true, fromMenu: true);
+                menu.Items.Add(stop);
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (row.CanConsume)
+                {
+                    var test = new MenuItem { Header = Loc.T("Tool.Test") };
+                    test.Click += async (_, _) => await OpenSharedDevicesTestAsync();
+                    menu.Items.Add(test);
+                }
+
+                if (row.CanProvide)
+                {
+                    var manage = new MenuItem { Header = Loc.T("Tool.Manage") };
+                    manage.Click += async (_, _) => await OpenSharedDevicesManageAsync();
+                    menu.Items.Add(manage);
+                }
+            }
+
+            var uninstall = new MenuItem { Header = Loc.T("Tool.Uninstall") };
+            uninstall.Click += async (_, _) => await HandleToolActionAsync(row, primary: false);
+            menu.Items.Add(uninstall);
+        }
+
+        menu.Open(anchor);
+    }
+
+    private async Task OpenSharedDevicesTestAsync()
+    {
+        var win = new SharedDevicesTestWindow();
+        await win.ShowDialog(this);
+    }
+
+    private async Task OpenSharedDevicesManageAsync()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null) return;
+        var win = new SharedDevicesManageWindow(sd);
+        await win.ShowDialog(this);
+    }
+
+    private async Task HandleToolActionAsync(ToolCardRow row, bool primary, bool fromMenu = false)
+    {
+        try
+        {
+            if (!row.IsInstalled && primary)
+            {
+                if (row.IsInstalling) return;
+                var r = await ToolService.Instance.InstallAsync(row.Id);
+                StatusText.Text = r.Message;
+                RefreshToolsPage();
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu)
+                    {
+                        // 目录页再次点卡片 → 跳回已打开的工作区
+                        ToolService.Instance.OpenColorPickerWorkspace();
+                        RefreshToolsPage();
+                        return;
+                    }
+
+                    ToolService.Instance.StopColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    ToolService.Instance.OpenColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu) return; // 仅 ⋯ 菜单可停止
+                    var sd = ToolService.Instance.SharedDevices;
+                    if (sd != null) await sd.StopAsync();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    await StartSharedDevicesAsync();
+                    return;
+                }
+
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
+                return;
+            }
+
+            if (!primary && row.IsInstalled)
+            {
+                var ur = await ToolService.Instance.UninstallAsync(row.Id);
+                StatusText.Text = ur.Message;
+                RefreshToolsPage();
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
+    }
+
+    private async Task StartSharedDevicesAsync()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null)
+        {
+            StatusText.Text = "共享设备服务未就绪";
+            return;
+        }
+
+        var targets = sd.ListApplicantTargets()
+            .Where(t => t.CanProvide)
+            .Select(t => t.PeerName)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            StatusText.Text = Loc.T("Tool.SharedDevices.NoTargets");
+            return;
+        }
+
+        // Desktop：简化为第一台可用目标 + 三路全选；完整勾选面板后续对齐 Win 对话框
+        var peer = targets[0];
+        var kinds = SharedDeviceKinds.All;
+        var (ok, message) = await sd.StartRequestAsync(peer, kinds);
+        StatusText.Text = message;
+        if (!ok) return;
+        RefreshToolsPage();
+    }
+
+    private void OnSharedDevicesIncomingRequest(SharedDevicesIncomingRequest req)
+    {
+        Dispatcher.UIThread.Post(async () =>
+        {
+            var sd = ToolService.Instance.SharedDevices;
+            if (sd == null) return;
+            var win = new SharedDevicesIncomingWindow(sd, req);
+            var ok = await win.ShowDialog<bool?>(this) == true && win.Accepted;
+            if (!ok)
+                await sd.RejectIncomingAsync(req);
+            else
+                await sd.AcceptIncomingAsync(req, remember: win.Remember, deviceIds: win.SelectedDevices);
+            RefreshToolsPage();
+        });
     }
 
     private IEnumerable<UserProgram> SelectedPrograms()

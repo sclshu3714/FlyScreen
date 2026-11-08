@@ -8,6 +8,7 @@ namespace FlyScreen.Services.Network;
 public static class LocalPeerIdentity
 {
     private static string[]? _capsOverride;
+    private static string[]? _extraCaps;
     private static string? _machineNameOverride;
     private static string? _resolvedMachineName;
     private static Func<string?>? _machineNameResolver;
@@ -46,7 +47,7 @@ public static class LocalPeerIdentity
     }
     public static string AppVersion => Helpers.AppVersionDisplay.Current;
 
-    public static string[] Caps => _capsOverride ?? DefaultCapsForPlatform();
+    public static string[] Caps => MergeCaps(_capsOverride ?? DefaultCapsForPlatform(), _extraCaps);
 
     public static void Configure(
         string? platform = null,
@@ -64,6 +65,31 @@ public static class LocalPeerIdentity
             _machineNameOverride = machineName.Trim();
             _resolvedMachineName = null;
         }
+    }
+
+    /// <summary>合并已安装工具等附加 Caps（不覆盖平台基线；不进 BehaviorSync）。</summary>
+    public static void SetExtraCaps(IEnumerable<string>? caps)
+    {
+        if (caps == null)
+        {
+            _extraCaps = null;
+            return;
+        }
+
+        _extraCaps = caps
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (_extraCaps.Length == 0)
+            _extraCaps = null;
+    }
+
+    private static string[] MergeCaps(string[] baseline, string[]? extra)
+    {
+        if (extra == null || extra.Length == 0)
+            return baseline;
+        return baseline.Concat(extra).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     /// <summary>从设置覆盖本机名（空则恢复自动探测）。</summary>

@@ -38,6 +38,9 @@ public static class MauiThemeService
         Set("SubtleBg", dark ? "#1E293B" : "#F3F4F6");
         Set("MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set("ListBg", dark ? "#0B1220" : "#F9FAFB");
+        // 输入/下拉底：暗色用略浅于卡片的底，避免白块刺眼
+        Set("ControlBg", dark ? "#0B1220" : "#FFFFFF");
+        Set("ControlBorder", dark ? "#475569" : "#D1D5DB");
         Set("Primary", dark ? "#3B82F6" : "#2563EB");
         Set("ScrollThumb", dark ? "#64748B" : "#CBD5E1");
         Set("ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");

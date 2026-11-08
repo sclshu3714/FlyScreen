@@ -4,6 +4,8 @@
         xmlns:net="using:FlyScreen.Services.Network"
         xmlns:diag="using:FlyScreen.Services"
         xmlns:prog="using:FlyScreen.Services.Programs"
+        xmlns:tools="using:FlyScreen.Services.Tools"
+        xmlns:helpers="using:FlyScreen.DesktopUi.Helpers"
         xmlns:local="using:FlyScreen.DesktopUi"
         x:Class="FlyScreen.DesktopUi.MainWindow"
         Title="玄鸟"
@@ -478,6 +480,14 @@
               <TextBlock x:Name="NavProgramsText" Classes="nav-label" Text="程序"/>
             </StackPanel>
           </RadioButton>
+          <RadioButton x:Name="NavTools" Classes="nav" GroupName="SideNav" IsCheckedChanged="Nav_Changed">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Viewbox Classes="nav-icon">
+                <Path Fill="#8B5CF6" Data="{StaticResource GeoAdvanced}"/>
+              </Viewbox>
+              <TextBlock x:Name="NavToolsText" Classes="nav-label" Text="工具"/>
+            </StackPanel>
+          </RadioButton>
           <Border Height="1" Background="{DynamicResource Line}" Margin="16,10,16,6"/>
           <RadioButton x:Name="NavLog" Classes="nav" GroupName="SideNav" IsCheckedChanged="Nav_Changed">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -519,7 +529,9 @@
 
     <!-- 主区：可滚动内容 / 底栏按钮固定（页签已并入左侧导航） -->
     <Grid Grid.Column="1" Margin="20,16" RowDefinitions="*,Auto">
-      <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+      <!-- 工具页单独铺满高度，避免外层滚动把预览区一起卷走 -->
+      <Grid Grid.Row="0">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                     BringIntoViewOnFocusChange="False">
         <Panel MinHeight="420">
           <!-- 安全（独立页）：生成密钥在标题工具栏，输入框窄屏不被挤裁 -->
@@ -1111,6 +1123,101 @@
           </Grid>
         </Panel>
       </ScrollViewer>
+
+          <!-- 工具（目录卡片 + 内嵌工作区）：铺满主区高度，工作区内再滚动 -->
+          <Grid x:Name="PageTools" IsVisible="False">
+            <Border Classes="card" Padding="16">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,10">
+                  <StackPanel Orientation="Horizontal" Spacing="0">
+                    <TextBlock x:Name="ToolsTitleText" Text="工具" FontSize="15" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                    <StackPanel x:Name="ToolsWorkspaceNavPanel" Orientation="Horizontal" Spacing="0"
+                                VerticalAlignment="Center"/>
+                  </StackPanel>
+                  <TextBlock x:Name="ToolsHintText" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Panel>
+                <ScrollViewer x:Name="ToolsCatalogHost" HorizontalScrollBarVisibility="Disabled"
+                              SizeChanged="ToolsCatalogHost_SizeChanged">
+                  <ItemsControl x:Name="ToolsList">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Columns="2"/>
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="tools:ToolCardRow" x:CompileBindings="False">
+                        <Border Height="104" Margin="6" Cursor="Hand" CornerRadius="10"
+                                HorizontalAlignment="Stretch"
+                                BorderBrush="{DynamicResource Line}" BorderThickness="1" ClipToBounds="True"
+                                Background="{Binding VisualState, Converter={x:Static local:ToolCardBgConverter.Instance}}"
+                                PointerPressed="ToolCard_PointerPressed"
+                                PointerEntered="ToolCard_PointerEntered"
+                                PointerExited="ToolCard_PointerExited"
+                                Tag="{Binding}">
+                          <Panel>
+                            <Border Background="#93C5FD" Opacity="0.55"
+                                    IsVisible="{Binding IsInstalling}" RenderTransformOrigin="0,0.5">
+                              <Border.RenderTransform>
+                                <ScaleTransform ScaleX="{Binding InstallProgressRatio}"/>
+                              </Border.RenderTransform>
+                            </Border>
+                            <Border Classes="toolCardHoverWash" Background="{DynamicResource BlueHover}"
+                                    Opacity="0.32" IsVisible="False" IsHitTestVisible="False" CornerRadius="10"/>
+                            <Grid Margin="12,10,8,10" ColumnDefinitions="48,*,28">
+                              <Border Width="48" Height="48" CornerRadius="10" VerticalAlignment="Center"
+                                      BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                      Background="{DynamicResource SubtleBg}">
+                                <Panel>
+                                  <Image Width="36" Height="36" Stretch="Uniform"
+                                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                                         Source="{x:Static helpers:ToolCardIcons.ColorPicker}"
+                                         IsVisible="{Binding Id, Converter={x:Static helpers:IsColorPickerToolConverter.Instance}}"/>
+                                  <Viewbox Width="36" Height="36" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           IsVisible="{Binding Id, Converter={x:Static helpers:IsColorPickerToolConverter.NotInstance}}">
+                                    <Canvas Width="24" Height="24">
+                                      <Path Stroke="{DynamicResource Text}" StrokeThickness="1.4" Fill="Transparent"
+                                            StrokeJoin="Round"
+                                            Data="M2,6.3H5.2L6,4.9H10L10.8,6.3H14V11.8H2ZM8,7.6A1.9,1.9 0 0,0 6.1,9.5A1.9,1.9 0 0,0 8,11.4A1.9,1.9 0 0,0 9.9,9.5A1.9,1.9 0 0,0 8,7.6M16.4,3.2A1.9,2.5 0 0,1 20.2,3.2V8A1.9,2.5 0 0,1 16.4,8ZM18.3,10.3V12M15.2,8.6C16.5,10.3 20.1,10.3 21.4,8.6M15.4,12H21.2M2.2,15.4H5.2L9.2,12.8V21.2L5.2,18.6H2.2ZM10.5,14.6C11.8,16 11.8,19.2 10.5,20.6M12.4,13.4C14.4,15.4 14.4,19.8 12.4,21.8M16.8,14.2L20.2,16.2M16.8,20.2L20.2,16.2"/>
+                                      <Path Fill="#F59E0B"
+                                            Data="M16.5,13A1.15,1.15 0 0,0 15.35,14.15A1.15,1.15 0 0,0 16.5,15.3A1.15,1.15 0 0,0 17.65,14.15A1.15,1.15 0 0,0 16.5,13M21,15.05A1.15,1.15 0 0,0 19.85,16.2A1.15,1.15 0 0,0 21,17.35A1.15,1.15 0 0,0 22.15,16.2A1.15,1.15 0 0,0 21,15.05M16.5,19A1.15,1.15 0 0,0 15.35,20.15A1.15,1.15 0 0,0 16.5,21.3A1.15,1.15 0 0,0 17.65,20.15A1.15,1.15 0 0,0 16.5,19Z"/>
+                                    </Canvas>
+                                  </Viewbox>
+                                </Panel>
+                              </Border>
+                              <StackPanel Grid.Column="1" Margin="12,0,6,0" VerticalAlignment="Center" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                  <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{DynamicResource Muted}"
+                                             VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding Summary}" FontSize="12" Foreground="{DynamicResource Muted}"
+                                           TextWrapping="Wrap" MaxHeight="40" TextTrimming="CharacterEllipsis"/>
+                              </StackPanel>
+                              <Button Grid.Column="2" Content="⋯" Width="28" Height="28"
+                                      VerticalAlignment="Top" HorizontalAlignment="Right"
+                                      FontSize="16" FontWeight="Bold" Padding="0"
+                                      Background="Transparent" BorderThickness="0"
+                                      Foreground="{DynamicResource Muted}"
+                                      ToolTip.Tip="更多操作"
+                                      Click="ToolCardMore_Click"/>
+                            </Grid>
+                          </Panel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+                <ContentControl x:Name="ToolsWorkspaceHost" IsVisible="False"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                </Panel>
+              </DockPanel>
+            </Border>
+          </Grid>
+      </Grid>
 
       <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0"
                   Spacing="0" VerticalAlignment="Center" Height="40">

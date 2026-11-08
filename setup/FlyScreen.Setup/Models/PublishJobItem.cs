@@ -105,19 +105,21 @@ public sealed class PublishJobItem : INotifyPropertyChanged
 
     public bool CanDelete => true;
 
-    /// <summary>失败或已取消的任务可重试。</summary>
-    public bool CanRetry => Status is PublishJobStatus.Failed or PublishJobStatus.Cancelled;
+    /// <summary>已完成 / 失败 / 已取消的任务可在原队列项上重新打包。</summary>
+    public bool CanRetry => Status is PublishJobStatus.Completed
+        or PublishJobStatus.Failed
+        or PublishJobStatus.Cancelled;
 
-    /// <summary>重置为等待态并换新取消令牌，保留历史日志。</summary>
+    /// <summary>重置为等待态并换新取消令牌，保留历史日志；不新增队列项。</summary>
     public void PrepareRetry()
     {
         try { _cts.Dispose(); }
         catch { /* ignore */ }
         _cts = new CancellationTokenSource();
         Percent = 0;
-        Message = "等待重试";
+        Message = "等待重新打包";
         Status = PublishJobStatus.Waiting;
-        AppendLog("已重新加入队列，等待执行…", SetupLogLevel.Info);
+        AppendLog("已在原任务上重新排队，等待执行…", SetupLogLevel.Info);
     }
 
     public void AppendLog(string message, SetupLogLevel? level = null)

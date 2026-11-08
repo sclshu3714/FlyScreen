@@ -93,6 +93,12 @@ public sealed class MacAppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
+        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        sharedDevices.AttachHardware(FlyScreen.Services.Tools.SharedDevices.DefaultSharedDevicesHardware.Instance);
+        sharedDevices.StatusMessage += msg =>
+        {
+            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
+        };
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, DesktopDirectory);
