@@ -1,5 +1,6 @@
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
+using FlyScreen.Services.Tools.ColorPicker;
 using FlyScreen.Services.Tools.SharedDevices;
 
 namespace FlyScreen.Services.Tools;
@@ -12,9 +13,11 @@ public sealed class ToolService
     public ToolCatalog Catalog { get; }
     public ToolInstaller Installer { get; }
     public ToolInstallProgress InstallProgress { get; }
+    public ToolWorkspace Workspace { get; } = new();
 
     private readonly object _gate = new();
     private SharedDevicesService? _sharedDevices;
+    private ColorPickerService? _colorPicker;
 
     private ToolService()
     {
@@ -28,6 +31,18 @@ public sealed class ToolService
         get
         {
             lock (_gate) return _sharedDevices;
+        }
+    }
+
+    public ColorPickerService ColorPicker
+    {
+        get
+        {
+            lock (_gate)
+            {
+                _colorPicker ??= new ColorPickerService();
+                return _colorPicker;
+            }
         }
     }
 
@@ -50,6 +65,11 @@ public sealed class ToolService
         }
     }
 
+    public void AttachColorSampler(IScreenColorSampler sampler)
+    {
+        ColorPicker.Sampler = sampler;
+    }
+
     public ToolInstallResult Install(string toolId)
         => Installer.InstallBundled(toolId);
 
@@ -65,6 +85,28 @@ public sealed class ToolService
                 await sd.StopAsync("uninstall").ConfigureAwait(false);
         }
 
+        if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+        {
+            ColorPicker.Stop();
+            Workspace.Close(ToolIds.ColorPicker);
+        }
+
         return Installer.Uninstall(toolId);
+    }
+
+    public void OpenColorPickerWorkspace()
+    {
+        var cp = ColorPicker;
+        if (!cp.IsRunning)
+            cp.Start();
+        var title = Helpers.Localization.Loc.T("Tool.ColorPicker.Name");
+        Workspace.OpenOrFocus(ToolIds.ColorPicker, title);
+    }
+
+    public void StopColorPickerWorkspace()
+    {
+        ColorPicker.CancelPicking();
+        ColorPicker.Stop();
+        Workspace.Close(ToolIds.ColorPicker);
     }
 }

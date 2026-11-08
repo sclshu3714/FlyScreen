@@ -8,7 +8,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using FlyScreen.Assets;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
@@ -78,6 +80,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        RegisterToolColorPickerIcon();
         ApplyWindowIcon();
         _host = AppHost.EnsureCreated();
         // 开机自启：先藏主窗再挂托盘，避免未渲染完的黑块闪一下/卡住
@@ -216,6 +219,28 @@ public partial class MainWindow : Window
             TitleBarLogo.Source = icon;
     }
 
+    private void RegisterToolColorPickerIcon()
+    {
+        try
+        {
+            using var stream = BrandAssets.Open(BrandAssets.ToolColorPickerJpg);
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            copy.Position = 0;
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.StreamSource = copy;
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
+            Resources["ToolColorPickerIcon"] = bmp;
+        }
+        catch
+        {
+            // 资源缺失时保留矢量回退（共享设备图）
+        }
+    }
+
     private void TitleMin_Click(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
@@ -271,6 +296,8 @@ public partial class MainWindow : Window
         ProgramService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshProgramsPage);
         ToolService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshToolsPage);
         ToolService.Instance.InstallProgress.Changed += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+        ToolService.Instance.Workspace.Changed += () => Dispatcher.BeginInvoke(RefreshToolsWorkspace);
+        ToolService.Instance.ColorPicker.SessionChanged += () => Dispatcher.BeginInvoke(RefreshToolsPage);
         var shared = ToolService.Instance.SharedDevices;
         if (shared != null)
         {
@@ -2684,15 +2711,154 @@ public partial class MainWindow : Window
     {
         if (ToolsList == null) return;
         var running = ToolService.Instance.SharedDevices?.IsRunning == true;
-        ToolsList.ItemsSource = ToolCardRows.Build(running);
+        var colorRunning = ToolService.Instance.ColorPicker.IsRunning;
+        ToolsList.ItemsSource = ToolCardRows.Build(running, colorRunning);
+        Dispatcher.BeginInvoke(ApplyToolsWrapColumns, System.Windows.Threading.DispatcherPriority.Loaded);
+        RefreshToolsWorkspace();
+    }
+
+    private void ToolsCatalogHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        => ApplyToolsWrapColumns();
+
+    /// <summary>桌面默认两列；更宽/全屏按宽度加列。</summary>
+    private void ApplyToolsWrapColumns()
+    {
+        if (ToolsCatalogHost == null || ToolsList == null) return;
+        var host = ToolsCatalogHost.ActualWidth;
+        if (host < 80) return;
+        const double minCardSlot = 240;
+        var byWidth = Math.Max(1, (int)Math.Floor(host / minCardSlot));
+        var cols = host >= 400 ? Math.Max(2, byWidth) : byWidth;
+        ToolsList.ApplyTemplate();
+        ToolsList.UpdateLayout();
+        var grid = FindVisualChild<UniformGrid>(ToolsList);
+        if (grid != null && grid.Columns != cols)
+            grid.Columns = cols;
+    }
+
+    private void RefreshToolsWorkspace()
+    {
+        if (ToolsWorkspaceNavPanel == null || ToolsCatalogHost == null || ToolsWorkspaceHost == null)
+            return;
+
+        var ws = ToolService.Instance.Workspace;
+        var hasTabs = ws.HasOpenTabs;
+        ToolsHintText.Visibility = hasTabs && !ws.IsShowingCatalog ? Visibility.Collapsed : Visibility.Visible;
+        ToolsTitleText.Visibility = hasTabs ? Visibility.Collapsed : Visibility.Visible;
+
+        ToolsWorkspaceNavPanel.Children.Clear();
+        if (hasTabs)
+        {
+            // 面包屑：工具 » 颜色拾取器 » …
+            ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(
+                Loc.T("Tool.Workspace.Catalog"), isActive: ws.IsShowingCatalog, toolId: null, showSep: false));
+            foreach (var tab in ws.OpenTabs)
+            {
+                var active = !ws.IsShowingCatalog
+                    && string.Equals(ws.ActiveToolId, tab.ToolId, StringComparison.OrdinalIgnoreCase);
+                ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(tab.Title, active, tab.ToolId, showSep: true));
+            }
+        }
+
+        if (ws.IsShowingCatalog || !hasTabs)
+        {
+            ToolsCatalogHost.Visibility = Visibility.Visible;
+            ToolsWorkspaceHost.Visibility = Visibility.Collapsed;
+            ToolsWorkspaceHost.Content = null;
+        }
+        else
+        {
+            ToolsCatalogHost.Visibility = Visibility.Collapsed;
+            ToolsWorkspaceHost.Visibility = Visibility.Visible;
+            if (string.Equals(ws.ActiveToolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            {
+                if (ToolsWorkspaceHost.Content is not ColorPickerPanel)
+                    ToolsWorkspaceHost.Content = new ColorPickerPanel();
+            }
+        }
+    }
+
+    private StackPanel CreateWorkspaceCrumb(string title, bool isActive, string? toolId, bool showSep)
+    {
+        var block = new StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = toolId ?? ""
+        };
+        if (showSep)
+        {
+            block.Children.Add(new TextBlock
+            {
+                Text = "»",
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("Muted"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 10, 0)
+            });
+        }
+
+        var link = new TextBlock
+        {
+            Text = title,
+            FontSize = 15,
+            FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
+            Foreground = isActive
+                ? (System.Windows.Media.Brush)FindResource("Blue")
+                : (System.Windows.Media.Brush)FindResource("Text"),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+            Tag = toolId ?? ""
+        };
+        link.MouseLeftButtonUp += WorkspaceNavChip_Click;
+        block.Children.Add(link);
+
+        if (toolId != null)
+        {
+            var close = new System.Windows.Controls.Button
+            {
+                Content = "×",
+                Style = (Style)FindResource("WorkspaceCloseBtn"),
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = toolId
+            };
+            close.Click += WorkspaceNavClose_Click;
+            block.Children.Add(close);
+        }
+
+        return block;
+    }
+
+    private void WorkspaceNavChip_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        if (e.OriginalSource is System.Windows.Controls.Button) return;
+        var id = fe.Tag as string;
+        if (string.IsNullOrEmpty(id))
+            ToolService.Instance.Workspace.ShowCatalog();
+        else
+            ToolService.Instance.Workspace.Activate(id);
+        e.Handled = true;
+    }
+
+    private void WorkspaceNavClose_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string toolId }) return;
+        if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            ToolService.Instance.StopColorPickerWorkspace();
+        else
+            ToolService.Instance.Workspace.Close(toolId);
+        RefreshToolsPage();
     }
 
     private async void ToolCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: ToolCardRow row }) return;
-        // 单击主操作（安装 / 启动）；运行中不停止，避免误触
+        // 单击主操作（安装 / 启动）；已打开则跳转工作区，不点停
         if (e.ClickCount != 1) return;
-        if (row.IsRunning) return;
         await HandleToolActionAsync(row, primary: true);
     }
 
@@ -2809,6 +2975,40 @@ public partial class MainWindow : Window
                 if (!r.Success)
                     MessageBox.Show(this, r.Message, Loc.T("Tool.Install"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 RefreshToolsPage();
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu)
+                    {
+                        // 目录页再次点卡片 → 跳回已打开的工作区
+                        ToolService.Instance.OpenColorPickerWorkspace();
+                        RefreshToolsPage();
+                        return;
+                    }
+
+                    ToolService.Instance.StopColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    ToolService.Instance.OpenColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
                 return;
             }
 

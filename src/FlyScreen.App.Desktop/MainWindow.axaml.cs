@@ -18,6 +18,7 @@ using Avalonia.VisualTree;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
+using FlyScreen.DesktopUi.Tools;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
@@ -491,8 +492,11 @@ public partial class MainWindow : Window
         ApplyLayoutGrid();
 
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
+        ToolService.Instance.AttachColorSampler(new DesktopScreenColorSampler());
         ToolService.Instance.Catalog.Changed += () => Dispatcher.UIThread.Post(RefreshToolsPage);
         ToolService.Instance.InstallProgress.Changed += () => Dispatcher.UIThread.Post(RefreshToolsPage);
+        ToolService.Instance.Workspace.Changed += () => Dispatcher.UIThread.Post(RefreshToolsWorkspace);
+        ToolService.Instance.ColorPicker.SessionChanged += () => Dispatcher.UIThread.Post(RefreshToolsPage);
         var sharedDevices = ToolService.Instance.SharedDevices;
         if (sharedDevices != null)
         {
@@ -1160,7 +1164,165 @@ public partial class MainWindow : Window
     {
         if (ToolsList == null) return;
         var running = ToolService.Instance.SharedDevices?.IsRunning == true;
-        ToolsList.ItemsSource = ToolCardRows.Build(running);
+        var colorRunning = ToolService.Instance.ColorPicker.IsRunning;
+        ToolsList.ItemsSource = ToolCardRows.Build(running, colorRunning);
+        Dispatcher.UIThread.Post(ApplyToolsWrapColumns, DispatcherPriority.Loaded);
+        RefreshToolsWorkspace();
+    }
+
+    private void ToolsCatalogHost_SizeChanged(object? sender, SizeChangedEventArgs e)
+        => ApplyToolsWrapColumns();
+
+    /// <summary>桌面默认两列；更宽/全屏按宽度加列。</summary>
+    private void ApplyToolsWrapColumns()
+    {
+        if (ToolsCatalogHost == null || ToolsList == null) return;
+        var host = ToolsCatalogHost.Bounds.Width;
+        if (host < 80) return;
+        const double minCardSlot = 240;
+        var byWidth = Math.Max(1, (int)Math.Floor(host / minCardSlot));
+        var cols = host >= 400 ? Math.Max(2, byWidth) : byWidth;
+        var grid = ToolsList.GetVisualDescendants().OfType<UniformGrid>().FirstOrDefault();
+        if (grid != null && grid.Columns != cols)
+            grid.Columns = cols;
+    }
+
+    private void RefreshToolsWorkspace()
+    {
+        if (ToolsWorkspaceNavPanel == null || ToolsCatalogHost == null || ToolsWorkspaceHost == null)
+            return;
+
+        var ws = ToolService.Instance.Workspace;
+        var hasTabs = ws.HasOpenTabs;
+        ToolsHintText.IsVisible = !hasTabs || ws.IsShowingCatalog;
+        ToolsTitleText.IsVisible = !hasTabs;
+
+        ToolsWorkspaceNavPanel.Children.Clear();
+        if (hasTabs)
+        {
+            ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(
+                Loc.T("Tool.Workspace.Catalog"), ws.IsShowingCatalog, null, showSep: false));
+            foreach (var tab in ws.OpenTabs)
+            {
+                var active = !ws.IsShowingCatalog
+                    && string.Equals(ws.ActiveToolId, tab.ToolId, StringComparison.OrdinalIgnoreCase);
+                ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(tab.Title, active, tab.ToolId, showSep: true));
+            }
+        }
+
+        if (ws.IsShowingCatalog || !hasTabs)
+        {
+            ToolsCatalogHost.IsVisible = true;
+            ToolsWorkspaceHost.IsVisible = false;
+            ToolsWorkspaceHost.Content = null;
+        }
+        else
+        {
+            ToolsCatalogHost.IsVisible = false;
+            ToolsWorkspaceHost.IsVisible = true;
+            if (string.Equals(ws.ActiveToolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase)
+                && ToolsWorkspaceHost.Content is not ColorPickerPanel)
+                ToolsWorkspaceHost.Content = new ColorPickerPanel();
+        }
+    }
+
+    private Control CreateWorkspaceCrumb(string title, bool isActive, string? toolId, bool showSep)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = toolId ?? ""
+        };
+        if (showSep)
+        {
+            var sep = new TextBlock
+            {
+                Text = "»",
+                FontSize = 15,
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0)
+            };
+            if (TryGetThemeBrush("Muted", out var muted)) sep.Foreground = muted;
+            row.Children.Add(sep);
+        }
+
+        var link = new TextBlock
+        {
+            Text = title,
+            FontSize = 15,
+            FontWeight = isActive ? FontWeight.SemiBold : FontWeight.Normal,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+            Tag = toolId ?? ""
+        };
+        if (TryGetThemeBrush(isActive ? "Blue" : "Text", out var fg)) link.Foreground = fg;
+        link.PointerReleased += WorkspaceNavChip_Click;
+        row.Children.Add(link);
+
+        if (toolId != null)
+        {
+            var close = new Button
+            {
+                Content = "×",
+                Width = 22,
+                Height = 22,
+                Margin = new Thickness(8, 0, 0, 0),
+                Padding = new Thickness(0),
+                FontSize = 13,
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = toolId
+            };
+            if (TryGetThemeBrush("Muted", out var closeFg)) close.Foreground = closeFg;
+            if (TryGetThemeBrush("Line", out var closeLine)) close.BorderBrush = closeLine;
+            close.BorderThickness = new Thickness(1);
+            close.Background = Brushes.Transparent;
+            close.PointerEntered += (_, _) =>
+            {
+                if (TryGetThemeBrush("BlueSoft", out var bg)) close.Background = bg;
+                if (TryGetThemeBrush("Blue", out var blue))
+                {
+                    close.Foreground = blue;
+                    close.BorderBrush = blue;
+                }
+            };
+            close.PointerExited += (_, _) =>
+            {
+                close.Background = Brushes.Transparent;
+                if (TryGetThemeBrush("Muted", out var fg)) close.Foreground = fg;
+                if (TryGetThemeBrush("Line", out var line)) close.BorderBrush = line;
+            };
+            close.Click += WorkspaceNavClose_Click;
+            row.Children.Add(close);
+        }
+
+        return row;
+    }
+
+    private void WorkspaceNavChip_Click(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is not Control fe) return;
+        if (e.Source is Button) return;
+        var id = fe.Tag as string;
+        if (string.IsNullOrEmpty(id))
+            ToolService.Instance.Workspace.ShowCatalog();
+        else
+            ToolService.Instance.Workspace.Activate(id);
+        e.Handled = true;
+    }
+
+    private void WorkspaceNavClose_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: string toolId }) return;
+        if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            ToolService.Instance.StopColorPickerWorkspace();
+        else
+            ToolService.Instance.Workspace.Close(toolId);
+        RefreshToolsPage();
     }
 
     private async void ToolCard_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -1173,7 +1335,7 @@ public partial class MainWindow : Window
         var props = e.GetCurrentPoint(sender as Visual).Properties;
         if (props.IsLeftButtonPressed)
         {
-            if (row.IsRunning) return; // 运行中不点停，避免误触；停止走 ⋯ 菜单
+            // 已打开则跳转工作区；停止仍走 ⋯ 菜单
             await HandleToolActionAsync(row, primary: true);
             e.Handled = true;
         }
@@ -1313,6 +1475,40 @@ public partial class MainWindow : Window
                 var r = await ToolService.Instance.InstallAsync(row.Id);
                 StatusText.Text = r.Message;
                 RefreshToolsPage();
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu)
+                    {
+                        // 目录页再次点卡片 → 跳回已打开的工作区
+                        ToolService.Instance.OpenColorPickerWorkspace();
+                        RefreshToolsPage();
+                        return;
+                    }
+
+                    ToolService.Instance.StopColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    ToolService.Instance.OpenColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
                 return;
             }
 

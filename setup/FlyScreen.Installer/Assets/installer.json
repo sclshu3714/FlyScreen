@@ -1,11 +1,11 @@
 {
   "ProductName": "\u7384\u9E1F",
   "PublisherName": "\u7384\u9E1F",
-  "Version": "1.0.8",
+  "Version": "1.0.9",
   "ExeName": "FlyScreen.exe",
   "DefaultInstallDir": "C:\\Program Files\\XuanNiao",
   "LicenseUrl": "https://github.com/sclshu3714/FlyScreen",
-  "RequiredBytes": 176897355,
+  "RequiredBytes": 177043087,
   "CreateDesktopShortcut": true,
   "CreateStartMenuShortcut": true,
   "CarouselImages": [

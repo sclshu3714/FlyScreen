@@ -226,7 +226,30 @@ public sealed class ToolCatalog
                 Roles = ["request", "authorize"],
                 CapNames = [PeerCaps.ToolSharedDevices],
                 TitleBar = false,
+                HasWorkspace = false,
                 Permissions = ["camera", "microphone", "speaker", "virtualAudio", "peerNetwork"],
+                PackageVersion = "1.0.0"
+            },
+            new ToolManifest
+            {
+                Id = ToolIds.ColorPicker,
+                Kind = "enhancement",
+                CrossScreen = false,
+                Group = "utilities",
+                NameKey = "Tool.ColorPicker.Name",
+                SummaryKey = "Tool.ColorPicker.Summary",
+                SchemaVersion = 1,
+                DeviceClasses = ["Desktop"],
+                Platforms = ["Windows", "macOS", "Linux"],
+                FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desktop"] = ["local-pick"]
+                },
+                Roles = ["local"],
+                CapNames = [],
+                TitleBar = false,
+                HasWorkspace = true,
+                Permissions = ["screenSample"],
                 PackageVersion = "1.0.0"
             }
         ];

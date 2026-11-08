@@ -38,12 +38,15 @@ public sealed class ToolCardRow
     /// <summary>浅色主题卡片底色（Maui 等无 DynamicResource 触发器时用）。</summary>
     public string CardBgHex { get; init; } = "#F3F4F6";
     public string Tooltip { get; init; } = "";
+    /// <summary>启动后嵌入工具页工作区。</summary>
+    public bool HasWorkspace { get; init; }
 }
 
 public static class ToolCardRows
 {
     public static IReadOnlyList<ToolCardRow> Build(
         bool sharedDevicesRunning,
+        bool colorPickerRunning = false,
         ToolInstallProgress? progress = null)
     {
         progress ??= ToolService.Instance.InstallProgress;
@@ -52,7 +55,8 @@ public static class ToolCardRows
         {
             var installed = card.Status == ToolInstallStatus.Installed;
             var isShared = string.Equals(card.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase);
-            var isRunning = isShared && sharedDevicesRunning;
+            var isColor = string.Equals(card.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase);
+            var isRunning = (isShared && sharedDevicesRunning) || (isColor && colorPickerRunning);
             var isInstalling = progress.IsInstalling(card.Id);
             var percent = progress.GetPercent(card.Id);
 
@@ -90,7 +94,7 @@ public static class ToolCardRows
                 secondary = Loc.T("Tool.Uninstall");
                 secondaryEnabled = false;
             }
-            else if (isShared && card.CanConsume)
+            else if (isColor || (isShared && card.CanConsume))
             {
                 if (isRunning)
                 {
@@ -113,17 +117,6 @@ public static class ToolCardRows
                 secondaryEnabled = false;
             }
 
-            var tip = ToolCatalog.DisplayName(card.Manifest) + " · " + status;
-            if (isInstalling)
-                tip += " · " + Loc.T("Tool.TipInstalling");
-            else if (!installed)
-                tip += " · " + Loc.T("Tool.TipClickInstall");
-            else if (canStart)
-                tip += " · " + Loc.T("Tool.TipClickStart");
-            else if (isRunning)
-                tip += " · " + Loc.T("Tool.TipMenuStop");
-            tip += " · " + Loc.T("Tool.TipRightUninstall");
-
             rows.Add(new ToolCardRow
             {
                 Id = card.Id,
@@ -143,14 +136,14 @@ public static class ToolCardRows
                 InstallPercent = percent,
                 InstallProgressRatio = Math.Clamp(percent / 100.0, 0, 1),
                 VisualState = visualState,
+                HasWorkspace = card.Manifest.HasWorkspace,
                 CardBgHex = visualState switch
                 {
                     ToolVisualStates.Running => "#DBEAFE",
                     ToolVisualStates.Installed => "#ECFDF5",
                     ToolVisualStates.Installing => "#EFF6FF",
                     _ => "#F3F4F6"
-                },
-                Tooltip = tip
+                }
             });
         }
 

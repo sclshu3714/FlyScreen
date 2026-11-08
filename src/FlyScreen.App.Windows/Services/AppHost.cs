@@ -50,6 +50,7 @@ public sealed class AppHost : IAsyncDisposable
         var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
         sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
         sharedDevices.StatusMessage += PublishStatus;
+        FlyScreen.Services.Tools.ToolService.Instance.AttachColorSampler(new FlyScreen.Tools.WinScreenColorSampler());
         _sharedDevicesAudio = new SharedDevicesAudioBridge(
             sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
         Input = new InputRouter(Settings, Connections);

@@ -34,6 +34,8 @@ public sealed class ToolManifest
     public bool SupportsRepair { get; set; }
     public string[] CapNames { get; set; } = [];
     public bool TitleBar { get; set; }
+    /// <summary>启动后主界面嵌入工具页工作区（非独立弹窗）。</summary>
+    public bool HasWorkspace { get; set; }
     public string[] Permissions { get; set; } = [];
     public string PackageVersion { get; set; } = "1.0.0";
 }

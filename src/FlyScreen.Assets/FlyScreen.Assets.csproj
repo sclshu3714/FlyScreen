@@ -13,6 +13,7 @@
     Icons/app.ico         exe / 托盘 / 安装包图标
     Icons/appicon.png     Maui 图标与启动图（256，文件名须保持 appicon.png）
     Icons/appicon-64.png  标题栏与 Avalonia 小图
+    Icons/tool-color-picker.jpg  工具卡片：颜色拾取器（色环+滴管）
     Images/cursor.png     手机远程指针
     Installer/*.png       安装包轮播
   -->

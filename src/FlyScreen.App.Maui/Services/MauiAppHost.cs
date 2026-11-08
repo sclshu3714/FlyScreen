@@ -84,6 +84,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
         _sharedDevicesAudio = new SharedDevicesAudioBridge(
             sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        FlyScreen.Services.Tools.ToolService.Instance.AttachColorSampler(new FlyScreen.Tools.WinScreenColorSampler());
 #endif
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
