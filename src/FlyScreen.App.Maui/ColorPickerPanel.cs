@@ -43,11 +43,19 @@ public sealed class ColorPickerPanel : ContentView
         _pickBtn = new Button
         {
             Text = Loc.T("Tool.ColorPicker.Pick"),
-            BackgroundColor = blue,
-            TextColor = Colors.White,
             Padding = new Thickness(14, 8),
             HorizontalOptions = LayoutOptions.Start
         };
+        if (Application.Current?.Resources.TryGetValue("PrimaryBtn", out var pickStyle) == true
+            && pickStyle is Style primaryBtn)
+        {
+            _pickBtn.Style = primaryBtn;
+        }
+        else
+        {
+            _pickBtn.BackgroundColor = blue;
+            _pickBtn.TextColor = Colors.White;
+        }
         _pickBtn.Clicked += OnPickClicked;
         _formats = new VerticalStackLayout { Spacing = 6 };
         _status = new Label { FontSize = 12, TextColor = muted, Margin = new Thickness(0, 8, 0, 0) };
