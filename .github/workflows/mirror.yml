@@ -12,5 +12,5 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.GITEE_PRIVATE_KEY }}
           GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
         with:
-          source-repo: git@github.com:sclshu3714/FlyScreen.git
+          source-repo: https://github.com/sclshu3714/FlyScreen.git
           destination-repo: git@gitee.com:sclshu3714/FlyScreen.git
