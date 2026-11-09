@@ -20,22 +20,43 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
-          # 拉取 GitHub release 信息
+          # 获取GitHub Release信息
           release_info=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
           
           name=$(echo "$release_info" | jq -r '.name')
           body=$(echo "$release_info" | jq -r '.body')
           prerelease=$(echo "$release_info" | jq -r '.prerelease')
+          assets=$(echo "$release_info" | jq -c '.assets')
 
-          # 在Gitee创建发行版
-          gitee_resp=$(curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" \
+          # Gitee API：access_token 放到url参数
+          gitee_resp=$(curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases?access_token=$GITEE_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
-              "access_token": "'"$GITEE_TOKEN"'",
-              "tag_name": "'"$TAG"'",
+              "tag_name": "'"$(echo "$TAG" | sed 's/"/\\"/g')"'",
               "name": "'"$(echo "$name" | sed 's/"/\\"/g')"'",
               "body": "'"$(echo "$body" | sed 's/"/\\"/g')"'",
               "prerelease": '"$prerelease"'
             }')
           echo "$gitee_resp"
+          
+          # 检测是否创建成功
+          if echo "$gitee_resp" | jq -e '.id' >/dev/null; then
+            echo "✅ 发行版创建成功"
+            release_id=$(echo "$gitee_resp" | jq -r '.id')
+            # 循环上传附件
+            echo "$assets" | jq -r '.[] | @base64' | while read -r asset; do
+              _jq() { echo ${asset} | base64 -d | jq -r ${1}; }
+              asset_url=$(_jq '.browser_download_url')
+              asset_name=$(_jq '.name')
+              echo "📥 下载附件 $asset_name"
+              curl -sL "$asset_url" -o "$asset_name"
+              echo "📤 上传到Gitee发行版"
+              curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases/$release_id/attach_files?access_token=$GITEE_TOKEN" \
+                -F "file=@$asset_name"
+              rm -f "$asset_name"
+            done
+          else
+            echo "❌ 创建发行版失败"
+            exit 1
+          fi
