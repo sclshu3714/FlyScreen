@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -19,13 +21,73 @@ public sealed class GitHubReleaseClient
     public static string LatestApiUrl => $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
     public static string GiteeLatestApiUrl => $"https://gitee.com/api/v5/repos/{Owner}/{Repo}/releases/latest";
 
-    private static readonly HttpClient Http = CreateClient();
+    /// <summary>
+    /// Windows 宿主可注入 WinHttpHandler（走系统 DNS/WinINet 代理），须在首次检查更新前设置。
+    /// </summary>
+    public static Func<HttpMessageHandler>? MessageHandlerFactory { get; set; }
+
+    private static readonly Lazy<HttpClient> HttpLazy = new(CreateClient);
+    private static HttpClient Http => HttpLazy.Value;
 
     private static HttpClient CreateClient()
     {
-        var c = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        var handler = MessageHandlerFactory?.Invoke() ?? CreateSocketsHandler();
+        var c = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(30) };
         c.DefaultRequestHeaders.UserAgent.ParseAdd("XuanNiao-FlyScreen-Updater");
+        c.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate");
         return c;
+    }
+
+    private static SocketsHttpHandler CreateSocketsHandler()
+        => new()
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            ConnectTimeout = TimeSpan.FromSeconds(25),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            // Win10 上异步 DNS（GetAddrInfoExW）偶发「不知道这样的主机」；连接前回落同步解析并优先 IPv4
+            ConnectCallback = ConnectWithDnsFallbackAsync
+        };
+
+    private static async ValueTask<Stream> ConnectWithDnsFallbackAsync(
+        SocketsHttpConnectionContext context,
+        CancellationToken cancellationToken)
+    {
+        var host = context.DnsEndPoint.Host;
+        var port = context.DnsEndPoint.Port;
+
+        IPAddress[] addrs;
+        try
+        {
+            addrs = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            addrs = await Task.Run(() => Dns.GetHostAddresses(host), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (addrs.Length == 0)
+            throw new SocketException((int)SocketError.HostNotFound);
+
+        Exception? last = null;
+        foreach (var ip in addrs.OrderBy(static a => a.AddressFamily == AddressFamily.InterNetwork ? 0 : 1))
+        {
+            Socket? socket = null;
+            try
+            {
+                socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                await socket.ConnectAsync(new IPEndPoint(ip, port), cancellationToken)
+                    .ConfigureAwait(false);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                try { socket?.Dispose(); } catch { /* ignore */ }
+            }
+        }
+
+        throw last ?? new SocketException((int)SocketError.HostUnreachable);
     }
 
     public static Version GetLocalVersion(Assembly? assembly = null)
@@ -96,16 +158,51 @@ public sealed class GitHubReleaseClient
             var detail = githubError == null
                 ? ShortError(ex)
                 : $"GitHub：{ShortError(githubError)}；Gitee：{ShortError(ex)}";
-            return UpdateCheckResult.Fail(
-                "检查更新失败：" + detail + "\n也可手动访问：\n" + ReleasesUrl + "\n或\n" + GiteeReleasesUrl);
+            return UpdateCheckResult.Fail(FormatCheckFailure(detail));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             var detail = githubError == null
                 ? "连接 Gitee 超时"
                 : $"GitHub：{ShortError(githubError)}；Gitee：连接超时";
-            return UpdateCheckResult.Fail(
-                "检查更新失败：" + detail + "\n也可手动访问：\n" + ReleasesUrl + "\n或\n" + GiteeReleasesUrl);
+            return UpdateCheckResult.Fail(FormatCheckFailure(detail));
+        }
+    }
+
+    private static string FormatCheckFailure(string detail)
+    {
+        var msg = "检查更新失败：" + detail
+                  + "\n也可手动访问：\n" + ReleasesUrl + "\n或\n" + GiteeReleasesUrl;
+        if (LooksLikeDnsFailure(detail))
+        {
+            msg += "\n\n提示：若浏览器能打开上述地址而本程序不能，多为 DNS/代理问题。"
+                   + "可尝试：更换 DNS（如 223.5.5.5）、关闭代理/VPN 后再查，或用手机热点验证。";
+            var probe = ProbeDns("gitee.com");
+            if (probe != null)
+                msg += "\n本机解析 gitee.com：" + probe;
+        }
+
+        return msg;
+    }
+
+    private static bool LooksLikeDnsFailure(string detail)
+        => detail.Contains("不知道这样的主机", StringComparison.OrdinalIgnoreCase)
+           || detail.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+           || detail.Contains("Name or service not known", StringComparison.OrdinalIgnoreCase)
+           || detail.Contains("nodename nor servname", StringComparison.OrdinalIgnoreCase);
+
+    private static string? ProbeDns(string host)
+    {
+        try
+        {
+            var addrs = Dns.GetHostAddresses(host);
+            return addrs.Length == 0
+                ? "无结果"
+                : string.Join(", ", addrs.Select(a => a.ToString()).Take(4));
+        }
+        catch (Exception ex)
+        {
+            return "失败（" + ShortError(ex) + "）";
         }
     }
 

@@ -34,7 +34,7 @@ public sealed class AppSettings
     /// iOS：有子程序时发本地通知（无 FGS，不能强制保活）。
     /// </summary>
     public bool NotificationInject { get; set; }
-    /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
+    /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速 / 3 快捷键（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
     public int EdgeCrossMode { get; set; }
     /// <summary>最近一次投影目标机器名（弹窗默认项；须双向已连接的电脑/大屏）。</summary>
     public string ScreenExtendPeer { get; set; } = "";

@@ -566,7 +566,7 @@ public sealed class BehaviorSyncPayload
     public bool MoveMouseRelatively { get; set; }
     public bool BlockMouseAtCorners { get; set; }
     public bool EasyMouse { get; set; } = true;
-    /// <summary>0 无障碍 / 1 双击 / 2 极速。</summary>
+    /// <summary>0 无障碍 / 1 双击 / 2 极速 / 3 快捷键。</summary>
     public int EdgeCrossMode { get; set; }
 }
 

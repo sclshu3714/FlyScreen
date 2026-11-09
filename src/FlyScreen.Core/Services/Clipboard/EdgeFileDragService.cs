@@ -248,6 +248,7 @@ public sealed class EdgeFileDragService : IDisposable
                 {
                     1 => EdgeCrossMode.DoubleTap,
                     2 => EdgeCrossMode.SpeedBurst,
+                    3 => EdgeCrossMode.HotkeyOnly,
                     _ => EdgeCrossMode.BarrierFree
                 }
             };

@@ -2,6 +2,7 @@ using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers;
 using FlyScreen.Input;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.ScreenExtend;
@@ -91,6 +92,10 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         };
         _router.RequestShowUi += () => MainThread.BeginInvokeOnMainThread(ShowMainWindow);
         _router.Start();
+        if (!_router.HooksInstalled)
+        {
+            AppLog.Warn("Maui-Win 键鼠钩子未装上：轻松鼠标穿边不可用。请以管理员运行（清单已要求 requireAdministrator）。");
+        }
     }
 
     private static void ShowMainWindow()

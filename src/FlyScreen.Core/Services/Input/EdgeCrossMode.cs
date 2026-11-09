@@ -10,5 +10,8 @@ public enum EdgeCrossMode
     DoubleTap = 1,
 
     /// <summary>极速：从较远处高速撞边才穿边；缓慢贴边不穿。</summary>
-    SpeedBurst = 2
+    SpeedBurst = 2,
+
+    /// <summary>快捷键：鼠标不能穿边，仅可用切换机器快捷键换机。</summary>
+    HotkeyOnly = 3
 }

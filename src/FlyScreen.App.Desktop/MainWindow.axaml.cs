@@ -881,6 +881,7 @@ public partial class MainWindow : Window
         EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
         EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
         EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        EdgeCrossHotkeyRadio.Content = Loc.T("Opt.EdgeCross.HotkeyOnly");
         RefreshEdgeCrossTip();
     }
 
@@ -892,9 +893,10 @@ public partial class MainWindow : Window
 
     private void LoadEdgeCrossModeUi(int mode)
     {
-        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 3;
         EdgeCrossDoubleRadio.IsChecked = mode == 1;
         EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        EdgeCrossHotkeyRadio.IsChecked = mode == 3;
         RefreshEdgeCrossTip();
     }
 
@@ -902,6 +904,7 @@ public partial class MainWindow : Window
     {
         if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
         if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        if (EdgeCrossHotkeyRadio.IsChecked == true) return 3;
         return 0;
     }
 
@@ -915,6 +918,7 @@ public partial class MainWindow : Window
         {
             1 => "Tip.EdgeCross.DoubleTap",
             2 => "Tip.EdgeCross.SpeedBurst",
+            3 => "Tip.EdgeCross.HotkeyOnly",
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);
@@ -2928,6 +2932,9 @@ public partial class MainWindow : Window
             _dragHighlight.Classes.Remove("slot-drop-target");
             _dragHighlight = null;
         }
+
+        foreach (var s in _slots)
+            s.IsDropTarget = false;
     }
 
     private void UpdateDropHighlight(Point windowPos)
@@ -2941,6 +2948,8 @@ public partial class MainWindow : Window
         if (border == null) return;
         border.Classes.Add("slot-drop-target");
         _dragHighlight = border;
+        if (border.DataContext is MachineSlot slot)
+            slot.IsDropTarget = true;
     }
 
     private Border? HitTestSlotBorder(Point windowPos)

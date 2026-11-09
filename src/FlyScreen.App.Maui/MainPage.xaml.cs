@@ -27,6 +27,7 @@ public partial class MainPage : ContentPage
     private MachineSlot? _selected;
     private IDispatcherTimer? _statusTimer;
     private const string DragSlotKey = "FlyScreen.MachineSlot";
+    private MachineSlot? _nativeDragSource;
     private readonly MauiUpdateChecker _helpUpdater = new();
     private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
@@ -58,6 +59,7 @@ public partial class MainPage : ContentPage
     private bool _notifyInjectUpdating;
     private int _a11yRefreshGen;
     private bool _pageAlive = true;
+    private bool _optionsScrollHooked;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
     private Action<string>? _onStatusMessage;
@@ -78,6 +80,11 @@ public partial class MainPage : ContentPage
     private Border? _matrixTouchBorder;
     private Point _matrixTouchOrigin;
     private bool _matrixDragging;
+#if WINDOWS
+    /// <summary>主动结束指针捕获时忽略 CaptureLost，否则会把松手误判为取消。</summary>
+    private bool _matrixPointerEnding;
+    private Point _matrixLastPos;
+#endif
     private bool _matrixMoved;
     private const double PanDragThreshold = 12;
 
@@ -152,6 +159,8 @@ public partial class MainPage : ContentPage
         });
         _onLayoutSynced = _ => RunOnUi(() =>
         {
+            // LoadUi 会重建槽位对象，必须先丢掉进行中的拖拽引用
+            AbortMatrixDragVisual();
             LoadUi();
             ApplyLocalizedUi();
             RebuildMatrix();
@@ -410,6 +419,7 @@ public partial class MainPage : ContentPage
 
         ApplyLayoutActionsPlacement(compact);
         ApplyOptionsPlacement(compact);
+        EnsureOptionsScrollPolicy();
         ApplyProgToolbarLabels(iconOnly: compact || width < 560);
         ApplyLogToolbarLabels(iconOnly: compact || width < 720);
         ApplyXferToolbarLabels(iconOnly: compact || width < 640);
@@ -1193,6 +1203,7 @@ public partial class MainPage : ContentPage
         MauiRadioTheme.SetContent(EdgeCrossBarrierRadio, Loc.T("Opt.EdgeCross.BarrierFree"));
         MauiRadioTheme.SetContent(EdgeCrossDoubleRadio, Loc.T("Opt.EdgeCross.DoubleTap"));
         MauiRadioTheme.SetContent(EdgeCrossSpeedRadio, Loc.T("Opt.EdgeCross.SpeedBurst"));
+        MauiRadioTheme.SetContent(EdgeCrossHotkeyRadio, Loc.T("Opt.EdgeCross.HotkeyOnly"));
         RefreshEdgeCrossTip();
         WireNotifyInjectUi();
         SyncNotifyInjectCheck();
@@ -1293,6 +1304,14 @@ public partial class MainPage : ContentPage
 
     private void RebuildMatrix()
     {
+        var dragSlot = _matrixTouchSlot;
+        var dragging = _matrixDragging;
+#if WINDOWS
+        var dragPos = _matrixLastPos;
+#else
+        var dragPos = _matrixTouchOrigin;
+#endif
+
         // 与 Win UniformGrid 一致：1×4 或 2×2，卡片拉伸填满
         MachineMatrix.IsClippedToBounds = false;
         // 透明底也要能命中触摸（子卡片 InputTransparent 时事件落到矩阵）
@@ -1312,7 +1331,7 @@ public partial class MainPage : ContentPage
         {
             var slot = _slots[i];
             var border = CreateSlotCard(slot);
-            // 非 Win 原生拖放：卡片透明给矩阵，由矩阵级触摸完成拖拽（否则移出卡片边界就断）
+            // 非系统 DnD：卡片透明给矩阵，由矩阵级指针/触摸完成拖拽（否则移出卡片边界就断）
             if (!SupportsNativeDragDrop)
                 border.InputTransparent = true;
             Grid.SetRow(border, i / cols);
@@ -1321,32 +1340,146 @@ public partial class MainPage : ContentPage
         }
 
         EnsureMatrixDragInput();
+
+        // 状态刷新等路径重建矩阵时，把拖拽视觉挂回同一槽位的新卡片
+        if (dragSlot != null)
+            RestoreMatrixDragVisual(dragSlot, dragging, dragPos);
+    }
+
+    private void AbortMatrixDragVisual()
+    {
+        if (_matrixTouchBorder != null)
+        {
+            _matrixTouchBorder.TranslationX = 0;
+            _matrixTouchBorder.TranslationY = 0;
+            _matrixTouchBorder.Opacity = 1;
+            _matrixTouchBorder.ZIndex = 0;
+        }
+
+        ClearMatrixDropTargets();
+        _matrixTouchBorder = null;
+        _matrixTouchSlot = null;
+        _matrixDragging = false;
+        _matrixMoved = false;
+    }
+
+    private void ClearMatrixDropTargets()
+    {
+        foreach (var s in _slots)
+            s.IsDropTarget = false;
+        RefreshMatrixCardChrome();
+    }
+
+    private void UpdateMatrixDropHighlight(Point pos)
+    {
+        if (!_matrixDragging || _matrixTouchSlot == null)
+            return;
+
+        var target = HitTestSlotAt(pos);
+        if (target != null && ReferenceEquals(target, _matrixTouchSlot))
+            target = null;
+
+        var changed = false;
+        foreach (var s in _slots)
+        {
+            var on = target != null && ReferenceEquals(s, target);
+            if (s.IsDropTarget == on) continue;
+            s.IsDropTarget = on;
+            changed = true;
+        }
+
+        if (changed)
+            RefreshMatrixCardChrome(preserveDragVisual: true);
+    }
+
+    private void RefreshMatrixCardChrome(bool preserveDragVisual = false)
+    {
+        foreach (var child in MachineMatrix.Children.OfType<Border>())
+        {
+            if (child.BindingContext is not MachineSlot slot)
+                continue;
+            ApplySlotCardChrome(child, slot);
+        }
+
+        if (preserveDragVisual && _matrixDragging && _matrixTouchBorder != null)
+        {
+            _matrixTouchBorder.Opacity = 0.88;
+            _matrixTouchBorder.ZIndex = 100;
+        }
+    }
+
+    private static void ApplySlotCardChrome(Border border, MachineSlot slot)
+    {
+        var resources = Application.Current!.Resources;
+        if (slot.IsDropTarget)
+        {
+            border.StrokeThickness = 3;
+            border.Stroke = (Color)resources["Blue"];
+            border.BackgroundColor = (Color)resources["BlueSoft"];
+            border.Opacity = 1;
+            return;
+        }
+
+        if (slot.IsSelected)
+        {
+            border.StrokeThickness = 2;
+            border.Stroke = (Color)resources["Blue"];
+            border.BackgroundColor = (Color)resources["BlueHover"];
+            border.Opacity = 1;
+            return;
+        }
+
+        if (slot.IsLocal)
+        {
+            border.StrokeThickness = 2;
+            border.Stroke = (Color)resources["Success"];
+            border.BackgroundColor = resources.ContainsKey("SuccessSoft")
+                ? (Color)resources["SuccessSoft"]
+                : Color.FromArgb("#ECFDF5");
+            border.Opacity = slot.Enabled ? 1 : 0.9;
+            return;
+        }
+
+        border.StrokeThickness = 1;
+        border.Stroke = (Color)resources["Line"];
+        border.BackgroundColor = slot.Enabled
+            ? (Color)resources["CardBg"]
+            : (Color)resources["MatrixBg"];
+        border.Opacity = slot.Enabled ? 1 : 0.9;
+    }
+
+    private void RestoreMatrixDragVisual(MachineSlot slot, bool dragging, Point pos)
+    {
+        _matrixTouchSlot = slot;
+        _matrixTouchBorder = MachineMatrix.Children.OfType<Border>()
+            .FirstOrDefault(b => ReferenceEquals(b.BindingContext, slot));
+        _matrixDragging = dragging && _matrixTouchBorder != null;
+        if (_matrixTouchBorder == null || !_matrixDragging)
+            return;
+
+        var dx = pos.X - _matrixTouchOrigin.X;
+        var dy = pos.Y - _matrixTouchOrigin.Y;
+        _matrixTouchBorder.Opacity = 0.88;
+        _matrixTouchBorder.ZIndex = 100;
+        _matrixTouchBorder.TranslationX = dx;
+        _matrixTouchBorder.TranslationY = dy;
+        StatusLabel.Text = $"拖动 {slot.DisplayName}，放到目标格松开";
     }
 
     private Border CreateSlotCard(MachineSlot slot)
     {
-        var selected = slot.IsLocal || slot.IsSelected;
         // 与 Win 一致：默认 Margin=4；2×2 时 Margin=3；内边距由内容模板自身 Margin 承担
         var margin = _twoRow ? new Thickness(3) : new Thickness(4);
         var border = new Border
         {
             Margin = margin,
             Padding = 0,
-            StrokeThickness = selected ? 2 : 1,
-            Stroke = selected
-                ? (Color)Application.Current!.Resources["Blue"]
-                : (Color)Application.Current!.Resources["Line"],
-            BackgroundColor = selected
-                ? (Color)Application.Current!.Resources["BlueHover"]
-                : slot.Enabled
-                    ? (Color)Application.Current!.Resources["CardBg"]
-                    : (Color)Application.Current!.Resources["MatrixBg"],
             StrokeShape = new RoundRectangle { CornerRadius = 8 },
             HorizontalOptions = LayoutOptions.Fill,
             VerticalOptions = LayoutOptions.Fill,
-            Opacity = slot.Enabled || selected ? 1 : 0.9,
             BindingContext = slot
         };
+        ApplySlotCardChrome(border, slot);
 
         var statusColor = slot.IsLocal || slot.OutboundOk || slot.InboundOk
             ? (Color)Application.Current!.Resources["Success"]
@@ -1442,15 +1575,18 @@ public partial class MainPage : ContentPage
         return border;
     }
 
-    /// <summary>WinUI/MacCatalyst：原生拖放。Android/iOS：矩阵级触摸拖拽。</summary>
+    /// <summary>
+    /// 仅 MacCatalyst 用系统拖放。
+    /// WinUI 清单为 requireAdministrator（穿边钩子），提权进程下 OLE/WinUI DnD 会
+    /// 「Drag start failed… elevated process」灾难性故障，故与 Android/iOS 一样走矩阵指针拖拽。
+    /// </summary>
     private static bool SupportsNativeDragDrop =>
-        DeviceInfo.Platform == DevicePlatform.WinUI
-        || DeviceInfo.Platform == DevicePlatform.MacCatalyst;
+        DeviceInfo.Platform == DevicePlatform.MacCatalyst;
 
     private void AttachSlotGestures(Border border, MachineSlot slot)
     {
         if (!SupportsNativeDragDrop)
-            return; // 触摸端由 EnsureMatrixDragInput 统一处理
+            return; // Win / 触摸端由 EnsureMatrixDragInput 统一处理
 
         var tap = new TapGestureRecognizer();
         tap.Tapped += (_, _) => OnSlotTapped(slot);
@@ -1459,27 +1595,84 @@ public partial class MainPage : ContentPage
         var drag = new DragGestureRecognizer();
         drag.DragStarting += (_, e) =>
         {
-            e.Data.Properties[DragSlotKey] = slot;
+            var idx = _slots.IndexOf(slot);
+            if (idx < 0) return;
+            e.Data.Properties[DragSlotKey] = idx;
+            _nativeDragSource = slot;
             SelectSlotOnly(slot);
         };
         border.GestureRecognizers.Add(drag);
 
         var drop = new DropGestureRecognizer { AllowDrop = true };
-        drop.DragOver += (_, e) => e.AcceptedOperation = DataPackageOperation.Copy;
+        drop.DragOver += (_, e) =>
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            var src = _nativeDragSource;
+            var on = src != null && !ReferenceEquals(src, slot);
+            if (slot.IsDropTarget == on) return;
+            foreach (var s in _slots)
+                s.IsDropTarget = ReferenceEquals(s, slot) && on;
+            RefreshMatrixCardChrome();
+        };
+        drop.DragLeave += (_, _) =>
+        {
+            if (!slot.IsDropTarget) return;
+            slot.IsDropTarget = false;
+            ApplySlotCardChrome(border, slot);
+        };
         drop.Drop += (_, e) =>
         {
             e.Handled = true;
-            if (!e.Data.Properties.TryGetValue(DragSlotKey, out var obj) || obj is not MachineSlot src)
-                return;
-            if (ReferenceEquals(src, slot)) return;
+            try
+            {
+                if (!TryResolveDragSourceSlot(e.Data, out var src) || src == null)
+                    src = _nativeDragSource;
+                if (src == null || ReferenceEquals(src, slot)) return;
 
-            SwapSlotData(src, slot);
-            SyncSlotLocalFlags();
-            SelectSlotOnly(slot);
-            RebuildMatrix();
-            StatusLabel.Text = "已互换位置（请点「应用」同步）";
+                SwapSlotData(src, slot);
+                SyncSlotLocalFlags();
+                SelectSlotOnly(slot);
+                ClearMatrixDropTargets();
+                _nativeDragSource = null;
+                RebuildMatrix();
+                StatusLabel.Text = "已互换位置（请点「应用」同步）";
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("布局拖拽互换失败: " + ex.Message);
+            }
+            finally
+            {
+                _nativeDragSource = null;
+                ClearMatrixDropTargets();
+            }
         };
         border.GestureRecognizers.Add(drop);
+    }
+
+    private bool TryResolveDragSourceSlot(DataPackageView data, out MachineSlot? src)
+    {
+        src = null;
+        if (!data.Properties.TryGetValue(DragSlotKey, out var obj) || obj == null)
+            return false;
+
+        switch (obj)
+        {
+            case int idx when idx >= 0 && idx < _slots.Count:
+                src = _slots[idx];
+                return true;
+            case long l when l >= 0 && l < _slots.Count:
+                src = _slots[(int)l];
+                return true;
+            case MachineSlot slot:
+                src = slot;
+                return true;
+            case string s when int.TryParse(s, out var parsed) && parsed >= 0 && parsed < _slots.Count:
+                src = _slots[parsed];
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void EnsureMatrixDragInput()
@@ -1491,6 +1684,10 @@ public partial class MainPage : ContentPage
 #if ANDROID
         MachineMatrix.HandlerChanged += (_, _) => WireAndroidMatrixTouch();
         WireAndroidMatrixTouch();
+#elif WINDOWS
+        // 提权进程不能用 WinUI DnD；原生指针 + Capture，鼠标拖出卡片也不丢
+        MachineMatrix.HandlerChanged += (_, _) => WireWindowsMatrixPointer();
+        WireWindowsMatrixPointer();
 #else
         var pointer = new PointerGestureRecognizer();
         pointer.PointerPressed += (_, e) =>
@@ -1511,6 +1708,147 @@ public partial class MainPage : ContentPage
         MachineMatrix.GestureRecognizers.Add(pointer);
 #endif
     }
+
+#if WINDOWS
+    private void WireWindowsMatrixPointer()
+    {
+        if (MachineMatrix.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        native.PointerPressed -= OnWindowsMatrixPointerPressed;
+        native.PointerMoved -= OnWindowsMatrixPointerMoved;
+        native.PointerReleased -= OnWindowsMatrixPointerReleased;
+        native.PointerCanceled -= OnWindowsMatrixPointerCanceled;
+        native.PointerCaptureLost -= OnWindowsMatrixPointerCaptureLost;
+
+        native.PointerPressed += OnWindowsMatrixPointerPressed;
+        native.PointerMoved += OnWindowsMatrixPointerMoved;
+        native.PointerReleased += OnWindowsMatrixPointerReleased;
+        native.PointerCanceled += OnWindowsMatrixPointerCanceled;
+        native.PointerCaptureLost += OnWindowsMatrixPointerCaptureLost;
+    }
+
+    private static Point ToMatrixPoint(
+        Microsoft.UI.Xaml.FrameworkElement native,
+        Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var p = e.GetCurrentPoint(native).Position;
+        return new Point(p.X, p.Y);
+    }
+
+    /// <summary>以物理左键为准；WinUI 在捕获/钩子干扰下会冒虚假 Released。</summary>
+    private static bool IsPhysicalLeftButtonDown()
+        => (FlyScreen.Native.NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+
+    private void FinishWindowsMatrixDrag(
+        Microsoft.UI.Xaml.FrameworkElement native,
+        Microsoft.UI.Xaml.Input.Pointer pointer,
+        Point pos,
+        bool cancelled)
+    {
+        if (_matrixPointerEnding || _matrixTouchSlot == null)
+            return;
+
+        _matrixPointerEnding = true;
+        try
+        {
+            MatrixTouchEnded(pos, cancelled);
+            try { native.ReleasePointerCapture(pointer); } catch { /* ignore */ }
+        }
+        finally
+        {
+            _matrixPointerEnding = false;
+        }
+    }
+
+    private void OnWindowsMatrixPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (!e.GetCurrentPoint(native).Properties.IsLeftButtonPressed)
+            return;
+
+        native.CapturePointer(e.Pointer);
+        var pos = ToMatrixPoint(native, e);
+        _matrixLastPos = pos;
+        MatrixTouchBegan(pos);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_matrixTouchSlot == null)
+            return;
+
+        var pos = ToMatrixPoint(native, e);
+        _matrixLastPos = pos;
+
+        // Released 被吞时，在移动中发现物理键已抬起再提交
+        if (!IsPhysicalLeftButtonDown())
+        {
+            FinishWindowsMatrixDrag(native, e.Pointer, pos, cancelled: false);
+            e.Handled = true;
+            return;
+        }
+
+        MatrixTouchMoved(pos);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        // 拖拽途中的虚假 Released：物理左键仍按下则绝不提交互换
+        if (IsPhysicalLeftButtonDown())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var pos = ToMatrixPoint(native, e);
+        _matrixLastPos = pos;
+        FinishWindowsMatrixDrag(native, e.Pointer, pos, cancelled: false);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerCanceled(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        // 取消时若键仍按下，多半是捕获被抢，夺回后继续拖
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            e.Handled = true;
+            return;
+        }
+
+        FinishWindowsMatrixDrag(native, e.Pointer, ToMatrixPoint(native, e), cancelled: true);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerCaptureLost(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_matrixPointerEnding || _matrixTouchSlot == null)
+            return;
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            return;
+        }
+
+        // 键已松开但只收到 CaptureLost：按最后位置提交
+        FinishWindowsMatrixDrag(native, e.Pointer, _matrixLastPos, cancelled: false);
+    }
+#endif
 
 #if ANDROID
     private void WireAndroidMatrixTouch()
@@ -1569,8 +1907,17 @@ public partial class MainPage : ContentPage
 
     private void MatrixTouchMoved(Point pos)
     {
-        if (_matrixTouchSlot == null || _matrixTouchBorder == null)
+        if (_matrixTouchSlot == null)
             return;
+
+        // 定时 RebuildMatrix 会换掉 Border；按槽位重新挂上，避免拖影突然消失
+        if (_matrixTouchBorder?.Parent == null)
+        {
+            _matrixTouchBorder = MachineMatrix.Children.OfType<Border>()
+                .FirstOrDefault(b => ReferenceEquals(b.BindingContext, _matrixTouchSlot));
+            if (_matrixTouchBorder == null)
+                return;
+        }
 
         var dx = pos.X - _matrixTouchOrigin.X;
         var dy = pos.Y - _matrixTouchOrigin.Y;
@@ -1579,6 +1926,7 @@ public partial class MainPage : ContentPage
             _matrixDragging = true;
             _matrixMoved = true;
             SelectSlotOnly(_matrixTouchSlot);
+            RefreshMatrixCardChrome(preserveDragVisual: true);
             _matrixTouchBorder.Opacity = 0.88;
             _matrixTouchBorder.ZIndex = 100;
             StatusLabel.Text = $"拖动 {_matrixTouchSlot.DisplayName}，放到目标格松开";
@@ -1594,6 +1942,7 @@ public partial class MainPage : ContentPage
         {
             _matrixTouchBorder.TranslationX = dx;
             _matrixTouchBorder.TranslationY = dy;
+            UpdateMatrixDropHighlight(pos);
         }
     }
 
@@ -1611,6 +1960,7 @@ public partial class MainPage : ContentPage
             border.ZIndex = 0;
         }
 
+        ClearMatrixDropTargets();
         _matrixTouchBorder = null;
         _matrixTouchSlot = null;
         _matrixDragging = false;
@@ -1621,7 +1971,15 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (wasDragging && !cancelled)
+        if (wasDragging && cancelled)
+        {
+            _matrixMoved = false;
+            StatusLabel.Text = "已取消互换";
+            SelectSlotOnly(slot);
+            return;
+        }
+
+        if (wasDragging)
         {
             var target = HitTestSlotAt(pos);
             _matrixMoved = false;
@@ -1629,7 +1987,6 @@ public partial class MainPage : ContentPage
             {
                 StatusLabel.Text = "未放到其它格子，已取消互换";
                 SelectSlotOnly(slot);
-                RebuildMatrix();
                 return;
             }
 
@@ -1661,7 +2018,23 @@ public partial class MainPage : ContentPage
     }
 
     private MachineSlot? HitTestSlotAt(Point pos)
-        => HitTestBorderAt(pos)?.BindingContext as MachineSlot;
+    {
+        if (HitTestBorderAt(pos)?.BindingContext is MachineSlot hit)
+            return hit;
+
+        // Bounds 偶发未就绪时，按矩阵几何兜底（与 1×4 / 2×2 一致）
+        var w = MachineMatrix.Width;
+        var h = MachineMatrix.Height;
+        if (w <= 0 || h <= 0 || _slots.Count == 0)
+            return null;
+
+        var cols = _twoRow ? 2 : 4;
+        var rows = _twoRow ? 2 : 1;
+        var col = (int)Math.Clamp(Math.Floor(pos.X * cols / w), 0, cols - 1);
+        var row = (int)Math.Clamp(Math.Floor(pos.Y * rows / h), 0, rows - 1);
+        var idx = row * cols + col;
+        return idx >= 0 && idx < _slots.Count ? _slots[idx] : null;
+    }
 
     private static void SwapSlotData(MachineSlot a, MachineSlot b)
     {
@@ -1782,6 +2155,10 @@ public partial class MainPage : ContentPage
             slot.RefreshStatus();
         }
 
+        // 拖拽中重建会清掉 Translation，表现为「按住一会儿拖影没了」
+        if (_matrixTouchSlot != null)
+            return;
+
         RebuildMatrix();
     }
 
@@ -1847,6 +2224,8 @@ public partial class MainPage : ContentPage
         {
             RefreshOptionsRadioChrome();
             SyncA11yInjectCheck();
+            EnsureOptionsScrollPolicy();
+            Dispatcher.Dispatch(UpdateOptionsScrollPolicy);
         }
 
         if (index == 5)
@@ -3653,11 +4032,58 @@ public partial class MainPage : ContentPage
 #endif
     }
 
+    /// <summary>
+    /// Maui-Win：内容放得下时禁用高级页滚动，避免滚轮橡皮筋「微压缩」；
+    /// 窗口过矮仍允许纵向滚动。手机端保持默认可滚。
+    /// </summary>
+    private void EnsureOptionsScrollPolicy()
+    {
+#if WINDOWS
+        if (PageOptions == null) return;
+        if (!_optionsScrollHooked)
+        {
+            _optionsScrollHooked = true;
+            PageOptions.SizeChanged += (_, _) => UpdateOptionsScrollPolicy();
+            PageOptions.HandlerChanged += (_, _) => Dispatcher.Dispatch(UpdateOptionsScrollPolicy);
+            if (OptionsContentRoot != null)
+                OptionsContentRoot.SizeChanged += (_, _) => UpdateOptionsScrollPolicy();
+            // 默认先关滚动，布局后再按需打开
+            PageOptions.Orientation = ScrollOrientation.Neither;
+        }
+
+        UpdateOptionsScrollPolicy();
+#endif
+    }
+
+    private void UpdateOptionsScrollPolicy()
+    {
+#if WINDOWS
+        if (PageOptions == null) return;
+        var viewport = PageOptions.Height;
+        var contentH = OptionsContentRoot?.Height ?? 0;
+        var needScroll = PageOptions.IsVisible
+                         && viewport > 1
+                         && contentH > viewport + 2;
+        PageOptions.Orientation = needScroll ? ScrollOrientation.Vertical : ScrollOrientation.Neither;
+        if (PageOptions.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.ScrollViewer sv)
+        {
+            sv.VerticalScrollMode = needScroll
+                ? Microsoft.UI.Xaml.Controls.ScrollMode.Enabled
+                : Microsoft.UI.Xaml.Controls.ScrollMode.Disabled;
+            sv.VerticalScrollBarVisibility = needScroll
+                ? Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Auto
+                : Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Hidden;
+            sv.IsScrollInertiaEnabled = needScroll;
+        }
+#endif
+    }
+
     private void LoadEdgeCrossModeUi(int mode)
     {
-        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 3;
         EdgeCrossDoubleRadio.IsChecked = mode == 1;
         EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        EdgeCrossHotkeyRadio.IsChecked = mode == 3;
         RefreshEdgeCrossTip();
     }
 
@@ -3665,6 +4091,7 @@ public partial class MainPage : ContentPage
     {
         if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
         if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        if (EdgeCrossHotkeyRadio.IsChecked == true) return 3;
         return 0;
     }
 
@@ -3680,6 +4107,7 @@ public partial class MainPage : ContentPage
         {
             1 => "Tip.EdgeCross.DoubleTap",
             2 => "Tip.EdgeCross.SpeedBurst",
+            3 => "Tip.EdgeCross.HotkeyOnly",
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);

@@ -115,13 +115,13 @@
                     </Border>
                 </Grid>
 
-                <!-- ===== 高级选项：紧凑复选框 + 可滚动，避免快捷键/系统设置被裁切 ===== -->
+                <!-- ===== 高级选项：相对原布局仅略收约 10；Maui-Win 默认不滚，手机仍可滚 ===== -->
                 <ScrollView x:Name="PageOptions" IsVisible="False" VerticalScrollBarVisibility="Never">
-                    <Grid RowDefinitions="Auto,Auto" RowSpacing="10" Padding="0,0,0,4">
-                        <Border Style="{StaticResource Card}" Padding="12,10">
+                    <Grid x:Name="OptionsContentRoot" RowDefinitions="Auto,Auto" RowSpacing="8" Padding="0,0,0,4">
+                        <Border Style="{StaticResource Card}" Padding="12,8">
                             <!-- 宽屏三列；窄屏由 ApplyOptionsPlacement 改为单列堆叠 -->
                             <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto"
-                                  ColumnSpacing="12" RowSpacing="10">
+                                  ColumnSpacing="12" RowSpacing="8">
                                 <VerticalStackLayout x:Name="FeatColumn" Spacing="0">
                                     <Label x:Name="FeatTitleText" Text="功能" FontAttributes="Bold" Margin="0,0,0,4" />
                                     <!-- Spacing=8；列勿锁死 20px（会裁掉勾选图标） -->
@@ -225,10 +225,17 @@
                                         </RadioButton.Content>
                                     </RadioButton>
                                     <RadioButton x:Name="EdgeCrossSpeedRadio" GroupName="EdgeCross"
-                                                 FontSize="13" Margin="0,1,0,6"
+                                                 FontSize="13" Margin="0,1"
                                                  CheckedChanged="EdgeCrossMode_Changed">
                                         <RadioButton.Content>
                                             <Label Text="极速" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
+                                        </RadioButton.Content>
+                                    </RadioButton>
+                                    <RadioButton x:Name="EdgeCrossHotkeyRadio" GroupName="EdgeCross"
+                                                 FontSize="13" Margin="0,1,0,6"
+                                                 CheckedChanged="EdgeCrossMode_Changed">
+                                        <RadioButton.Content>
+                                            <Label Text="快捷键方式" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
                                         </RadioButton.Content>
                                     </RadioButton>
                                     <Label x:Name="EdgeCrossTipText" Text="" TextColor="{DynamicResource Muted}"
@@ -237,8 +244,8 @@
                             </Grid>
                         </Border>
 
-                        <Grid x:Name="OptionsBottomGrid" Grid.Row="1" ColumnDefinitions="*,12,240" RowDefinitions="Auto,Auto" RowSpacing="10">
-                            <Border x:Name="HotCard" Style="{StaticResource Card}" Padding="12,10">
+                        <Grid x:Name="OptionsBottomGrid" Grid.Row="1" ColumnDefinitions="*,12,240" RowDefinitions="Auto,Auto" RowSpacing="8">
+                            <Border x:Name="HotCard" Style="{StaticResource Card}" Padding="12,8">
                                 <VerticalStackLayout Spacing="4">
                                     <Label x:Name="HotTitleText" Text="键盘快捷键" FontAttributes="Bold" />
                                     <Label x:Name="HotSwitchText" Text="切换机器（Ctrl+Alt+）" TextColor="{DynamicResource Muted}" FontSize="12" />
@@ -279,11 +286,11 @@
                                 </VerticalStackLayout>
                             </Border>
 
-                            <Border x:Name="SysCard" Grid.Column="2" Style="{StaticResource Card}" Padding="12,10">
+                            <Border x:Name="SysCard" Grid.Column="2" Style="{StaticResource Card}" Padding="12,8">
                                 <VerticalStackLayout Spacing="4">
                                     <Label x:Name="SysTitleText" Text="系统设置" FontAttributes="Bold" />
                                     <Label x:Name="SysStyleLabel" Text="样式" Margin="0,4,0,2" />
-                                    <FlexLayout Wrap="Wrap" AlignItems="Center" Margin="0,0,0,10">
+                                    <FlexLayout Wrap="Wrap" AlignItems="Center" Margin="0,0,0,8">
                                         <RadioButton x:Name="ThemeLight" GroupName="UiTheme" IsChecked="True" Margin="0,0,18,4">
                                             <RadioButton.Content>
                                                 <Label Text="淡色" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />

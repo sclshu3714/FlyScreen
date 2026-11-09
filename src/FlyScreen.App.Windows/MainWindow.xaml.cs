@@ -103,10 +103,11 @@ public partial class MainWindow : Window
                     FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
                     System.IO.Path.Combine("Assets", "wlogo_tu.ico"),
                     "wlogo_tu.ico");
+                ApplyWindowRoundedShadow();
             }
             catch
             {
-                // 任务栏显示名失败不挡主窗
+                // 任务栏显示名 / DWM 圆角失败不挡主窗
             }
         };
         UpdateTitleMaxGlyph();
@@ -251,7 +252,11 @@ public partial class MainWindow : Window
         => Close();
 
     private void MainWindow_StateChanged(object? sender, EventArgs e)
-        => UpdateTitleMaxGlyph();
+    {
+        UpdateTitleMaxGlyph();
+        UpdateWindowOuterBorder();
+        ApplyWindowRoundedShadow();
+    }
 
     private void ToggleMaximize()
         => WindowState = WindowState == WindowState.Maximized
@@ -265,8 +270,34 @@ public partial class MainWindow : Window
         TitleMaxBtn.Content = WindowState == WindowState.Maximized ? "❐" : "☐";
     }
 
+    private void UpdateWindowOuterBorder()
+    {
+        if (WindowOuterBorder == null) return;
+        var maximized = WindowState == WindowState.Maximized;
+        // 最大化时去掉自绘外框/圆角，避免贴边露缝；还原态对齐 Maui-Win 圆角边框
+        WindowOuterBorder.BorderThickness = maximized ? new Thickness(0) : new Thickness(1);
+        WindowOuterBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(8);
+    }
+
+    /// <summary>Win11 DWM 圆角 + 投影（GlassFrameThickness=0 时补阴影）。</summary>
+    private void ApplyWindowRoundedShadow()
+    {
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            Native.NativeMethods.ApplyWindowRoundedShadow(hwnd, WindowState == WindowState.Maximized);
+        }
+        catch
+        {
+            // Win10 / 旧 DWM 无圆角属性时忽略
+        }
+    }
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        UpdateWindowOuterBorder();
+        ApplyWindowRoundedShadow();
         InitTray();
         LoadUiFromSettings();
         MachineMatrix.ItemsSource = _slots;
@@ -741,6 +772,7 @@ public partial class MainWindow : Window
         EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
         EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
         EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
+        EdgeCrossHotkeyRadio.Content = Loc.T("Opt.EdgeCross.HotkeyOnly");
         RefreshEdgeCrossTip();
         foreach (var item in _host.Transfers.Items)
             item.RefreshLocalized();
@@ -774,12 +806,15 @@ public partial class MainWindow : Window
         EdgeCrossBarrierRadio.Checked -= EdgeCrossMode_Changed;
         EdgeCrossDoubleRadio.Checked -= EdgeCrossMode_Changed;
         EdgeCrossSpeedRadio.Checked -= EdgeCrossMode_Changed;
-        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossHotkeyRadio.Checked -= EdgeCrossMode_Changed;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 3;
         EdgeCrossDoubleRadio.IsChecked = mode == 1;
         EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        EdgeCrossHotkeyRadio.IsChecked = mode == 3;
         EdgeCrossBarrierRadio.Checked += EdgeCrossMode_Changed;
         EdgeCrossDoubleRadio.Checked += EdgeCrossMode_Changed;
         EdgeCrossSpeedRadio.Checked += EdgeCrossMode_Changed;
+        EdgeCrossHotkeyRadio.Checked += EdgeCrossMode_Changed;
         RefreshEdgeCrossTip();
     }
 
@@ -787,6 +822,7 @@ public partial class MainWindow : Window
     {
         if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
         if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        if (EdgeCrossHotkeyRadio.IsChecked == true) return 3;
         return 0;
     }
 
@@ -798,6 +834,7 @@ public partial class MainWindow : Window
         {
             1 => "Tip.EdgeCross.DoubleTap",
             2 => "Tip.EdgeCross.SpeedBurst",
+            3 => "Tip.EdgeCross.HotkeyOnly",
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);
@@ -1500,28 +1537,63 @@ public partial class MainWindow : Window
             Math.Abs(pos.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
             return;
 
-        DragDrop.DoDragDrop(MachineMatrix, _dragItem, System.Windows.DragDropEffects.Move);
+        try
+        {
+            DragDrop.DoDragDrop(MachineMatrix, _dragItem, System.Windows.DragDropEffects.Move);
+        }
+        finally
+        {
+            ClearDropTarget();
+            _dragItem = null;
+        }
     }
 
     private void Matrix_DragOver(object sender, System.Windows.DragEventArgs e)
     {
         e.Effects = System.Windows.DragDropEffects.Move;
         e.Handled = true;
+        if (_dragItem is not MachineSlot src) return;
+        var under = FindSlotFromElement(e.OriginalSource as DependencyObject);
+        SetDropTarget(under != null && !ReferenceEquals(under, src) ? under : null);
+    }
+
+    private void Matrix_DragLeave(object sender, System.Windows.DragEventArgs e)
+    {
+        // 离开矩阵或子项时清高亮；进入另一子项会再走 DragOver
+        var pos = e.GetPosition(MachineMatrix);
+        if (pos.X < 0 || pos.Y < 0 || pos.X > MachineMatrix.ActualWidth || pos.Y > MachineMatrix.ActualHeight)
+            ClearDropTarget();
     }
 
     private void Matrix_Drop(object sender, System.Windows.DragEventArgs e)
     {
-        if (_dragItem is not MachineSlot src) return;
-        var target = FindSlotFromElement(e.OriginalSource as DependencyObject);
-        if (target == null || ReferenceEquals(src, target)) return;
+        try
+        {
+            if (_dragItem is not MachineSlot src) return;
+            var target = FindSlotFromElement(e.OriginalSource as DependencyObject);
+            if (target == null || ReferenceEquals(src, target)) return;
 
-        // 互换两个格子内容，保持矩阵位置语义
-        SwapSlotData(src, target);
-        SyncSlotLocalFlags();
-        RefreshPositionLabels();
-        RedrawArrows();
-        e.Handled = true;
+            // 互换两个格子内容，保持矩阵位置语义
+            SwapSlotData(src, target);
+            SyncSlotLocalFlags();
+            RefreshPositionLabels();
+            RedrawArrows();
+            e.Handled = true;
+        }
+        finally
+        {
+            ClearDropTarget();
+            _dragItem = null;
+        }
     }
+
+    private void SetDropTarget(MachineSlot? target)
+    {
+        foreach (var s in _slots)
+            s.IsDropTarget = target != null && ReferenceEquals(s, target);
+    }
+
+    private void ClearDropTarget() => SetDropTarget(null);
 
     private static void SwapSlotData(MachineSlot a, MachineSlot b)
     {
@@ -2723,7 +2795,7 @@ public partial class MainWindow : Window
     private void ToolsCatalogHost_SizeChanged(object sender, SizeChangedEventArgs e)
         => ApplyToolsWrapColumns();
 
-    /// <summary>桌面默认两列；更宽/全屏按宽度加列。</summary>
+    /// <summary>对齐 Maui-Win：≥400 至少两列，更宽按 240 槽加列；列表置顶不垂直居中。</summary>
     private void ApplyToolsWrapColumns()
     {
         if (ToolsCatalogHost == null || ToolsList == null) return;
@@ -2732,11 +2804,20 @@ public partial class MainWindow : Window
         const double minCardSlot = 240;
         var byWidth = Math.Max(1, (int)Math.Floor(host / minCardSlot));
         var cols = host >= 400 ? Math.Max(2, byWidth) : byWidth;
+        ToolsList.VerticalAlignment = System.Windows.VerticalAlignment.Top;
         ToolsList.ApplyTemplate();
         ToolsList.UpdateLayout();
         var grid = FindVisualChild<UniformGrid>(ToolsList);
-        if (grid != null && grid.Columns != cols)
+        if (grid == null) return;
+        if (grid.Columns != cols)
             grid.Columns = cols;
+        var count = ToolsList.Items?.Count ?? 0;
+        var rows = Math.Max(1, (int)Math.Ceiling(count / (double)Math.Max(1, cols)));
+        if (grid.Rows != rows)
+            grid.Rows = rows;
+        // 与 Maui 卡片间距一致：行列间距由卡片 Margin=6 承担；置顶避免单元格被拉高后卡片悬空
+        grid.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
+        grid.VerticalAlignment = System.Windows.VerticalAlignment.Top;
     }
 
     private void RefreshToolsWorkspace()
@@ -2860,34 +2941,84 @@ public partial class MainWindow : Window
     private async void ToolCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: ToolCardRow row }) return;
+        // 三点按钮自行弹菜单，勿触发卡片主操作
+        if (IsDescendantOfButton(e.OriginalSource as DependencyObject, sender as DependencyObject))
+            return;
         // 单击主操作（安装 / 启动）；已打开则跳转工作区，不点停
         if (e.ClickCount != 1) return;
         await HandleToolActionAsync(row, primary: true);
     }
 
+    private void ToolCard_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (sender is not Border card) return;
+        if (TryFindResource("Blue") is System.Windows.Media.Brush blue)
+            card.BorderBrush = blue;
+        SetToolCardHoverWash(card, visible: true);
+    }
+
+    private void ToolCard_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (sender is not Border card) return;
+        if (TryFindResource("Line") is System.Windows.Media.Brush line)
+            card.BorderBrush = line;
+        SetToolCardHoverWash(card, visible: false);
+    }
+
+    private static void SetToolCardHoverWash(Border card, bool visible)
+    {
+        if (card.Child is not Grid root) return;
+        foreach (var child in root.Children)
+        {
+            if (child is Border { Tag: "ToolCardHoverWash" } wash)
+            {
+                wash.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                break;
+            }
+        }
+    }
+
+    private static bool IsDescendantOfButton(DependencyObject? source, DependencyObject? stop)
+    {
+        for (var p = source; p != null && p != stop; p = VisualTreeHelper.GetParent(p))
+        {
+            if (p is System.Windows.Controls.Button)
+                return true;
+        }
+
+        return false;
+    }
+
+    private ToolCardRow? ResolveToolCardRow(FrameworkElement fe)
+    {
+        if (fe.DataContext is ToolCardRow row)
+            return row;
+        if (fe.Tag is ToolCardRow tagged)
+            return tagged;
+        for (DependencyObject? p = fe; p != null; p = VisualTreeHelper.GetParent(p))
+        {
+            if (p is FrameworkElement { Tag: ToolCardRow r })
+                return r;
+        }
+
+        return null;
+    }
+
     private void ToolCardMore_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        // 避免点三点时触发卡片主操作
+        // 在 Preview 阶段直接弹菜单：Handled 会阻断 Button.Click，故不能只靠 Click
         e.Handled = true;
+        if (sender is not FrameworkElement fe) return;
+        var row = ResolveToolCardRow(fe);
+        if (row == null) return;
+        OpenToolCardMenu(fe, row);
     }
 
     private void ToolCardMore_Click(object sender, RoutedEventArgs e)
     {
+        // Preview 已处理时通常不会到此；保留作兜底
         if (sender is not FrameworkElement fe) return;
-        var row = fe.DataContext as ToolCardRow
-                  ?? (fe.Tag as ToolCardRow);
-        if (row == null)
-        {
-            for (DependencyObject? p = fe; p != null; p = VisualTreeHelper.GetParent(p))
-            {
-                if (p is FrameworkElement { Tag: ToolCardRow r })
-                {
-                    row = r;
-                    break;
-                }
-            }
-        }
-
+        var row = ResolveToolCardRow(fe);
         if (row == null) return;
         OpenToolCardMenu(fe, row);
         e.Handled = true;
@@ -2896,59 +3027,53 @@ public partial class MainWindow : Window
     private void OpenToolCardMenu(FrameworkElement? placementTarget, ToolCardRow row)
     {
         var menu = new System.Windows.Controls.ContextMenu();
+        if (TryFindResource("ToolCardContextMenu") is Style menuStyle)
+            menu.Style = menuStyle;
+        if (TryFindResource("ToolCardMenuItem") is Style itemStyle)
+            menu.ItemContainerStyle = itemStyle;
+
         if (placementTarget != null)
         {
             menu.PlacementTarget = placementTarget;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.VerticalOffset = 2;
+            // 挂到按钮上，避免游离 ContextMenu 在部分主题下不显示
+            placementTarget.ContextMenu = menu;
+        }
+
+        void AddItem(string header, RoutedEventHandler onClick)
+        {
+            var item = new System.Windows.Controls.MenuItem { Header = header };
+            item.Click += onClick;
+            menu.Items.Add(item);
         }
 
         if (!row.IsInstalled)
         {
-            var install = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Install") };
-            install.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
-            menu.Items.Add(install);
+            AddItem(Loc.T("Tool.Install"), async (_, _) => await HandleToolActionAsync(row, primary: true));
         }
         else
         {
             if (row.CanStart)
-            {
-                var start = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Start") };
-                start.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
-                menu.Items.Add(start);
-            }
+                AddItem(Loc.T("Tool.Start"), async (_, _) => await HandleToolActionAsync(row, primary: true));
 
             if (row.IsRunning)
-            {
-                var stop = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Stop") };
-                stop.Click += async (_, _) => await HandleToolActionAsync(row, primary: true, fromMenu: true);
-                menu.Items.Add(stop);
-            }
+                AddItem(Loc.T("Tool.Stop"), async (_, _) => await HandleToolActionAsync(row, primary: true, fromMenu: true));
 
             if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
             {
                 if (row.CanConsume)
-                {
-                    var test = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Test") };
-                    test.Click += (_, _) => OpenSharedDevicesTestDialog();
-                    menu.Items.Add(test);
-                }
+                    AddItem(Loc.T("Tool.Test"), (_, _) => OpenSharedDevicesTestDialog());
 
                 if (row.CanProvide)
-                {
-                    var manage = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Manage") };
-                    manage.Click += (_, _) => OpenSharedDevicesManageDialog();
-                    menu.Items.Add(manage);
-                }
+                    AddItem(Loc.T("Tool.Manage"), (_, _) => OpenSharedDevicesManageDialog());
             }
 
             if (row.SecondaryEnabled || row.IsInstalled)
-            {
-                var uninstall = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Uninstall") };
-                uninstall.Click += async (_, _) => await HandleToolActionAsync(row, primary: false);
-                menu.Items.Add(uninstall);
-            }
+                AddItem(Loc.T("Tool.Uninstall"), async (_, _) => await HandleToolActionAsync(row, primary: false));
         }
 
+        if (menu.Items.Count == 0) return;
         menu.IsOpen = true;
     }
 

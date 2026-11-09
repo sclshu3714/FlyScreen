@@ -190,6 +190,109 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- 工具卡片右上角三点：对齐 Maui-Win（勿吃全局 Button MinWidth=88） -->
+        <Style x:Key="ToolCardMoreBtn" TargetType="Button">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,-2,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="ToolTip" Value="更多操作"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                                BorderBrush="Transparent" BorderThickness="1"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- 工具卡片三点菜单：对齐 Maui-Win MenuFlyout（圆角白底 + 浅蓝悬停，无图标列） -->
+        <Style x:Key="ToolCardContextMenu" TargetType="ContextMenu">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+            <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="MinWidth" Value="128"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="Grid.IsSharedSizeScope" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="2" Direction="270"
+                                                  Opacity="0.16" Color="#14233A"/>
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ToolCardMenuItem" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                Margin="0,1" SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- 工具面包屑关闭：悬停浅蓝底 + 蓝色 × -->
         <Style x:Key="WorkspaceCloseBtn" TargetType="Button">
             <Setter Property="Width" Value="22"/>
@@ -811,6 +914,12 @@
 
     </Window.Resources>
 
+    <!-- WindowChrome 去玻璃后补 1px 外框；圆角对齐 Maui-Win / DWM；最大化时码里清零 -->
+    <Border x:Name="WindowOuterBorder"
+            BorderBrush="{DynamicResource Line}" BorderThickness="1"
+            Background="{DynamicResource WinBg}"
+            CornerRadius="8" ClipToBounds="True"
+            SnapsToDevicePixels="True">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36"/>
@@ -1079,6 +1188,7 @@
                                   PreviewMouseMove="Matrix_PreviewMouseMove"
                                   Drop="Matrix_Drop"
                                   DragOver="Matrix_DragOver"
+                                  DragLeave="Matrix_DragLeave"
                                   SizeChanged="MachineMatrix_SizeChanged">
                                             <ItemsControl.ItemContainerStyle>
                                                 <Style TargetType="ContentPresenter">
@@ -1106,31 +1216,30 @@
                                                                 <Setter Property="BorderThickness" Value="1"/>
                                                                 <Setter Property="Margin" Value="4"/>
                                                                 <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-                                                                        <Setter Property="BorderThickness" Value="2"/>
-                                                                        <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
-                                                                    </DataTrigger>
+                                                                    <!-- 本机：绿框（与选中蓝框区分）；后写的选中/落点覆盖本机 -->
                                                                     <DataTrigger Binding="{Binding IsLocal}" Value="True">
-                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Success}"/>
                                                                         <Setter Property="BorderThickness" Value="2"/>
-                                                                        <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+                                                                        <Setter Property="Background" Value="{DynamicResource SuccessSoft}"/>
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding Enabled}" Value="False">
                                                                         <Setter Property="BorderBrush" Value="#94A3B8"/>
                                                                         <Setter Property="Opacity" Value="0.9"/>
                                                                         <Setter Property="Background" Value="{DynamicResource MatrixBg}"/>
                                                                     </DataTrigger>
-                                                                    <MultiDataTrigger>
-                                                                        <MultiDataTrigger.Conditions>
-                                                                            <Condition Binding="{Binding Enabled}" Value="False"/>
-                                                                            <Condition Binding="{Binding IsSelected}" Value="True"/>
-                                                                        </MultiDataTrigger.Conditions>
+                                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                                                         <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
                                                                         <Setter Property="BorderThickness" Value="2"/>
-                                                                        <Setter Property="Opacity" Value="1"/>
                                                                         <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
-                                                                    </MultiDataTrigger>
+                                                                        <Setter Property="Opacity" Value="1"/>
+                                                                    </DataTrigger>
+                                                                    <!-- 拖拽悬停：准备交换 -->
+                                                                    <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                                                                        <Setter Property="BorderThickness" Value="3"/>
+                                                                        <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+                                                                        <Setter Property="Opacity" Value="1"/>
+                                                                    </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsTwoRow}" Value="True">
                                                                         <Setter Property="Margin" Value="3"/>
                                                                     </DataTrigger>
@@ -1228,6 +1337,8 @@
                                 <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
                                              Margin="0,0,0,4" Checked="EdgeCrossMode_Changed"/>
                                 <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                                             Margin="0,0,0,4" Checked="EdgeCrossMode_Changed"/>
+                                <RadioButton x:Name="EdgeCrossHotkeyRadio" Content="快捷键方式" GroupName="EdgeCross"
                                              Margin="0,0,0,8" Checked="EdgeCrossMode_Changed"/>
                                 <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
                                            Foreground="{DynamicResource Muted}" FontSize="12"/>
@@ -1631,22 +1742,27 @@
                             <ScrollViewer x:Name="ToolsCatalogHost" Grid.Row="2" VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           SizeChanged="ToolsCatalogHost_SizeChanged">
-                                <ItemsControl x:Name="ToolsList">
+                                <!-- VerticalAlignment=Top：避免 ScrollViewer 拉伸后 UniformGrid 把卡片垂直居中 -->
+                                <ItemsControl x:Name="ToolsList" VerticalAlignment="Top" HorizontalAlignment="Stretch">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <UniformGrid Columns="2"/>
+                                            <UniformGrid Columns="2" VerticalAlignment="Top"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border Height="104" Margin="6" Cursor="Hand"
-                                                    HorizontalAlignment="Stretch"
-                                                    CornerRadius="10" BorderBrush="{DynamicResource Line}"
-                                                    BorderThickness="1" ClipToBounds="True"
+                                                    HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                                                    CornerRadius="10" BorderThickness="1"
+                                                    ClipToBounds="True"
                                                     MouseLeftButtonDown="ToolCard_MouseLeftButtonDown"
+                                                    MouseEnter="ToolCard_MouseEnter"
+                                                    MouseLeave="ToolCard_MouseLeave"
                                                     Tag="{Binding}">
                                                 <Border.Style>
                                                     <Style TargetType="Border">
+                                                        <!-- BorderBrush 必须在 Style 内，否则本地值会压过悬停 Trigger -->
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
                                                         <Setter Property="Background" Value="{DynamicResource ToolCardNotInstalledBg}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Installed">
@@ -1658,15 +1774,6 @@
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Installing">
                                                                 <Setter Property="Background" Value="{DynamicResource ToolCardInstallingBg}"/>
                                                             </DataTrigger>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-                                                                <Setter Property="Effect">
-                                                                    <Setter.Value>
-                                                                        <DropShadowEffect BlurRadius="10" ShadowDepth="0"
-                                                                                          Opacity="0.18" Color="#2563EB"/>
-                                                                    </Setter.Value>
-                                                                </Setter>
-                                                            </Trigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </Border.Style>
@@ -1688,61 +1795,60 @@
                                                             </Style>
                                                         </Border.Style>
                                                     </Border>
-                                                    <!-- 悬停淡罩 -->
-                                                    <Border Background="{DynamicResource BlueHover}" Opacity="0.32"
-                                                            IsHitTestVisible="False" CornerRadius="10">
-                                                        <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
-                                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Border.Style>
-                                                    </Border>
+                                                    <!-- 悬停淡罩（由 MouseEnter/Leave 控制，对齐 Maui-Win） -->
+                                                    <Border Tag="ToolCardHoverWash"
+                                                            Background="{DynamicResource BlueHover}" Opacity="0.32"
+                                                            IsHitTestVisible="False" CornerRadius="10"
+                                                            Visibility="Collapsed"/>
                                                     <Grid Margin="12,10,8,10">
                                                         <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="48"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="28"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
-                                                        <Grid Width="48" Height="48" VerticalAlignment="Center">
-                                                            <!-- 颜色拾取器：色环 + 滴管位图 -->
-                                                            <Image Width="40" Height="40" Stretch="Uniform"
-                                                                   Source="{DynamicResource ToolColorPickerIcon}">
-                                                                <Image.Style>
-                                                                    <Style TargetType="Image">
-                                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Id}" Value="color-picker">
-                                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </Image.Style>
-                                                            </Image>
-                                                            <Viewbox Width="40" Height="40">
-                                                                <Viewbox.Style>
-                                                                    <Style TargetType="Viewbox">
-                                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Id}" Value="color-picker">
-                                                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </Viewbox.Style>
-                                                                <Canvas Width="24" Height="24">
-                                                                    <Path Stroke="{DynamicResource Text}" StrokeThickness="1.4"
-                                                                          Fill="Transparent" StrokeLineJoin="Round"
-                                                                          Data="{StaticResource GeoToolSharedDevices}"/>
-                                                                    <Path Fill="#F59E0B"
-                                                                          Data="{StaticResource GeoToolSharedDevicesAccent}"/>
-                                                                </Canvas>
-                                                            </Viewbox>
-                                                        </Grid>
+                                                        <!-- 图标瓷砖：对齐 Maui-Win CreateToolCard -->
+                                                        <Border Width="48" Height="48" CornerRadius="10"
+                                                                BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                                                Background="{DynamicResource SubtleBg}"
+                                                                VerticalAlignment="Center"
+                                                                SnapsToDevicePixels="True">
+                                                            <Grid>
+                                                                <Image Width="36" Height="36" Stretch="Uniform"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                       Source="{DynamicResource ToolColorPickerIcon}">
+                                                                    <Image.Style>
+                                                                        <Style TargetType="Image">
+                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding Id}" Value="color-picker">
+                                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Image.Style>
+                                                                </Image>
+                                                                <Viewbox Width="28" Height="28"
+                                                                         HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <Viewbox.Style>
+                                                                        <Style TargetType="Viewbox">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding Id}" Value="color-picker">
+                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Viewbox.Style>
+                                                                    <Canvas Width="24" Height="24">
+                                                                        <Path Stroke="{DynamicResource Text}" StrokeThickness="1.4"
+                                                                              Fill="Transparent" StrokeLineJoin="Round"
+                                                                              Data="{StaticResource GeoToolSharedDevices}"/>
+                                                                        <Path Fill="#F59E0B"
+                                                                              Data="{StaticResource GeoToolSharedDevicesAccent}"/>
+                                                                    </Canvas>
+                                                                </Viewbox>
+                                                            </Grid>
+                                                        </Border>
                                                         <StackPanel Grid.Column="1" Margin="12,0,6,0" VerticalAlignment="Center">
                                                             <StackPanel Orientation="Horizontal">
                                                                 <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
@@ -1754,12 +1860,9 @@
                                                                        Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
                                                                        TextTrimming="CharacterEllipsis" MaxHeight="40"/>
                                                         </StackPanel>
-                                                        <Button Grid.Column="2" Content="⋯" Width="28" Height="28"
+                                                        <Button Grid.Column="2" Content="⋯"
+                                                                Style="{StaticResource ToolCardMoreBtn}"
                                                                 VerticalAlignment="Top" HorizontalAlignment="Right"
-                                                                FontSize="16" FontWeight="Bold" Cursor="Hand"
-                                                                Background="Transparent" BorderThickness="0"
-                                                                Foreground="{DynamicResource Muted}" Padding="0"
-                                                                ToolTip="更多操作"
                                                                 Click="ToolCardMore_Click"
                                                                 PreviewMouseLeftButtonDown="ToolCardMore_PreviewMouseLeftButtonDown"/>
                                                     </Grid>
@@ -1986,4 +2089,5 @@
         </Grid>
         </Grid>
     </Grid>
+    </Border>
 </Window>

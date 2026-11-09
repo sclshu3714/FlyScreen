@@ -35,8 +35,10 @@ public sealed class InputRouter : IDisposable
     private int _savedLocalY;
     private bool _hasSavedLocalPos;
     private long _switchedToRemoteAtTick;
-    /// <summary>本机最近一次物理键鼠时间；用于拒绝对端 SwitchFocus 抢光标。</summary>
+    /// <summary>本机最近一次物理键鼠时间（含移动）；用于保存光标位置等。</summary>
     private long _lastPhysicalInputTick;
+    /// <summary>本机最近一次按键/滚轮/点击；仅此用于拒绝对端 SwitchFocus（勿把鼠标微动当「正在操作」）。</summary>
+    private long _lastLocalEngageTick;
     /// <summary>穿边门控（无障碍 / 双击 / 极速）。</summary>
     private readonly EdgeCrossGate _edgeGate = new();
     /// <summary>控远端时的虚拟光标（含进入边粘滞，防止误甩回本机）。</summary>
@@ -55,6 +57,9 @@ public sealed class InputRouter : IDisposable
     private RemoteCompositionHost? _composition;
     private long _edgeFileWaitStart;
     private bool _edgeDragSwallowLeftUp;
+    private int _edgeStickSide;
+    private long _edgeStickTick;
+    private const int EdgeStickAdmitMs = 80;
 
     /// <summary>按住文件拖过屏幕边缘时，把路径交给布局里的下一台。</summary>
     public EdgeFileDragService? EdgeFileDrag { get; set; }
@@ -186,10 +191,14 @@ public sealed class InputRouter : IDisposable
         // 已在被控：忽略重复 SwitchFocus，避免 AbsPointer 每次触控都把光标拽回入口点
         if (_receivingRemoteControl) return;
 
-        // 本机正在操作：拒绝对端拽走光标（双向连接时对端误触边缘会发 SwitchFocus）
+        // 本机正在「主动操作」（点击/滚轮/按键）时拒绝对端拽走光标。
+        // 勿用鼠标微动：触控板/光电噪声会让对端永远穿不进来。
         if (!_controllingRemote
-            && Environment.TickCount64 - _lastPhysicalInputTick < LocalActivityGuardMs)
+            && Environment.TickCount64 - _lastLocalEngageTick < LocalActivityGuardMs)
+        {
+            AppLog.Debug("忽略 SwitchFocus：本机刚有点击/按键");
             return;
+        }
 
         _controllingRemote = false;
         _activePeer = null;
@@ -393,6 +402,7 @@ public sealed class InputRouter : IDisposable
         if (msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
         {
+            _lastLocalEngageTick = Environment.TickCount64;
             TryClaimPhysicalInput();
         }
 
@@ -419,6 +429,7 @@ public sealed class InputRouter : IDisposable
             var right = screenL + screenW - 1;
             var bottom = screenT + screenH - 1;
             var onEdge = info.pt.X <= screenL || info.pt.X >= right || info.pt.Y <= screenT || info.pt.Y >= bottom;
+            UpdateEdgeStick(info.pt.X, info.pt.Y, screenL, screenT, right, bottom);
             _edgeGate.Observe(nx, ny, onEdge, Environment.TickCount64);
 
             var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
@@ -547,16 +558,22 @@ public sealed class InputRouter : IDisposable
         var down = msg is NativeMethods.WM_KEYDOWN or NativeMethods.WM_SYSKEYDOWN;
 
         if (down)
+        {
             _lastPhysicalInputTick = Environment.TickCount64;
-
-        if (down)
+            _lastLocalEngageTick = Environment.TickCount64;
             TryClaimPhysicalInput();
+        }
 
-        // Ctrl+Alt+热键
+        // Ctrl+Alt+热键（成功后必须松开修饰键，否则切入远端后本机 KEYUP 被吞会粘滞）
         if (down && IsCtrlAlt())
         {
-            if (HandleHotkey((int)info.vkCode))
+            var peerBefore = _controllingRemote ? _activePeer : null;
+            var triggerVk = (ushort)info.vkCode;
+            if (HandleHotkey(triggerVk))
+            {
+                ReleaseModifiersAfterHotkey(peerBefore, triggerVk);
                 return (IntPtr)1;
+            }
         }
 
         if (EdgeFileDrag?.IsHolding == true && _controllingRemote)
@@ -864,7 +881,47 @@ public sealed class InputRouter : IDisposable
             return true;
         }
 
+        if (MatchKey(vk, _settings.HotkeyLock))
+        {
+            EasyMouseEnabled = !EasyMouseEnabled;
+            return true;
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// 热键触发后：对端补发修饰键抬起；本机注入抬起，避免切换控制权后物理 KEYUP 被吞。
+    /// </summary>
+    private void ReleaseModifiersAfterHotkey(string? peerThatReceivedMods, ushort triggerVk)
+    {
+        if (!string.IsNullOrEmpty(peerThatReceivedMods))
+        {
+            foreach (var (vk, ext) in ModifierKeyRelease.All)
+                _ = SendKeyAsync(peerThatReceivedMods, vk, down: false, extended: ext);
+            _ = SendKeyAsync(peerThatReceivedMods, triggerVk, down: false, extended: false);
+        }
+
+        foreach (var (vk, ext) in ModifierKeyRelease.All)
+        {
+            if (!ModifierKeyRelease.IsPhysicallyDown(vk)) continue;
+            InputInjector.Key(new KeyEventPayload
+            {
+                VirtualKey = vk,
+                Down = false,
+                Extended = ext
+            });
+        }
+
+        if (ModifierKeyRelease.IsPhysicallyDown(triggerVk))
+        {
+            InputInjector.Key(new KeyEventPayload
+            {
+                VirtualKey = triggerVk,
+                Down = false,
+                Extended = false
+            });
+        }
     }
 
     private static bool MatchKey(int vk, string key)
@@ -1000,8 +1057,8 @@ public sealed class InputRouter : IDisposable
 
         var now = Environment.TickCount64;
 
-        // 左边缘 → 左侧机器
-        if (x <= screenL && x <= _lastX)
+        // 继续外推，或已贴边停留足够久（夹住光标后常无「更外」位移）
+        if (x <= screenL && (x <= _lastX || EdgeStickReady(-1)))
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: -1);
             if (IsValidPeer(name) && _edgeGate.TryAdmit(-1, now))
@@ -1016,8 +1073,7 @@ public sealed class InputRouter : IDisposable
             return false;
         }
 
-        // 右边缘 → 右侧机器
-        if (x >= right && x >= _lastX)
+        if (x >= right && (x >= _lastX || EdgeStickReady(1)))
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: +1);
             if (IsValidPeer(name) && _edgeGate.TryAdmit(1, now))
@@ -1032,10 +1088,9 @@ public sealed class InputRouter : IDisposable
             return false;
         }
 
-        // 双行：上/下边缘
         if (_settings.TwoRow)
         {
-            if (y <= screenT && y <= _lastY)
+            if (y <= screenT && (y <= _lastY || EdgeStickReady(-2)))
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: -1);
                 if (IsValidPeer(name) && _edgeGate.TryAdmit(-2, now))
@@ -1050,7 +1105,7 @@ public sealed class InputRouter : IDisposable
                 return false;
             }
 
-            if (y >= bottom && y >= _lastY)
+            if (y >= bottom && (y >= _lastY || EdgeStickReady(2)))
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: +1);
                 if (IsValidPeer(name) && _edgeGate.TryAdmit(2, now))
@@ -1069,6 +1124,34 @@ public sealed class InputRouter : IDisposable
         return false;
     }
 
+    private void UpdateEdgeStick(int x, int y, int screenL, int screenT, int right, int bottom)
+    {
+        var side = 0;
+        if (x <= screenL) side = -1;
+        else if (x >= right) side = 1;
+        else if (_settings.TwoRow && y <= screenT) side = -2;
+        else if (_settings.TwoRow && y >= bottom) side = 2;
+
+        if (side == 0)
+        {
+            _edgeStickSide = 0;
+            _edgeStickTick = 0;
+            return;
+        }
+
+        if (_edgeStickSide != side)
+        {
+            _edgeStickSide = side;
+            _edgeStickTick = Environment.TickCount64;
+        }
+    }
+
+    private bool EdgeStickReady(int side)
+        => side != 0
+           && _edgeStickSide == side
+           && _edgeStickTick > 0
+           && Environment.TickCount64 - _edgeStickTick >= EdgeStickAdmitMs;
+
     /// <summary>应用/对端同步后立即刷新穿边门控（不必等下一次鼠标移动）。</summary>
     public void RefreshEdgeCrossFromSettings() => SyncEdgeCrossMode();
 
@@ -1078,6 +1161,7 @@ public sealed class InputRouter : IDisposable
         {
             1 => EdgeCrossMode.DoubleTap,
             2 => EdgeCrossMode.SpeedBurst,
+            3 => EdgeCrossMode.HotkeyOnly,
             _ => EdgeCrossMode.BarrierFree
         };
         _edgeGate.Mode = mode;
@@ -1158,60 +1242,11 @@ public sealed class InputRouter : IDisposable
         return true;
     }
 
-    /// <summary>
-    /// 在已占用格子中找邻居。空位忽略。
-    /// WrapMouse：首尾相连；否则到头返回 null。
-    /// </summary>
+    /// <summary>在已占用格子中找邻居（委托 <see cref="LayoutEdge"/>，含两机死边回绕）。</summary>
     private string? FindOccupiedNeighborOf(string?[] slots, int fromIndex, bool horizontal, int dir)
     {
-        if (fromIndex < 0 || dir == 0) return null;
-
-        var cols = _settings.TwoRow ? 2 : 4;
-        var rows = _settings.TwoRow ? 2 : 1;
-        var row = fromIndex / cols;
-        var col = fromIndex % cols;
-
-        var occupied = new List<int>();
-        if (horizontal)
-        {
-            for (var c = 0; c < cols; c++)
-            {
-                var name = slots[row * cols + c];
-                if (!string.IsNullOrWhiteSpace(name))
-                    occupied.Add(c);
-            }
-        }
-        else
-        {
-            for (var r = 0; r < rows; r++)
-            {
-                var name = slots[r * cols + col];
-                if (!string.IsNullOrWhiteSpace(name))
-                    occupied.Add(r);
-            }
-        }
-
-        if (occupied.Count == 0) return null;
-        var current = horizontal ? col : row;
-        var myPos = occupied.IndexOf(current);
-        if (myPos < 0) return null;
-
-        int nextPos;
-        if (_settings.WrapMouse)
-        {
-            if (occupied.Count < 2) return null;
-            nextPos = (myPos + dir + occupied.Count) % occupied.Count;
-        }
-        else
-        {
-            nextPos = myPos + dir;
-            if (nextPos < 0 || nextPos >= occupied.Count) return null;
-        }
-
-        var target = occupied[nextPos];
-        return horizontal
-            ? slots[row * cols + target]
-            : slots[target * cols + col];
+        _ = slots;
+        return LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
     }
 
     private async Task SendMouseMoveAsync(string peer, double nx, double ny)

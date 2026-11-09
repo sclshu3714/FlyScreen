@@ -49,7 +49,7 @@ MAUI Android：桌面控手机与**用户程序（Fly API / OCR）**均需开启
 | 运行（自包含发布包） | Windows 10/11 x64，**无需**再装 .NET |
 | 运行（依赖框架构建） | Windows 10/11 + **[.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)**（须选 Desktop，不是普通 Runtime） |
 | 开发编译 | **.NET 10 SDK**（含 Windows Desktop；MAUI 另需对应 workload） |
-| 权限 | 建议管理员（全局键鼠钩子） |
+| 权限 | Win / Maui-Win **须管理员**（全局键鼠钩子；非提权穿边易丢事件） |
 
 各端目标框架统一为 `net10.0` / `net10.0-windows7.0` / MAUI `net10.0-android` 等，详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
