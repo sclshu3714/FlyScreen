@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.ScreenExtend;
 using FlyScreen.Native;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
@@ -48,10 +50,22 @@ public sealed class MauiInputRouter : IDisposable
     public EdgeFileDragService? EdgeFileDrag { get; set; }
     private const int LocalActivityGuardMs = 1000;
     private const int BriefRemoteMs = 450;
+    /// <summary>贴边停留超过该毫秒则允许穿边（即使本帧没有继续外推）。</summary>
+    private const int EdgeStickAdmitMs = 80;
     /// <summary>本机是否为当前活动电脑（显示操作光标的那一台）。</summary>
     private bool _isCursorOwner = true;
     private SynchronizationContext? _hookSync;
     private long _lastCursorOwnerBroadcastTick;
+    /// <summary>本机最近一次按键/滚轮/点击；拒绝对端 SwitchFocus 只用这个（勿把鼠标微动当占用）。</summary>
+    private long _lastLocalEngageTick;
+    private int _edgeStickSide;
+    private long _edgeStickTick;
+    private long _lastEdgeDiagTick;
+    private Thread? _hookThread;
+    private int _hookThreadId;
+    private readonly ManualResetEventSlim _hookReady = new(false);
+    private readonly ConcurrentQueue<Action> _hookActions = new();
+    public bool HooksInstalled => _mouseHook != IntPtr.Zero && _keyHook != IntPtr.Zero;
 
     public bool EasyMouseEnabled { get; set; } = true;
     public bool IsControllingRemote => _controllingRemote;
@@ -81,25 +95,156 @@ public sealed class MauiInputRouter : IDisposable
 
     public void Start()
     {
-        // LL 钩子回调跑在安装线程；ShowCursor 计数也必须只在该线程调整
-        _hookSync = SynchronizationContext.Current;
-        _mouseProc = MouseHookCallback;
-        _keyProc = KeyHookCallback;
-        using var cur = System.Diagnostics.Process.GetCurrentProcess();
-        using var mod = cur.MainModule!;
-        var hMod = NativeMethods.GetModuleHandle(mod.ModuleName);
-        _mouseHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _mouseProc, hMod, 0);
-        _keyHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _keyProc, hMod, 0);
-        ShowLocalCursor();
+        // WinUI 主线程忙碌时 LL 钩子会被系统静默卸掉 → 穿边「很难/不能」。
+        // 独立 STA + GetMessage 泵，与 EdgeFileDragCapture 同套路。
+        Stop();
+        _hookReady.Reset();
+        _hookThread = new Thread(HookThreadMain)
+        {
+            IsBackground = true,
+            Name = "FlyScreen.Maui.InputHooks"
+        };
+        _hookThread.SetApartmentState(ApartmentState.STA);
+        _hookThread.Start();
+        if (!_hookReady.Wait(5000))
+            AppLog.Error("Maui-Win 键鼠钩子线程启动超时；穿边可能不可用");
     }
 
     public void Stop()
     {
-        ShowLocalCursor();
-        if (_mouseHook != IntPtr.Zero) NativeMethods.UnhookWindowsHookEx(_mouseHook);
-        if (_keyHook != IntPtr.Zero) NativeMethods.UnhookWindowsHookEx(_keyHook);
+        var thread = _hookThread;
+        var tid = _hookThreadId;
+        if (thread == null && _mouseHook == IntPtr.Zero && _keyHook == IntPtr.Zero)
+            return;
+
+        try
+        {
+            if (tid != 0)
+                NativeMethods.PostThreadMessage(tid, NativeMethods.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch { /* ignore */ }
+
+        if (thread != null && thread.IsAlive)
+        {
+            if (!thread.Join(2000))
+                AppLog.Warn("Maui-Win 键鼠钩子线程未能及时退出");
+        }
+
+        _hookThread = null;
+        _hookThreadId = 0;
+        _hookSync = null;
         _mouseHook = IntPtr.Zero;
         _keyHook = IntPtr.Zero;
+    }
+
+    private void HookThreadMain()
+    {
+        _hookThreadId = Environment.CurrentManagedThreadId;
+        _hookSync = new HookThreadSynchronizationContext(this);
+        SynchronizationContext.SetSynchronizationContext(_hookSync);
+        try
+        {
+            _mouseProc = MouseHookCallback;
+            _keyProc = KeyHookCallback;
+            // WH_MOUSE_LL 可用 NULL 模块句柄（本进程过程）
+            var hMod = NativeMethods.GetModuleHandle(null);
+            _mouseHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _mouseProc, hMod, 0);
+            _keyHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _keyProc, hMod, 0);
+            if (_mouseHook == IntPtr.Zero || _keyHook == IntPtr.Zero)
+            {
+                var err = Marshal.GetLastWin32Error();
+                AppLog.Error(
+                    $"键鼠钩子安装失败 mouse={_mouseHook} key={_keyHook} win32={err} thread={_hookThreadId}；穿边将不可用（请以管理员运行）");
+            }
+            else
+            {
+                AppLog.Info($"键鼠钩子已安装（独立泵线程={_hookThreadId}）");
+            }
+
+            ShowLocalCursor();
+            // 强制创建消息队列，否则启动瞬间 PostThreadMessage 会失败
+            NativeMethods.PeekMessage(out _, IntPtr.Zero, 0, 0, 0);
+            _hookReady.Set();
+
+            while (NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                if (msg.message == NativeMethods.WM_APP_HOOK_ACTION)
+                    DrainHookActions();
+                NativeMethods.TranslateMessage(ref msg);
+                NativeMethods.DispatchMessage(ref msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Maui-Win 键鼠钩子线程异常: " + ex.Message);
+        }
+        finally
+        {
+            try
+            {
+                while (NativeMethods.ShowCursor(true) < 0) { }
+            }
+            catch { /* ignore */ }
+
+            if (_mouseHook != IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(_mouseHook);
+                _mouseHook = IntPtr.Zero;
+            }
+
+            if (_keyHook != IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(_keyHook);
+                _keyHook = IntPtr.Zero;
+            }
+
+            _hookReady.Set();
+        }
+    }
+
+    private void DrainHookActions()
+    {
+        while (_hookActions.TryDequeue(out var action))
+        {
+            try { action(); }
+            catch { /* ignore */ }
+        }
+    }
+
+    private void PostToHookThread(Action action)
+    {
+        _hookActions.Enqueue(action);
+        var tid = _hookThreadId;
+        if (tid != 0)
+            NativeMethods.PostThreadMessage(tid, NativeMethods.WM_APP_HOOK_ACTION, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private sealed class HookThreadSynchronizationContext(MauiInputRouter owner) : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+            => owner.PostToHookThread(() => d(state));
+
+        public override void Send(SendOrPostCallback d, object? state)
+        {
+            if (Environment.CurrentManagedThreadId == owner._hookThreadId)
+            {
+                d(state);
+                return;
+            }
+
+            using var done = new ManualResetEventSlim(false);
+            Exception? error = null;
+            owner.PostToHookThread(() =>
+            {
+                try { d(state); }
+                catch (Exception ex) { error = ex; }
+                finally { done.Set(); }
+            });
+            if (!done.Wait(500) || error != null)
+            {
+                // 超时则放弃；ShowCursor 偶发失败可接受
+            }
+        }
     }
 
     public void TakeLocalControl(double? localX = null, double? localY = null)
@@ -169,9 +314,13 @@ public sealed class MauiInputRouter : IDisposable
         // 已在被控：忽略重复 SwitchFocus，避免 AbsPointer 每次触控都把光标拽回入口点
         if (_receivingRemoteControl) return;
 
+        // 仅按键/点击/滚轮算「本机占用」；鼠标微动会让对端永远穿不进来
         if (!_controllingRemote
-            && Environment.TickCount64 - _lastPhysicalInputTick < LocalActivityGuardMs)
+            && Environment.TickCount64 - _lastLocalEngageTick < LocalActivityGuardMs)
+        {
+            AppLog.Debug("忽略 SwitchFocus：本机刚有点击/按键");
             return;
+        }
 
         _controllingRemote = false;
         _activePeer = null;
@@ -228,8 +377,19 @@ public sealed class MauiInputRouter : IDisposable
     public void SwitchToPeer(string peer, double entryX, double entryY, int peerSide)
     {
         // 控对端需可达，且交集含 InjectInput（旧端无 Caps 视为具备全量本机能力）
-        if (!_connections.IsPeerReachable(peer)) return;
-        if (!_connections.PeerSupports(peer, PeerCaps.InjectInput)) return;
+        if (!_connections.IsPeerReachable(peer))
+        {
+            AppLog.Warn($"穿边中止：对端不可达 {peer}");
+            return;
+        }
+
+        if (!_connections.PeerSupports(peer, PeerCaps.InjectInput))
+        {
+            AppLog.Warn($"穿边中止：对端无 InjectInput {peer}");
+            return;
+        }
+
+        AppLog.Info($"穿边切换 → {peer} side={peerSide}");
         if (_hasSavedLocalPos == false && _lastX != 0)
         {
             _savedLocalX = _lastX;
@@ -340,6 +500,7 @@ public sealed class MauiInputRouter : IDisposable
         if (msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN
                 or NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MOUSEWHEEL or NativeMethods.WM_MOUSEHWHEEL)
         {
+            _lastLocalEngageTick = Environment.TickCount64;
             TryClaimPhysicalInput();
         }
 
@@ -359,6 +520,7 @@ public sealed class MauiInputRouter : IDisposable
             var rightObs = screenL + screenW - 1;
             var bottomObs = screenT + screenH - 1;
             var onEdge = info.pt.X <= screenL || info.pt.X >= rightObs || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
+            UpdateEdgeStick(info.pt.X, info.pt.Y, screenL, screenT, rightObs, bottomObs);
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
             var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
@@ -401,6 +563,14 @@ public sealed class MauiInputRouter : IDisposable
                     SwitchToPeer(peer!, entryX, entryY, peerSide);
                     return (IntPtr)1;
                 }
+
+                MaybeLogEdgeBlocked(onEdge, pauseExtend);
+            }
+            else if (onEdge)
+            {
+                MaybeLogEdgeBlocked(onEdge, pauseExtend,
+                    easyOff: !EasyMouseEnabled || !_settings.EasyMouse,
+                    cooldown: InSwitchCooldown());
             }
         }
 
@@ -486,16 +656,22 @@ public sealed class MauiInputRouter : IDisposable
         var down = msg is NativeMethods.WM_KEYDOWN or NativeMethods.WM_SYSKEYDOWN;
 
         if (down)
+        {
             _lastPhysicalInputTick = Environment.TickCount64;
-
-        if (down)
+            _lastLocalEngageTick = Environment.TickCount64;
             TryClaimPhysicalInput();
+        }
 
-        // Ctrl+Alt+热键
+        // Ctrl+Alt+热键（成功后必须松开修饰键，否则切入远端后本机 KEYUP 被吞会粘滞）
         if (down && IsCtrlAlt())
         {
-            if (HandleHotkey((int)info.vkCode))
+            var peerBefore = _controllingRemote ? _activePeer : null;
+            var triggerVk = (ushort)info.vkCode;
+            if (HandleHotkey(triggerVk))
+            {
+                ReleaseModifiersAfterHotkey(peerBefore, triggerVk);
                 return (IntPtr)1;
+            }
         }
 
         if (EdgeFileDrag?.IsHolding == true && _controllingRemote)
@@ -584,14 +760,19 @@ public sealed class MauiInputRouter : IDisposable
     }
 
     /// <summary>
-    /// ShowCursor 计数按线程维护；必须在安装 LL 钩子的 UI 线程上调整，
-    /// 否则网络线程 Show 无法抵消钩子线程 Hide，玄鸟窗口上会出现「可点不可见」。
-    /// WinUI 同步上下文不支持 <c>Send</c>（会抛 NotSupportedException），一律用 <c>Post</c>。
+    /// ShowCursor 计数按线程维护；必须在安装 LL 钩子的线程上调整。
+    /// 钩子在独立泵线程时用其 SynchronizationContext.Send 短等。
     /// </summary>
     private void RunOnHookThread(Action action)
     {
-        var sc = _hookSync ?? SynchronizationContext.Current;
-        if (sc == null || ReferenceEquals(SynchronizationContext.Current, sc))
+        if (_hookThreadId != 0 && Environment.CurrentManagedThreadId == _hookThreadId)
+        {
+            action();
+            return;
+        }
+
+        var sc = _hookSync;
+        if (sc == null)
         {
             action();
             return;
@@ -599,20 +780,64 @@ public sealed class MauiInputRouter : IDisposable
 
         try
         {
-            sc.Post(_ =>
+            sc.Send(_ =>
             {
                 try { action(); }
                 catch { /* ignore */ }
             }, null);
         }
-        catch (ObjectDisposedException) { }
-        catch (InvalidOperationException) { }
         catch (NotSupportedException)
         {
-            // 兜底：部分宿主只接受主线程队列
-            try { MainThread.BeginInvokeOnMainThread(action); }
+            try { sc.Post(_ => { try { action(); } catch { /* ignore */ } }, null); }
             catch { /* ignore */ }
         }
+        catch (ObjectDisposedException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    private void UpdateEdgeStick(int x, int y, int screenL, int screenT, int right, int bottom)
+    {
+        var side = 0;
+        if (x <= screenL) side = -1;
+        else if (x >= right) side = 1;
+        else if (_settings.TwoRow && y <= screenT) side = -2;
+        else if (_settings.TwoRow && y >= bottom) side = 2;
+
+        if (side == 0)
+        {
+            _edgeStickSide = 0;
+            _edgeStickTick = 0;
+            return;
+        }
+
+        if (_edgeStickSide != side)
+        {
+            _edgeStickSide = side;
+            _edgeStickTick = Environment.TickCount64;
+        }
+    }
+
+    private bool EdgeStickReady(int side)
+        => side != 0
+           && _edgeStickSide == side
+           && _edgeStickTick > 0
+           && Environment.TickCount64 - _edgeStickTick >= EdgeStickAdmitMs;
+
+    private void MaybeLogEdgeBlocked(bool onEdge, bool pauseExtend, bool easyOff = false, bool cooldown = false)
+    {
+        if (!onEdge) return;
+        var now = Environment.TickCount64;
+        if (now - _lastEdgeDiagTick < 1500) return;
+        _lastEdgeDiagTick = now;
+        var slots = GetLayoutSlots();
+        var localIdx = FindLocalSlotIndex(slots);
+        var side = _edgeStickSide;
+        var neighbor = side == 0
+            ? null
+            : FindOccupiedNeighborOf(slots, localIdx, horizontal: side is -1 or 1, dir: side < 0 ? -1 : 1);
+        AppLog.Info(
+            $"穿边未切换 side={side} neighbor={neighbor ?? "(无)"} easyOff={easyOff} pauseExtend={pauseExtend} " +
+            $"cooldown={cooldown} localIdx={localIdx} stickMs={Math.Max(0, now - _edgeStickTick)} hooks={HooksInstalled}");
     }
 
     private void HideLocalCursor()
@@ -696,7 +921,47 @@ public sealed class MauiInputRouter : IDisposable
             return true;
         }
 
+        if (MatchKey(vk, _settings.HotkeyLock))
+        {
+            EasyMouseEnabled = !EasyMouseEnabled;
+            return true;
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// 热键触发后：对端补发修饰键抬起；本机注入抬起，避免切换控制权后物理 KEYUP 被吞。
+    /// </summary>
+    private void ReleaseModifiersAfterHotkey(string? peerThatReceivedMods, ushort triggerVk)
+    {
+        if (!string.IsNullOrEmpty(peerThatReceivedMods))
+        {
+            foreach (var (vk, ext) in ModifierKeyRelease.All)
+                _ = SendKeyAsync(peerThatReceivedMods, vk, down: false, extended: ext);
+            _ = SendKeyAsync(peerThatReceivedMods, triggerVk, down: false, extended: false);
+        }
+
+        foreach (var (vk, ext) in ModifierKeyRelease.All)
+        {
+            if (!ModifierKeyRelease.IsPhysicallyDown(vk)) continue;
+            MauiInputInjector.Key(new KeyEventPayload
+            {
+                VirtualKey = vk,
+                Down = false,
+                Extended = ext
+            });
+        }
+
+        if (ModifierKeyRelease.IsPhysicallyDown(triggerVk))
+        {
+            MauiInputInjector.Key(new KeyEventPayload
+            {
+                VirtualKey = triggerVk,
+                Down = false,
+                Extended = false
+            });
+        }
     }
 
     private static bool MatchKey(int vk, string key)
@@ -850,7 +1115,8 @@ public sealed class MauiInputRouter : IDisposable
         var ey = entryY;
         var now = Environment.TickCount64;
 
-        if (x <= screenL && x <= _lastX)
+        // 继续外推，或已贴边停留足够久（Windows 夹住光标后常不再产生「更外」位移）
+        if (x <= screenL && (x <= _lastX || EdgeStickReady(-1)))
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: -1);
             if (IsValidPeer(name) && _edgeGate.TryAdmit(-1, now))
@@ -865,7 +1131,7 @@ public sealed class MauiInputRouter : IDisposable
             return false;
         }
 
-        if (x >= right && x >= _lastX)
+        if (x >= right && (x >= _lastX || EdgeStickReady(1)))
         {
             var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: true, dir: +1);
             if (IsValidPeer(name) && _edgeGate.TryAdmit(1, now))
@@ -882,7 +1148,7 @@ public sealed class MauiInputRouter : IDisposable
 
         if (_settings.TwoRow)
         {
-            if (y <= screenT && y <= _lastY)
+            if (y <= screenT && (y <= _lastY || EdgeStickReady(-2)))
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: -1);
                 if (IsValidPeer(name) && _edgeGate.TryAdmit(-2, now))
@@ -897,7 +1163,7 @@ public sealed class MauiInputRouter : IDisposable
                 return false;
             }
 
-            if (y >= bottom && y >= _lastY)
+            if (y >= bottom && (y >= _lastY || EdgeStickReady(2)))
             {
                 var name = FindOccupiedNeighborOf(slots, localIdx, horizontal: false, dir: +1);
                 if (IsValidPeer(name) && _edgeGate.TryAdmit(2, now))
@@ -925,6 +1191,7 @@ public sealed class MauiInputRouter : IDisposable
         {
             1 => EdgeCrossMode.DoubleTap,
             2 => EdgeCrossMode.SpeedBurst,
+            3 => EdgeCrossMode.HotkeyOnly,
             _ => EdgeCrossMode.BarrierFree
         };
         _edgeGate.Mode = mode;
@@ -1005,60 +1272,11 @@ public sealed class MauiInputRouter : IDisposable
         return true;
     }
 
-    /// <summary>
-    /// 在已占用格子中找邻居。空位忽略。
-    /// WrapMouse：首尾相连；否则到头返回 null。
-    /// </summary>
+    /// <summary>在已占用格子中找邻居（委托 <see cref="LayoutEdge"/>，含两机死边回绕）。</summary>
     private string? FindOccupiedNeighborOf(string?[] slots, int fromIndex, bool horizontal, int dir)
     {
-        if (fromIndex < 0 || dir == 0) return null;
-
-        var cols = _settings.TwoRow ? 2 : 4;
-        var rows = _settings.TwoRow ? 2 : 1;
-        var row = fromIndex / cols;
-        var col = fromIndex % cols;
-
-        var occupied = new List<int>();
-        if (horizontal)
-        {
-            for (var c = 0; c < cols; c++)
-            {
-                var name = slots[row * cols + c];
-                if (!string.IsNullOrWhiteSpace(name))
-                    occupied.Add(c);
-            }
-        }
-        else
-        {
-            for (var r = 0; r < rows; r++)
-            {
-                var name = slots[r * cols + col];
-                if (!string.IsNullOrWhiteSpace(name))
-                    occupied.Add(r);
-            }
-        }
-
-        if (occupied.Count == 0) return null;
-        var current = horizontal ? col : row;
-        var myPos = occupied.IndexOf(current);
-        if (myPos < 0) return null;
-
-        int nextPos;
-        if (_settings.WrapMouse)
-        {
-            if (occupied.Count < 2) return null;
-            nextPos = (myPos + dir + occupied.Count) % occupied.Count;
-        }
-        else
-        {
-            nextPos = myPos + dir;
-            if (nextPos < 0 || nextPos >= occupied.Count) return null;
-        }
-
-        var target = occupied[nextPos];
-        return horizontal
-            ? slots[row * cols + target]
-            : slots[target * cols + col];
+        _ = slots;
+        return LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
     }
 
     private async Task SendMouseMoveAsync(string peer, double nx, double ny)
@@ -1113,8 +1331,8 @@ public sealed class MauiInputRouter : IDisposable
 
     public void Dispose()
     {
-        ShowLocalCursor();
         Stop();
+        _hookReady.Dispose();
     }
 }
 

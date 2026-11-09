@@ -82,15 +82,37 @@ public static class NativeMethods
     // --- DWM 标题栏主题（Win10 1809+ / Win11）---
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWA_BORDER_COLOR = 34;
     public const int DWMWA_CAPTION_COLOR = 35;
     public const int DWMWA_TEXT_COLOR = 36;
+
+    /// <summary>Win11：系统默认圆角策略。</summary>
+    public const int DWMWCP_DEFAULT = 0;
+    /// <summary>Win11：强制直角。</summary>
+    public const int DWMWCP_DONOTROUND = 1;
+    /// <summary>Win11：圆角（对齐 Maui-Win / 系统 WinUI 窗）。</summary>
+    public const int DWMWCP_ROUND = 2;
+    /// <summary>Win11：小圆角。</summary>
+    public const int DWMWCP_ROUNDSMALL = 3;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DwmMargins
+    {
+        public int cxLeftWidth;
+        public int cxRightWidth;
+        public int cyTopHeight;
+        public int cyBottomHeight;
+    }
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref uint pvAttribute, int cbAttribute);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref DwmMargins pMarInset);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(
@@ -127,6 +149,31 @@ public static class NativeMethods
         // 等价于用户拉动/最小化后再恢复：强制重算非客户区，让标题栏立刻换色
         _ = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
+    /// <summary>
+    /// 主窗圆角 + DWM 投影：对齐 Maui-Win（Win11 系统圆角窗）。
+    /// WindowChrome GlassFrameThickness=0 会去掉系统阴影，用 1px ExtendFrame 补回；
+    /// Win10 无圆角属性时失败可忽略，投影仍可能生效。
+    /// </summary>
+    public static void ApplyWindowRoundedShadow(IntPtr hwnd, bool maximized)
+    {
+        if (hwnd == IntPtr.Zero) return;
+
+        var corner = maximized ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+
+        // 最大化贴边不需要阴影边距；还原态 1px 边距即可触发 DWM 投影
+        var margins = maximized
+            ? new DwmMargins()
+            : new DwmMargins
+            {
+                cxLeftWidth = 1,
+                cxRightWidth = 1,
+                cyTopHeight = 1,
+                cyBottomHeight = 1
+            };
+        _ = DwmExtendFrameIntoClientArea(hwnd, ref margins);
     }
 
     public const int SW_RESTORE = 9;
@@ -219,11 +266,24 @@ public static class NativeMethods
     public static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
     [DllImport("user32.dll")]
+    public static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool TranslateMessage(ref MSG lpMsg);
 
     [DllImport("user32.dll")]
     public static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    public static extern void PostQuitMessage(int nExitCode);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PostThreadMessage(int idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    public const uint WM_QUIT = 0x0012;
+    public const uint WM_APP_HOOK_ACTION = 0x8000 + 77;
 
     /// <summary>粘贴线程等待网络时泵消息，避免卡死。</summary>
     public static void PumpWaitingMessages()

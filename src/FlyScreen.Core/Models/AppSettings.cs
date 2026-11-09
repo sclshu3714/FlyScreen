@@ -34,7 +34,7 @@ public sealed class AppSettings
     /// iOS：有子程序时发本地通知（无 FGS，不能强制保活）。
     /// </summary>
     public bool NotificationInject { get; set; }
-    /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
+    /// <summary>穿边模式：0 无障碍 / 1 双击 / 2 极速 / 3 快捷键（见 <see cref="FlyScreen.Services.Input.EdgeCrossMode"/>）。</summary>
     public int EdgeCrossMode { get; set; }
     /// <summary>最近一次投影目标机器名（弹窗默认项；须双向已连接的电脑/大屏）。</summary>
     public string ScreenExtendPeer { get; set; } = "";
@@ -62,7 +62,7 @@ public sealed class AppSettings
     public bool MttVddInstalledByApp { get; set; }
     /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
     public bool AutoStart { get; set; }
-    /// <summary>启动时静默检查 GitHub Release 更新。</summary>
+    /// <summary>启动时静默检查更新（GitHub，失败改用 Gitee）。</summary>
     public bool CheckUpdatesOnStartup { get; set; } = true;
     /// <summary>界面主题：Light（淡色，默认）/ Dark（深色，待实现）。</summary>
     public string UiTheme { get; set; } = "Light";

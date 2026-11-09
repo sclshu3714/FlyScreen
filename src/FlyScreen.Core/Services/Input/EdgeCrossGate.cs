@@ -128,6 +128,7 @@ public sealed class EdgeCrossGate
 
         return _mode switch
         {
+            EdgeCrossMode.HotkeyOnly => false,
             EdgeCrossMode.DoubleTap => AdmitDoubleTap(side, nowTickMs),
             EdgeCrossMode.SpeedBurst => AdmitSpeedBurst(side, nowTickMs),
             _ => AdmitBarrierFree(side, nowTickMs)
@@ -138,11 +139,15 @@ public sealed class EdgeCrossGate
     /// 远端虚拟光标出界时的穿边判定。
     /// 无障碍：VirtualCursor 的过冲已等价「继续外推」，此处直接放行（勿再套 140ms dwell，
     /// 否则失败路径 ClampInside 会清掉过冲，永远凑不满停留时间 → 无法回到本机）。
+    /// 快捷键方式：永不放行，只能用切换机器快捷键。
     /// </summary>
     public bool TryAdmitRemoteExit(int side, double nx, double ny, int dx, int dy, long nowTickMs)
     {
         var onEdge = side != 0;
         Observe(Math.Clamp(nx, 0, 1), Math.Clamp(ny, 0, 1), onEdge, nowTickMs);
+
+        if (_mode == EdgeCrossMode.HotkeyOnly)
+            return false;
 
         if (_mode == EdgeCrossMode.BarrierFree)
             return true;
@@ -167,9 +172,9 @@ public sealed class EdgeCrossGate
         return TryAdmit(side, nowTickMs);
     }
 
-    /// <summary>双击/极速拒绝时应夹回内侧；无障碍不应因门控失败而夹回。</summary>
+    /// <summary>双击/极速/快捷键拒绝时应夹回内侧；无障碍不应因门控失败而夹回。</summary>
     public bool ShouldClampVirtualCursorOnReject =>
-        _mode is EdgeCrossMode.DoubleTap or EdgeCrossMode.SpeedBurst;
+        _mode is EdgeCrossMode.DoubleTap or EdgeCrossMode.SpeedBurst or EdgeCrossMode.HotkeyOnly;
 
     /// <summary>无障碍进入对端时关闭入口粘滞，否则慢速沿入口边外推会被粘滞夹回、无法回本机。</summary>
     public bool UseEntrySticky =>

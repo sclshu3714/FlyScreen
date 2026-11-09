@@ -10,6 +10,9 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 须在首次检查更新前：Win10 用 WinHTTP/WinINet，避免 Sockets DNS「不知道这样的主机」
+        FlyScreen.Update.WindowsUpdateHttpBootstrap.Ensure();
+
         // 任务栏显示名「玄鸟」；拓扑守护嵌入主程序，运行时解压（仍单文件分发）
         FlyScreen.WinApi.WindowsAppUserModel.EnsureProcessId(
             FlyScreen.WinApi.WindowsAppUserModel.MainAppId);

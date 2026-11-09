@@ -10,6 +10,7 @@ public sealed class MachineSlot : INotifyPropertyChanged
     private bool _enabled;
     private bool _isLocal;
     private bool _isSelected;
+    private bool _isDropTarget;
     private string _statusText = Loc.T("Slot.Disconnected");
     private bool _outboundOk;
     private bool _inboundOk;
@@ -116,6 +117,18 @@ public sealed class MachineSlot : INotifyPropertyChanged
         {
             if (_isSelected == value) return;
             _isSelected = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>布局拖拽时，指针下方的可交换目标格高亮。</summary>
+    public bool IsDropTarget
+    {
+        get => _isDropTarget;
+        set
+        {
+            if (_isDropTarget == value) return;
+            _isDropTarget = value;
             OnPropertyChanged();
         }
     }

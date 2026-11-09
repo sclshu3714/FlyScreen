@@ -34,6 +34,7 @@ Release 资源命名：`FlyScreen-{version}-{rid}{后缀}`（见 ROADMAP §4.2�
 | MAUI Mac | `maui-osx-*` | ✅ | ✅ 自替换 |
 
 实现：`FlyScreen.Core/Services/Update/`（`GitHubReleaseClient` + `SelfReplaceInstaller` + 通道匹配）；Android 另见 `AndroidApkUpdater`。  
+检查/下载优先 GitHub；国内失败时自动改用 Gitee（`https://gitee.com/sclshu3714/FlyScreen`，与 GitHub 同步）。发版时请同时把各端安装包挂到 Gitee Release，否则国内只能检测到版本却下不到包。  
 同一 Release 挂多端单文件；各端只下载自己的 rid。产物：`artifacts/release/`。
 
 ## 4. 支持矩阵（发版维护）

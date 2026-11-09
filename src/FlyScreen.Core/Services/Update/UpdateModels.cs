@@ -32,6 +32,8 @@ public sealed class UpdateCheckResult
     public string ReleaseUrl { get; init; } = "";
     public string? AssetName { get; init; }
     public string? AssetDownloadUrl { get; init; }
+    /// <summary>实际命中的更新源：GitHub / Gitee。</summary>
+    public string UpdateSource { get; init; } = "";
     public string Message { get; init; } = "";
 
     public static UpdateCheckResult Fail(string message) => new()

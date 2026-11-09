@@ -351,18 +351,18 @@
       <Setter Property="Cursor" Value="SizeAll"/>
       <Setter Property="(DragDrop.AllowDrop)" Value="True"/>
     </Style>
-    <!-- 选中：蓝框（与 Windows 端一致） -->
-    <Style Selector="Border.slot.selected">
+    <!-- 本机：绿框；选中：蓝框（覆盖本机） -->
+    <Style Selector="Border.slot.local:not(.selected):not(.slot-drop-target)">
+      <Setter Property="BorderBrush" Value="{DynamicResource Success}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="Background" Value="{DynamicResource SuccessSoft}"/>
+    </Style>
+    <Style Selector="Border.slot.selected:not(.slot-drop-target)">
       <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
       <Setter Property="BorderThickness" Value="2"/>
       <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
     </Style>
-    <Style Selector="Border.slot.local:not(.selected)">
-      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-      <Setter Property="BorderThickness" Value="2"/>
-      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
-    </Style>
-    <Style Selector="Border.slot.empty:not(.selected)">
+    <Style Selector="Border.slot.empty:not(.selected):not(.local):not(.slot-drop-target)">
       <Setter Property="Background" Value="{DynamicResource MatrixBg}"/>
       <Setter Property="Opacity" Value="0.9"/>
     </Style>
@@ -371,10 +371,12 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
       <Setter Property="BorderThickness" Value="2"/>
     </Style>
+    <!-- 拖拽悬停：准备交换 -->
     <Style Selector="Border.slot.slot-drop-target">
       <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="BorderThickness" Value="3"/>
       <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Opacity" Value="1"/>
     </Style>
   </Window.Styles>
 
@@ -665,7 +667,9 @@
                                IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
                   <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
                                IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
-                  <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross" Margin="0,0,0,6"
+                  <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                               IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
+                  <RadioButton x:Name="EdgeCrossHotkeyRadio" Content="快捷键方式" GroupName="EdgeCross" Margin="0,0,0,6"
                                IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
                   <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
                              Foreground="{DynamicResource Muted}" FontSize="12"/>

@@ -6,6 +6,9 @@ public partial class App : MauiWinUIApplication
 {
     public App()
     {
+        // 须在首次检查更新前：Win10 用 WinHTTP/WinINet，避免 Sockets DNS「不知道这样的主机」
+        FlyScreen.Update.WindowsUpdateHttpBootstrap.Ensure();
+
         // 任务栏显示名「玄鸟」：须在任何 UI 之前设置 AppUserModelID（不改 exe 名）
         FlyScreen.WinApi.WindowsAppUserModel.EnsureProcessId(
             FlyScreen.WinApi.WindowsAppUserModel.MainAppId);

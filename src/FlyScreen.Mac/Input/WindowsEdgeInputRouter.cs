@@ -30,6 +30,8 @@ public sealed class WindowsEdgeInputRouter : IDisposable
     private bool _hasSavedLocalPos;
     private long _switchedToRemoteAtTick;
     private long _lastPhysicalInputTick;
+    /// <summary>按键/点击/滚轮；拒绝对端 SwitchFocus 只用这个。</summary>
+    private long _lastLocalEngageTick;
     private readonly EdgeCrossGate _edgeGate = new();
     private readonly EdgeMouseVirtualCursor _remoteCursor = new();
     private int _peerSide;
@@ -86,7 +88,7 @@ public sealed class WindowsEdgeInputRouter : IDisposable
     {
         if (_receivingRemoteControl) return;
         if (!_controllingRemote
-            && Environment.TickCount64 - _lastPhysicalInputTick < LocalActivityGuardMs)
+            && Environment.TickCount64 - _lastLocalEngageTick < LocalActivityGuardMs)
             return;
 
         _controllingRemote = false;
@@ -296,7 +298,10 @@ public sealed class WindowsEdgeInputRouter : IDisposable
 
         if (msg is Win32.WmLButtonDown or Win32.WmRButtonDown or Win32.WmMButtonDown
             or Win32.WmMouseWheel or Win32.WmMouseHWheel)
+        {
+            _lastLocalEngageTick = Environment.TickCount64;
             TryClaimPhysicalInput();
+        }
 
         if (msg == Win32.WmLButtonDown && !_controllingRemote && _settings.TransferFile)
             WindowsShellDragPaths.NoteButtonDown();
@@ -425,6 +430,7 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         if (down)
         {
             _lastPhysicalInputTick = Environment.TickCount64;
+            _lastLocalEngageTick = Environment.TickCount64;
             TryClaimPhysicalInput();
         }
 
@@ -658,47 +664,8 @@ public sealed class WindowsEdgeInputRouter : IDisposable
 
     private string? FindOccupiedNeighborOf(string?[] slots, int fromIndex, bool horizontal, int dir)
     {
-        if (fromIndex < 0 || dir == 0) return null;
-        var cols = _settings.TwoRow ? 2 : 4;
-        var rows = _settings.TwoRow ? 2 : 1;
-        var row = fromIndex / cols;
-        var col = fromIndex % cols;
-        var occupied = new List<int>();
-        if (horizontal)
-        {
-            for (var c = 0; c < cols; c++)
-            {
-                if (!string.IsNullOrWhiteSpace(slots[row * cols + c]))
-                    occupied.Add(c);
-            }
-        }
-        else
-        {
-            for (var r = 0; r < rows; r++)
-            {
-                if (!string.IsNullOrWhiteSpace(slots[r * cols + col]))
-                    occupied.Add(r);
-            }
-        }
-
-        if (occupied.Count == 0) return null;
-        var current = horizontal ? col : row;
-        var myPos = occupied.IndexOf(current);
-        if (myPos < 0) return null;
-        int nextPos;
-        if (_settings.WrapMouse)
-        {
-            if (occupied.Count < 2) return null;
-            nextPos = (myPos + dir + occupied.Count) % occupied.Count;
-        }
-        else
-        {
-            nextPos = myPos + dir;
-            if (nextPos < 0 || nextPos >= occupied.Count) return null;
-        }
-
-        var target = occupied[nextPos];
-        return horizontal ? slots[row * cols + target] : slots[target * cols + col];
+        _ = slots;
+        return LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
     }
 
     private int FindLocalSlotIndex(string?[] slots)
@@ -762,6 +729,7 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         {
             1 => EdgeCrossMode.DoubleTap,
             2 => EdgeCrossMode.SpeedBurst,
+            3 => EdgeCrossMode.HotkeyOnly,
             _ => EdgeCrossMode.BarrierFree
         };
         if (_controllingRemote)

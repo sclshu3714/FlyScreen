@@ -83,7 +83,7 @@ public static class IosProgramNotifyHelper
         }
         catch (Exception ex)
         {
-            Log.Warn("IosProgramNotify", "show: " + ex.Message);
+            AppLog.Warn("IosProgramNotify show: " + ex.Message);
         }
     }
 
@@ -97,7 +97,7 @@ public static class IosProgramNotifyHelper
         }
         catch (Exception ex)
         {
-            Log.Warn("IosProgramNotify", "remove: " + ex.Message);
+            AppLog.Warn("IosProgramNotify remove: " + ex.Message);
         }
     }
 }
