@@ -11,15 +11,21 @@ on:
 jobs:
   sync-release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_REPO: sclshu3714/FlyScreen
+      TAG: ${{ github.event.inputs.tag }}
     steps:
       - name: Sync GitHub Release to Gitee
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITEE_PAT: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: sclshu3714/FlyScreen
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
+          echo "GITEE_TOKEN length: ${#GITEE_TOKEN}"
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "❌ 令牌为空！Secrets没有读到"
+            exit 1
+          fi
+
           # 获取GitHub Release信息
           release_info=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
@@ -28,16 +34,18 @@ jobs:
           body=$(echo "$release_info" | jq -r '.body')
           prerelease=$(echo "$release_info" | jq -r '.prerelease')
           assets=$(echo "$release_info" | jq -c '.assets')
+          # 从github release拿到target_commitish（绑定分支）
+          target_commitish=$(echo "$release_info" | jq -r '.target_commitish')
 
-          # Gitee PAT Header鉴权
           gitee_resp=$(curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" \
-            -H "Authorization: token $GITEE_PAT" \
+            -H "Authorization: Bearer $GITEE_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
               "tag_name": "'"$(echo "$TAG" | sed 's/"/\\"/g')"'",
               "name": "'"$(echo "$name" | sed 's/"/\\"/g')"'",
               "body": "'"$(echo "$body" | sed 's/"/\\"/g')"'",
-              "prerelease": '"$prerelease"'
+              "prerelease": '"$prerelease"',
+              "target_commitish": "'"$(echo "$target_commitish" | sed 's/"/\\"/g')"'"
             }')
           echo "$gitee_resp"
           
@@ -45,14 +53,14 @@ jobs:
             echo "✅ 发行版创建成功"
             release_id=$(echo "$gitee_resp" | jq -r '.id')
             echo "$assets" | jq -r '.[] | @base64' | while read -r asset; do
-              _jq() { echo ${asset} | base64 -d | jq -r ${1}; }
+              _jq() { echo ${asset} | base64 -d | jq -r "${1}"; }
               asset_url=$(_jq '.browser_download_url')
               asset_name=$(_jq '.name')
               echo "📥 下载附件 $asset_name"
               curl -sL "$asset_url" -o "$asset_name"
               echo "📤 上传附件"
               curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases/$release_id/attach_files" \
-                -H "Authorization: token $GITEE_PAT" \
+                -H "Authorization: Bearer $GITEE_TOKEN" \
                 -F "file=@$asset_name"
               rm -f "$asset_name"
             done
