@@ -330,11 +330,13 @@ public partial class MainWindow : Window
     {
         try
         {
-            var updater = new Services.Update.GitHubUpdateService();
-            var result = await updater.CheckAsync().ConfigureAwait(true);
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
             if (result is { Success: true, UpdateAvailable: true })
             {
                 StatusText.Text = $"发现新版本 {result.RemoteVersion}，可在「帮助」中自动更新";
+                _helpLastCheck = result;
+                _helpUpdateReady = true;
+                RefreshHelpToolbarLabels();
             }
         }
         catch
@@ -2595,6 +2597,7 @@ public partial class MainWindow : Window
         doc.Blocks.Add(Heading(Loc.T("Help.Doc.Update")));
         doc.Blocks.Add(Para(Loc.T("Help.Doc.U1")));
         doc.Blocks.Add(Para(GitHubUpdateService.ReleasesUrl));
+        doc.Blocks.Add(Para(GitHubUpdateService.GiteeReleasesUrl));
         doc.Blocks.Add(Heading(Loc.T("Help.Doc.Diag")));
         doc.Blocks.Add(Para(Loc.T("Help.Doc.D1")));
         return doc;

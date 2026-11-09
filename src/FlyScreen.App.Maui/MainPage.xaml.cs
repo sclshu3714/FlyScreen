@@ -318,6 +318,28 @@ public partial class MainPage : ContentPage
         }
 
         _statusTimer?.Start();
+
+        if (_host.Settings.CheckUpdatesOnStartup)
+            _ = CheckUpdatesOnStartupQuietAsync();
+    }
+
+    private async Task CheckUpdatesOnStartupQuietAsync()
+    {
+        try
+        {
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
+            if (result is { Success: true, UpdateAvailable: true })
+            {
+                StatusLabel.Text = $"发现新版本 {result.RemoteVersion}，可在「帮助」中自动更新";
+                _helpLastCheck = result;
+                _helpUpdateReady = true;
+                RefreshHelpToolbarLabels();
+            }
+        }
+        catch
+        {
+            // 静默忽略
+        }
     }
 
     private void EnsureDesktopTray()
@@ -4155,7 +4177,7 @@ public partial class MainPage : ContentPage
             var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
                 ? MauiUpdateChecker.ReleasesUrl
                 : _helpLastCheck.ReleaseUrl;
-            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url);
+            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url + "\n" + MauiUpdateChecker.GiteeReleasesUrl);
             try { await Launcher.Default.OpenAsync(url); } catch { /* ignore */ }
             return;
         }
@@ -4280,6 +4302,7 @@ public partial class MainPage : ContentPage
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Update")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.U1")));
         HelpContent.Children.Add(HelpPara(MauiUpdateChecker.ReleasesUrl));
+        HelpContent.Children.Add(HelpPara(MauiUpdateChecker.GiteeReleasesUrl));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Diag")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.D1")));
     }

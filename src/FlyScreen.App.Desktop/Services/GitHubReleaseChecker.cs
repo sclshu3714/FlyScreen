@@ -7,6 +7,7 @@ namespace FlyScreen.DesktopUi.Services;
 public sealed class GitHubReleaseChecker
 {
     public static string ReleasesUrl => GitHubReleaseClient.ReleasesUrl;
+    public static string GiteeReleasesUrl => GitHubReleaseClient.GiteeReleasesUrl;
 
     private readonly GitHubReleaseClient _client = new();
     private readonly UpdateApplier _applier = new();

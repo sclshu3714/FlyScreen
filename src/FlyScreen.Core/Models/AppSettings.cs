@@ -62,7 +62,7 @@ public sealed class AppSettings
     public bool MttVddInstalledByApp { get; set; }
     /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
     public bool AutoStart { get; set; }
-    /// <summary>启动时静默检查 GitHub Release 更新。</summary>
+    /// <summary>启动时静默检查更新（GitHub，失败改用 Gitee）。</summary>
     public bool CheckUpdatesOnStartup { get; set; } = true;
     /// <summary>界面主题：Light（淡色，默认）/ Dark（深色，待实现）。</summary>
     public string UiTheme { get; set; } = "Light";

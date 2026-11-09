@@ -558,6 +558,28 @@ public partial class MainWindow : Window
         HideTrayBtn.IsVisible = _host.SupportsTray;
         AutoStartCheck.IsEnabled = _host.SupportsAutoStart;
         EnsureDesktopTray();
+
+        if (_host.Settings.CheckUpdatesOnStartup)
+            _ = CheckUpdatesOnStartupQuietAsync();
+    }
+
+    private async Task CheckUpdatesOnStartupQuietAsync()
+    {
+        try
+        {
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
+            if (result is { Success: true, UpdateAvailable: true })
+            {
+                StatusText.Text = $"发现新版本 {result.RemoteVersion}，可在「帮助」中自动更新";
+                _helpLastCheck = result;
+                _helpUpdateReady = true;
+                RefreshHelpToolbarLabels();
+            }
+        }
+        catch
+        {
+            // 静默忽略
+        }
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)
@@ -2277,41 +2299,81 @@ public partial class MainWindow : Window
             var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
                 ? GitHubReleaseChecker.ReleasesUrl
                 : _helpLastCheck.ReleaseUrl;
-            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url);
+            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url + "\n" + GitHubReleaseChecker.GiteeReleasesUrl);
             TryOpenUrl(url);
             return;
         }
 
+        var confirm = await ConfirmDialog.ShowAsync(
+            this,
+            Loc.T("Help.ConfirmUpdateTitle"),
+            string.Format(
+                Loc.T("Help.ConfirmUpdate"),
+                _helpLastCheck.RemoteVersion,
+                _helpLastCheck.AssetName ?? Loc.T("Help.AssetUnnamed")),
+            primaryText: "是",
+            cancelText: "否").ConfigureAwait(true);
+        if (confirm != UiConfirmChoice.Primary) return;
+
         SetHelpBusy(true);
+        ShowHelpUpdateProgress(0, indeterminate: false);
         try
         {
-            ShowHelpLog("正在下载并安装更新…");
-            var progress = new Progress<UpdateDownloadProgress>(p =>
-            {
-                if (!string.IsNullOrWhiteSpace(p.Message))
-                    Dispatcher.UIThread.Post(() => ShowHelpLog(p.Message));
-            });
+            var progress = new Progress<UpdateDownloadProgress>(OnHelpUpdateProgress);
             var apply = await _helpUpdater.DownloadAndApplyAsync(_helpLastCheck, progress)
                 .ConfigureAwait(true);
             ShowHelpLog(apply.Message);
             if (apply.ShouldExit)
             {
                 ShowHelpLog(Loc.T("Help.Restarting"));
+                HelpUpdateProgressBar.IsIndeterminate = true;
+                HelpUpdateProgressBar.IsVisible = true;
                 await Task.Delay(400).ConfigureAwait(true);
                 if (Application.Current?.ApplicationLifetime is IControlledApplicationLifetime lifetime)
                     lifetime.Shutdown();
                 else
                     Environment.Exit(0);
+                return;
             }
+
+            HideHelpUpdateProgress();
         }
         catch (Exception ex)
         {
+            HideHelpUpdateProgress();
             ShowHelpLog(ex.Message);
         }
         finally
         {
             SetHelpBusy(false);
         }
+    }
+
+    private void OnHelpUpdateProgress(UpdateDownloadProgress p)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var msg = string.IsNullOrWhiteSpace(p.Message)
+                ? string.Format(Loc.T("Help.Downloading"), Math.Max(0, p.Percent))
+                : p.Message;
+            ShowHelpLog(msg);
+            ShowHelpUpdateProgress(p.Percent, p.IsIndeterminate);
+        });
+    }
+
+    private void ShowHelpUpdateProgress(double percent, bool indeterminate)
+    {
+        HelpUpdateProgressBar.IsVisible = true;
+        HelpUpdateProgressBar.IsIndeterminate = indeterminate;
+        if (!indeterminate)
+            HelpUpdateProgressBar.Value = Math.Clamp(percent, 0, 100);
+    }
+
+    private void HideHelpUpdateProgress()
+    {
+        HelpUpdateProgressBar.IsIndeterminate = false;
+        HelpUpdateProgressBar.Value = 0;
+        HelpUpdateProgressBar.IsVisible = false;
     }
 
     private async Task CheckHelpDiagAsync()
@@ -2394,6 +2456,7 @@ public partial class MainWindow : Window
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Update")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.U1")));
         HelpContent.Children.Add(HelpPara(GitHubReleaseChecker.ReleasesUrl));
+        HelpContent.Children.Add(HelpPara(GitHubReleaseChecker.GiteeReleasesUrl));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Diag")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.D1")));
     }

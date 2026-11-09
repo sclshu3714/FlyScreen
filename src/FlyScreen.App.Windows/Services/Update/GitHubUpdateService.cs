@@ -8,6 +8,7 @@ namespace FlyScreen.Services.Update;
 public sealed class GitHubUpdateService
 {
     public static string ReleasesUrl => GitHubReleaseClient.ReleasesUrl;
+    public static string GiteeReleasesUrl => GitHubReleaseClient.GiteeReleasesUrl;
     public static string LatestApiUrl => GitHubReleaseClient.LatestApiUrl;
     public static string UpdateLogPath => SelfReplaceInstaller.UpdateLogPath;
 
