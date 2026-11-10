@@ -54,6 +54,8 @@ public sealed class ToolService
     /// <summary>挂接连接并加载已装/Bundled 工具模块（共享设备、颜色拾取等）。同步等待加载完成。</summary>
     public void AttachSharedDevices(ConnectionManager connections, AppSettings settings)
     {
+        // 先种子旁路/AppBase Bundled，再扫清单与文案（对齐 Maui BundledFlyToolsSeeder）
+        ToolBundledPackSeeder.TrySeedFromAppBase();
         Catalog.ReloadBuiltinFromBundled();
         ToolBundledCatalogAssets.Ensure();
         lock (_gate)

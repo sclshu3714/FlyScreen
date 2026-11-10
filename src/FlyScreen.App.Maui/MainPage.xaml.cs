@@ -1594,7 +1594,7 @@ public partial class MainPage : ContentPage
     /// <summary>
     /// 仅 MacCatalyst 用系统拖放。
     /// WinUI 清单为 requireAdministrator（穿边钩子），提权进程下 OLE/WinUI DnD 会
-    /// 「Drag start failed… elevated process」灾难性故障，故与 Android/iOS 一样走矩阵指针拖拽。
+    /// 「Drag start failed… elevated process」灾难性故障，故矩阵与工具→快捷栏均走指针拖拽。
     /// </summary>
     private static bool SupportsNativeDragDrop =>
         DeviceInfo.Platform == DevicePlatform.MacCatalyst;
@@ -2349,6 +2349,24 @@ public partial class MainPage : ContentPage
     private double _toolsHostWidthTracked;
     private bool _toolsRefreshQueued;
     private int _toolsColumnsTracked;
+#if WINDOWS
+    /// <summary>提权 WinUI 不能用 DragGestureRecognizer；工具→快捷栏走指针命中。</summary>
+    private readonly List<(Border Border, int? ReplaceIndex)> _toolShortcutDropTargets = new();
+    private Border? _toolWinDragSource;
+    private Border? _toolWinDragGhost;
+    private ToolCardRow? _toolWinDragRow;
+    private Windows.Foundation.Point _toolWinDragOrigin;
+    private Windows.Foundation.Point _toolWinLastPos;
+    private bool _toolWinDragging;
+    private bool _toolWinPointerEnding;
+    private const double ToolDragGhostSize = 40;
+
+    private sealed class ToolWinDragTag
+    {
+        public required Border Border { get; init; }
+        public required ToolCardRow Row { get; init; }
+    }
+#endif
 
     private void RefreshToolsPage()
     {
@@ -2783,16 +2801,42 @@ public partial class MainPage : ContentPage
         }
         // 工具卡片不显示悬停说明（状态已在卡片内展示）
 
-        var tap = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
-        tap.Tapped += async (_, _) =>
+        // Win 提权指针拖拽会自己处理单击，避免与 Capture/Handled 双触发
+#if WINDOWS
+        var usePointerToolDrag = row.IsInstalled && !SupportsNativeDragDrop;
+#else
+        const bool usePointerToolDrag = false;
+#endif
+        if (!usePointerToolDrag)
         {
-            // 已打开则跳转工作区；停止仍走 ⋯ 菜单
-            await HandleToolActionAsync(row, primary: true);
-        };
-        border.GestureRecognizers.Add(tap);
+            var tap = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+            tap.Tapped += async (_, _) =>
+            {
+                // 已打开则跳转工作区；停止仍走 ⋯ 菜单
+                await HandleToolActionAsync(row, primary: true);
+            };
+            border.GestureRecognizers.Add(tap);
+        }
 
         if (row.IsInstalled)
         {
+#if WINDOWS
+            // 提权进程禁用 WinUI DnD；指针 + Capture 拖到快捷栏
+            if (SupportsNativeDragDrop)
+            {
+                var drag = new DragGestureRecognizer();
+                drag.DragStarting += (_, e) =>
+                {
+                    e.Data.Properties["toolId"] = row.Id;
+                    e.Data.Text = row.Id;
+                };
+                border.GestureRecognizers.Add(drag);
+            }
+            else
+            {
+                WireWindowsToolCardDrag(border, row);
+            }
+#else
             var drag = new DragGestureRecognizer();
             drag.DragStarting += (_, e) =>
             {
@@ -2800,6 +2844,7 @@ public partial class MainPage : ContentPage
                 e.Data.Text = row.Id;
             };
             border.GestureRecognizers.Add(drag);
+#endif
         }
 
         var pointer = new PointerGestureRecognizer();
@@ -2925,6 +2970,9 @@ public partial class MainPage : ContentPage
     {
         if (ToolsShortcutBar == null) return;
         ToolsShortcutBar.Children.Clear();
+#if WINDOWS
+        _toolShortcutDropTargets.Clear();
+#endif
         rows ??= ToolCardRows.Build();
         var occupied = ToolService.Instance.Shortcuts.Occupied;
         var dark = MauiThemeService.IsDark(MauiThemeService.Current);
@@ -2977,6 +3025,10 @@ public partial class MainPage : ContentPage
             var tap = new TapGestureRecognizer();
             tap.Tapped += async (_, _) => await HandleToolActionAsync(row, primary: true);
             border.GestureRecognizers.Add(tap);
+#if WINDOWS
+            // 对齐 Win 桌面右键移除；原先只有上滑，鼠标右键无效
+            WireWindowsToolShortcutContextMenu(border, index);
+#else
             var longPress = new SwipeGestureRecognizer { Direction = SwipeDirection.Up };
             longPress.Swiped += (_, _) =>
             {
@@ -2984,6 +3036,7 @@ public partial class MainPage : ContentPage
                 RefreshToolsShortcuts();
             };
             border.GestureRecognizers.Add(longPress);
+#endif
             WireToolsShortcutDrop(border, rows, replaceIndex: index);
             ToolsShortcutBar.Children.Add(border);
         }
@@ -3054,6 +3107,14 @@ public partial class MainPage : ContentPage
 
     private void WireToolsShortcutDrop(Border border, IReadOnlyList<ToolCardRow> rows, int? replaceIndex)
     {
+#if WINDOWS
+        if (!SupportsNativeDragDrop)
+        {
+            // 提权下无 OLE Drop；松手时按屏幕坐标命中此槽
+            _toolShortcutDropTargets.Add((border, replaceIndex));
+            return;
+        }
+#endif
         var drop = new DropGestureRecognizer { AllowDrop = true };
         drop.DragOver += (_, e) => e.AcceptedOperation = DataPackageOperation.Copy;
         drop.Drop += (_, e) =>
@@ -3062,14 +3123,379 @@ public partial class MainPage : ContentPage
                 return;
             if (!rows.Any(r => string.Equals(r.Id, toolId, StringComparison.OrdinalIgnoreCase) && r.IsInstalled))
                 return;
-            if (replaceIndex is int idx)
-                ToolService.Instance.Shortcuts.SetSlot(idx, toolId);
-            else
-                ToolService.Instance.Shortcuts.TryAppend(toolId);
-            RefreshToolsShortcuts();
+            ApplyToolShortcutDrop(toolId, replaceIndex);
         };
         border.GestureRecognizers.Add(drop);
     }
+
+#if WINDOWS
+    private void WireWindowsToolShortcutContextMenu(Border border, int index)
+    {
+        border.HandlerChanged += (_, _) => AttachWindowsToolShortcutContextMenu(border, index);
+        AttachWindowsToolShortcutContextMenu(border, index);
+    }
+
+    private void AttachWindowsToolShortcutContextMenu(Border border, int index)
+    {
+        if (border.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        native.Tag = index;
+        native.RightTapped -= OnWindowsToolShortcutRightTapped;
+        native.RightTapped += OnWindowsToolShortcutRightTapped;
+    }
+
+    private void OnWindowsToolShortcutRightTapped(
+        object sender,
+        Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (native.Tag is not int index)
+            return;
+
+        e.Handled = true;
+        var flyout = new Microsoft.UI.Xaml.Controls.MenuFlyout();
+        var clear = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
+        {
+            Text = Loc.T("Tool.Shortcut.Clear")
+        };
+        var slotIndex = index;
+        clear.Click += (_, _) =>
+        {
+            ToolService.Instance.Shortcuts.SetSlot(slotIndex, null);
+            RefreshToolsShortcuts();
+        };
+        flyout.Items.Add(clear);
+        var pos = e.GetPosition(native);
+        flyout.ShowAt(
+            native,
+            new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Position = pos });
+    }
+#endif
+
+    private void ApplyToolShortcutDrop(string toolId, int? replaceIndex)
+    {
+        if (replaceIndex is int idx)
+            ToolService.Instance.Shortcuts.SetSlot(idx, toolId);
+        else
+            ToolService.Instance.Shortcuts.TryAppend(toolId);
+        RefreshToolsShortcuts();
+    }
+
+#if WINDOWS
+    private void WireWindowsToolCardDrag(Border border, ToolCardRow row)
+    {
+        border.HandlerChanged += (_, _) => AttachWindowsToolCardPointer(border, row);
+        AttachWindowsToolCardPointer(border, row);
+    }
+
+    private void AttachWindowsToolCardPointer(Border border, ToolCardRow row)
+    {
+        if (border.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        native.Tag = new ToolWinDragTag { Border = border, Row = row };
+        native.PointerPressed -= OnWindowsToolCardPointerPressed;
+        native.PointerMoved -= OnWindowsToolCardPointerMoved;
+        native.PointerReleased -= OnWindowsToolCardPointerReleased;
+        native.PointerCanceled -= OnWindowsToolCardPointerCanceled;
+        native.PointerCaptureLost -= OnWindowsToolCardPointerCaptureLost;
+
+        native.PointerPressed += OnWindowsToolCardPointerPressed;
+        native.PointerMoved += OnWindowsToolCardPointerMoved;
+        native.PointerReleased += OnWindowsToolCardPointerReleased;
+        native.PointerCanceled += OnWindowsToolCardPointerCanceled;
+        native.PointerCaptureLost += OnWindowsToolCardPointerCaptureLost;
+    }
+
+    private static bool IsWinUiButtonSource(object? source)
+    {
+        for (var d = source as Microsoft.UI.Xaml.DependencyObject;
+             d != null;
+             d = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(d))
+        {
+            if (d is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetWinElementBounds(VisualElement ve, out Rect bounds)
+    {
+        bounds = default;
+        if (ve.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement fe)
+            return false;
+        if (fe.ActualWidth <= 0 || fe.ActualHeight <= 0)
+            return false;
+        var origin = fe.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
+        bounds = new Rect(origin.X, origin.Y, fe.ActualWidth, fe.ActualHeight);
+        return true;
+    }
+
+    private bool TryHitToolShortcut(Windows.Foundation.Point screenPos, out int? replaceIndex)
+    {
+        replaceIndex = null;
+        foreach (var (slot, idx) in _toolShortcutDropTargets)
+        {
+            if (!TryGetWinElementBounds(slot, out var b))
+                continue;
+            if (screenPos.X >= b.Left && screenPos.X <= b.Right
+                && screenPos.Y >= b.Top && screenPos.Y <= b.Bottom)
+            {
+                replaceIndex = idx;
+                return true;
+            }
+        }
+
+        // 松在快捷栏空白处：未满则追加
+        if (!ToolService.Instance.Shortcuts.IsFull
+            && ToolsShortcutHost != null
+            && TryGetWinElementBounds(ToolsShortcutHost, out var host)
+            && screenPos.X >= host.Left && screenPos.X <= host.Right
+            && screenPos.Y >= host.Top && screenPos.Y <= host.Bottom)
+        {
+            replaceIndex = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    private Border CreateToolDragGhost(ToolCardRow row)
+    {
+        var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+        var line = ResolveThemeColor("Line") ?? Color.FromArgb(dark ? "#334155" : "#E5E7EB");
+        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
+        var subtle = ResolveThemeColor("SubtleBg") ?? Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
+        return new Border
+        {
+            WidthRequest = ToolDragGhostSize,
+            HeightRequest = ToolDragGhostSize,
+            Stroke = line,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 8 },
+            BackgroundColor = subtle,
+            Opacity = 0.96,
+            InputTransparent = true,
+            Shadow = new Shadow
+            {
+                Brush = Colors.Black,
+                Offset = new Point(0, 2),
+                Radius = 6,
+                Opacity = 0.28f
+            },
+            Content = CreateToolShortcutIcon(row.IconKey, text, size: 28)
+        };
+    }
+
+    private void EnsureToolDragGhost(ToolCardRow row)
+    {
+        if (ToolsDragGhostLayer == null)
+            return;
+
+        if (_toolWinDragGhost == null)
+        {
+            _toolWinDragGhost = CreateToolDragGhost(row);
+            ToolsDragGhostLayer.Children.Clear();
+            ToolsDragGhostLayer.Children.Add(_toolWinDragGhost);
+        }
+
+        ToolsDragGhostLayer.IsVisible = true;
+        ToolsDragGhostLayer.InputTransparent = true;
+        ToolsDragGhostLayer.ZIndex = 1000;
+    }
+
+    private void MoveToolDragGhost(Windows.Foundation.Point screenPos)
+    {
+        if (_toolWinDragGhost == null || ToolsDragGhostLayer == null)
+            return;
+        if (!TryGetWinElementBounds(ToolsDragGhostLayer, out var layer))
+            return;
+
+        var x = screenPos.X - layer.X - ToolDragGhostSize / 2;
+        var y = screenPos.Y - layer.Y - ToolDragGhostSize / 2;
+        AbsoluteLayout.SetLayoutFlags(_toolWinDragGhost, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
+        AbsoluteLayout.SetLayoutBounds(
+            _toolWinDragGhost,
+            new Rect(x, y, ToolDragGhostSize, ToolDragGhostSize));
+    }
+
+    private void ResetWindowsToolCardDragVisual()
+    {
+        if (_toolWinDragSource != null)
+        {
+            _toolWinDragSource.Opacity = 1;
+            _toolWinDragSource = null;
+        }
+
+        if (ToolsDragGhostLayer != null)
+        {
+            ToolsDragGhostLayer.Children.Clear();
+            ToolsDragGhostLayer.IsVisible = false;
+        }
+
+        _toolWinDragGhost = null;
+    }
+
+    private async void FinishWindowsToolCardDrag(
+        Microsoft.UI.Xaml.FrameworkElement native,
+        Microsoft.UI.Xaml.Input.Pointer pointer,
+        Windows.Foundation.Point screenPos,
+        bool cancelled)
+    {
+        if (_toolWinPointerEnding || _toolWinDragRow == null)
+            return;
+
+        _toolWinPointerEnding = true;
+        var row = _toolWinDragRow;
+        var wasDragging = _toolWinDragging;
+        try
+        {
+            ResetWindowsToolCardDragVisual();
+            try { native.ReleasePointerCapture(pointer); } catch { /* ignore */ }
+
+            _toolWinDragRow = null;
+            _toolWinDragging = false;
+
+            if (cancelled || row == null)
+                return;
+
+            if (wasDragging)
+            {
+                if (TryHitToolShortcut(screenPos, out var replaceIndex)
+                    && row.IsInstalled)
+                {
+                    ApplyToolShortcutDrop(row.Id, replaceIndex);
+                    if (StatusLabel != null)
+                        StatusLabel.Text = "已加入快捷操作";
+                }
+                else if (StatusLabel != null)
+                {
+                    StatusLabel.Text = "未放到快捷栏，已取消";
+                }
+                return;
+            }
+
+            // 未拖过阈值：当作单击主操作（原生指针已 Handled，Tap 不会再来）
+            await HandleToolActionAsync(row, primary: true);
+        }
+        finally
+        {
+            _toolWinPointerEnding = false;
+        }
+    }
+
+    private void OnWindowsToolCardPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (native.Tag is not ToolWinDragTag tag || !tag.Row.IsInstalled)
+            return;
+        if (!e.GetCurrentPoint(native).Properties.IsLeftButtonPressed)
+            return;
+        if (IsWinUiButtonSource(e.OriginalSource))
+            return;
+
+        native.CapturePointer(e.Pointer);
+        var screen = e.GetCurrentPoint(null).Position;
+        _toolWinDragOrigin = screen;
+        _toolWinLastPos = screen;
+        _toolWinDragSource = tag.Border;
+        _toolWinDragRow = tag.Row;
+        _toolWinDragging = false;
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_toolWinDragRow == null)
+            return;
+
+        var screen = e.GetCurrentPoint(null).Position;
+        _toolWinLastPos = screen;
+
+        if (!IsPhysicalLeftButtonDown())
+        {
+            FinishWindowsToolCardDrag(native, e.Pointer, screen, cancelled: false);
+            e.Handled = true;
+            return;
+        }
+
+        var dx = screen.X - _toolWinDragOrigin.X;
+        var dy = screen.Y - _toolWinDragOrigin.Y;
+        if (!_toolWinDragging && (Math.Abs(dx) >= PanDragThreshold || Math.Abs(dy) >= PanDragThreshold))
+        {
+            _toolWinDragging = true;
+            if (_toolWinDragSource != null)
+                _toolWinDragSource.Opacity = 0.55;
+            EnsureToolDragGhost(_toolWinDragRow);
+            if (StatusLabel != null)
+                StatusLabel.Text = "拖到快捷操作栏松开";
+        }
+
+        if (_toolWinDragging)
+            MoveToolDragGhost(screen);
+
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_toolWinDragRow == null)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var screen = e.GetCurrentPoint(null).Position;
+        _toolWinLastPos = screen;
+        FinishWindowsToolCardDrag(native, e.Pointer, screen, cancelled: false);
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerCanceled(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_toolWinDragRow == null)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            e.Handled = true;
+            return;
+        }
+
+        FinishWindowsToolCardDrag(native, e.Pointer, e.GetCurrentPoint(null).Position, cancelled: true);
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerCaptureLost(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_toolWinPointerEnding || _toolWinDragRow == null)
+            return;
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            return;
+        }
+
+        FinishWindowsToolCardDrag(native, e.Pointer, _toolWinLastPos, cancelled: false);
+    }
+#endif
 
     private async void ToolsImport_Clicked(object? sender, EventArgs e)
     {

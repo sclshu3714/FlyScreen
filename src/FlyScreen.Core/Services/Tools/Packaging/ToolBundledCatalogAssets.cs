@@ -18,6 +18,7 @@ public static class ToolBundledCatalogAssets
     public static void Ensure()
     {
         FlyScreenDataPaths.EnsureToolsLayout();
+        ToolBundledPackSeeder.TrySeedFromAppBase();
         foreach (var packPath in ToolPackageResolver.EnumerateAllLocalPacks())
             TryProbePack(packPath);
     }

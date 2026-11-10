@@ -3,15 +3,15 @@
     "tools":  [
                   {
                       "id":  "color-picker",
-                      "version":  "1.0.0",
+                      "version":  "1.0.1",
                       "fileName":  "color-picker.flytool",
-                      "sha256":  "0b6d0e76f93b16163c48643de5bd2b6c73688d3ce22ee18f409d38513ac789b6"
+                      "sha256":  "fdfa9d5f2999501a78cf09988e1df3d69806636bf12b6e935d1875a0e038a244"
                   },
                   {
                       "id":  "shared-devices",
-                      "version":  "1.0.0",
+                      "version":  "1.0.2",
                       "fileName":  "shared-devices.flytool",
-                      "sha256":  "14cbd12364790698f2cab848baa43e106a4f29789da271caa9cbbfcdacff9528"
+                      "sha256":  "ec5c95227147b82661bb5ebb8ae04885dfad2d0bdec272a5ed85715b1e5aa40f"
                   }
               ]
 }

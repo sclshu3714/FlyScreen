@@ -474,6 +474,11 @@
                             </Grid>
                         </Grid>
                     </Border>
+                    <!-- Win 提权指针拖拽：只跟手小图标，盖在快捷栏之上 -->
+                    <AbsoluteLayout x:Name="ToolsDragGhostLayer"
+                                    InputTransparent="True"
+                                    IsVisible="False"
+                                    ZIndex="1000" />
                 </Grid>
 
                 <!-- ===== 程序 ===== -->

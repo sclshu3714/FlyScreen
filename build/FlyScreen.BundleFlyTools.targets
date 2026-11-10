@@ -26,8 +26,32 @@
           IgnoreStandardErrorWarningFormat="true" />
   </Target>
 
+  <!--
+    桌面宿主：用 Content+CopyToOutputDirectory 参与增量判定。
+    仅 AfterTargets=Build 时，项目 up-to-date 会跳过复制，导致 Tools/Bundled 空、卡片显示 Loc Key。
+  -->
+  <Target Name="FlyScreen_IncludeDesktopFlyToolContent"
+          DependsOnTargets="FlyScreen_EnsureFlyToolsPacked"
+          BeforeTargets="AssignTargetPaths"
+          Condition="'$(UseMaui)' != 'true' And '$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
+    <ItemGroup>
+      <_FsDesktopFlyTool Include="$(_FsFlyToolsOut)\*.flytool" />
+      <_FsDesktopFlyIndex Include="$(_FsFlyToolsOut)\tools-index.json" Condition="Exists('$(_FsFlyToolsOut)\tools-index.json')" />
+      <Content Include="@(_FsDesktopFlyTool)">
+        <Link>Tools\Bundled\%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <TargetPath>Tools\Bundled\%(Filename)%(Extension)</TargetPath>
+      </Content>
+      <Content Include="@(_FsDesktopFlyIndex)">
+        <Link>Tools\Bundled\%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <TargetPath>Tools\Bundled\%(Filename)%(Extension)</TargetPath>
+      </Content>
+    </ItemGroup>
+  </Target>
+
   <Target Name="FlyScreen_CopyBundledFlyTools"
-          AfterTargets="Build"
+          AfterTargets="Build;Publish"
           Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
     <ItemGroup>
       <_FsFlyToolPack Include="$(_FsFlyToolsOut)\*.flytool" />
