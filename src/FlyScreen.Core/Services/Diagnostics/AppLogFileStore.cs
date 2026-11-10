@@ -114,17 +114,21 @@ internal static class AppLogFileStore
         AppLogLevelFilter level,
         string? programId,
         string? programName,
-        IReadOnlyList<AppLogEntry>? memoryTail)
+        IReadOnlyList<AppLogEntry>? memoryTail,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         pageFromLatest = Math.Max(0, pageFromLatest);
         pageSize = Math.Clamp(pageSize, 20, 500);
         var need = (pageFromLatest + 1) * pageSize;
         var ring = new LinkedList<AppLogEntry>();
         var total = 0;
+        DateOnly? fromDay = from.HasValue ? DateOnly.FromDateTime(from.Value) : null;
+        DateOnly? toDay = to.HasValue ? DateOnly.FromDateTime(to.Value) : null;
 
         void Push(AppLogEntry e)
         {
-            if (!Matches(e, level, programId, programName)) return;
+            if (!Matches(e, level, programId, programName, from, to)) return;
             total++;
             ring.AddLast(e);
             while (ring.Count > need)
@@ -135,6 +139,11 @@ internal static class AppLogFileStore
         {
             foreach (var path in EnumerateLogFilesOldestFirst())
             {
+                if (TryParseFileDate(Path.GetFileName(path), out var day))
+                {
+                    if (fromDay.HasValue && day < fromDay.Value) continue;
+                    if (toDay.HasValue && day > toDay.Value) continue;
+                }
                 foreach (var e in ReadFile(path))
                     Push(e);
             }
@@ -192,7 +201,9 @@ internal static class AppLogFileStore
         AppLogLevelFilter level,
         string? programId,
         string? programName,
-        int maxChars = 8_000_000)
+        int maxChars = 8_000_000,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         var sb = new StringBuilder(64 * 1024);
         sb.AppendLine($"# FlyScreen log export {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
@@ -200,13 +211,20 @@ internal static class AppLogFileStore
         sb.AppendLine();
         var count = 0;
         var truncated = false;
+        DateOnly? fromDay = from.HasValue ? DateOnly.FromDateTime(from.Value) : null;
+        DateOnly? toDay = to.HasValue ? DateOnly.FromDateTime(to.Value) : null;
         try
         {
             foreach (var path in EnumerateLogFilesOldestFirst())
             {
+                if (TryParseFileDate(Path.GetFileName(path), out var day))
+                {
+                    if (fromDay.HasValue && day < fromDay.Value) continue;
+                    if (toDay.HasValue && day > toDay.Value) continue;
+                }
                 foreach (var e in ReadFile(path))
                 {
-                    if (!Matches(e, level, programId, programName)) continue;
+                    if (!Matches(e, level, programId, programName, from, to)) continue;
                     AppendExportLine(sb, e);
                     count++;
                     if (sb.Length >= maxChars)
@@ -231,15 +249,8 @@ internal static class AppLogFileStore
 
     private static void AppendExportLine(StringBuilder sb, AppLogEntry e)
     {
-        var tag = e.Level switch
-        {
-            AppLogLevel.Error => "错误",
-            AppLogLevel.Warn => "警告",
-            AppLogLevel.Debug => "调试",
-            _ => "信息"
-        };
         sb.Append('[').Append(e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff")).Append("] ")
-          .Append(tag).Append("  ").AppendLine(e.Message);
+          .Append(e.LevelText).Append("  ").AppendLine(e.Message);
     }
 
     private static void EnsureWriter(DateTime time)
@@ -417,9 +428,18 @@ internal static class AppLogFileStore
     }
 
     private static bool Matches(
-        AppLogEntry e, AppLogLevelFilter level, string? programId, string? programName)
+        AppLogEntry e,
+        AppLogLevelFilter level,
+        string? programId,
+        string? programName,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         if (level != AppLogLevelFilter.All && (int)e.Level != (int)level)
+            return false;
+        if (from.HasValue && e.Time < from.Value)
+            return false;
+        if (to.HasValue && e.Time > to.Value)
             return false;
         if (string.IsNullOrEmpty(programId) && string.IsNullOrEmpty(programName))
             return true;

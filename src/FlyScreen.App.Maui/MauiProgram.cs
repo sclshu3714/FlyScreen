@@ -9,6 +9,8 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // Windows 拓扑监视：独立 FlyScreen.TopologyGuard.exe（见 DisplayTopologyWatchdog）
+
         var builder = MauiApp.CreateBuilder();
         builder.UseMauiApp<App>();
 
@@ -131,14 +133,30 @@ public static class MauiProgram
 #if WINDOWS
         host.AttachPlatform(new Platforms.Windows.WindowsMauiPlatformServices(
             host.Settings, host.Connections, host.Transfers, host.ScreenExtend));
+        // 软退出兜底：UI 未 Dispose 时尽量 /internal（任务管理器结束进程无法触发）
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try
+            {
+                if (FlyScreen.ScreenExtend.DisplayTopologyDirty.IsMarked)
+                    FlyScreen.ScreenExtend.DisplayProjection.TryApply(
+                        FlyScreen.Services.ScreenExtend.DisplayProjectionMode.Internal);
+            }
+            catch { /* ignore */ }
+        };
 #elif ANDROID
         host.AttachPlatform(new Platforms.Android.AndroidMauiPlatformServices(
             host.Settings, host.Transfers, host.ScreenExtend));
         // 用户程序 Fly.* 控机：无障碍服务连上后也会再设一次
         ProgramDevice.Current = Platforms.Android.AndroidProgramDeviceControl.Instance;
         Platforms.Android.FlyScreenDebugLogHud.Register();
-#elif MACCATALYST || IOS
-        // Mac / iOS：壳可跑；键鼠注入等仍走 Null（正式桌面 Mac 见 Avalonia）
+#elif IOS && !MACCATALYST
+        // iOS 手机：壳 + 通知注入本地提示；键鼠/无障碍跨应用注入受系统限制，仍走 Null
+        host.AttachPlatform(NullMauiPlatformServices.Instance);
+        ProgramService.Instance.Runner.RunningCountChanged += count =>
+            Platforms.iOS.IosProgramNotifyHelper.SetProgramsRunning(count);
+#elif MACCATALYST
+        // Mac Catalyst：壳可跑；正式桌面 Mac 见 Avalonia
         host.AttachPlatform(NullMauiPlatformServices.Instance);
 #endif
 

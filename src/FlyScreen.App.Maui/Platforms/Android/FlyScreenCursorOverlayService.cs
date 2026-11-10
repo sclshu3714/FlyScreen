@@ -202,12 +202,12 @@ public sealed class FlyScreenCursorOverlayService : Service
         if (_foregrounded) return;
         try
         {
-            if (OperatingSystem.IsAndroidVersionAtLeast(26))
-            {
-                var manager = GetSystemService(NotificationService) as NotificationManager;
-                manager?.CreateNotificationChannel(new NotificationChannel(
-                    ChannelId, "远程指针", NotificationImportance.Low));
-            }
+            if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+                return;
+
+            var manager = GetSystemService(NotificationService) as NotificationManager;
+            manager?.CreateNotificationChannel(new NotificationChannel(
+                ChannelId, "远程指针", NotificationImportance.Low));
 
             var notification = new Notification.Builder(this, ChannelId)
                 .SetContentTitle("玄鸟")
@@ -565,12 +565,10 @@ public sealed class FlyScreenCursorOverlayService : Service
                 }
             }
 
-            var size = new global::Android.Graphics.Point();
-            _wm?.DefaultDisplay?.GetRealSize(size);
-            if (size.X > 0 && size.Y > 0)
+            if (AndroidDisplaySize.TryGetPixels(_wm?.DefaultDisplay, out var rw, out var rh))
             {
-                _screenW = size.X;
-                _screenH = size.Y;
+                _screenW = rw;
+                _screenH = rh;
                 _screenCachedAt = now;
                 return;
             }

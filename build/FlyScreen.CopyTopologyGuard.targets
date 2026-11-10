@@ -1,0 +1,8 @@
+<!--
+  已废弃：旁路复制 TopologyGuard.exe 到输出/发布目录。
+  请改用 FlyScreen.BundleTopologyGuard.targets（由 App.Windows / Maui-Win 导入），
+  把 Guard 打进主程序单文件，运行时从 BaseDirectory 固化到 AppData 再拉起。
+-->
+<Project>
+  <Warning Text="FlyScreen.CopyTopologyGuard.targets 已废弃，请改用 FlyScreen.BundleTopologyGuard.targets。" />
+</Project>

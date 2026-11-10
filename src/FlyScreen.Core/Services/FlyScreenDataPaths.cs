@@ -33,6 +33,14 @@ public static class FlyScreenDataPaths
 
     public static string LogsDirectory => Path.Combine(Root, "Logs");
     public static string ProgramsDirectory => Path.Combine(Root, "Programs");
+    /// <summary>已安装工具目录：Tools/&lt;id&gt;/&lt;version&gt;/</summary>
+    public static string ToolsDirectory => Path.Combine(Root, "Tools");
+    /// <summary>工具安装记录（不进 BehaviorSync）。</summary>
+    public static string ToolsInstallStateFile => Path.Combine(Root, "tools-install.json");
+    /// <summary>共享设备「记住适配」记录。</summary>
+    public static string SharedDevicesRememberFile => Path.Combine(Root, "shared-devices-remember.json");
+    /// <summary>共享设备提供方本机选用（扬声器/麦克风/摄像头 Id）。</summary>
+    public static string SharedDevicesSelectionFile => Path.Combine(Root, "shared-devices-selection.json");
     public static string InboxDirectory
         => !string.IsNullOrWhiteSpace(_inboxOverride)
             ? _inboxOverride!
@@ -57,6 +65,7 @@ public static class FlyScreenDataPaths
         Directory.CreateDirectory(path);
         Directory.CreateDirectory(Path.Combine(path, "Logs"));
         Directory.CreateDirectory(Path.Combine(path, "Programs"));
+        Directory.CreateDirectory(Path.Combine(path, "Tools"));
         Directory.CreateDirectory(Path.Combine(path, "PasteStaging"));
         // Inbox：若未单独覆盖，仍在 Root/Inbox
         if (string.IsNullOrWhiteSpace(_inboxOverride))

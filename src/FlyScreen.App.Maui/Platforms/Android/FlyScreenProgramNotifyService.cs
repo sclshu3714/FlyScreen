@@ -121,28 +121,80 @@ public sealed class FlyScreenProgramNotifyService : Service
         base.OnDestroy();
     }
 
+    /// <summary>最近任务划掉或清理全部：进程可能因前台服务残留，必须在这里停子程序并撤通知。</summary>
+    public override void OnTaskRemoved(Intent? rootIntent)
+    {
+        StopForAppExit();
+        TearDownForeground();
+        StopSelf();
+        base.OnTaskRemoved(rootIntent);
+    }
+
+    /// <summary>先停正在运行的子程序，再撤掉前台通知。</summary>
+    public static void StopForAppExit()
+    {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyProgramNotify", "stop-programs: " + ex.Message);
+        }
+
+        lock (Gate)
+        {
+            s_runningCount = 0;
+            s_enabled = false;
+        }
+
+        try
+        {
+            var ctx = global::Android.App.Application.Context;
+            if (ctx != null && Instance != null)
+            {
+                var intent = new Intent(ctx, typeof(FlyScreenProgramNotifyService));
+                intent.SetAction(ActionStop);
+                ctx.StartService(intent);
+            }
+
+            var manager = (ctx?.GetSystemService(Context.NotificationService) as NotificationManager)
+                ?? (Instance?.GetSystemService(NotificationService) as NotificationManager);
+            manager?.Cancel(NotifyId);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("FlyProgramNotify", "cancel: " + ex.Message);
+        }
+    }
+
     public override IBinder? OnBind(Intent? intent) => null;
 
     private void EnterForeground(int runningCount)
     {
         try
         {
-            if (OperatingSystem.IsAndroidVersionAtLeast(26))
-            {
-                var manager = GetSystemService(NotificationService) as NotificationManager;
-                manager?.CreateNotificationChannel(new NotificationChannel(
-                    ChannelId, "子程序运行", NotificationImportance.Low));
-            }
+            if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+                return;
+
+            var manager = GetSystemService(NotificationService) as NotificationManager;
+            manager?.CreateNotificationChannel(new NotificationChannel(
+                ChannelId, "子程序运行", NotificationImportance.Low));
 
             var text = runningCount <= 1
                 ? "用户子程序运行中"
                 : $"用户子程序运行中（{runningCount}）";
+            var launch = new Intent(this, typeof(global::FlyScreen.AppMaui.MainActivity));
+            launch.SetAction(Intent.ActionMain);
+            launch.AddCategory(Intent.CategoryLauncher);
+            launch.SetFlags(ActivityFlags.NewTask | ActivityFlags.SingleTop | ActivityFlags.ClearTop);
+            var pending = PendingIntent.GetActivity(
+                this, 0, launch, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
             var notification = new Notification.Builder(this, ChannelId)
                 .SetContentTitle("玄鸟")
                 .SetContentText(text)
                 .SetSmallIcon(global::Android.Resource.Drawable.IcMenuInfoDetails)
+                .SetContentIntent(pending)
                 .SetOngoing(true)
                 .SetOnlyAlertOnce(true)
+                .SetAutoCancel(false)
                 .Build();
 
             if (OperatingSystem.IsAndroidVersionAtLeast(34))

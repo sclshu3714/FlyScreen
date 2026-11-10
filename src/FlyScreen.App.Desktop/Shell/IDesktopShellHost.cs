@@ -45,7 +45,14 @@ public interface IDesktopShellHost
 
     ScreenExtendService ScreenExtend { get; }
 
-    /// <summary>投影：Mac/Linux 本期不发起推流（可停止本地接收会话）；发起请用 Windows。</summary>
+    /// <summary>本端能否作为投影主机推流。Mac 可以；Linux 仍只接收。</summary>
+    bool CanStartProjection => false;
+
+    /// <summary>发起前的环境说明。Ready 为 false 时开始按钮不可用。</summary>
+    (bool Ready, string Message) DescribeProjectionEnvironment(DisplayProjectionMode mode)
+        => (false, "");
+
+    /// <summary>发起投影。不能发起的端返回失败说明，仍可停止本机正在接收的会话。</summary>
     Task<(bool Ok, string? Message)> StartProjectionAsync(
         ProjectionTarget? target, DisplayProjectionMode mode,
         bool audioSync = false, bool cropBlackBars = false, bool remoteControl = false);

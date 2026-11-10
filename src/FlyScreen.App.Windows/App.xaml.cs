@@ -10,6 +10,10 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // 任务栏显示名「玄鸟」；拓扑守护嵌入主程序，运行时解压（仍单文件分发）
+        FlyScreen.WinApi.WindowsAppUserModel.EnsureProcessId(
+            FlyScreen.WinApi.WindowsAppUserModel.MainAppId);
+
         if (!SingleInstanceHelper.TryStartPrimary(out _singleInstance))
         {
             // 已有实例：已发激活信号；本进程退出（勿走 StartupUri，避免调试器误报启动失败）
@@ -26,6 +30,9 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
+        // 安装包布局：补写「应用和功能 → 修改」入口（旧安装可能为灰色）
+        FlyScreen.Services.Update.ArpModifyRegistration.EnsureIfInstallerLayout();
+
         // Core 模型属性通知回投 WPF UI 线程
         UiMarshal.Configure(
             post: a => Dispatcher.BeginInvoke(a, System.Windows.Threading.DispatcherPriority.Background),
@@ -36,6 +43,18 @@ public partial class App : System.Windows.Application
             });
 
         AppHost.EnsureCreated();
+
+        // 软退出兜底：若 UI 未走 ExitApp，仍尽量收拢扩展拓扑（杀进程无法触发）
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try
+            {
+                if (FlyScreen.ScreenExtend.DisplayTopologyDirty.IsMarked)
+                    FlyScreen.ScreenExtend.DisplayProjection.TryApply(
+                        FlyScreen.Services.ScreenExtend.DisplayProjectionMode.Internal);
+            }
+            catch { /* ignore */ }
+        };
 
         // 后台同步开机自启，勿阻塞启动（否则会拖住主窗 Loaded / 键鼠钩子，表现为「不能穿边」）
         var autoStart = AppHost.Instance.Settings.AutoStart;

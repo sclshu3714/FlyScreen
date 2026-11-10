@@ -15,7 +15,7 @@ public static class AndroidPublicDataRoot
     public static string? CurrentRoot { get; private set; }
 
     /// <summary>
-    /// 切到应用外部私有目录。须在 <see cref="MauiAppHost"/> 加载设置/传输之前调用。
+    /// 切到应用外部私有目录。须在 <see cref="FlyScreen.AppMaui.Services.MauiAppHost"/> 加载设置/传输之前调用。
     /// </summary>
     public static bool TryBootstrap()
     {

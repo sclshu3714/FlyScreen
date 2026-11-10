@@ -1,6 +1,5 @@
 #if ANDROID
 using Android.Graphics.Drawables;
-using Android.OS;
 using Android.Views;
 
 namespace FlyScreen.AppMaui.Platforms.Android;
@@ -11,7 +10,7 @@ internal static class MauiAndroidScrollChrome
     public static void Apply(global::Android.Views.View? view)
     {
         if (view == null) return;
-        if (Build.VERSION.SdkInt < BuildVersionCodes.Q) return;
+        if (!OperatingSystem.IsAndroidVersionAtLeast(29)) return;
 
         try
         {

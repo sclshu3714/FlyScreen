@@ -38,8 +38,9 @@ public static class ScreenCaptureJpeg
             if (!NativeMethods.BitBlt(memDc, 0, 0, w, h, screenDc, monitor.Left, monitor.Top, NativeMethods.SRCCOPY))
                 return null;
 
-            // BitBlt 不含光标；按系统光标尺寸叠加（避免偏小/锯齿）
-            TryDrawCursor(memDc, monitor);
+            // BitBlt 不含光标。远程回控时不叠加，避免与观看端指针叠成两个。
+            if (!ProjectionHostCursor.SuppressCapturedCursor)
+                TryDrawCursor(memDc, monitor);
 
             using var full = Image.FromHbitmap(bmp);
             using var ms = new MemoryStream();

@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>FlyScreen.Installer</RootNamespace>
+    <AssemblyName>FlyScreen-Setup</AssemblyName>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyTitle>玄鸟安装程序</AssemblyTitle>
+    <Product>玄鸟</Product>
+    <Description>玄鸟安装程序</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 运行时按文件路径加载轮播图 / 许可 / 清单 / 载荷 -->
+    <Content Include="$(FlyScreenAssetsDir)Installer\*.png">
+      <Link>Assets\carousel\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Payload\payload.zip"
+             Condition="Exists('Payload\payload.zip')"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\license.txt"
+             Condition="Exists('Assets\license.txt')"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\installer.json"
+             Condition="Exists('Assets\installer.json')"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="$(FlyScreenAppIco)">
+      <Link>Assets\app.ico</Link>
+    </Resource>
+    <!-- 便于开发直接运行安装壳时读到真实版本 -->
+    <None Include="..\..\build\version.json"
+          Link="version.json"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\build\version.json')" />
+  </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.Version.targets" Condition="Exists('..\..\build\FlyScreen.Version.targets')" />
+
+</Project>

@@ -897,16 +897,13 @@ public static class FlyScreenRegionCalibrator
             }
             catch { /* ignore */ }
 
-            // 3) Display.GetRealSize
+            // 3) 物理分辨率（WindowMetrics / GetRealSize 回退）
             try
             {
-                var wm = _appCtx.GetSystemService(Context.WindowService) as IWindowManager;
-                var size = new Point();
-                wm?.DefaultDisplay?.GetRealSize(size);
-                if (size.X > 0 && size.Y > 0)
+                if (AndroidDisplaySize.TryGetPixels(_appCtx, out var rw, out var rh))
                 {
-                    _screenW = size.X;
-                    _screenH = size.Y;
+                    _screenW = rw;
+                    _screenH = rh;
                     AlignWithConfiguration();
                     return;
                 }

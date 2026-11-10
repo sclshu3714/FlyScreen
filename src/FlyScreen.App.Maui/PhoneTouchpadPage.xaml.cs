@@ -792,7 +792,7 @@ public partial class PhoneTouchpadPage : ContentPage
             if (_host.ScreenExtend.IsActive
                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink)
             {
-                await DisplayAlert(
+                await DisplayAlertAsync(
                     "投影",
                     FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
                         FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
@@ -802,6 +802,9 @@ public partial class PhoneTouchpadPage : ContentPage
             }
 
             await Navigation.PushModalAsync(new ProjectionDialogPage(_host), animated: true);
+#if WINDOWS
+            Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
             RefreshProjectButton();
         }
         catch (Exception ex)
@@ -812,9 +815,10 @@ public partial class PhoneTouchpadPage : ContentPage
 
     private void RefreshProjectButton()
     {
-        var on = _host.ScreenExtend.IsActive
-                 && _host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host;
-        ProjectBtn.Text = on ? "投影中" : "投影";
-        ProjectBtn.Style = (Style)Application.Current!.Resources[on ? "SegBtnActive" : "NormalBtn"];
+        var phase = FlyScreen.Helpers.ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = FlyScreen.Helpers.ProjectionUi.Title(phase);
+        ProjectBtn.Text = FlyScreen.Helpers.ProjectionUi.FormatLine(chrome);
+        ProjectBtn.Style = (Style)Application.Current!.Resources[
+            chrome.Emphasized ? "SegBtnActive" : "NormalBtn"];
     }
 }

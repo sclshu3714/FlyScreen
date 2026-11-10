@@ -38,10 +38,13 @@ public sealed class GitHubReleaseClient
     public async Task<UpdateCheckResult> CheckAsync(
         UpdateChannel channel,
         Assembly? localAssembly = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool? preferInstallerPackage = null)
     {
         try
         {
+            var preferSetup = preferInstallerPackage ?? AppInstallLayout.PreferInstallerPackageAsset();
+
             using var resp = await Http.GetAsync(LatestApiUrl, ct).ConfigureAwait(false);
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return UpdateCheckResult.Fail("GitHub 上尚无 Release。请访问：\n" + ReleasesUrl);
@@ -69,20 +72,47 @@ public sealed class GitHubReleaseClient
                     var name = a.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
                     var url = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
                     if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(url)) continue;
-                    if (!UpdateChannelRules.IsPreferredAsset(channel, name)) continue;
+                    if (!UpdateChannelRules.IsPreferredAsset(channel, name, preferSetup)) continue;
                     assetName = name;
                     assetUrl = url;
                     break;
+                }
+
+                // 安装包模式若尚无 Setup 资源，回退单文件（仍提示）
+                if (assetName == null && preferSetup)
+                {
+                    foreach (var a in assets.EnumerateArray())
+                    {
+                        var name = a.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                        var url = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
+                        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(url)) continue;
+                        if (!UpdateChannelRules.IsPreferredAsset(channel, name, preferInstallerPackage: false))
+                            continue;
+                        assetName = name;
+                        assetUrl = url;
+                        break;
+                    }
                 }
             }
 
             var newer = Compare(remote, local) > 0;
             var rid = UpdateChannelRules.Describe(channel);
+            var modeHint = preferSetup ? "安装包" : "单文件";
             var msg = newer
-                ? $"发现新版本 {FormatVersion(remote)}（当前 {FormatVersion(local)}）"
-                : $"已是最新版本（{FormatVersion(local)}）";
+                ? $"发现新版本 {FormatVersion(remote)}（当前 {FormatVersion(local)}，{modeHint}）"
+                : $"已是最新版本（{FormatVersion(local)}，{modeHint}）";
             if (newer && assetName == null)
-                msg += $"\n本端包（*{rid}*）尚未上传到该 Release，请打开发布页手动选择。";
+            {
+                msg += preferSetup
+                    ? $"\n本端安装包（*{rid}*-Setup.exe）尚未上传到该 Release，请打开发布页手动选择。"
+                    : $"\n本端包（*{rid}*）尚未上传到该 Release，请打开发布页手动选择。";
+            }
+            else if (newer && preferSetup
+                     && assetName != null
+                     && !assetName.Contains("Setup", StringComparison.OrdinalIgnoreCase))
+            {
+                msg += "\n未找到 Setup 安装包，将按单文件方式更新。";
+            }
 
             return new UpdateCheckResult
             {

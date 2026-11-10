@@ -26,7 +26,7 @@ public static class AndroidApkUpdater
                   ?? throw new InvalidOperationException("Android Context 不可用。");
 
         // Android 8+：需允许「安装未知应用」
-        if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+        if (OperatingSystem.IsAndroidVersionAtLeast(26))
         {
             var pm = ctx.PackageManager;
             if (pm != null && !pm.CanRequestPackageInstalls())

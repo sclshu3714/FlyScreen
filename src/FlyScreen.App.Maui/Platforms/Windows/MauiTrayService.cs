@@ -1,9 +1,10 @@
 using System.Runtime.InteropServices;
+using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
-/// <summary>托盘：对齐 WPF NotifyIcon（打开 / 重连 / 关于 / 退出 + 双击打开）。右键用自定义直角菜单。</summary>
+/// <summary>托盘：对齐 WPF NotifyIcon（打开 / 重连 / 投影 / 关于 / 退出 + 双击打开）。右键用自定义直角菜单。</summary>
 public sealed class MauiTrayService : IDisposable
 {
     private const int NimAdd = 0x00000000;
@@ -26,16 +27,26 @@ public sealed class MauiTrayService : IDisposable
     private WndProc? _proc;
     private Action? _show;
     private Action? _reconnect;
+    private Action? _project;
     private Action? _about;
     private Action? _exit;
+    private Func<ProjectionUiPhase>? _projectPhase;
     private bool _added;
 
-    public void Ensure(Action show, Action reconnect, Action about, Action exit)
+    public void Ensure(
+        Action show,
+        Action reconnect,
+        Action project,
+        Action about,
+        Action exit,
+        Func<ProjectionUiPhase>? projectPhase = null)
     {
         _show = show;
         _reconnect = reconnect;
+        _project = project;
         _about = about;
         _exit = exit;
+        _projectPhase = projectPhase;
         if (_hwnd != IntPtr.Zero) return;
 
         _proc = WndProcImpl;
@@ -124,6 +135,8 @@ public sealed class MauiTrayService : IDisposable
         MauiTrayPopup.ShowNearCursor(
             onOpen: () => _show?.Invoke(),
             onReconnect: () => _reconnect?.Invoke(),
+            onProject: () => _project?.Invoke(),
+            projectPhase: _projectPhase?.Invoke() ?? ProjectionUiPhase.Idle,
             onAbout: () => _about?.Invoke(),
             onExit: () => _exit?.Invoke());
     }

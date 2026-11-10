@@ -86,6 +86,12 @@ public sealed class LinuxAppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
+        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        sharedDevices.AttachHardware(FlyScreen.Services.Tools.SharedDevices.DefaultSharedDevicesHardware.Instance);
+        sharedDevices.StatusMessage += msg =>
+        {
+            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
+        };
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
@@ -326,6 +332,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
         LayoutSync.Detach();
         BehaviorSync.Detach();
         SecurityKeySync.Dispose();

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Services;
 
@@ -44,20 +45,18 @@ public sealed class AppLogEntry
     public string? ProgramId { get; init; }
     public string? ProgramName { get; init; }
 
-    public string Display
+    public string TimeText => Time.ToString("HH:mm:ss");
+
+    /// <summary>本地化级别文案（信息/警告/错误/调试），供列表独立列完整展示。</summary>
+    public string LevelText => Level switch
     {
-        get
-        {
-            var tag = Level switch
-            {
-                AppLogLevel.Error => "错误",
-                AppLogLevel.Warn => "警告",
-                AppLogLevel.Debug => "调试",
-                _ => "信息"
-            };
-            return $"[{Time:HH:mm:ss}] {tag}  {Message}";
-        }
-    }
+        AppLogLevel.Error => Loc.T("Log.LevelError"),
+        AppLogLevel.Warn => Loc.T("Log.LevelWarn"),
+        AppLogLevel.Debug => Loc.T("Log.LevelDebug"),
+        _ => Loc.T("Log.LevelInfo")
+    };
+
+    public string Display => $"[{TimeText}] {LevelText}  {Message}";
 }
 
 /// <summary>
@@ -185,7 +184,9 @@ public static class AppLog
     public static IReadOnlyList<AppLogEntry> Snapshot(
         AppLogLevelFilter level = AppLogLevelFilter.All,
         string? programId = null,
-        string? programName = null)
+        string? programName = null,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         lock (Gate)
         {
@@ -194,6 +195,10 @@ public static class AppLog
                 query = query.Where(e => (int)e.Level == (int)level);
             if (!string.IsNullOrEmpty(programId) || !string.IsNullOrEmpty(programName))
                 query = query.Where(e => BelongsToProgramPublic(e, programId, programName));
+            if (from.HasValue)
+                query = query.Where(e => e.Time >= from.Value);
+            if (to.HasValue)
+                query = query.Where(e => e.Time <= to.Value);
             return query.ToArray();
         }
     }
@@ -208,20 +213,23 @@ public static class AppLog
     /// <summary>
     /// 分页查询：<paramref name="pageFromLatest"/>=0 为最新一页（默认）。
     /// 读磁盘历史，供翻页；最新页实时追加请用内存 <see cref="Snapshot"/> + <see cref="SyncTo"/>。
+    /// <paramref name="from"/>/<paramref name="to"/> 限定时间区间（含端点）。
     /// </summary>
     public static AppLogPage GetPage(
         int pageFromLatest = 0,
         int pageSize = DefaultPageSize,
         AppLogLevelFilter level = AppLogLevelFilter.All,
         string? programId = null,
-        string? programName = null)
+        string? programName = null,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         var page = AppLogFileStore.QueryPage(
-            pageFromLatest, pageSize, level, programId, programName, memoryTail: null);
+            pageFromLatest, pageSize, level, programId, programName, memoryTail: null, from, to);
         if (page.TotalCount > 0)
             return page;
 
-        var mem = Snapshot(level, programId, programName);
+        var mem = Snapshot(level, programId, programName, from, to);
         pageSize = Math.Clamp(pageSize, 20, 500);
         pageFromLatest = Math.Max(0, pageFromLatest);
         var total = mem.Count;
@@ -294,13 +302,15 @@ public static class AppLog
     public static string FormatExport(
         AppLogLevelFilter level = AppLogLevelFilter.All,
         string? programId = null,
-        string? programName = null)
+        string? programName = null,
+        DateTime? from = null,
+        DateTime? to = null)
     {
-        var fromFiles = AppLogFileStore.FormatExportFromFiles(level, programId, programName);
+        var fromFiles = AppLogFileStore.FormatExportFromFiles(level, programId, programName, from: from, to: to);
         if (!string.IsNullOrEmpty(fromFiles))
             return fromFiles;
 
-        var items = Snapshot(level, programId, programName);
+        var items = Snapshot(level, programId, programName, from, to);
         if (items.Count == 0) return "";
 
         var sb = new StringBuilder(items.Count * 96);
@@ -309,14 +319,8 @@ public static class AppLog
         sb.AppendLine();
         foreach (var e in items)
         {
-            var tag = e.Level switch
-            {
-                AppLogLevel.Error => "错误",
-                AppLogLevel.Warn => "警告",
-                _ => "信息"
-            };
             sb.Append('[').Append(e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff")).Append("] ")
-              .Append(tag).Append("  ").AppendLine(e.Message);
+              .Append(e.LevelText).Append("  ").AppendLine(e.Message);
         }
         return sb.ToString();
     }
@@ -360,7 +364,9 @@ public static class AppLog
         AppLogLevelFilter level = AppLogLevelFilter.All,
         string? programId = null,
         string? programName = null,
-        int pageSize = DefaultPageSize)
+        int pageSize = DefaultPageSize,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         pageSize = Math.Clamp(pageSize, 20, 500);
         lock (Gate)
@@ -369,6 +375,10 @@ public static class AppLog
             foreach (var e in Items)
             {
                 if (level != AppLogLevelFilter.All && (int)e.Level != (int)level)
+                    continue;
+                if (from.HasValue && e.Time < from.Value)
+                    continue;
+                if (to.HasValue && e.Time > to.Value)
                     continue;
                 if (!string.IsNullOrEmpty(programId) || !string.IsNullOrEmpty(programName))
                 {

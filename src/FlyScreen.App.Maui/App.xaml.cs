@@ -24,14 +24,20 @@ public partial class App : Application
     protected override Window CreateWindow(IActivationState? activationState)
     {
         // 手机/平板/桌面统一进玄鸟主界面；触控板由布局工具条按需打开
+#if WINDOWS
+        // Debug=「玄鸟 (调试)」/ Release=「玄鸟」；勿与 Program Files 安装包任务栏入口混淆
+        var title = FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName;
+#else
+        const string title = "玄鸟";
+#endif
         Window window;
         if (DeviceInfo.Idiom == DeviceIdiom.Phone)
-            window = new Window(new AppShell()) { Title = "玄鸟" };
+            window = new Window(new AppShell()) { Title = title };
         else
         {
             window = new Window(new AppShell())
             {
-                Title = "玄鸟",
+                Title = title,
                 Width = 960,
                 Height = 640,
                 MinimumWidth = 900,
@@ -45,6 +51,18 @@ public partial class App : Application
         // 开机自启：尽早藏主窗，避免托盘已起、主界面却是未渲染黑块
         Platforms.Windows.MauiAutostartUi.Hook(window);
         Platforms.Windows.MauiCloseToTray.TryHook(window);
+        Platforms.Windows.MauiProjectionTitleBar.ResolvePhase = () =>
+        {
+            try
+            {
+                return FlyScreen.Helpers.ProjectionUi.Resolve(
+                    Services.MauiAppHost.EnsureCreated().ScreenExtend);
+            }
+            catch
+            {
+                return FlyScreen.Helpers.ProjectionUiPhase.Idle;
+            }
+        };
         Platforms.Windows.MauiProjectionTitleBar.OpenProjection = () =>
             MainThread.BeginInvokeOnMainThread(async () =>
             {
@@ -55,7 +73,7 @@ public partial class App : Application
                         && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host)
                     {
                         await host.StopProjectionAsync();
-                        Platforms.Windows.MauiProjectionTitleBar.SetProjecting(false);
+                        Platforms.Windows.MauiProjectionTitleBar.Refresh();
                         return;
                     }
 
@@ -64,7 +82,7 @@ public partial class App : Application
                     {
                         if (Current?.Windows.FirstOrDefault()?.Page is Page sinkPage)
                         {
-                            await sinkPage.DisplayAlert(
+                            await sinkPage.DisplayAlertAsync(
                                 "投影",
                                 FlyScreen.Services.ScreenExtend.ScreenExtendConflict.DescribeLocalBusy(
                                     FlyScreen.Services.ScreenExtend.ScreenExtendRole.Sink,
@@ -78,9 +96,7 @@ public partial class App : Application
                     var main = FindMainPage(root);
                     if (main != null)
                         await main.OpenProjectionDialogAsync();
-                    Platforms.Windows.MauiProjectionTitleBar.SetProjecting(
-                        host.ScreenExtend.IsActive
-                        && host.ScreenExtend.Role == FlyScreen.Services.ScreenExtend.ScreenExtendRole.Host);
+                    Platforms.Windows.MauiProjectionTitleBar.Refresh();
                 }
                 catch { /* ignore */ }
             });

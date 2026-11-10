@@ -7,6 +7,7 @@ using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
 using FlyScreen.AppMaui.Platforms.Android;
 using FlyScreen.AppMaui.Services;
+using FlyScreen.Services.Programs;
 using Object = Java.Lang.Object;
 
 namespace FlyScreen.AppMaui;
@@ -14,6 +15,7 @@ namespace FlyScreen.AppMaui;
 [Activity(
     Theme = "@style/Maui.SplashTheme",
     MainLauncher = true,
+    LaunchMode = LaunchMode.SingleTop,
     Icon = "@mipmap/appicon",
     RoundIcon = "@mipmap/appicon_round",
     ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode |
@@ -40,8 +42,22 @@ public class MainActivity : MauiAppCompatActivity
             new MediaProjectionCallback());
     }
 
+    protected override void OnNewIntent(Intent? intent)
+    {
+        base.OnNewIntent(intent);
+        if (intent != null)
+            Intent = intent;
+    }
+
     protected override void OnDestroy()
     {
+        // 退出、最近任务划掉、清理全部：先停子程序并撤通知。按 Home 退到后台不会走到这里。
+        if (IsFinishing)
+        {
+            try { FlyScreenProgramNotifyService.StopForAppExit(); }
+            catch { /* ignore */ }
+        }
+
         if (ReferenceEquals(s_current, this))
             s_current = null;
         base.OnDestroy();

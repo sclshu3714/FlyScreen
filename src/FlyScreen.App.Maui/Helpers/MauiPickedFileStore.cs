@@ -40,12 +40,13 @@ internal static class MauiPickedFileStore
     }
 
     public static async Task<IReadOnlyList<string>> MaterializeManyAsync(
-        IEnumerable<FileResult> files,
+        IEnumerable<FileResult?> files,
         CancellationToken ct = default)
     {
         var list = new List<string>();
         foreach (var f in files)
         {
+            if (f == null) continue;
             ct.ThrowIfCancellationRequested();
             var path = await MaterializeAsync(f, ct).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(path))

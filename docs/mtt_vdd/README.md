@@ -2,19 +2,21 @@
 
 供开发人员维护清单与拉取脚本。本目录**不存放**安装包二进制。
 
+产品入口（目标态）：投影工具 `projection` 的 Desktop/Windows 依赖组件；修复 API 与投影「环境修复」共用。见 [../tools.md](../tools.md) §6.3、[../extended-display.md](../extended-display.md)。现网仍多在投影弹窗内触发，代码迁移前以现网为准。
+
 ## 共用目录
 
 **唯一二进制源**：`tools/VddOffline\`（工具资源；`src` 保持纯代码）。
 
 | 端 | 如何引用 | 进发布产物 |
 |----|----------|------------|
-| WPF Win | `..\..\tools\VddOffline\**\*` | setup + VDDControl + README |
-| Maui-Win | `..\..\tools\VddOffline\**\*`（Windows TFM） | 同上 |
+| WPF Win | `build/FlyScreen.BundleVddOffline.targets` 打 zip | `VddOffline\FlyScreen.VddOffline.zip`（勿放安装根目录） |
+| Maui-Win | 同上（Windows TFM） | 同上 |
 | Mac | 仅 `..\..\tools\VddOffline\README.txt` | 仅 README |
 | Linux | 仅 `..\..\tools\VddOffline\README.txt` | 仅 README |
 | Maui Android | — | 不复制 |
 
-`docs/mtt_vdd` 不进任何端的发布包。
+运行时把 zip 展开到 `%AppData%\FlyScreen\VddOffline`。`docs/mtt_vdd` 不进任何端的发布包。
 
 ## 基本离线包（写入 tools\VddOffline）
 

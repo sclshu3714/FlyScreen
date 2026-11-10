@@ -49,6 +49,12 @@ public static class ThemeService
         Set(rd, "Placeholder", dark ? "#64748B" : "#9CA3AF");
         Set(rd, "MatrixBg", dark ? "#0B1220" : "#F8FAFC");
         Set(rd, "ListBg", dark ? "#0B1220" : "#F9FAFB");
+        // 工具卡片三态底色
+        Set(rd, "ToolCardNotInstalledBg", dark ? "#1E293B" : "#F3F4F6");
+        Set(rd, "ToolCardInstalledBg", dark ? "#0F3D2E" : "#ECFDF5");
+        Set(rd, "ToolCardRunningBg", dark ? "#1E3A5F" : "#DBEAFE");
+        Set(rd, "ToolCardInstallingBg", dark ? "#243447" : "#EFF6FF");
+        Set(rd, "ToolCardProgress", dark ? "#3B82F6" : "#93C5FD");
         // 细圆角滚动条：与卡片 UI 同色系，避免系统粗箭头条
         Set(rd, "ScrollTrack", dark ? "#00000000" : "#00000000");
         Set(rd, "ScrollThumb", dark ? "#64748B" : "#CBD5E1");

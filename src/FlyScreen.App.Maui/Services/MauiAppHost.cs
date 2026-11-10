@@ -4,6 +4,7 @@ using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
+using FlyScreen.Services.Tools.SharedDevices;
 
 namespace FlyScreen.AppMaui.Services;
 
@@ -16,6 +17,10 @@ public sealed class MauiAppHost : IAsyncDisposable
     private static MauiAppHost? _instance;
     private int _started;
     private IMauiPlatformServices _platform = NullMauiPlatformServices.Instance;
+    private SharedDevicesAudioBridge? _sharedDevicesAudio;
+#if ANDROID
+    private Platforms.Android.AndroidSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
+#endif
 
     public static MauiAppHost Instance =>
         _instance ?? throw new InvalidOperationException("MauiAppHost 未创建");
@@ -65,6 +70,22 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
+        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        sharedDevices.StatusMessage += msg =>
+        {
+            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
+        };
+#if ANDROID
+        sharedDevices.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
+        _sharedDevicesAudio = new SharedDevicesAudioBridge(
+            sharedDevices, new Platforms.Android.AndroidProjectionAudio());
+        _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sharedDevices);
+#elif WINDOWS
+        sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
+        _sharedDevicesAudio = new SharedDevicesAudioBridge(
+            sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        FlyScreen.Services.Tools.ToolService.Instance.AttachColorSampler(new FlyScreen.Tools.WinScreenColorSampler());
+#endif
         var sink = new MauiClipboardApplySink();
         Transfers = new FileTransferService(Settings, Connections, sink);
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, ResolveEdgeDropDirectory);
@@ -273,6 +294,14 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
         Settings.EnsureLocalMachineSlot();
 #if WINDOWS
+        // 上次扩展投影异常退出：补 /internal 收拢仅电脑屏幕
+        try
+        {
+            await FlyScreen.ScreenExtend.DisplayTopologyGuard.TryRecoverOrphanedExtendAsync()
+                .ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
+
         try
         {
             var fw = await MauiConnectionDiagnostics.EnsureListenRulesAsync(Settings.TcpPort, Settings.UdpPort)
@@ -379,7 +408,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         DisplayProjectionMode mode,
         ProjectionDisplayChoice? display = null,
         bool audioSync = false,
-        bool remoteControl = false)
+        bool remoteControl = false,
+        IProgress<string>? progress = null)
     {
 #if !WINDOWS && !ANDROID
         await Task.CompletedTask;
@@ -391,6 +421,7 @@ public sealed class MauiAppHost : IAsyncDisposable
 #else
         mode = DisplayProjectionModeInfo.ClampForPicker((int)mode);
 #endif
+        progress?.Report("① 校验投影目标…");
         if (target == null)
             return ProjectionStartResult.Fail("请选择目标");
 
@@ -462,6 +493,7 @@ public sealed class MauiAppHost : IAsyncDisposable
 
         if (mode == DisplayProjectionMode.Extend)
         {
+            progress?.Report("② 检查扩展环境（安装就绪）…");
             if (target.Kind == ProjectionTargetKind.Peer)
             {
                 var (ready, detail) = await FlyScreen.ScreenExtend.MttVddEnvironment.CheckExtendReadyAsync()
@@ -470,6 +502,7 @@ public sealed class MauiAppHost : IAsyncDisposable
                     return ProjectionStartResult.NeedRepair(detail);
             }
 
+            progress?.Report("③ 创建虚拟显示通道并配置拓扑…");
             var layoutSide = target.Kind == ProjectionTargetKind.Peer
                 ? LayoutPeerDirection.Resolve(
                     Settings.MachineSlots,
@@ -481,7 +514,14 @@ public sealed class MauiAppHost : IAsyncDisposable
             var (dispOk, dispInfo) = await Platform.EnsureScreenExtendHostDisplayAsync(layoutSide)
                 .ConfigureAwait(false);
             if (!dispOk)
-                return ProjectionStartResult.NeedRepair(dispInfo ?? "无法创建第二输出");
+            {
+                // 已装驱动但通道拉不起（黄叹号/冲突/控制台未起）→ 可自动修复
+                var canRepair = FlyScreen.ScreenExtend.MttVddEnvironment.IsProductInstalled()
+                    || FlyScreen.ScreenExtend.MttVddInstaller.HasAnyControlExecutable();
+                return canRepair
+                    ? ProjectionStartResult.NeedRepair(dispInfo ?? "无法创建第二输出（通道）")
+                    : ProjectionStartResult.Fail(dispInfo ?? "无法创建第二输出（通道）");
+            }
             PublishStatus($"投影：本机第二输出已就绪 {dispInfo}"
                           + (layoutSide == LayoutEdgeSide.Unknown
                               ? ""
@@ -490,11 +530,13 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
         else
         {
+            progress?.Report("② 切换为复制模式…");
             FlyScreen.ScreenExtend.DisplayProjection.TryApply(DisplayProjectionMode.Clone);
         }
 #endif
 
 #if ANDROID
+        progress?.Report("② 申请屏幕录制…");
         // 须先拿到系统录屏授权并启动采集，再发 Offer（Accept 后即可推帧）
         var (capOk, capErr) = await Platform.PrepareScreenExtendCaptureAsync().ConfigureAwait(false);
         if (!capOk)
@@ -505,6 +547,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             && ScreenExtend.AudioSync == audioSync
             && ScreenExtend.RemoteControl == remoteControl)
         {
+            progress?.Report("⑤ 投影已开始");
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
         }
@@ -520,6 +563,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             await ScreenExtend.StopAsync("retarget").ConfigureAwait(false);
         }
 
+        progress?.Report("④ 向目标发起投影会话…");
         var (ok, err) = await ScreenExtend.StartHostAsync(
                 peer, choice.Width, choice.Height, audioSync: audioSync, remoteControl: remoteControl)
             .ConfigureAwait(false);
@@ -531,6 +575,7 @@ public sealed class MauiAppHost : IAsyncDisposable
             return ProjectionStartResult.Fail(err ?? "发起投影失败");
         }
 
+        progress?.Report("⑤ 投影已开始");
         PublishStatus(
             $"投影：已向 {peer} 发起（{DisplayProjectionModeInfo.Label(mode)} · {choice.ResolutionLabel} @{choice.ScaleLabel}"
             + (audioSync ? " · 声音同步" : "")
@@ -829,9 +874,26 @@ public sealed class MauiAppHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try { ProgramService.Instance.Runner.StopAllForShutdown(); }
+        catch { /* ignore */ }
+        try { await StopProjectionAsync().ConfigureAwait(false); }
+        catch { /* ignore */ }
+
         _platform.StopClipboardMonitor();
         _platform.StopDesktopInput();
         _platform.DisposeTray();
+#if WINDOWS
+        if (_platform is Platforms.Windows.WindowsMauiPlatformServices winPlat)
+        {
+            try { winPlat.DisposeScreenExtendUi(); } catch { /* ignore */ }
+        }
+#endif
+        try { _sharedDevicesAudio?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesAudio = null;
+#if ANDROID
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = null;
+#endif
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
         LayoutSync.Detach();

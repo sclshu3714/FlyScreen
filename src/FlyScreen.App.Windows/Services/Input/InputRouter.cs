@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using FlyScreen.Input;
 using FlyScreen.Models;
+using FlyScreen.ScreenExtend;
 using FlyScreen.Native;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
@@ -347,7 +348,9 @@ public sealed class InputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var info = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-        if (InputInjector.IsInjectedMouse(info.flags, info.dwExtraInfo))
+        var injectedMouse = InputInjector.IsInjectedMouse(info.flags, info.dwExtraInfo);
+        ProjectionHostCursor.OnHookMouse(injectedMouse);
+        if (injectedMouse)
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
@@ -393,7 +396,8 @@ public sealed class InputRouter : IDisposable
             TryClaimPhysicalInput();
         }
 
-        if (msg == NativeMethods.WM_LBUTTONDOWN && !_controllingRemote)
+        // 穿边拖文件：只记按下时刻；真正读 Shell 在靠近边缘时 Prefetch（避免每次点击起线程）
+        if (msg == NativeMethods.WM_LBUTTONDOWN && !_controllingRemote && _settings.TransferFile)
             WindowsDragPaths.NoteButtonDown();
 
         // 本机右键：可能粘贴，提前拉取远程文件填入占位路径
@@ -418,8 +422,13 @@ public sealed class InputRouter : IDisposable
             _edgeGate.Observe(nx, ny, onEdge, Environment.TickCount64);
 
             var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
-            if (_settings.TransferFile && leftDown)
+            // 仅靠近屏幕外缘才挂接收条 / 预读选中项（低频路径）
+            var nearEdge = NearVirtualEdge(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
+            if (_settings.TransferFile && leftDown && nearEdge)
+            {
                 EdgeFileDragCapture.Arm();
+                WindowsDragPaths.PrefetchIfNeeded();
+            }
             else
                 EdgeFileDragCapture.Disarm();
             var dragged = Array.Empty<string>();
@@ -944,6 +953,15 @@ public sealed class InputRouter : IDisposable
         var env = Environment.MachineName;
         return !LocalPeerIdentity.IsBogusMachineName(env)
                && string.Equals(name, env, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>距虚拟桌面外缘 ≤ margin 像素（用于提前挂拖放接收条，又不干扰中央拖影）。</summary>
+    private static bool NearVirtualEdge(int x, int y, int screenL, int screenT, int screenW, int screenH, int margin = 28)
+    {
+        var right = screenL + screenW - 1;
+        var bottom = screenT + screenH - 1;
+        return x <= screenL + margin || x >= right - margin
+               || y <= screenT + margin || y >= bottom - margin;
     }
 
     /// <summary>

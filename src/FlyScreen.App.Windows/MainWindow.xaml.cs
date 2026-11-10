@@ -8,7 +8,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using FlyScreen.Assets;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
@@ -16,6 +18,8 @@ using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
+using FlyScreen.Services.Tools;
+using FlyScreen.Services.Tools.SharedDevices;
 using FlyScreen.Services.Update;
 using FlyScreen.Tray;
 using WinForms = System.Windows.Forms;
@@ -65,6 +69,8 @@ public partial class MainWindow : Window
     private bool _openProgramLog;
     private int _logPageFromLatest;
     private int _logTotalPages;
+    private DateTime? _logFrom;
+    private DateTime? _logTo;
     private readonly ObservableCollection<AppLogEntry> _logItems = new();
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
@@ -74,6 +80,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        RegisterToolColorPickerIcon();
         ApplyWindowIcon();
         _host = AppHost.EnsureCreated();
         // 开机自启：先藏主窗再挂托盘，避免未渲染完的黑块闪一下/卡住
@@ -85,6 +92,23 @@ public partial class MainWindow : Window
         }
         Loaded += OnLoaded;
         Closing += OnClosing;
+        SourceInitialized += (_, _) =>
+        {
+            try
+            {
+                var helper = new System.Windows.Interop.WindowInteropHelper(this);
+                FlyScreen.WinApi.WindowsAppUserModel.ApplyToWindow(
+                    helper.Handle,
+                    FlyScreen.WinApi.WindowsAppUserModel.MainAppId,
+                    FlyScreen.WinApi.WindowsAppUserModel.MainDisplayName,
+                    System.IO.Path.Combine("Assets", "wlogo_tu.ico"),
+                    "wlogo_tu.ico");
+            }
+            catch
+            {
+                // 任务栏显示名失败不挡主窗
+            }
+        };
         UpdateTitleMaxGlyph();
     }
 
@@ -100,7 +124,13 @@ public partial class MainWindow : Window
             DragMove();
     }
 
-    private async void TitleProject_Click(object sender, RoutedEventArgs e)
+    private bool _titleProjectHovered;
+
+    private void TitleProject_Click(object sender, RoutedEventArgs e)
+        => _ = OpenProjectionFromUiAsync();
+
+    /// <summary>标题栏 / 托盘「投影」：与主界面同一流程（进行中则停止，接收中则提示，否则弹窗）。</summary>
+    private async Task OpenProjectionFromUiAsync()
     {
         if (_host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host)
         {
@@ -118,25 +148,66 @@ public partial class MainWindow : Window
             return;
         }
 
+        ShowFromTray();
         var dlg = new ProjectionDialog(_host) { Owner = this };
         dlg.ShowDialog();
         RefreshTitleProjectButton();
     }
 
+    private void EnsureTitleProjectHoverHooks()
+    {
+        if (TitleProjectBtn == null || TitleProjectBtn.Tag as string == "projHover") return;
+        TitleProjectBtn.Tag = "projHover";
+        TitleProjectBtn.MouseEnter += (_, _) =>
+        {
+            _titleProjectHovered = true;
+            RefreshTitleProjectButton();
+        };
+        TitleProjectBtn.MouseLeave += (_, _) =>
+        {
+            _titleProjectHovered = false;
+            RefreshTitleProjectButton();
+        };
+    }
+
     private void RefreshTitleProjectButton()
     {
         if (TitleProjectBtn == null) return;
-        var on = _host.ScreenExtend.IsActive && _host.ScreenExtend.Role == ScreenExtendRole.Host;
-        TitleProjectBtn.ToolTip = on ? "正在投影（点击停止）" : "投影到电脑";
-        TitleProjectBtn.Width = on ? 72 : 46;
-        TitleProjectBtn.Content = on ? "投影中" : "\uE8B9";
-        TitleProjectBtn.FontFamily = on
-            ? new System.Windows.Media.FontFamily("Segoe UI")
-            : new System.Windows.Media.FontFamily("Segoe MDL2 Assets");
-        TitleProjectBtn.FontSize = on ? 11 : 13;
-        // Accent 只在投影弹窗里，主窗口用 Blue（同色 #2563EB）
-        TitleProjectBtn.Foreground = TryFindResource(on ? "Blue" : "Text") as System.Windows.Media.Brush
+        EnsureTitleProjectHoverHooks();
+        var phase = ProjectionUi.Resolve(_host.ScreenExtend);
+        var chrome = ProjectionUi.Title(phase, _titleProjectHovered);
+        TitleProjectBtn.ToolTip = chrome.Tooltip;
+        TitleProjectBtn.Width = chrome.SuggestedWidth;
+        TitleProjectBtn.Padding = new Thickness(8, 0, 8, 0);
+        TitleProjectBtn.Foreground = TryFindResource(chrome.Emphasized ? "Blue" : "Text") as System.Windows.Media.Brush
             ?? System.Windows.Media.Brushes.Black;
+        TitleProjectBtn.Content = BuildProjectionTitleContent(chrome);
+    }
+
+    private System.Windows.Controls.StackPanel BuildProjectionTitleContent(ProjectionUiChrome chrome)
+    {
+        var fg = TitleProjectBtn.Foreground;
+        var icon = new System.Windows.Controls.TextBlock
+        {
+            Text = chrome.Mdl2Glyph,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"),
+            FontSize = 13,
+            Foreground = fg,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        };
+        var label = new System.Windows.Controls.TextBlock
+        {
+            Text = chrome.Label,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI"),
+            FontSize = 11,
+            Foreground = fg,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var row = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        row.Children.Add(icon);
+        row.Children.Add(label);
+        return row;
     }
 
     private void ApplyWindowIcon()
@@ -146,6 +217,28 @@ public partial class MainWindow : Window
         Icon = icon;
         if (TitleBarLogo != null)
             TitleBarLogo.Source = icon;
+    }
+
+    private void RegisterToolColorPickerIcon()
+    {
+        try
+        {
+            using var stream = BrandAssets.Open(BrandAssets.ToolColorPickerJpg);
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            copy.Position = 0;
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.StreamSource = copy;
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
+            Resources["ToolColorPickerIcon"] = bmp;
+        }
+        catch
+        {
+            // 资源缺失时保留矢量回退（共享设备图）
+        }
     }
 
     private void TitleMin_Click(object sender, RoutedEventArgs e)
@@ -195,12 +288,22 @@ public partial class MainWindow : Window
         RefreshTitleProjectButton();
         AppLog.Changed += () => Dispatcher.Invoke(() =>
         {
-            // 仅在「最新」页增量追加，避免整表重绑闪烁回顶
-            if (PageLog.Visibility == Visibility.Visible && _logPageFromLatest == 0)
+            // 仅在「实时」页增量追加，避免整表重绑闪烁回顶
+            if (PageLog.Visibility == Visibility.Visible && IsLogLiveMode())
                 RefreshLogPageLive();
         });
         LogList.ItemsSource = _logItems;
         ProgramService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshProgramsPage);
+        ToolService.Instance.Catalog.Changed += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+        ToolService.Instance.InstallProgress.Changed += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+        ToolService.Instance.Workspace.Changed += () => Dispatcher.BeginInvoke(RefreshToolsWorkspace);
+        ToolService.Instance.ColorPicker.SessionChanged += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+        var shared = ToolService.Instance.SharedDevices;
+        if (shared != null)
+        {
+            shared.SessionChanged += () => Dispatcher.BeginInvoke(RefreshToolsPage);
+            shared.IncomingRequest += OnSharedDevicesIncomingRequest;
+        }
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
         _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
         _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
@@ -271,6 +374,8 @@ public partial class MainWindow : Window
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
+            onProject: () => _ = OpenProjectionFromUiAsync(),
+            projectPhase: ProjectionUi.Resolve(_host.ScreenExtend),
             onAbout: () =>
             {
                 ShowFromTray();
@@ -511,7 +616,11 @@ public partial class MainWindow : Window
         NavAdvancedText.Text = Loc.T("Nav.Advanced");
         NavLogText.Text = Loc.T("Nav.Log");
         NavProgramsText.Text = Loc.T("Nav.Programs");
+        NavToolsText.Text = Loc.T("Nav.Tools");
+        ToolsTitleText.Text = Loc.T("Tool.Title");
+        ToolsHintText.Text = Loc.T("Tool.Hint");
         SearchPlaceholderText.Text = Loc.T("Search.Placeholder");
+        RefreshToolsPage();
         LogTitleText.Text = Loc.T("Log.Title");
         RefreshLogHint();
         LogDownloadBtnText.Text = Loc.T("Log.Download");
@@ -520,12 +629,14 @@ public partial class MainWindow : Window
         LogPrevBtnText.Text = Loc.T("Log.Prev");
         LogNextBtnText.Text = Loc.T("Log.Next");
         LogLatestBtnText.Text = Loc.T("Log.Latest");
+        LogDateBtnText.Text = Loc.T("Log.Date");
         LogDownloadBtn.ToolTip = LogDownloadBtnText.Text;
         LogCopyBtn.ToolTip = Loc.T("Log.SelectTip");
         LogClearBtn.ToolTip = LogClearBtnText.Text;
         LogPrevBtn.ToolTip = LogPrevBtnText.Text;
         LogNextBtn.ToolTip = LogNextBtnText.Text;
         LogLatestBtn.ToolTip = LogLatestBtnText.Text;
+        LogDateBtn.ToolTip = LogDateBtnText.Text;
         EnsureLogLevelFilterItems();
         Dispatcher.BeginInvoke(UpdateLogToolMode, System.Windows.Threading.DispatcherPriority.Loaded);
         ProgTitleText.Text = Loc.T("Prog.Title");
@@ -915,15 +1026,18 @@ public partial class MainWindow : Window
     private async void ExitApp()
     {
         DisposeTray();
-        await _host.DisposeAsync();
+        // DisposeAsync 内会 StopProjection 并等待 /internal，避免扩展拓扑残留
+        try { await _host.DisposeAsync(); }
+        catch { /* ignore */ }
         System.Windows.Application.Current.Shutdown();
     }
 
-    /// <summary>自动更新：释放托盘后立即退出，供外部脚本覆盖单文件 exe 并重启。</summary>
+    /// <summary>自动更新：释放托盘后退出，供外部脚本覆盖单文件 exe 并重启。</summary>
     public void ExitForUpdate()
     {
         try { DisposeTray(); } catch { /* ignore */ }
-        try { _ = _host.DisposeAsync().AsTask(); } catch { /* ignore */ }
+        // 同步等拓扑收拢，避免更新重启后仍卡在扩展屏
+        try { _host.DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { /* ignore */ }
         Environment.Exit(0);
     }
 
@@ -1460,6 +1574,7 @@ public partial class MainWindow : Window
         else if (NavSecurity.IsChecked == true) ShowPage(4);
         else if (NavAdvanced.IsChecked == true) ShowPage(1);
         else if (NavPrograms.IsChecked == true) ShowPage(8);
+        else if (NavTools.IsChecked == true) ShowPage(9);
         else if (NavLog.IsChecked == true) ShowPage(7);
         else if (NavAbout.IsChecked == true) ShowPage(5);
         else if (NavHelp.IsChecked == true) ShowPage(6);
@@ -1477,6 +1592,7 @@ public partial class MainWindow : Window
         PageHelp.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
         PageLog.Visibility = index == 7 ? Visibility.Visible : Visibility.Collapsed;
         PagePrograms.Visibility = index == 8 ? Visibility.Visible : Visibility.Collapsed;
+        PageTools.Visibility = index == 9 ? Visibility.Visible : Visibility.Collapsed;
 
         _syncingNav = true;
         try
@@ -1510,6 +1626,9 @@ public partial class MainWindow : Window
                 case 8:
                     NavPrograms.IsChecked = true;
                     break;
+                case 9:
+                    NavTools.IsChecked = true;
+                    break;
             }
         }
         finally { _syncingNav = false; }
@@ -1522,6 +1641,8 @@ public partial class MainWindow : Window
             RefreshAboutPage();
         else if (index == 6)
             ShowHelpDocument();
+        else if (index == 9)
+            RefreshToolsPage();
         else if (index == 7)
         {
             if (!_openProgramLog)
@@ -1814,15 +1935,31 @@ public partial class MainWindow : Window
         _logPageFromLatest = page.PageFromLatest;
         _logTotalPages = page.TotalPages;
         _logKnownTotal = page.TotalCount;
-        LogPageText.Text = page.TotalCount == 0
-            ? Loc.T("Log.Empty")
-            : page.PageFromLatest == 0
-                ? string.Format(Loc.T("Log.PageLatest"), page.TotalCount)
-                : string.Format(Loc.T("Log.Page"), page.PageFromLatest + 1, page.TotalPages, page.TotalCount);
+        LogPageText.Text = FormatLogPageText(page.TotalCount, page.PageFromLatest, page.TotalPages);
         LogPrevBtn.IsEnabled = page.HasOlder;
         LogNextBtn.IsEnabled = page.HasNewer;
-        LogLatestBtn.IsEnabled = page.HasNewer;
+        LogLatestBtn.IsEnabled = page.HasNewer || _logFrom != null || _logTo != null;
     }
+
+    private string FormatLogPageText(int totalCount, int pageFromLatest, int totalPages)
+    {
+        if (totalCount == 0)
+            return Loc.T("Log.Empty");
+        if (_logFrom != null || _logTo != null)
+        {
+            var from = _logFrom ?? DateTime.MinValue;
+            var to = _logTo ?? DateTime.MaxValue;
+            return pageFromLatest == 0
+                ? string.Format(Loc.T("Log.PageDateLatest"), from, to, totalCount)
+                : string.Format(Loc.T("Log.PageDate"), from, to, pageFromLatest + 1, totalPages, totalCount);
+        }
+        return pageFromLatest == 0
+            ? string.Format(Loc.T("Log.PageLatest"), totalCount)
+            : string.Format(Loc.T("Log.Page"), pageFromLatest + 1, totalPages, totalCount);
+    }
+
+    private bool IsLogLiveMode()
+        => _logPageFromLatest == 0 && _logFrom == null && _logTo == null;
 
     private void ReplaceLogItems(IReadOnlyList<AppLogEntry> items)
     {
@@ -1843,14 +1980,14 @@ public partial class MainWindow : Window
         {
             var available = LogToolBarHost.ActualWidth;
             LogToolsCompact = false;
-            LogLevelFilter.Width = 72;
+            LogLevelFilter.Width = 96;
             LogToolBar.Measure(new System.Windows.Size(double.PositiveInfinity, 48));
             var need = LogToolBar.DesiredSize.Width;
             LogToolsCompact = need > available + 0.5;
-            // 极窄：图标按钮 + 缩短筛选框
+            // 极窄：图标按钮 + 缩短筛选框（仍保证两字级别完整可见）
             LogLevelFilter.Width = LogToolsCompact
-                ? (available < 240 ? 52 : 64)
-                : 72;
+                ? (available < 240 ? 72 : 84)
+                : 96;
         }
         finally
         {
@@ -1880,10 +2017,12 @@ public partial class MainWindow : Window
     /// <summary>最新页：水印增量追加；失配时整页替换尾部（禁止按时间重放整表）。</summary>
     private void RefreshLogPageLive()
     {
+        if (!IsLogLiveMode()) return;
         var level = CurrentLogLevelFilter();
         var stick = _logStickToBottom;
         var delta = AppLog.DeltaSince(
-            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            _logWatermark, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize,
+            _logFrom, _logTo);
         var uiChanged = false;
 
         if (delta.Reset)
@@ -1909,9 +2048,7 @@ public partial class MainWindow : Window
         if (!uiChanged)
             return;
 
-        LogPageText.Text = _logKnownTotal == 0
-            ? Loc.T("Log.Empty")
-            : string.Format(Loc.T("Log.PageLatest"), _logKnownTotal);
+        LogPageText.Text = FormatLogPageText(_logKnownTotal, 0, _logTotalPages);
         LogPrevBtn.IsEnabled = _logKnownTotal > AppLog.DefaultPageSize || _logTotalPages > 1;
         LogNextBtn.IsEnabled = false;
         LogLatestBtn.IsEnabled = false;
@@ -1937,12 +2074,15 @@ public partial class MainWindow : Window
             AppLog.DefaultPageSize,
             level,
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         ApplyLogPageChrome(page);
-        if (page.PageFromLatest == 0)
+        if (page.PageFromLatest == 0 && IsLogLiveMode())
         {
-            // 最新页始终用水印增量源（内存）；内存空时才回退磁盘页（无水印，后续 live 会 Reset 到内存）
-            var delta = AppLog.DeltaSince(null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize);
+            // 实时页用水印增量源（内存）；内存空时才回退磁盘页
+            var delta = AppLog.DeltaSince(
+                null, level, _logProgramId, _logProgramName, AppLog.DefaultPageSize, _logFrom, _logTo);
             if (delta.Items.Count > 0)
                 ReplaceLogItems(delta.Items);
             else
@@ -1955,7 +2095,9 @@ public partial class MainWindow : Window
         {
             ReplaceLogItems(page.Items);
             _logWatermark = null;
-            _logStickToBottom = false;
+            _logStickToBottom = page.PageFromLatest == 0;
+            if (_logStickToBottom)
+                Dispatcher.BeginInvoke(ScrollLogToEndQuiet, System.Windows.Threading.DispatcherPriority.Loaded);
         }
     }
 
@@ -1991,6 +2133,26 @@ public partial class MainWindow : Window
 
     private void LogLatest_Click(object sender, RoutedEventArgs e)
     {
+        _logFrom = null;
+        _logTo = null;
+        _logPageFromLatest = 0;
+        RefreshLogPage();
+    }
+
+    private void LogDate_Click(object sender, RoutedEventArgs e)
+    {
+        var (kind, from, to) = LogDateRangeDialog.Show(this, _logFrom, _logTo);
+        if (kind == LogDateRangeDialog.ResultKind.Cancel) return;
+        if (kind == LogDateRangeDialog.ResultKind.Clear)
+        {
+            _logFrom = null;
+            _logTo = null;
+        }
+        else
+        {
+            _logFrom = from;
+            _logTo = to;
+        }
         _logPageFromLatest = 0;
         RefreshLogPage();
     }
@@ -2001,6 +2163,8 @@ public partial class MainWindow : Window
         _logPageFromLatest = 0;
         _logTotalPages = 0;
         _logKnownTotal = 0;
+        _logFrom = null;
+        _logTo = null;
         _logWatermark = null;
         _logItems.Clear();
         LogPageText.Text = Loc.T("Log.Empty");
@@ -2014,7 +2178,9 @@ public partial class MainWindow : Window
         var text = AppLog.FormatExport(
             CurrentLogLevelFilter(),
             _logProgramId,
-            _logProgramName);
+            _logProgramName,
+            _logFrom,
+            _logTo);
         if (string.IsNullOrEmpty(text))
         {
             StatusText.Text = Loc.T("Log.DownloadEmpty");
@@ -2085,6 +2251,8 @@ public partial class MainWindow : Window
             ShowPage(4);
         else if (q.Contains("程序") || q.Contains("脚本") || q.Contains("python"))
             ShowPage(8);
+        else if (q.Contains("工具") || q.Contains("共享设备") || q.Contains("摄像头") || q.Contains("麦克风") || q.Contains("扬声器"))
+            ShowPage(9);
         else if (q.Contains("日志") || q.Contains("错误"))
             ShowPage(7);
         else if (q.Contains("关于") || q.Contains("版本"))
@@ -2537,5 +2705,390 @@ public partial class MainWindow : Window
         var cw = w / cols;
         var ch = h / rows;
         return (c * cw + cw / 2, r * ch + ch / 2);
+    }
+
+    private void RefreshToolsPage()
+    {
+        if (ToolsList == null) return;
+        var running = ToolService.Instance.SharedDevices?.IsRunning == true;
+        var colorRunning = ToolService.Instance.ColorPicker.IsRunning;
+        ToolsList.ItemsSource = ToolCardRows.Build(running, colorRunning);
+        Dispatcher.BeginInvoke(ApplyToolsWrapColumns, System.Windows.Threading.DispatcherPriority.Loaded);
+        RefreshToolsWorkspace();
+    }
+
+    private void ToolsCatalogHost_SizeChanged(object sender, SizeChangedEventArgs e)
+        => ApplyToolsWrapColumns();
+
+    /// <summary>桌面默认两列；更宽/全屏按宽度加列。</summary>
+    private void ApplyToolsWrapColumns()
+    {
+        if (ToolsCatalogHost == null || ToolsList == null) return;
+        var host = ToolsCatalogHost.ActualWidth;
+        if (host < 80) return;
+        const double minCardSlot = 240;
+        var byWidth = Math.Max(1, (int)Math.Floor(host / minCardSlot));
+        var cols = host >= 400 ? Math.Max(2, byWidth) : byWidth;
+        ToolsList.ApplyTemplate();
+        ToolsList.UpdateLayout();
+        var grid = FindVisualChild<UniformGrid>(ToolsList);
+        if (grid != null && grid.Columns != cols)
+            grid.Columns = cols;
+    }
+
+    private void RefreshToolsWorkspace()
+    {
+        if (ToolsWorkspaceNavPanel == null || ToolsCatalogHost == null || ToolsWorkspaceHost == null)
+            return;
+
+        var ws = ToolService.Instance.Workspace;
+        var hasTabs = ws.HasOpenTabs;
+        ToolsHintText.Visibility = hasTabs && !ws.IsShowingCatalog ? Visibility.Collapsed : Visibility.Visible;
+        ToolsTitleText.Visibility = hasTabs ? Visibility.Collapsed : Visibility.Visible;
+
+        ToolsWorkspaceNavPanel.Children.Clear();
+        if (hasTabs)
+        {
+            // 面包屑：工具 » 颜色拾取器 » …
+            ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(
+                Loc.T("Tool.Workspace.Catalog"), isActive: ws.IsShowingCatalog, toolId: null, showSep: false));
+            foreach (var tab in ws.OpenTabs)
+            {
+                var active = !ws.IsShowingCatalog
+                    && string.Equals(ws.ActiveToolId, tab.ToolId, StringComparison.OrdinalIgnoreCase);
+                ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(tab.Title, active, tab.ToolId, showSep: true));
+            }
+        }
+
+        if (ws.IsShowingCatalog || !hasTabs)
+        {
+            ToolsCatalogHost.Visibility = Visibility.Visible;
+            ToolsWorkspaceHost.Visibility = Visibility.Collapsed;
+            ToolsWorkspaceHost.Content = null;
+        }
+        else
+        {
+            ToolsCatalogHost.Visibility = Visibility.Collapsed;
+            ToolsWorkspaceHost.Visibility = Visibility.Visible;
+            if (string.Equals(ws.ActiveToolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            {
+                if (ToolsWorkspaceHost.Content is not ColorPickerPanel)
+                    ToolsWorkspaceHost.Content = new ColorPickerPanel();
+            }
+        }
+    }
+
+    private StackPanel CreateWorkspaceCrumb(string title, bool isActive, string? toolId, bool showSep)
+    {
+        var block = new StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = toolId ?? ""
+        };
+        if (showSep)
+        {
+            block.Children.Add(new TextBlock
+            {
+                Text = "»",
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("Muted"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 10, 0)
+            });
+        }
+
+        var link = new TextBlock
+        {
+            Text = title,
+            FontSize = 15,
+            FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
+            Foreground = isActive
+                ? (System.Windows.Media.Brush)FindResource("Blue")
+                : (System.Windows.Media.Brush)FindResource("Text"),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+            Tag = toolId ?? ""
+        };
+        link.MouseLeftButtonUp += WorkspaceNavChip_Click;
+        block.Children.Add(link);
+
+        if (toolId != null)
+        {
+            var close = new System.Windows.Controls.Button
+            {
+                Content = "×",
+                Style = (Style)FindResource("WorkspaceCloseBtn"),
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = toolId
+            };
+            close.Click += WorkspaceNavClose_Click;
+            block.Children.Add(close);
+        }
+
+        return block;
+    }
+
+    private void WorkspaceNavChip_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        if (e.OriginalSource is System.Windows.Controls.Button) return;
+        var id = fe.Tag as string;
+        if (string.IsNullOrEmpty(id))
+            ToolService.Instance.Workspace.ShowCatalog();
+        else
+            ToolService.Instance.Workspace.Activate(id);
+        e.Handled = true;
+    }
+
+    private void WorkspaceNavClose_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string toolId }) return;
+        if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            ToolService.Instance.StopColorPickerWorkspace();
+        else
+            ToolService.Instance.Workspace.Close(toolId);
+        RefreshToolsPage();
+    }
+
+    private async void ToolCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: ToolCardRow row }) return;
+        // 单击主操作（安装 / 启动）；已打开则跳转工作区，不点停
+        if (e.ClickCount != 1) return;
+        await HandleToolActionAsync(row, primary: true);
+    }
+
+    private void ToolCardMore_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // 避免点三点时触发卡片主操作
+        e.Handled = true;
+    }
+
+    private void ToolCardMore_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe) return;
+        var row = fe.DataContext as ToolCardRow
+                  ?? (fe.Tag as ToolCardRow);
+        if (row == null)
+        {
+            for (DependencyObject? p = fe; p != null; p = VisualTreeHelper.GetParent(p))
+            {
+                if (p is FrameworkElement { Tag: ToolCardRow r })
+                {
+                    row = r;
+                    break;
+                }
+            }
+        }
+
+        if (row == null) return;
+        OpenToolCardMenu(fe, row);
+        e.Handled = true;
+    }
+
+    private void OpenToolCardMenu(FrameworkElement? placementTarget, ToolCardRow row)
+    {
+        var menu = new System.Windows.Controls.ContextMenu();
+        if (placementTarget != null)
+        {
+            menu.PlacementTarget = placementTarget;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        }
+
+        if (!row.IsInstalled)
+        {
+            var install = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Install") };
+            install.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+            menu.Items.Add(install);
+        }
+        else
+        {
+            if (row.CanStart)
+            {
+                var start = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Start") };
+                start.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+                menu.Items.Add(start);
+            }
+
+            if (row.IsRunning)
+            {
+                var stop = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Stop") };
+                stop.Click += async (_, _) => await HandleToolActionAsync(row, primary: true, fromMenu: true);
+                menu.Items.Add(stop);
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (row.CanConsume)
+                {
+                    var test = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Test") };
+                    test.Click += (_, _) => OpenSharedDevicesTestDialog();
+                    menu.Items.Add(test);
+                }
+
+                if (row.CanProvide)
+                {
+                    var manage = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Manage") };
+                    manage.Click += (_, _) => OpenSharedDevicesManageDialog();
+                    menu.Items.Add(manage);
+                }
+            }
+
+            if (row.SecondaryEnabled || row.IsInstalled)
+            {
+                var uninstall = new System.Windows.Controls.MenuItem { Header = Loc.T("Tool.Uninstall") };
+                uninstall.Click += async (_, _) => await HandleToolActionAsync(row, primary: false);
+                menu.Items.Add(uninstall);
+            }
+        }
+
+        menu.IsOpen = true;
+    }
+
+    private void OpenSharedDevicesTestDialog()
+    {
+        var dlg = new SharedDevicesTestDialog { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private void OpenSharedDevicesManageDialog()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null) return;
+        var dlg = new SharedDevicesManageDialog(sd) { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private async Task HandleToolActionAsync(ToolCardRow row, bool primary, bool fromMenu = false)
+    {
+        try
+        {
+            if (!row.IsInstalled && primary)
+            {
+                if (row.IsInstalling) return;
+                var r = await ToolService.Instance.InstallAsync(row.Id);
+                StatusText.Text = r.Message;
+                if (!r.Success)
+                    MessageBox.Show(this, r.Message, Loc.T("Tool.Install"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                RefreshToolsPage();
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu)
+                    {
+                        // 目录页再次点卡片 → 跳回已打开的工作区
+                        ToolService.Instance.OpenColorPickerWorkspace();
+                        RefreshToolsPage();
+                        return;
+                    }
+
+                    ToolService.Instance.StopColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    ToolService.Instance.OpenColorPickerWorkspace();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
+                return;
+            }
+
+            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            {
+                if (primary && row.IsRunning)
+                {
+                    if (!fromMenu) return; // 仅 ⋯ 菜单可停止
+                    var sd = ToolService.Instance.SharedDevices;
+                    if (sd != null) await sd.StopAsync();
+                    RefreshToolsPage();
+                    return;
+                }
+
+                if (primary && row.CanStart)
+                {
+                    await StartSharedDevicesAsync();
+                    return;
+                }
+
+                // 接收端已安装：单击无操作；卸载仅三点菜单（primary=false）
+                if (!primary && row.IsInstalled)
+                {
+                    var r = await ToolService.Instance.UninstallAsync(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+
+                return;
+            }
+
+            if (!primary && row.IsInstalled)
+            {
+                var r = await ToolService.Instance.UninstallAsync(row.Id);
+                StatusText.Text = r.Message;
+                RefreshToolsPage();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, Loc.T("Tool.Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async Task StartSharedDevicesAsync()
+    {
+        var sd = ToolService.Instance.SharedDevices;
+        if (sd == null)
+        {
+            MessageBox.Show(this, "共享设备服务未就绪", Loc.T("Tool.Title"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var dlg = new SharedDevicesStartDialog(sd.ListApplicantTargets()) { Owner = this };
+        if (dlg.ShowDialog() != true || string.IsNullOrEmpty(dlg.SelectedPeer))
+            return;
+
+        var (ok, message) = await sd.StartRequestAsync(dlg.SelectedPeer, dlg.SelectedKinds);
+        StatusText.Text = message;
+        if (!ok)
+            MessageBox.Show(this, message, Loc.T("Tool.SharedDevices.StartTitle"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        RefreshToolsPage();
+    }
+
+    private void OnSharedDevicesIncomingRequest(SharedDevicesIncomingRequest req)
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            var sd = ToolService.Instance.SharedDevices;
+            if (sd == null) return;
+
+            var dlg = new SharedDevicesIncomingDialog(sd, req) { Owner = this };
+            var ok = dlg.ShowDialog() == true && dlg.Accepted;
+            if (!ok)
+                await sd.RejectIncomingAsync(req);
+            else
+                await sd.AcceptIncomingAsync(req, remember: dlg.Remember, deviceIds: dlg.SelectedDevices);
+            RefreshToolsPage();
+        });
     }
 }

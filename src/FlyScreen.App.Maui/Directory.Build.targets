@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    在 .csproj.user 之后强制 RuntimeIdentifier = FlyScreenIosSimulatorRid，
+    避免 VS 写回与 Mac CPU 不符的 RID。
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+    <_FsSimRid>$(FlyScreenIosSimulatorRid)</_FsSimRid>
+    <_FsSimRid Condition="'$(_FsSimRid)' == ''">iossimulator-x64</_FsSimRid>
+    <RuntimeIdentifier>$(_FsSimRid)</RuntimeIdentifier>
+    <_iOSRuntimeIdentifier>$(_FsSimRid)</_iOSRuntimeIdentifier>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+  </PropertyGroup>
+
+  <Target Name="_FlyScreenWarnIosRid" BeforeTargets="Build;_CompileAppManifest"
+          Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+    <Message Importance="High" Text="FlyScreen iOS Debug → RID=$(RuntimeIdentifier)（Intel Mac 用 x64；Apple Silicon 用 arm64）" />
+  </Target>
+</Project>

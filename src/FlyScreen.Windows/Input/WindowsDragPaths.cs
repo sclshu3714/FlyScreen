@@ -1,66 +1,92 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace FlyScreen.Input;
 
 /// <summary>
-/// 穿边时要带走的文件。本程序以管理员运行，资源管理器的拖放进不了接收条，
-/// 所以在左键按下后读取当前窗口里已经选中的文件和文件夹。
+/// 穿边拖文件时读取本机选中路径（管理员下 Explorer 拖放进不了接收条时的兜底）。
+/// <para>
+/// 低频：不在每次全局左键按下时起线程；仅在靠近屏幕外缘且按住左键时
+/// <see cref="PrefetchIfNeeded"/> / <see cref="TryGet"/> 才读 Shell。
+/// 全程复用一条后台 STA，避免调试器刷「FlyScreen.DragPaths 已退出」。
+/// </para>
 /// </summary>
 public static class WindowsDragPaths
 {
+    /// <summary>给资源管理器留出创建拖影的时间。</summary>
+    private const int ShellReadDelayMs = 160;
+
     private static readonly object Gate = new();
     private static readonly object StaGate = new();
-    private static string[] _snapshot = [];
-    private static int _reading;
-    private static int _generation;
-    private static Thread? _sta;
-    private static Action? _staWork;
+    private static readonly ConcurrentQueue<Action> StaJobs = new();
     private static readonly AutoResetEvent StaKick = new(false);
+    private static string[] _snapshot = [];
+    private static int _generation;
+    private static int _prefetchQueued;
+    private static long _buttonDownTick;
+    private static Thread? _sta;
 
+    /// <summary>仅记录按下时刻；不读 Shell、不起线程。</summary>
     public static void NoteButtonDown()
-    {
-        if (Interlocked.Exchange(ref _reading, 1) == 1) return;
-        var generation = Interlocked.Increment(ref _generation);
-        var foreground = GetForegroundWindow();
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                // 等资源管理器先处理按下（选中该项），又赶在拖放循环开始前读完
-                Thread.Sleep(40);
-                if (generation != Volatile.Read(ref _generation)) return;
-                if (!IsShellFolder(foreground))
-                {
-                    lock (Gate) _snapshot = [];
-                    return;
-                }
-
-                if (TryReadShell(foreground, out var paths) && generation == Volatile.Read(ref _generation))
-                    lock (Gate) _snapshot = paths;
-            }
-            catch
-            {
-                if (generation == Volatile.Read(ref _generation))
-                    lock (Gate) _snapshot = [];
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _reading, 0);
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "FlyScreen.DragPaths"
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-    }
+        => Volatile.Write(ref _buttonDownTick, Environment.TickCount64);
 
     public static void NoteButtonUp()
     {
         Interlocked.Increment(ref _generation);
+        Interlocked.Exchange(ref _prefetchQueued, 0);
         lock (Gate) _snapshot = [];
+    }
+
+    /// <summary>
+    /// 靠近屏幕边缘且按住左键时调用：后台预读选中项，供稍后穿边 <see cref="TryGet"/> 使用。
+    /// </summary>
+    public static void PrefetchIfNeeded()
+    {
+        lock (Gate)
+        {
+            if (_snapshot.Length > 0) return;
+        }
+
+        if (Interlocked.CompareExchange(ref _prefetchQueued, 1, 0) != 0)
+            return;
+
+        var generation = Volatile.Read(ref _generation);
+        var foreground = GetForegroundWindow();
+        var downTick = Volatile.Read(ref _buttonDownTick);
+        if (downTick == 0)
+            downTick = Environment.TickCount64;
+
+        PostSta(() =>
+        {
+            try
+            {
+                var wait = (int)(ShellReadDelayMs - (Environment.TickCount64 - downTick));
+                if (wait is > 0 and < 500)
+                    Thread.Sleep(wait);
+
+                if (generation != Volatile.Read(ref _generation))
+                    return;
+
+                if (!IsShellFolder(foreground))
+                    return;
+
+                if (TryReadShell(foreground, out var paths)
+                    && generation == Volatile.Read(ref _generation)
+                    && paths.Length > 0)
+                {
+                    lock (Gate) _snapshot = paths;
+                }
+            }
+            catch
+            {
+                // 预读失败由穿边时 TryGet 再扫
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _prefetchQueued, 0);
+            }
+        });
     }
 
     public static bool TryGet(out string[] paths)
@@ -68,8 +94,6 @@ public static class WindowsDragPaths
         if (EdgeFileDragCapture.TryCopyPaths(out paths) && paths.Length > 0)
             return true;
 
-        // 管理员进程里，资源管理器拖放光标经常对不上系统句柄。
-        // 左键仍按着、且按下时已记下选中项，就视为在拖文件；否则鼠标能穿边，文件却带不过去。
         lock (Gate)
         {
             if (_snapshot.Length > 0)
@@ -79,8 +103,18 @@ public static class WindowsDragPaths
             }
         }
 
-        // 按下瞬间读选中可能还没完成（40ms 线程）；穿边时再同步扫一遍外壳窗口。
-        // 也覆盖「前台窗口判定失败但资源管理器里已有选中项」的情况（Win→Maui 常见）。
+        // 拖影创建窗口内不要同步扫 Shell
+        var downTick = Volatile.Read(ref _buttonDownTick);
+        if (downTick != 0)
+        {
+            var sinceDown = Environment.TickCount64 - downTick;
+            if (sinceDown < ShellReadDelayMs)
+            {
+                paths = [];
+                return false;
+            }
+        }
+
         if (OnSta(TryReadAnyShellSelectionCore, out paths) && paths.Length > 0)
         {
             lock (Gate) _snapshot = paths;
@@ -89,6 +123,13 @@ public static class WindowsDragPaths
 
         paths = [];
         return false;
+    }
+
+    private static void PostSta(Action work)
+    {
+        EnsureSta();
+        StaJobs.Enqueue(work);
+        StaKick.Set();
     }
 
     private static bool OnSta(Func<string[]> work, out string[] paths)
@@ -107,19 +148,14 @@ public static class WindowsDragPaths
             }
         }
 
-        EnsureSta();
         string[] result = [];
         using var done = new ManualResetEventSlim(false);
-        lock (StaGate)
+        PostSta(() =>
         {
-            _staWork = () =>
-            {
-                try { result = work() ?? []; }
-                catch { result = []; }
-                finally { done.Set(); }
-            };
-            StaKick.Set();
-        }
+            try { result = work() ?? []; }
+            catch { result = []; }
+            finally { done.Set(); }
+        });
 
         if (!done.Wait(TimeSpan.FromMilliseconds(400)))
             return false;
@@ -129,10 +165,15 @@ public static class WindowsDragPaths
 
     private static void EnsureSta()
     {
+        if (Volatile.Read(ref _sta) != null) return;
         lock (StaGate)
         {
             if (_sta != null) return;
-            _sta = new Thread(StaLoop) { IsBackground = true, Name = "FlyScreen.DragPaths.Sta" };
+            _sta = new Thread(StaLoop)
+            {
+                IsBackground = true,
+                Name = "FlyScreen.EdgeDragPaths"
+            };
             _sta.SetApartmentState(ApartmentState.STA);
             _sta.Start();
         }
@@ -143,19 +184,14 @@ public static class WindowsDragPaths
         while (true)
         {
             StaKick.WaitOne();
-            Action? work;
-            lock (StaGate)
+            while (StaJobs.TryDequeue(out var work))
             {
-                work = _staWork;
-                _staWork = null;
+                try { work(); }
+                catch { /* 调用方超时或预读失败 */ }
             }
-
-            try { work?.Invoke(); }
-            catch { /* 调用方超时 */ }
         }
     }
 
-    /// <summary>遍历外壳窗口，取第一个带选中项的文件夹/桌面。</summary>
     private static string[] TryReadAnyShellSelectionCore()
     {
         var type = Type.GetTypeFromProgID("Shell.Application");

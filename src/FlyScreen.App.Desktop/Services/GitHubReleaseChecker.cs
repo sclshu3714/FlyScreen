@@ -3,13 +3,13 @@ using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi.Services;
 
-/// <summary>Avalonia Desktop：检查 + 自替换（通道按 OS 选择）。</summary>
+/// <summary>Avalonia Desktop：检查 + 更新（Mac/Linux 自替换；若将来有 Win Avalonia 安装包亦走 UpdateApplier）。</summary>
 public sealed class GitHubReleaseChecker
 {
     public static string ReleasesUrl => GitHubReleaseClient.ReleasesUrl;
 
     private readonly GitHubReleaseClient _client = new();
-    private readonly SelfReplaceInstaller _installer = new();
+    private readonly UpdateApplier _applier = new();
 
     public static UpdateChannel Channel => UpdateChannelRules.DetectDesktopChannel();
 
@@ -19,11 +19,15 @@ public sealed class GitHubReleaseChecker
     public static string FormatVersion(Version v) => GitHubReleaseClient.FormatVersion(v);
 
     public Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default)
-        => _client.CheckAsync(Channel, Assembly.GetEntryAssembly(), ct);
+        => _client.CheckAsync(
+            Channel,
+            Assembly.GetEntryAssembly(),
+            ct,
+            preferInstallerPackage: AppInstallLayout.PreferInstallerPackageAsset());
 
     public Task<UpdateApplyResult> DownloadAndApplyAsync(
         UpdateCheckResult check,
         IProgress<UpdateDownloadProgress>? progress = null,
         CancellationToken ct = default)
-        => _installer.DownloadAndApplyAsync(check, progress, ct);
+        => _applier.DownloadAndApplyAsync(check, progress, ct);
 }

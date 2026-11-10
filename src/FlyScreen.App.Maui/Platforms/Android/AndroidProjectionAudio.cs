@@ -56,16 +56,22 @@ public sealed class AndroidProjectionAudio : IProjectionAudioEngine
                 .SetSampleRate(48000)!
                 .SetChannelMask(ChannelOut.Stereo)!
                 .Build();
+            if (config == null || format == null)
+            {
+                error = "无法创建音频采集配置";
+                return false;
+            }
+
             var min = AudioRecord.GetMinBufferSize(48000, ChannelIn.Stereo, Encoding.Pcm16bit);
             _record = new AudioRecord.Builder()
                 .SetAudioPlaybackCaptureConfig(config)!
                 .SetAudioFormat(format)!
                 .SetBufferSizeInBytes(Math.Max(min, 8192))!
                 .Build();
-            if (_record.State != State.Initialized)
+            if (_record == null || _record.State != State.Initialized)
             {
                 error = "无法开始录制播放中的声音";
-                _record.Release();
+                try { _record?.Release(); } catch { /* ignore */ }
                 _record = null;
                 return false;
             }
@@ -117,19 +123,24 @@ public sealed class AndroidProjectionAudio : IProjectionAudioEngine
                 CloseTrack();
                 var mask = channels == 1 ? ChannelOut.Mono : ChannelOut.Stereo;
                 var min = AudioTrack.GetMinBufferSize(sampleRate, mask, Encoding.Pcm16bit);
+                var attrs = new AudioAttributes.Builder()
+                    .SetUsage(AudioUsageKind.Media)!
+                    .SetContentType(AudioContentType.Music)!
+                    .Build();
+                var format = new AudioFormat.Builder()
+                    .SetEncoding(Encoding.Pcm16bit)!
+                    .SetSampleRate(sampleRate)!
+                    .SetChannelMask(mask)!
+                    .Build();
+                if (attrs == null || format == null)
+                    return;
                 _track = new AudioTrack.Builder()
-                    .SetAudioAttributes(new AudioAttributes.Builder()
-                        .SetUsage(AudioUsageKind.Media)!
-                        .SetContentType(AudioContentType.Music)!
-                        .Build())!
-                    .SetAudioFormat(new AudioFormat.Builder()
-                        .SetEncoding(Encoding.Pcm16bit)!
-                        .SetSampleRate(sampleRate)!
-                        .SetChannelMask(mask)!
-                        .Build())!
+                    .SetAudioAttributes(attrs)!
+                    .SetAudioFormat(format)!
                     .SetBufferSizeInBytes(Math.Max(min, pcm.Length * 2))!
                     .SetTransferMode(AudioTrackMode.Stream)!
                     .Build();
+                if (_track == null) return;
                 _track.Play();
                 _playRate = sampleRate;
                 _playChannels = channels;

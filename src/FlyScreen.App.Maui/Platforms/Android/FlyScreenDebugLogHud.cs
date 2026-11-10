@@ -406,13 +406,10 @@ public static class FlyScreenDebugLogHud
         catch { /* ignore */ }
         try
         {
-            var wm = ctx.GetSystemService(Context.WindowService) as IWindowManager;
-            var size = new Point();
-            wm?.DefaultDisplay?.GetRealSize(size);
-            if (size.X > 0 && size.Y > 0)
+            if (AndroidDisplaySize.TryGetPixels(ctx, out var rw, out var rh))
             {
-                _screenW = size.X;
-                _screenH = size.Y;
+                _screenW = rw;
+                _screenH = rh;
                 return;
             }
         }
