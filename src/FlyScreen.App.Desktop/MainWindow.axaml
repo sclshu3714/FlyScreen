@@ -669,7 +669,7 @@
                                IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
                   <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
                                IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
-                  <RadioButton x:Name="EdgeCrossHotkeyRadio" Content="快捷键方式" GroupName="EdgeCross" Margin="0,0,0,6"
+                  <RadioButton x:Name="EdgeCrossHotkeyRadio" Content="快捷键" GroupName="EdgeCross" Margin="0,0,0,6"
                                IsCheckedChanged="EdgeCrossMode_Changed" Click="EdgeCrossMode_Changed"/>
                   <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
                              Foreground="{DynamicResource Muted}" FontSize="12"/>

@@ -60,6 +60,7 @@ public partial class MainPage : ContentPage
     private int _a11yRefreshGen;
     private bool _pageAlive = true;
     private bool _optionsScrollHooked;
+    private bool _edgeCrossTipWidthHooked;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
     private Action<string>? _onStatusMessage;
@@ -2225,7 +2226,12 @@ public partial class MainPage : ContentPage
             RefreshOptionsRadioChrome();
             SyncA11yInjectCheck();
             EnsureOptionsScrollPolicy();
-            Dispatcher.Dispatch(UpdateOptionsScrollPolicy);
+            RelayoutOptionsPage();
+            Dispatcher.Dispatch(() =>
+            {
+                RelayoutOptionsPage();
+                UpdateOptionsScrollPolicy();
+            });
         }
 
         if (index == 5)
@@ -4101,8 +4107,58 @@ public partial class MainPage : ContentPage
         RefreshEdgeCrossTip();
     }
 
+    private void EnsureEdgeCrossTipWidthHook()
+    {
+        if (_edgeCrossTipWidthHooked) return;
+        _edgeCrossTipWidthHooked = true;
+        if (EdgeCrossColumn != null)
+            EdgeCrossColumn.SizeChanged += (_, _) => ConstrainEdgeCrossTipWidth();
+        if (OptionsFeatGrid != null)
+            OptionsFeatGrid.SizeChanged += (_, _) => ConstrainEdgeCrossTipWidth();
+        if (EdgeCrossTipText != null)
+            EdgeCrossTipText.HandlerChanged += (_, _) => ConstrainEdgeCrossTipWidth();
+    }
+
+    /// <summary>
+    /// Maui-Win Label 在 VerticalStack 里常按无限宽测量，WordWrap 无效；
+    /// 必须把列宽写进 WidthRequest，并同步原生 TextBlock.TextWrapping。
+    /// </summary>
+    private void ConstrainEdgeCrossTipWidth()
+    {
+        if (EdgeCrossTipText == null) return;
+        EnsureEdgeCrossTipWidthHook();
+
+        double w = 0;
+        if (EdgeCrossColumn is { Width: > 1 })
+            w = EdgeCrossColumn.Width;
+        else if (OptionsFeatGrid is { Width: > 1 })
+            w = (OptionsFeatGrid.Width - OptionsFeatGrid.ColumnSpacing * 2) / 3.0;
+
+        if (w < 8)
+            return;
+
+        // 略留余量，避免贴边裁切
+        var tipW = Math.Max(40, w - 2);
+        if (Math.Abs(EdgeCrossTipText.WidthRequest - tipW) > 0.5)
+            EdgeCrossTipText.WidthRequest = tipW;
+
+        EdgeCrossTipText.LineBreakMode = LineBreakMode.WordWrap;
+        EdgeCrossTipText.MaxLines = 8;
+
+#if WINDOWS
+        if (EdgeCrossTipText.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBlock tb)
+        {
+            tb.TextWrapping = Microsoft.UI.Xaml.TextWrapping.WrapWholeWords;
+            tb.Width = tipW;
+            tb.MaxWidth = tipW;
+        }
+#endif
+        EdgeCrossTipText.InvalidateMeasure();
+    }
+
     private void RefreshEdgeCrossTip()
     {
+        if (EdgeCrossTipText == null) return;
         var key = ReadEdgeCrossModeUi() switch
         {
             1 => "Tip.EdgeCross.DoubleTap",
@@ -4111,6 +4167,34 @@ public partial class MainPage : ContentPage
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);
+        ConstrainEdgeCrossTipWidth();
+    }
+
+    /// <summary>高级页显隐后强制重测：穿边说明换行、快捷键行高。</summary>
+    private void RelayoutOptionsPage()
+    {
+        EnsureEdgeCrossTipWidthHook();
+        RefreshEdgeCrossTip();
+        HotSwitchRow?.InvalidateMeasure();
+        HotCard?.InvalidateMeasure();
+        EdgeCrossColumn?.InvalidateMeasure();
+        OptionsContentRoot?.InvalidateMeasure();
+        PageOptions?.InvalidateMeasure();
+#if WINDOWS
+        // 列宽往往在下一帧才稳定，连补两帧
+        foreach (var ms in new[] { 16, 50 })
+        {
+            var delay = ms;
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(delay), () =>
+            {
+                if (PageOptions?.IsVisible != true) return;
+                ConstrainEdgeCrossTipWidth();
+                HotSwitchRow?.InvalidateMeasure();
+                OptionsContentRoot?.InvalidateMeasure();
+                UpdateOptionsScrollPolicy();
+            });
+        }
+#endif
     }
 
     /// <summary>

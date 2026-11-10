@@ -628,7 +628,7 @@ public static class Loc
         ["Opt.EdgeCross.BarrierFree"] = "无障碍",
         ["Opt.EdgeCross.DoubleTap"] = "双击",
         ["Opt.EdgeCross.SpeedBurst"] = "极速",
-        ["Opt.EdgeCross.HotkeyOnly"] = "快捷键方式",
+        ["Opt.EdgeCross.HotkeyOnly"] = "快捷键",
         ["Tip.EdgeCross.BarrierFree"] = "鼠标移到屏幕边缘即可穿边到相邻电脑，无需停留（本机↔对端均适用；已连接电脑点「应用」后会同步此设置）。",
         ["Tip.EdgeCross.DoubleTap"] = "需在 1 秒内连续撞击同一侧边界 2 次才穿边；只撞 1 次或间隔超过 1 秒则留在当前电脑。",
         ["Tip.EdgeCross.SpeedBurst"] = "需从屏幕内侧较快甩向边界才穿边；贴边慢蹭不会切换。",
