@@ -33,6 +33,7 @@ public sealed class MauiTrayService : IDisposable
     private Func<ProjectionUiPhase>? _projectPhase;
     private Func<IReadOnlyList<(string Label, Action Action)>>? _switchMachines;
     private Func<(string Label, Action Toggle)>? _switchDisable;
+    private Func<IReadOnlyList<(string Label, Action Action)>>? _toolShortcuts;
     private bool _added;
 
     public void Ensure(
@@ -43,7 +44,8 @@ public sealed class MauiTrayService : IDisposable
         Action exit,
         Func<ProjectionUiPhase>? projectPhase = null,
         Func<IReadOnlyList<(string Label, Action Action)>>? switchMachines = null,
-        Func<(string Label, Action Toggle)>? switchDisable = null)
+        Func<(string Label, Action Toggle)>? switchDisable = null,
+        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
     {
         _show = show;
         _reconnect = reconnect;
@@ -53,6 +55,7 @@ public sealed class MauiTrayService : IDisposable
         _projectPhase = projectPhase;
         _switchMachines = switchMachines;
         _switchDisable = switchDisable;
+        _toolShortcuts = toolShortcuts;
         if (_hwnd != IntPtr.Zero) return;
 
         _proc = WndProcImpl;
@@ -153,6 +156,9 @@ public sealed class MauiTrayService : IDisposable
         }
         catch { /* ignore */ }
 
+        IReadOnlyList<(string Label, Action Action)>? tools = null;
+        try { tools = _toolShortcuts?.Invoke(); } catch { /* ignore */ }
+
         MauiTrayPopup.ShowNearCursor(
             onOpen: () => _show?.Invoke(),
             onReconnect: () => _reconnect?.Invoke(),
@@ -162,7 +168,8 @@ public sealed class MauiTrayService : IDisposable
             onExit: () => _exit?.Invoke(),
             switchMachines: machines,
             disableLabel: disableLabel,
-            onToggleDisable: onToggle);
+            onToggleDisable: onToggle,
+            toolShortcuts: tools);
     }
 
     private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

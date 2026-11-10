@@ -54,12 +54,13 @@ internal sealed class MauiTraySubPopup : IDisposable
     private MauiTraySubPopup(
         IReadOnlyList<(string Label, Action Action)> items,
         Action onItemInvoked,
-        Action? onDismissRequested)
+        Action? onDismissRequested,
+        bool sepBeforeLast)
     {
         _items = items;
         _onItemInvoked = onItemInvoked;
         _onDismissRequested = onDismissRequested;
-        _sepBeforeLast = items.Count > 1;
+        _sepBeforeLast = sepBeforeLast && items.Count > 1;
         _itemRects = new Rectangle[items.Count];
         Measure();
     }
@@ -69,9 +70,10 @@ internal sealed class MauiTraySubPopup : IDisposable
         int screenY,
         IReadOnlyList<(string Label, Action Action)> items,
         Action onItemInvoked,
-        Action? onDismissRequested = null)
+        Action? onDismissRequested = null,
+        bool sepBeforeLast = true)
     {
-        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested);
+        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested, sepBeforeLast);
         popup.ShowAt(screenX, screenY);
         return popup;
     }

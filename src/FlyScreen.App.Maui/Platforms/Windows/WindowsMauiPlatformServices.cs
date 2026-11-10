@@ -183,7 +183,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null)
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
     {
         _tray ??= new MauiTrayService();
         _tray.Ensure(
@@ -235,7 +236,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 {
                     TraySwitchMenu.ToggleSwitchHotkeyDisabled(_settings);
                     AfterSwitchHotkeyModeChanged?.Invoke();
-                })));
+                })),
+            toolShortcuts: toolShortcuts);
     }
 
     public void HideToBackground(
@@ -244,9 +246,10 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null)
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
     {
-        EnsureTray(showMain, reconnect, project, about, exit, projectPhase);
+        EnsureTray(showMain, reconnect, project, about, exit, projectPhase, toolShortcuts);
         HideMainWindow();
     }
 

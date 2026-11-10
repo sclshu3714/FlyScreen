@@ -42,10 +42,10 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private readonly ProjectionUiPhase _projectPhase;
     private readonly List<TrayRow> _rows;
-    private readonly List<(string Label, Action Action)> _subItems;
+    private readonly Dictionary<int, SubmenuSpec> _submenus = new();
     private readonly Rectangle[] _itemRects; // 相对窗口客户区（含 CardMargin）；与可点击项一一对应
     private readonly List<int> _sepAfterClickIndex; // 在该可点击项之后画分隔线
-    private int _switchClickIndex = -1;
+    private int _activeSubmenuClickIndex = -1;
 
     private IntPtr _hwnd;
     private WndProc? _proc;
@@ -68,6 +68,12 @@ internal sealed class MauiTrayPopup : IDisposable
         public bool Clickable => (Action != null || IsSubmenu) && !IsHeader;
     }
 
+    private sealed class SubmenuSpec
+    {
+        public required IReadOnlyList<(string Label, Action Action)> Items { get; init; }
+        public bool SepBeforeLast { get; init; }
+    }
+
     private MauiTrayPopup(
         Action onOpen,
         Action onReconnect,
@@ -77,12 +83,12 @@ internal sealed class MauiTrayPopup : IDisposable
         Action onExit,
         IReadOnlyList<(string Label, Action Action)>? switchMachines,
         string disableLabel,
-        Action onToggleDisable)
+        Action onToggleDisable,
+        IReadOnlyList<(string Label, Action Action)>? toolShortcuts)
     {
         _projectPhase = projectPhase;
         _rows = [];
         _sepAfterClickIndex = [];
-        _subItems = [];
 
         void AddClick(string label, Action action, bool isProject = false)
             => _rows.Add(new TrayRow { Label = label, Action = action, IsProject = isProject });
@@ -93,11 +99,22 @@ internal sealed class MauiTrayPopup : IDisposable
         AddClick(Loc.T("Tray.About"), onAbout);
         _sepAfterClickIndex.Add(CountClickable() - 1);
 
-        _switchClickIndex = CountClickable();
+        var switchClickIndex = CountClickable();
         _rows.Add(new TrayRow { Label = Loc.T("Tray.Switch"), IsSubmenu = true });
+        var switchItems = new List<(string Label, Action Action)>();
         if (switchMachines != null)
-            _subItems.AddRange(switchMachines);
-        _subItems.Add((disableLabel, onToggleDisable));
+            switchItems.AddRange(switchMachines);
+        switchItems.Add((disableLabel, onToggleDisable));
+        _submenus[switchClickIndex] = new SubmenuSpec { Items = switchItems, SepBeforeLast = true };
+
+        var toolsClickIndex = CountClickable();
+        _rows.Add(new TrayRow { Label = Loc.T("Tray.Tools"), IsSubmenu = true });
+        var toolItems = new List<(string Label, Action Action)>();
+        if (toolShortcuts == null || toolShortcuts.Count == 0)
+            toolItems.Add((Loc.T("Tray.ToolsEmpty"), () => { }));
+        else
+            toolItems.AddRange(toolShortcuts);
+        _submenus[toolsClickIndex] = new SubmenuSpec { Items = toolItems, SepBeforeLast = false };
 
         _sepAfterClickIndex.Add(CountClickable() - 1);
         AddClick(Loc.T("Tray.Exit"), onExit);
@@ -123,14 +140,16 @@ internal sealed class MauiTrayPopup : IDisposable
         Action onExit,
         IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
         string? disableLabel = null,
-        Action? onToggleDisable = null)
+        Action? onToggleDisable = null,
+        IReadOnlyList<(string Label, Action Action)>? toolShortcuts = null)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
         var popup = new MauiTrayPopup(
             onOpen, onReconnect, onProject, projectPhase, onAbout, onExit,
             switchMachines,
             disableLabel ?? Loc.T("Hot.Off"),
-            onToggleDisable ?? (() => { }));
+            onToggleDisable ?? (() => { }),
+            toolShortcuts);
         _open = popup;
         popup.ShowAtCursor();
     }
@@ -420,8 +439,8 @@ internal sealed class MauiTrayPopup : IDisposable
                     Render(scale);
                 }
 
-                if (idx == _switchClickIndex)
-                    OpenSubmenu(scale);
+                if (_submenus.ContainsKey(idx))
+                    OpenSubmenu(idx, scale);
                 else if (idx >= 0)
                     CloseSubmenu();
 
@@ -445,9 +464,9 @@ internal sealed class MauiTrayPopup : IDisposable
                 var y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                 var scale = GetDpiScale();
                 var idx = HitTest((int)(x / scale), (int)(y / scale));
-                if (idx == _switchClickIndex)
+                if (_submenus.ContainsKey(idx))
                 {
-                    OpenSubmenu(scale);
+                    OpenSubmenu(idx, scale);
                     return IntPtr.Zero;
                 }
 
@@ -512,27 +531,33 @@ internal sealed class MauiTrayPopup : IDisposable
         return null;
     }
 
-    private void OpenSubmenu(double scale)
+    private void OpenSubmenu(int clickIndex, double scale)
     {
-        if (_switchClickIndex < 0 || _switchClickIndex >= _itemRects.Length) return;
-        if (_subPopup is { IsVisible: true }) return;
+        if (!_submenus.TryGetValue(clickIndex, out var spec)) return;
+        if (clickIndex < 0 || clickIndex >= _itemRects.Length) return;
+        if (_subPopup is { IsVisible: true } && _activeSubmenuClickIndex == clickIndex)
+            return;
+
         GetWindowRect(_hwnd, out var wnd);
-        var item = _itemRects[_switchClickIndex];
+        var item = _itemRects[clickIndex];
         var anchorX = wnd.Left + (int)Math.Round((item.Right + 2) * scale);
         var anchorY = wnd.Top + (int)Math.Round((item.Top - PanelPadY) * scale);
         _subPopup?.Dispose();
+        _activeSubmenuClickIndex = clickIndex;
         _subPopup = MauiTraySubPopup.Show(
             anchorX,
             anchorY,
-            _subItems,
+            spec.Items,
             onItemInvoked: CloseMenu,
-            onDismissRequested: ScheduleDismissIfFocusLeft);
+            onDismissRequested: ScheduleDismissIfFocusLeft,
+            sepBeforeLast: spec.SepBeforeLast);
     }
 
     private void CloseSubmenu()
     {
         try { _subPopup?.Dispose(); } catch { /* ignore */ }
         _subPopup = null;
+        _activeSubmenuClickIndex = -1;
     }
 
     private void ScheduleDismissIfFocusLeft()

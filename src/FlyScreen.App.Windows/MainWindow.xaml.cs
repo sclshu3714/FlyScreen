@@ -382,6 +382,13 @@ public partial class MainWindow : Window
         var machines = TraySwitchMenu.BuildItems(s)
             .Select(x => (x.Label, (Action)(() => TraySwitchToMachine(x.MachineName))))
             .ToList();
+        var tools = TrayToolsMenu.BuildItems()
+            .Select(x =>
+            {
+                var toolId = x.ToolId;
+                return (x.Label, (Action)(() => LaunchTrayToolShortcut(toolId)));
+            })
+            .ToList();
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
@@ -395,7 +402,17 @@ public partial class MainWindow : Window
             onExit: ExitApp,
             switchMachines: machines,
             disableLabel: TraySwitchMenu.DisableLabel(s.SwitchHotkeyMode == 2),
-            onToggleDisable: ToggleTraySwitchHotkeyDisable);
+            onToggleDisable: ToggleTraySwitchHotkeyDisable,
+            toolShortcuts: tools);
+    }
+
+    private void LaunchTrayToolShortcut(string toolId)
+    {
+        ShowFromTray();
+        ShowPage(9);
+        var row = TrayToolsMenu.ResolveRow(toolId);
+        if (row == null) return;
+        _ = HandleToolActionAsync(row, primary: true);
     }
 
     private void TraySwitchToMachine(string machineName)

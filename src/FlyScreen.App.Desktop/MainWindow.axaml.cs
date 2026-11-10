@@ -651,9 +651,35 @@ public partial class MainWindow : Window
         switchRoot.Menu = switchSub;
         menu.Add(switchRoot);
 
+        var toolsRoot = new NativeMenuItem(Loc.T("Tray.Tools"));
+        var toolsSub = new NativeMenu();
+        var shortcuts = TrayToolsMenu.BuildItems();
+        if (shortcuts.Count == 0)
+            toolsSub.Add(TrayItem(TrayToolsMenu.EmptyLabel, () => { }));
+        else
+        {
+            foreach (var item in shortcuts)
+            {
+                var toolId = item.ToolId;
+                toolsSub.Add(TrayItem(item.Label, () => LaunchTrayToolShortcut(toolId)));
+            }
+        }
+
+        toolsRoot.Menu = toolsSub;
+        menu.Add(toolsRoot);
+
         menu.Add(new NativeMenuItemSeparator());
         menu.Add(TrayItem(Loc.T("Tray.Exit"), () => Exit_Click(null, new RoutedEventArgs())));
         return menu;
+    }
+
+    private void LaunchTrayToolShortcut(string toolId)
+    {
+        ShowFromTray();
+        ShowPage(9);
+        var row = TrayToolsMenu.ResolveRow(toolId);
+        if (row == null) return;
+        _ = HandleToolActionAsync(row, primary: true);
     }
 
     private void TraySwitchToMachine(string machineName)

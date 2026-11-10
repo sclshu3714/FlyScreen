@@ -319,7 +319,8 @@ public partial class MainPage : ContentPage
                     project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
                     about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
                     exit: RequestAppExit,
-                    projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
+                    projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend),
+                    toolShortcuts: BuildTrayToolShortcutActions);
             }
 #endif
         }
@@ -374,7 +375,26 @@ public partial class MainPage : ContentPage
             project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: RequestAppExit,
-            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend),
+            toolShortcuts: BuildTrayToolShortcutActions);
+    }
+
+    private IReadOnlyList<(string Label, Action Action)> BuildTrayToolShortcutActions()
+    {
+        var list = new List<(string Label, Action Action)>();
+        foreach (var item in TrayToolsMenu.BuildItems())
+        {
+            var toolId = item.ToolId;
+            list.Add((item.Label, () => MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ShowPage(9);
+                var row = TrayToolsMenu.ResolveRow(toolId);
+                if (row != null)
+                    _ = HandleToolActionAsync(row, primary: true);
+            })));
+        }
+
+        return list;
     }
 
     /// <summary>托盘「关于」：显示关于页。</summary>
@@ -5064,7 +5084,8 @@ public partial class MainPage : ContentPage
             project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: RequestAppExit,
-            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend),
+            toolShortcuts: BuildTrayToolShortcutActions);
     }
 
     private void RefreshAboutPage()
