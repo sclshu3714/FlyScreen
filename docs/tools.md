@@ -2,10 +2,10 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | 1.11 |
-| 状态 | 需求规格；`shared-devices` / 本机 `color-picker` / 工具工作区**已编码**；完整 `.flytool` 管线等仍见正文 |
+| 文档版本 | 1.12 |
+| 状态 | 需求规格 + **真包骨架已编码**：`Tools/` 落在程序目录；Bundled/Cache/Import/GitHub 索引；ALC 加载；快捷栏；`build/Pack-FlyTools.ps1` |
 | 读者 | 实现本功能的开发者 / AI 代理 |
-| 统计日 | 2026-11-08 |
+| 统计日 | 2026-11-10 |
 
 **关联文档（业务细节，冲突时以本文「工具宿主 / 清单 / 标题栏 / 通用协议 / 第一期工具清单」为准）：**
 
@@ -254,9 +254,36 @@
 | `featuresByDeviceClass` | 可选；缺省表示该端清单声明的能力全开。`shared-devices` 手机第一期 SHOULD 不含 `consume`。后期投影手机 MUST 不含 `extend` |
 | `supportsRepair` | 默认 false；VDD 依赖为 true（后期） |
 | `titleBar` | true 时 MUST 实现 §7；每个 `id` 最多一个标题栏贡献 |
+| `icon` | 卡片图标键（如 `tool-color-picker` / `tool-shared-devices`）；宿主按键解析 BrandAssets 或默认矢量 |
+| `entryAssembly` / `entryType` | `.flytool` 与内置清单共用；宿主按此进程内/ALC 加载 `IToolModule` |
 | `capNames` | 安装且对本端启用后，握手 MUST 并入这些 Cap；增强类跨机工具用 `Tool:<id>` 见 §8 |
 | `package.format` | MUST 为 `flytool` |
 | `dependencies[].embeddedPath` | 组件 MUST 打进同一 `.flytool`，路径相对包根；MUST NOT 依赖用户再下第二份散文件 |
+
+### 5.2b 本机安装目录（已实现）
+
+桌面默认：`{AppContext.BaseDirectory}/Tools/`（**不**写入 `%AppData%\Roaming\FlyScreen\Tools`）。
+
+| 子路径 | 用途 |
+|--------|------|
+| `Bundled/*.flytool` | 源包目录：内置 + 导入/远程下载（不再单独设 Cache） |
+| `Installed/<id>/<ver>/` | 解压运行目录 |
+| `tools-install.json` | 安装记录 |
+| `tools-shortcuts.json` | 工具页快捷栏（4 槽） |
+| `tools-index.cache.json` | 远程索引缓存 |
+
+组包：`build/Pack-FlyTools.ps1` → `artifacts/flytools/` 并复制到各 App 输出 `Tools/Bundled`。契约工程：`FlyScreen.ToolSdk`；入口工程：`FlyScreen.Tool.ColorPicker` / `FlyScreen.Tool.SharedDevices`。
+
+**卡片与 UI 解耦（已实现）：**
+
+| 项 | 规格 |
+|----|------|
+| 卡片壳 | 宿主只渲染底色 / 进度 / 三点 / 安装卸载通用项；内容来自清单 + `IToolModule` |
+| `icon` | manifest 字段（如 `tool-color-picker`）；`ToolCardRow.IconKey` 驱动三端图标，禁止按 `ToolId` DataTrigger |
+| 三点菜单 | 通用 Install/Start/Uninstall + `GetMenuContributions`；工具特有项不得写在 MainWindow 分支 |
+| 平台 UI | 工具卫星工程 `FlyScreen.Tool.*.Ui.{Win\|Desktop\|Maui}` 实现面板/弹窗与 `IToolUiContributor`；宿主 `ToolUiDiscovery` 扫描注册，**主程序不含工具业务 UI** |
+| 加载 | `ToolManifest.EntryAssembly` / `EntryType` 驱动进程内注册与 Bundled 保底加载 |
+| 多语言 | 工具自带 `IToolLocalization`（至少 zh-CN/en-US）；`Loc.RegisterPlugin` 接入；**MUST NOT** 再向主程序 `Loc.cs` 加工具专用键 |
 
 ### 5.3 `.flytool` 文件格式（实现规格）
 
@@ -265,6 +292,7 @@
 | 扩展名 | `.flytool`（MUST） |
 | 容器 | ZIP（可无 Store 或 Deflate）；文件头可用魔数注释或首文件 `flytool.json` 标识 |
 | 根文件 | MUST 含 `manifest.json`（即 §5.1 内容） |
+| 入口 | `entryAssembly` + `entryType`（实现 `IToolModule`） |
 | 目录约定 | `runtimes/<rid>/…` 存放该 RID 的托管/原生实现；`components/<dep-id>/…` 存放依赖（如 VDD 离线安装器）；`assets/` 可选图标与文案 |
 | RID | 与发布一致，如 `win-x64`、`android-arm64`、`osx-arm64`、`linux-x64` |
 | 完整性 | MUST 含包裹级 `contentSha256`；安装前 MUST 校验（§5.5） |

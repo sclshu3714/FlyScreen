@@ -16,6 +16,7 @@ public sealed class ToolCatalog
     private readonly object _gate = new();
     private readonly string _statePath;
     private ToolInstallStateFile _state = new();
+    private IReadOnlyList<ToolManifest> _builtin;
 
     public event Action? Changed;
     /// <summary>本机工具 Caps 聚合变化（安装/卸载后）；宿主应广播 PeerInfo。</summary>
@@ -23,13 +24,27 @@ public sealed class ToolCatalog
 
     public ToolCatalog(string? statePath = null)
     {
+        FlyScreenDataPaths.EnsureToolsLayout();
         _statePath = statePath ?? FlyScreenDataPaths.ToolsInstallStateFile;
-        Directory.CreateDirectory(FlyScreenDataPaths.ToolsDirectory);
+        _builtin = BuildBuiltin();
         Reload();
         RefreshExtraCaps();
     }
 
-    public IReadOnlyList<ToolManifest> BuiltinManifests { get; } = BuildBuiltin();
+    /// <summary>内置工具清单：优先从 <c>Tools/Bundled/*.flytool</c> 读取，便于新增工具不改宿主源码。</summary>
+    public IReadOnlyList<ToolManifest> BuiltinManifests
+    {
+        get { lock (_gate) return _builtin; }
+    }
+
+    /// <summary>重新扫描 Bundled 目录（宿主拷贝完 flytool 后可调用）。</summary>
+    public void ReloadBuiltinFromBundled()
+    {
+        var next = BuildBuiltin();
+        lock (_gate) _builtin = next;
+        RefreshExtraCaps();
+        RaiseChanged();
+    }
 
     public void Reload()
     {
@@ -92,6 +107,19 @@ public sealed class ToolCatalog
             return _state.Tools.FirstOrDefault(t =>
                 string.Equals(t.Id, toolId, StringComparison.OrdinalIgnoreCase));
         }
+    }
+
+    public IReadOnlyList<ToolInstallRecord> GetInstalledRecords()
+    {
+        lock (_gate)
+            return _state.Tools.ToList();
+    }
+
+    /// <summary>合并内置清单与已发现的本地/远程包清单（同 Id 保留已有，补充新包）。</summary>
+    public void MergeExternalManifests(IEnumerable<ToolManifest> extras)
+    {
+        // 本期 Catalog 仍以 Builtin 为主；远程条目经 ToolService.DiscoverManifests 合成卡片
+        _ = extras;
     }
 
     public ToolManifest? FindManifest(string toolId)
@@ -204,6 +232,41 @@ public sealed class ToolCatalog
     }
 
     private static IReadOnlyList<ToolManifest> BuildBuiltin()
+    {
+        FlyScreenDataPaths.EnsureToolsLayout();
+        var fromBundled = LoadFromBundledDirectory();
+        if (fromBundled.Count > 0)
+            return fromBundled;
+        return BuildFallbackBuiltin();
+    }
+
+    private static IReadOnlyList<ToolManifest> LoadFromBundledDirectory()
+    {
+        var dir = FlyScreenDataPaths.ToolsBundledDirectory;
+        if (!Directory.Exists(dir))
+            return [];
+
+        var byId = new Dictionary<string, ToolManifest>(StringComparer.OrdinalIgnoreCase);
+        foreach (var packPath in Directory.EnumerateFiles(dir, "*.flytool", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                var pack = ToolPackageResolver.ReadManifestFromPackAsync(packPath).GetAwaiter().GetResult();
+                if (pack == null || string.IsNullOrWhiteSpace(pack.Id))
+                    continue;
+                byId[pack.Id.Trim()] = pack.ToToolManifest();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"读取 Bundled 清单失败 {Path.GetFileName(packPath)}: {ex.Message}");
+            }
+        }
+
+        return byId.Values.OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>Bundled 尚未就位时的保底（开发/单测）；正式运行以目录扫描为准。</summary>
+    private static IReadOnlyList<ToolManifest> BuildFallbackBuiltin()
         =>
         [
             new ToolManifest
@@ -227,8 +290,11 @@ public sealed class ToolCatalog
                 CapNames = [PeerCaps.ToolSharedDevices],
                 TitleBar = false,
                 HasWorkspace = false,
+                Icon = "tool-shared-devices",
                 Permissions = ["camera", "microphone", "speaker", "virtualAudio", "peerNetwork"],
-                PackageVersion = "1.0.0"
+                PackageVersion = "1.0.0",
+                EntryAssembly = "FlyScreen.Tool.SharedDevices",
+                EntryType = "FlyScreen.Tool.SharedDevices.Module"
             },
             new ToolManifest
             {
@@ -249,8 +315,11 @@ public sealed class ToolCatalog
                 CapNames = [],
                 TitleBar = false,
                 HasWorkspace = true,
+                Icon = "tool-color-picker",
                 Permissions = ["screenSample"],
-                PackageVersion = "1.0.0"
+                PackageVersion = "1.0.0",
+                EntryAssembly = "FlyScreen.Tool.ColorPicker",
+                EntryType = "FlyScreen.Tool.ColorPicker.Module"
             }
         ];
 }

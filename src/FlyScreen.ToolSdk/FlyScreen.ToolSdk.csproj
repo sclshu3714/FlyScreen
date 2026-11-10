@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.ToolSdk</RootNamespace>
+    <AssemblyName>FlyScreen.ToolSdk</AssemblyName>
+    <Description>玄鸟工具插件契约：IToolModule / UI 桥（工具 DLL 与宿主共用）</Description>
+  </PropertyGroup>
+
+</Project>

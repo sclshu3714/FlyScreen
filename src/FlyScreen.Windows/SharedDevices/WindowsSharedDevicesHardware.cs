@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 
 namespace FlyScreen.SharedDevices;
 
@@ -252,3 +252,4 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
     [DllImport("ole32.dll")]
     private static extern int PropVariantClear(ref PropVariant pvar);
 }
+

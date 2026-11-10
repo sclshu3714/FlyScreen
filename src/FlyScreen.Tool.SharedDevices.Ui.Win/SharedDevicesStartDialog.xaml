@@ -1,0 +1,121 @@
+<Window x:Class="FlyScreen.Tool.SharedDevices.Ui.Win.SharedDevicesStartDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="启动共享设备"
+        Width="420" Height="420"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="13">
+  <Window.Resources>
+    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
+    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
+    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="ListBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+
+    <Style x:Key="DlgBtn" TargetType="Button">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="DlgPrimaryBtn" TargetType="Button" BasedOn="{StaticResource DlgBtn}">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource BluePress}"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource BluePress}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <TextBlock x:Name="TitleText" Text="启动共享设备" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8"/>
+    <TextBlock x:Name="PeerLabel" Grid.Row="1" Text="选择目标设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,6"/>
+    <ListBox x:Name="PeerList" Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource Line}"
+             Background="{DynamicResource ListBg}" DisplayMemberPath="Display"
+             SelectionChanged="PeerList_SelectionChanged"/>
+    <StackPanel Grid.Row="3" Margin="0,12,0,0">
+      <TextBlock x:Name="KindsLabel" Text="选择要申请的设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,6"/>
+      <CheckBox x:Name="KindSpeaker" Content="扬声器" Margin="0,0,0,4"/>
+      <CheckBox x:Name="KindMicrophone" Content="麦克风" Margin="0,0,0,4"/>
+      <CheckBox x:Name="KindCamera" Content="摄像头"/>
+    </StackPanel>
+    <TextBlock x:Name="HintText" Grid.Row="4" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"
+               FontSize="11" Margin="0,10,0,0"/>
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+      <Button x:Name="CancelBtn" Content="取消" MinWidth="88" Margin="0,0,8,0" Style="{StaticResource DlgBtn}"
+              IsCancel="True" Click="Cancel_Click"/>
+      <Button x:Name="OkBtn" Content="确认启动" MinWidth="96" Style="{StaticResource DlgPrimaryBtn}"
+              IsDefault="True" Click="Ok_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>

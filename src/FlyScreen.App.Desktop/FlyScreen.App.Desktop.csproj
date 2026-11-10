@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,5 +35,7 @@
     </AvaloniaResource>
     <AvaloniaResource Include="Themes\**" />
   </ItemGroup>
+
+  <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
 
 </Project>

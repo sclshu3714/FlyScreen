@@ -38,6 +38,12 @@ public sealed class ToolManifest
     public bool HasWorkspace { get; set; }
     public string[] Permissions { get; set; } = [];
     public string PackageVersion { get; set; } = "1.0.0";
+    /// <summary>卡片图标键（如 tool-color-picker）；宿主按键解析 BrandAssets / 矢量。</summary>
+    public string Icon { get; set; } = "";
+    /// <summary>入口程序集名（无 .dll），进程内/ALC 加载用。</summary>
+    public string EntryAssembly { get; set; } = "";
+    /// <summary>实现 IToolModule 的类型全名。</summary>
+    public string EntryType { get; set; } = "";
 }
 
 /// <summary>本机安装记录（tools-install.json）。</summary>

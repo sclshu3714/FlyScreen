@@ -33,6 +33,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
   </ItemGroup>
 
@@ -44,5 +45,6 @@
   <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets" />
   <!-- VddOffline → zip 放入发布目录 VddOffline\；单文件则打进包，运行时再落到同路径并展开到 AppData -->
   <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
 
 </Project>

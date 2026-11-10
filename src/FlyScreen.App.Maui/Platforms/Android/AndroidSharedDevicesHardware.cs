@@ -3,7 +3,7 @@ using System.Collections;
 using Android.Hardware;
 using Android.Media;
 using Android.OS;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 using Camera = Android.Hardware.Camera;
 using Application = Android.App.Application;
 

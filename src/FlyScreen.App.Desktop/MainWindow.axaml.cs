@@ -27,7 +27,7 @@ using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Tools;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
 
 namespace FlyScreen.DesktopUi;
@@ -493,16 +493,12 @@ public partial class MainWindow : Window
 
         _host.StatusMessage += msg => Dispatcher.UIThread.Post(() => StatusText.Text = msg);
         ToolService.Instance.AttachColorSampler(new DesktopScreenColorSampler());
+        RegisterToolUiBridge();
         ToolService.Instance.Catalog.Changed += () => Dispatcher.UIThread.Post(RefreshToolsPage);
         ToolService.Instance.InstallProgress.Changed += () => Dispatcher.UIThread.Post(RefreshToolsPage);
         ToolService.Instance.Workspace.Changed += () => Dispatcher.UIThread.Post(RefreshToolsWorkspace);
-        ToolService.Instance.ColorPicker.SessionChanged += () => Dispatcher.UIThread.Post(RefreshToolsPage);
-        var sharedDevices = ToolService.Instance.SharedDevices;
-        if (sharedDevices != null)
-        {
-            sharedDevices.SessionChanged += () => Dispatcher.UIThread.Post(RefreshToolsPage);
-            sharedDevices.IncomingRequest += OnSharedDevicesIncomingRequest;
-        }
+        foreach (var module in ToolService.Instance.Host.All)
+            module.StateChanged += () => Dispatcher.UIThread.Post(RefreshToolsPage);
         _host.ScreenExtend.UserNotice += msg => Dispatcher.UIThread.Post(async () =>
         {
             try
@@ -836,6 +832,8 @@ public partial class MainWindow : Window
         NavToolsText.Text = Loc.T("Nav.Tools");
         ToolsTitleText.Text = Loc.T("Tool.Title");
         ToolsHintText.Text = Loc.T("Tool.Hint");
+        if (ToolsImportBtn != null)
+            ToolsImportBtn.Content = Loc.T("Tool.Import");
         NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
@@ -1234,11 +1232,194 @@ public partial class MainWindow : Window
     private void RefreshToolsPage()
     {
         if (ToolsList == null) return;
-        var running = ToolService.Instance.SharedDevices?.IsRunning == true;
-        var colorRunning = ToolService.Instance.ColorPicker.IsRunning;
-        ToolsList.ItemsSource = ToolCardRows.Build(running, colorRunning);
+        ToolIconRegistry.EnsureFromLoadedAssemblies();
+        ToolCardIcons.ClearCache();
+        ToolsList.ItemsSource = ToolCardRows.Build();
         Dispatcher.UIThread.Post(ApplyToolsWrapColumns, DispatcherPriority.Loaded);
+        RefreshToolsShortcuts();
         RefreshToolsWorkspace();
+    }
+
+    private void RefreshToolsShortcuts()
+    {
+        if (ToolsShortcutBar == null) return;
+        ToolsShortcutBar.Children.Clear();
+        var rows = ToolCardRows.Build();
+        var occupied = ToolService.Instance.Shortcuts.Occupied;
+        TryGetThemeBrush("Muted", out var muted);
+        TryGetThemeBrush("Text", out var textBrush);
+        TryGetThemeBrush("Line", out var line);
+        TryGetThemeBrush("SubtleBg", out var subtle);
+        if (subtle == null)
+            TryGetThemeBrush("CardBg", out subtle);
+
+        for (var i = 0; i < occupied.Count; i++)
+        {
+            var index = i;
+            var id = occupied[i];
+            var row = rows.FirstOrDefault(r => string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (row == null) continue;
+
+            var slot = new Border
+            {
+                Width = 64,
+                Background = Brushes.Transparent,
+                Tag = index,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top
+            };
+            var iconBox = new Border
+            {
+                Width = 40,
+                Height = 40,
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                BorderBrush = line,
+                Background = subtle,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Child = CreateToolShortcutIcon(row.IconKey, textBrush, size: 28)
+            };
+            var name = new TextBlock
+            {
+                Text = row.Name,
+                FontSize = 11,
+                Foreground = textBrush,
+                TextAlignment = TextAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 64,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            slot.Child = new StackPanel
+            {
+                Spacing = 0,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Children = { iconBox, name }
+            };
+            slot.PointerReleased += async (_, e) =>
+            {
+                if (e.InitialPressMouseButton == MouseButton.Left)
+                    await HandleToolActionAsync(row, primary: true);
+                else if (e.InitialPressMouseButton == MouseButton.Right)
+                {
+                    ToolService.Instance.Shortcuts.SetSlot(index, null);
+                    RefreshToolsShortcuts();
+                }
+            };
+            WireToolsShortcutDrop(slot, rows, replaceIndex: index);
+            ToolsShortcutBar.Children.Add(slot);
+        }
+
+        if (!ToolService.Instance.Shortcuts.IsFull)
+        {
+            var placeholder = new Border
+            {
+                Width = 64,
+                Background = Brushes.Transparent,
+                Tag = -1,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top
+            };
+            var dash = new Avalonia.Controls.Shapes.Rectangle
+            {
+                Width = 40,
+                Height = 40,
+                RadiusX = 8,
+                RadiusY = 8,
+                Stroke = muted,
+                StrokeThickness = 1.5,
+                StrokeDashArray = [3, 2],
+                Fill = Brushes.Transparent,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+            };
+            var label = new TextBlock
+            {
+                Text = Loc.T("Tool.Shortcut.DragHere"),
+                FontSize = 11,
+                Foreground = muted,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            placeholder.Child = new StackPanel
+            {
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Children = { dash, label }
+            };
+            WireToolsShortcutDrop(placeholder, rows, replaceIndex: null);
+            ToolsShortcutBar.Children.Add(placeholder);
+        }
+    }
+
+    private static Control CreateToolShortcutIcon(string? iconKey, IBrush? textBrush, double size)
+    {
+        if (ToolCardIcons.TryGet(iconKey) is { } bmp)
+        {
+            return new Image
+            {
+                Source = bmp,
+                Width = size,
+                Height = size,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+        }
+
+        return new TextBlock
+        {
+            Text = "◆",
+            FontSize = size * 0.6,
+            Foreground = textBrush ?? Brushes.Gray,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+    }
+
+    private void WireToolsShortcutDrop(Border slot, IReadOnlyList<ToolCardRow> rows, int? replaceIndex)
+    {
+        DragDrop.SetAllowDrop(slot, true);
+        slot.AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        {
+            e.DragEffects = e.Data.Contains(DataFormats.Text) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        });
+        slot.AddHandler(DragDrop.DropEvent, (_, e) =>
+        {
+            var toolId = e.Data.GetText();
+            if (string.IsNullOrWhiteSpace(toolId)) return;
+            var hit = rows.FirstOrDefault(r =>
+                string.Equals(r.Id, toolId, StringComparison.OrdinalIgnoreCase));
+            if (hit == null || !hit.IsInstalled) return;
+            if (replaceIndex is int idx)
+                ToolService.Instance.Shortcuts.SetSlot(idx, toolId);
+            else
+                ToolService.Instance.Shortcuts.TryAppend(toolId);
+            RefreshToolsShortcuts();
+            e.Handled = true;
+        });
+    }
+
+    private async void ToolsImport_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Loc.T("Tool.ImportTitle"),
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("flytool") { Patterns = ["*.flytool"] }
+            ]
+        });
+        if (files.Count == 0) return;
+        try
+        {
+            var path = files[0].TryGetLocalPath();
+            if (string.IsNullOrEmpty(path)) return;
+            var r = await ToolService.Instance.InstallFromFileAsync(path);
+            StatusText.Text = r.Message;
+            RefreshToolsPage();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = ex.Message;
+        }
     }
 
     private void ToolsCatalogHost_SizeChanged(object? sender, SizeChangedEventArgs e)
@@ -1281,7 +1462,11 @@ public partial class MainWindow : Window
             }
         }
 
-        if (ws.IsShowingCatalog || !hasTabs)
+        var showCatalog = ws.IsShowingCatalog || !hasTabs;
+        if (ToolsShortcutHost != null)
+            ToolsShortcutHost.IsVisible = showCatalog;
+
+        if (showCatalog)
         {
             ToolsCatalogHost.IsVisible = true;
             ToolsWorkspaceHost.IsVisible = false;
@@ -1291,9 +1476,15 @@ public partial class MainWindow : Window
         {
             ToolsCatalogHost.IsVisible = false;
             ToolsWorkspaceHost.IsVisible = true;
-            if (string.Equals(ws.ActiveToolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase)
-                && ToolsWorkspaceHost.Content is not ColorPickerPanel)
-                ToolsWorkspaceHost.Content = new ColorPickerPanel();
+            var activeId = ws.ActiveToolId;
+            if (!string.IsNullOrEmpty(activeId))
+            {
+                var content = ToolService.Instance.CreateWorkspaceContent(activeId);
+                if (content != null
+                    && (ToolsWorkspaceHost.Content == null
+                        || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+                    ToolsWorkspaceHost.Content = content;
+            }
         }
     }
 
@@ -1386,11 +1577,12 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void WorkspaceNavClose_Click(object? sender, RoutedEventArgs e)
+    private async void WorkspaceNavClose_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control { Tag: string toolId }) return;
-        if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
-            ToolService.Instance.StopColorPickerWorkspace();
+        var module = ToolService.Instance.Host.Get(toolId);
+        if (module != null)
+            await module.StopAsync();
         else
             ToolService.Instance.Workspace.Close(toolId);
         RefreshToolsPage();
@@ -1406,7 +1598,6 @@ public partial class MainWindow : Window
         var props = e.GetCurrentPoint(sender as Visual).Properties;
         if (props.IsLeftButtonPressed)
         {
-            // 已打开则跳转工作区；停止仍走 ⋯ 菜单
             await HandleToolActionAsync(row, primary: true);
             e.Handled = true;
         }
@@ -1490,28 +1681,27 @@ public partial class MainWindow : Window
                 menu.Items.Add(start);
             }
 
-            if (row.IsRunning)
+            foreach (var contrib in ToolService.Instance.GetMenuContributions(row))
             {
-                var stop = new MenuItem { Header = Loc.T("Tool.Stop") };
-                stop.Click += async (_, _) => await HandleToolActionAsync(row, primary: true, fromMenu: true);
-                menu.Items.Add(stop);
+                var actionId = contrib.ActionId;
+                var item = new MenuItem { Header = contrib.Label };
+                item.Click += async (_, _) =>
+                {
+                    await ToolService.Instance.InvokeMenuAsync(row.Id, actionId);
+                    RefreshToolsPage();
+                };
+                menu.Items.Add(item);
             }
 
-            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
+            if (row.IsInstalled)
             {
-                if (row.CanConsume)
+                var pin = new MenuItem { Header = Loc.T("Tool.Shortcut.DragHere") };
+                pin.Click += (_, _) =>
                 {
-                    var test = new MenuItem { Header = Loc.T("Tool.Test") };
-                    test.Click += async (_, _) => await OpenSharedDevicesTestAsync();
-                    menu.Items.Add(test);
-                }
-
-                if (row.CanProvide)
-                {
-                    var manage = new MenuItem { Header = Loc.T("Tool.Manage") };
-                    manage.Click += async (_, _) => await OpenSharedDevicesManageAsync();
-                    menu.Items.Add(manage);
-                }
+                    ToolService.Instance.Shortcuts.TryAppend(row.Id);
+                    RefreshToolsShortcuts();
+                };
+                menu.Items.Add(pin);
             }
 
             var uninstall = new MenuItem { Header = Loc.T("Tool.Uninstall") };
@@ -1522,19 +1712,8 @@ public partial class MainWindow : Window
         menu.Open(anchor);
     }
 
-    private async Task OpenSharedDevicesTestAsync()
-    {
-        var win = new SharedDevicesTestWindow();
-        await win.ShowDialog(this);
-    }
-
-    private async Task OpenSharedDevicesManageAsync()
-    {
-        var sd = ToolService.Instance.SharedDevices;
-        if (sd == null) return;
-        var win = new SharedDevicesManageWindow(sd);
-        await win.ShowDialog(this);
-    }
+    private void RegisterToolUiBridge()
+        => FlyScreen.DesktopUi.Tools.Ui.ToolUiBootstrap.RegisterAll(this, s => StatusText.Text = s);
 
     private async Task HandleToolActionAsync(ToolCardRow row, bool primary, bool fromMenu = false)
     {
@@ -1549,71 +1728,19 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
-            {
-                if (primary && row.IsRunning)
-                {
-                    if (!fromMenu)
-                    {
-                        // 目录页再次点卡片 → 跳回已打开的工作区
-                        ToolService.Instance.OpenColorPickerWorkspace();
-                        RefreshToolsPage();
-                        return;
-                    }
-
-                    ToolService.Instance.StopColorPickerWorkspace();
-                    RefreshToolsPage();
-                    return;
-                }
-
-                if (primary && row.CanStart)
-                {
-                    ToolService.Instance.OpenColorPickerWorkspace();
-                    RefreshToolsPage();
-                    return;
-                }
-
-                if (!primary && row.IsInstalled)
-                {
-                    var r = await ToolService.Instance.UninstallAsync(row.Id);
-                    StatusText.Text = r.Message;
-                    RefreshToolsPage();
-                }
-
-                return;
-            }
-
-            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
-            {
-                if (primary && row.IsRunning)
-                {
-                    if (!fromMenu) return; // 仅 ⋯ 菜单可停止
-                    var sd = ToolService.Instance.SharedDevices;
-                    if (sd != null) await sd.StopAsync();
-                    RefreshToolsPage();
-                    return;
-                }
-
-                if (primary && row.CanStart)
-                {
-                    await StartSharedDevicesAsync();
-                    return;
-                }
-
-                if (!primary && row.IsInstalled)
-                {
-                    var r = await ToolService.Instance.UninstallAsync(row.Id);
-                    StatusText.Text = r.Message;
-                    RefreshToolsPage();
-                }
-
-                return;
-            }
-
             if (!primary && row.IsInstalled)
             {
-                var ur = await ToolService.Instance.UninstallAsync(row.Id);
-                StatusText.Text = ur.Message;
+                var r = await ToolService.Instance.UninstallAsync(row.Id);
+                StatusText.Text = r.Message;
+                RefreshToolsPage();
+                return;
+            }
+
+            if (primary)
+            {
+                var (ok, message) = await ToolService.Instance.PrimaryAsync(row, fromMenu);
+                if (!string.IsNullOrWhiteSpace(message))
+                    StatusText.Text = message;
                 RefreshToolsPage();
             }
         }
@@ -1621,50 +1748,6 @@ public partial class MainWindow : Window
         {
             StatusText.Text = ex.Message;
         }
-    }
-
-    private async Task StartSharedDevicesAsync()
-    {
-        var sd = ToolService.Instance.SharedDevices;
-        if (sd == null)
-        {
-            StatusText.Text = "共享设备服务未就绪";
-            return;
-        }
-
-        var targets = sd.ListApplicantTargets()
-            .Where(t => t.CanProvide)
-            .Select(t => t.PeerName)
-            .ToList();
-        if (targets.Count == 0)
-        {
-            StatusText.Text = Loc.T("Tool.SharedDevices.NoTargets");
-            return;
-        }
-
-        // Desktop：简化为第一台可用目标 + 三路全选；完整勾选面板后续对齐 Win 对话框
-        var peer = targets[0];
-        var kinds = SharedDeviceKinds.All;
-        var (ok, message) = await sd.StartRequestAsync(peer, kinds);
-        StatusText.Text = message;
-        if (!ok) return;
-        RefreshToolsPage();
-    }
-
-    private void OnSharedDevicesIncomingRequest(SharedDevicesIncomingRequest req)
-    {
-        Dispatcher.UIThread.Post(async () =>
-        {
-            var sd = ToolService.Instance.SharedDevices;
-            if (sd == null) return;
-            var win = new SharedDevicesIncomingWindow(sd, req);
-            var ok = await win.ShowDialog<bool?>(this) == true && win.Accepted;
-            if (!ok)
-                await sd.RejectIncomingAsync(req);
-            else
-                await sd.AcceptIncomingAsync(req, remember: win.Remember, deviceIds: win.SelectedDevices);
-            RefreshToolsPage();
-        });
     }
 
     private IEnumerable<UserProgram> SelectedPrograms()

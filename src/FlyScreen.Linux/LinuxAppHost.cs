@@ -41,6 +41,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public EdgeFileDragService EdgeDrag { get; }
     public bool CanFollowEdgeFileDrag => Injector is X11InputInjector x11 && x11.IsAvailable;
 
+    private FlyScreen.ToolSdk.ISharedDevicesRuntime? _sharedDevices;
+
     public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
     {
         IEdgeDragPointer? follow = Injector is X11InputInjector x11 && x11.IsAvailable
@@ -86,12 +88,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
-        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
-        sharedDevices.AttachHardware(FlyScreen.Services.Tools.SharedDevices.DefaultSharedDevicesHardware.Instance);
-        sharedDevices.StatusMessage += msg =>
-        {
-            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
-        };
+        FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        TryWireSharedDevices();
+        FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
@@ -145,6 +144,23 @@ public sealed class LinuxAppHost : IAsyncDisposable
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         Connections.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
+    }
+
+    private void TryWireSharedDevices()
+    {
+        var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<FlyScreen.ToolSdk.ISharedDevicesRuntime>();
+        if (ReferenceEquals(sd, _sharedDevices))
+            return;
+
+        if (_sharedDevices != null)
+            _sharedDevices.StatusMessage -= PublishStatus;
+
+        _sharedDevices = sd;
+        if (sd == null)
+            return;
+
+        sd.AttachHardware(FlyScreen.ToolSdk.DefaultSharedDevicesHardware.Instance);
+        sd.StatusMessage += PublishStatus;
     }
 
     private void PublishStatus(string message)

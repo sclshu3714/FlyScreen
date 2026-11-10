@@ -4,7 +4,7 @@ using Android.Hardware;
 using Android.Media;
 using Android.OS;
 using Android.Views;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 using Camera = Android.Hardware.Camera;
 using ARect = Android.Graphics.Rect;
 
@@ -13,7 +13,7 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// <summary>提供方本机测试：摄像头 JPEG 上行、麦克风 PCM 上行、扬声器试音。</summary>
 public sealed class AndroidSharedDevicesProviderMedia : IDisposable
 {
-    private readonly SharedDevicesService _svc;
+    private readonly ISharedDevicesRuntime _svc;
     private readonly object _gate = new();
     private Camera? _camera;
     private SurfaceTexture? _previewTex;
@@ -25,7 +25,7 @@ public sealed class AndroidSharedDevicesProviderMedia : IDisposable
     private AudioTrack? _toneTrack;
     private int _disposed;
 
-    public AndroidSharedDevicesProviderMedia(SharedDevicesService svc)
+    public AndroidSharedDevicesProviderMedia(ISharedDevicesRuntime svc)
     {
         _svc = svc;
         _svc.ProviderTestCommand += OnTestCommand;
@@ -42,8 +42,7 @@ public sealed class AndroidSharedDevicesProviderMedia : IDisposable
 
     private void OnSessionChanged()
     {
-        var snap = _svc.CurrentSession;
-        if (snap is not { Phase: SharedDevicesSessionPhase.Active, IsApplicant: false })
+        if (!_svc.IsProviderSessionActive)
             StopAll();
     }
 

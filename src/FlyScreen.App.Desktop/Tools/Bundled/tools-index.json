@@ -1,0 +1,17 @@
+﻿{
+    "schemaVersion":  1,
+    "tools":  [
+                  {
+                      "id":  "color-picker",
+                      "version":  "1.0.1",
+                      "fileName":  "color-picker.flytool",
+                      "sha256":  "4d2ed28647153beb8836fe9e04de75e8733172678c84ca106017201518d397ce"
+                  },
+                  {
+                      "id":  "shared-devices",
+                      "version":  "1.0.2",
+                      "fileName":  "shared-devices.flytool",
+                      "sha256":  "6f11bcc9343f43acf3cf482956cc7745696d31984e03eafa922dac368b54f5d4"
+                  }
+              ]
+}

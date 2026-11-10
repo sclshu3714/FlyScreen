@@ -208,6 +208,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 
   <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->
@@ -218,6 +219,7 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
   <!-- Windows：TopologyGuard / VddOffline（zip 在 VddOffline\ 下）打进包 -->
   <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />

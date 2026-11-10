@@ -1,4 +1,5 @@
 using System.Globalization;
+using FlyScreen.ToolSdk;
 
 namespace FlyScreen.Helpers.Localization;
 
@@ -10,6 +11,11 @@ public static class Loc
     public const string DefaultCulture = "zh-CN";
 
     private static readonly Dictionary<string, Dictionary<string, string>> Tables = BuildTables();
+
+    private static readonly object PluginGate = new();
+    /// <summary>插件源 Id → culture → key → text。工具包自带文案，不改主程序表。</summary>
+    private static readonly Dictionary<string, Dictionary<string, Dictionary<string, string>>> PluginTables
+        = new(StringComparer.OrdinalIgnoreCase);
 
     public static string Culture { get; private set; } = DefaultCulture;
 
@@ -66,10 +72,97 @@ public static class Loc
         catch { return fmt; }
     }
 
+    /// <summary>注册或覆盖某工具的多语言表（至少应含 zh-CN / en-US）。</summary>
+    public static void RegisterPlugin(string sourceId, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> tables)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId) || tables == null) return;
+        var copy = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (culture, map) in tables)
+        {
+            if (string.IsNullOrWhiteSpace(culture) || map == null) continue;
+            copy[culture.Trim()] = new Dictionary<string, string>(map, StringComparer.OrdinalIgnoreCase);
+        }
+
+        lock (PluginGate)
+            PluginTables[sourceId.Trim()] = copy;
+        Changed?.Invoke();
+    }
+
+    public static void RegisterPlugin(IToolLocalization localization)
+    {
+        if (localization == null) return;
+        RegisterPlugin(localization.SourceId, localization.Tables);
+    }
+
+    /// <summary>扫描已加载的 FlyScreen.Tool.* 程序集，注册其 <see cref="IToolLocalization"/>。</summary>
+    public static void EnsureToolLocalizationsFromLoadedAssemblies()
+    {
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var name = asm.GetName().Name;
+            if (name == null || !name.StartsWith("FlyScreen.Tool.", StringComparison.OrdinalIgnoreCase))
+                continue;
+            Type[] types;
+            try { types = asm.GetTypes(); }
+            catch { continue; }
+
+            foreach (var type in types)
+            {
+                if (type.IsAbstract || !typeof(IToolLocalization).IsAssignableFrom(type))
+                    continue;
+                try
+                {
+                    IToolLocalization? loc = null;
+                    var instProp = type.GetProperty("Instance",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (instProp?.GetValue(null) is IToolLocalization fromProp)
+                        loc = fromProp;
+                    else if (Activator.CreateInstance(type) is IToolLocalization created)
+                        loc = created;
+                    if (loc != null)
+                        RegisterPlugin(loc);
+                }
+                catch
+                {
+                    /* ignore broken tool loc type */
+                }
+            }
+        }
+
+        // 同批发现工具图标贡献
+        Services.Tools.ToolIconRegistry.EnsureFromLoadedAssemblies();
+    }
+
+    public static void UnregisterPlugin(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId)) return;
+        lock (PluginGate)
+            PluginTables.Remove(sourceId.Trim());
+        Changed?.Invoke();
+    }
+
     private static bool TryGet(string culture, string key, out string value)
     {
         value = "";
+        if (TryGetPlugin(culture, key, out value))
+            return true;
         return Tables.TryGetValue(culture, out var table) && table.TryGetValue(key, out value!);
+    }
+
+    private static bool TryGetPlugin(string culture, string key, out string value)
+    {
+        value = "";
+        lock (PluginGate)
+        {
+            foreach (var cultures in PluginTables.Values)
+            {
+                if (cultures.TryGetValue(culture, out var table)
+                    && table.TryGetValue(key, out value!))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static Dictionary<string, Dictionary<string, string>> BuildTables()
@@ -282,7 +375,12 @@ public static class Loc
         ["Nav.Tools"] = "工具",
         ["Nav.Log"] = "日志",
         ["Tool.Title"] = "工具",
-        ["Tool.Hint"] = "每个工具一张卡片，左→右、上→下自适应排列；未安装/已安装/已启动底色不同，安装中显示进度。单击安装或启动，右上角 ⋯ 卸载等操作。",
+        ["Tool.Hint"] = "每个工具一张卡片，左→右、上→下自适应排列；未安装/已安装/已启动底色不同，安装中显示进度。单击安装或启动，右上角 ⋯ 卸载等操作。可将已安装工具拖到上方快捷栏。",
+        ["Tool.Import"] = "导入",
+        ["Tool.Shortcut.DragHere"] = "拖拽到此",
+        ["Tool.Shortcut.Clear"] = "清除快捷方式",
+        ["Tool.ImportTitle"] = "导入工具包",
+        ["Tool.ImportFilter"] = "玄鸟工具包|*.flytool|所有文件|*.*",
         ["Tool.TipClickInstall"] = "单击安装",
         ["Tool.TipClickStart"] = "单击启动",
         ["Tool.TipClickStop"] = "单击停止",
@@ -295,77 +393,15 @@ public static class Loc
         ["Tool.Uninstall"] = "卸载",
         ["Tool.Start"] = "启动",
         ["Tool.Stop"] = "停止",
+        ["Tool.Cancel"] = "取消",
         ["Tool.StatusNotInstalled"] = "未安装",
         ["Tool.StatusInstalled"] = "已安装",
         ["Tool.StatusRunning"] = "已启动",
         ["Tool.StatusInstalling"] = "安装中 {0}%",
         ["Tool.TipInstalling"] = "安装进行中",
         ["Tool.Workspace.Catalog"] = "工具",
-        ["Tool.ColorPicker.Name"] = "颜色拾取器",
-        ["Tool.ColorPicker.Summary"] = "用滴管拾取屏幕任意位置颜色，并转换为 HEX / RGB / HSL / CMYK 等常用格式。",
-        ["Tool.ColorPicker.Pick"] = "颜色拾取器",
-        ["Tool.ColorPicker.Picking"] = "拾取中… 再点取消",
-        ["Tool.ColorPicker.Preview"] = "颜色预览",
-        ["Tool.ColorPicker.Formats"] = "颜色格式",
-        ["Tool.ColorPicker.Copied"] = "已复制",
-        ["Tool.ColorPicker.Hint"] = "点击「颜色拾取器」后鼠标变为滴管；移动时实时预览，单击锁定颜色；再点按钮可取消拾取。",
-        ["Tool.ColorPicker.Unsupported"] = "当前平台不支持屏幕取色。",
-        ["Tool.SharedDevices.Name"] = "共享设备",
-        ["Tool.SharedDevices.Summary"] = "向布局内已装本工具的设备申请扬声器、麦克风或摄像头（电脑/手机等均可）；对方同意后即可使用。",
-        ["Tool.SharedDevices.StartTitle"] = "启动共享设备",
-        ["Tool.SharedDevices.PickPeer"] = "选择目标设备",
-        ["Tool.SharedDevices.PickKinds"] = "选择要申请的设备",
-        ["Tool.SharedDevices.Speaker"] = "扬声器",
-        ["Tool.SharedDevices.Microphone"] = "麦克风",
-        ["Tool.SharedDevices.Camera"] = "摄像头",
-        ["Tool.SharedDevices.Confirm"] = "确认启动",
-        ["Tool.SharedDevices.Cancel"] = "取消",
-        ["Tool.SharedDevices.IncomingTitle"] = "共享设备申请",
-        ["Tool.SharedDevices.IncomingBody"] = "「{0}」申请使用本机：{1}",
-        ["Tool.SharedDevices.Accept"] = "同意",
-        ["Tool.SharedDevices.Reject"] = "拒绝",
-        ["Tool.SharedDevices.Remember"] = "记住适配",
-        ["Tool.SharedDevices.RememberHint"] = "勾选后，同一申请端再次申请相同种类时无需再同意；未勾选则每次都需同意。",
-        ["Tool.SharedDevices.NoTargets"] = "布局内没有可申请的设备（需已连接、已安装共享设备工具，且具备扬声器/麦克风/摄像头之一）。",
         ["Tool.Manage"] = "管理",
-        ["Tool.SharedDevices.ManageTitle"] = "共享设备管理",
-        ["Tool.SharedDevices.PickLocalDevice"] = "选择本机设备",
-        ["Tool.SharedDevices.NoLocalDevice"] = "未检测到可用设备",
-        ["Tool.SharedDevices.DefaultDevice"] = "系统默认",
-        ["Tool.SharedDevices.ClearRemember"] = "清除记住适配",
-        ["Tool.SharedDevices.ClearRememberDone"] = "已清除记住适配记录",
-        ["Tool.SharedDevices.Apply"] = "应用",
-        ["Tool.SharedDevices.Save"] = "保存",
-        ["Tool.SharedDevices.PeerNeedTool"] = "未安装工具",
-        ["Tool.SharedDevices.PeerOffline"] = "未连接",
-        ["Tool.SharedDevices.PeerNotDesktop"] = "非电脑",
-        ["Tool.SharedDevices.PeerNoDevice"] = "无可共享设备",
         ["Tool.Test"] = "测试",
-        ["Tool.SharedDevices.TestTitle"] = "共享设备测试",
-        ["Tool.SharedDevices.TestCamera"] = "测试摄像头",
-        ["Tool.SharedDevices.TestCameraHint"] = "选择本机摄像头并开始预览，确认画面正常。",
-        ["Tool.SharedDevices.TestCameraIdle"] = "尚未开始预览",
-        ["Tool.SharedDevices.TestCameraFail"] = "无法打开摄像头预览",
-        ["Tool.SharedDevices.TestNoCamera"] = "未检测到摄像头",
-        ["Tool.SharedDevices.TestNoCameraHint"] = "本机未枚举到摄像头驱动。",
-        ["Tool.SharedDevices.TestSpeaker"] = "测试扬声器",
-        ["Tool.SharedDevices.TestSpeakerHint"] = "播放短促测试音，确认本机扬声器可出声。",
-        ["Tool.SharedDevices.TestPlayTone"] = "播放测试音",
-        ["Tool.SharedDevices.TestSpeakerPlaying"] = "正在播放…",
-        ["Tool.SharedDevices.TestSpeakerDone"] = "播放完成",
-        ["Tool.SharedDevices.TestMicrophone"] = "测试麦克风",
-        ["Tool.SharedDevices.TestMicHint"] = "对着麦克风说话，观察电平条是否跳动。",
-        ["Tool.SharedDevices.TestMicListening"] = "正在监听…",
-        ["Tool.SharedDevices.TestMicFail"] = "无法打开麦克风",
-        ["Tool.SharedDevices.TestStart"] = "开始",
-        ["Tool.SharedDevices.TestStop"] = "停止",
-        ["Tool.SharedDevices.TestClose"] = "关闭",
-        ["Tool.SharedDevices.TestNeedSession"] = "请先「开始」共享设备并等待对端同意，再测试对端设备。",
-        ["Tool.SharedDevices.TestKindNotInSession"] = "当前会话未包含此设备",
-        ["Tool.SharedDevices.TestWaitingPeer"] = "等待对端画面…",
-        ["Tool.SharedDevices.TestRemoteCameraHint"] = "预览「{0}」的摄像头画面（经共享会话）。",
-        ["Tool.SharedDevices.TestRemoteSpeakerHint"] = "在「{0}」本机扬声器播放试音。",
-        ["Tool.SharedDevices.TestRemoteMicHint"] = "监听「{0}」麦克风电平（对着手机说话）。",
         ["Search.Placeholder"] = "搜索设置",
         ["Log.Title"] = "日志",
         ["Log.Hint"] = "写入本地日志文件（按天与 5MB 分块，保留 3 天）。默认只显示最新一页，避免卡顿。",
@@ -836,7 +872,12 @@ public static class Loc
         ["Nav.Tools"] = "Tools",
         ["Nav.Log"] = "Log",
         ["Tool.Title"] = "Tools",
-        ["Tool.Hint"] = "Each tool is a card, wrapping left-to-right. Backgrounds differ for not installed / installed / started; install shows a progress fill. Click to install or start; use ⋯ for uninstall and other actions.",
+        ["Tool.Hint"] = "Each tool is a card, wrapping left-to-right. Backgrounds differ for not installed / installed / started; install shows a progress fill. Click to install or start; use ⋯ for uninstall and other actions. Drag installed tools to the shortcut bar above.",
+        ["Tool.Import"] = "Import",
+        ["Tool.Shortcut.DragHere"] = "Drag here",
+        ["Tool.Shortcut.Clear"] = "Clear shortcut",
+        ["Tool.ImportTitle"] = "Import tool package",
+        ["Tool.ImportFilter"] = "FlyScreen tool|*.flytool|All files|*.*",
         ["Tool.TipClickInstall"] = "Click to install",
         ["Tool.TipClickStart"] = "Click to start",
         ["Tool.TipClickStop"] = "Click to stop",
@@ -849,77 +890,15 @@ public static class Loc
         ["Tool.Uninstall"] = "Uninstall",
         ["Tool.Start"] = "Start",
         ["Tool.Stop"] = "Stop",
+        ["Tool.Cancel"] = "Cancel",
         ["Tool.StatusNotInstalled"] = "Not installed",
         ["Tool.StatusInstalled"] = "Installed",
         ["Tool.StatusRunning"] = "Started",
         ["Tool.StatusInstalling"] = "Installing {0}%",
         ["Tool.TipInstalling"] = "Install in progress",
         ["Tool.Workspace.Catalog"] = "Tools",
-        ["Tool.ColorPicker.Name"] = "Color picker",
-        ["Tool.ColorPicker.Summary"] = "Eyedrop any on-screen pixel and convert it to HEX / RGB / HSL / CMYK and other common formats.",
-        ["Tool.ColorPicker.Pick"] = "Color picker",
-        ["Tool.ColorPicker.Picking"] = "Picking… click again to cancel",
-        ["Tool.ColorPicker.Preview"] = "Preview",
-        ["Tool.ColorPicker.Formats"] = "Color formats",
-        ["Tool.ColorPicker.Copied"] = "Copied",
-        ["Tool.ColorPicker.Hint"] = "Click Color picker for an eyedropper cursor; move to preview live, click to lock; click the button again to cancel.",
-        ["Tool.ColorPicker.Unsupported"] = "Screen sampling is not supported on this platform.",
-        ["Tool.SharedDevices.Name"] = "Shared devices",
-        ["Tool.SharedDevices.Summary"] = "Request speaker, microphone, or camera from any layout device with the tool installed (PC or phone); use after the peer accepts.",
-        ["Tool.SharedDevices.StartTitle"] = "Start shared devices",
-        ["Tool.SharedDevices.PickPeer"] = "Choose target device",
-        ["Tool.SharedDevices.PickKinds"] = "Devices to request",
-        ["Tool.SharedDevices.Speaker"] = "Speaker",
-        ["Tool.SharedDevices.Microphone"] = "Microphone",
-        ["Tool.SharedDevices.Camera"] = "Camera",
-        ["Tool.SharedDevices.Confirm"] = "Confirm",
-        ["Tool.SharedDevices.Cancel"] = "Cancel",
-        ["Tool.SharedDevices.IncomingTitle"] = "Shared device request",
-        ["Tool.SharedDevices.IncomingBody"] = "「{0}」 requests: {1}",
-        ["Tool.SharedDevices.Accept"] = "Accept",
-        ["Tool.SharedDevices.Reject"] = "Reject",
-        ["Tool.SharedDevices.Remember"] = "Remember this peer",
-        ["Tool.SharedDevices.RememberHint"] = "If checked, the same peer requesting the same kinds will be accepted without prompting; otherwise every request needs approval.",
-        ["Tool.SharedDevices.NoTargets"] = "No eligible device in the layout (must be connected, have the tool installed, and offer speaker/mic/camera).",
         ["Tool.Manage"] = "Manage",
-        ["Tool.SharedDevices.ManageTitle"] = "Manage shared devices",
-        ["Tool.SharedDevices.PickLocalDevice"] = "Choose local device",
-        ["Tool.SharedDevices.NoLocalDevice"] = "No device available",
-        ["Tool.SharedDevices.DefaultDevice"] = "System default",
-        ["Tool.SharedDevices.ClearRemember"] = "Clear remembered peers",
-        ["Tool.SharedDevices.ClearRememberDone"] = "Remembered peers cleared",
-        ["Tool.SharedDevices.Apply"] = "Apply",
-        ["Tool.SharedDevices.Save"] = "Save",
-        ["Tool.SharedDevices.PeerNeedTool"] = "Tool not installed",
-        ["Tool.SharedDevices.PeerOffline"] = "Offline",
-        ["Tool.SharedDevices.PeerNotDesktop"] = "Not a PC",
-        ["Tool.SharedDevices.PeerNoDevice"] = "No shareable device",
         ["Tool.Test"] = "Test",
-        ["Tool.SharedDevices.TestTitle"] = "Shared devices test",
-        ["Tool.SharedDevices.TestCamera"] = "Test camera",
-        ["Tool.SharedDevices.TestCameraHint"] = "Pick a camera and start preview to verify the picture.",
-        ["Tool.SharedDevices.TestCameraIdle"] = "Preview not started",
-        ["Tool.SharedDevices.TestCameraFail"] = "Could not open camera preview",
-        ["Tool.SharedDevices.TestNoCamera"] = "No camera found",
-        ["Tool.SharedDevices.TestNoCameraHint"] = "No camera driver was enumerated on this PC.",
-        ["Tool.SharedDevices.TestSpeaker"] = "Test speaker",
-        ["Tool.SharedDevices.TestSpeakerHint"] = "Play a short test tone to verify the speaker.",
-        ["Tool.SharedDevices.TestPlayTone"] = "Play test tone",
-        ["Tool.SharedDevices.TestSpeakerPlaying"] = "Playing…",
-        ["Tool.SharedDevices.TestSpeakerDone"] = "Done",
-        ["Tool.SharedDevices.TestMicrophone"] = "Test microphone",
-        ["Tool.SharedDevices.TestMicHint"] = "Speak into the mic and watch the level meter.",
-        ["Tool.SharedDevices.TestMicListening"] = "Listening…",
-        ["Tool.SharedDevices.TestMicFail"] = "Could not open microphone",
-        ["Tool.SharedDevices.TestStart"] = "Start",
-        ["Tool.SharedDevices.TestStop"] = "Stop",
-        ["Tool.SharedDevices.TestClose"] = "Close",
-        ["Tool.SharedDevices.TestNeedSession"] = "Start a shared-devices session and wait for the peer to accept before testing.",
-        ["Tool.SharedDevices.TestKindNotInSession"] = "This device is not in the current session",
-        ["Tool.SharedDevices.TestWaitingPeer"] = "Waiting for peer video…",
-        ["Tool.SharedDevices.TestRemoteCameraHint"] = "Preview camera from “{0}” over the shared session.",
-        ["Tool.SharedDevices.TestRemoteSpeakerHint"] = "Play a test tone on “{0}” speakers.",
-        ["Tool.SharedDevices.TestRemoteMicHint"] = "Listen to mic level from “{0}” (speak into the phone).",
         ["Search.Placeholder"] = "Search settings",
         ["Log.Title"] = "Log",
         ["Log.Hint"] = "Written to local files (split by day / 5MB, keep 3 days). Shows the latest page by default.",

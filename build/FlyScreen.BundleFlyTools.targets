@@ -1,0 +1,70 @@
+<!--
+  将 artifacts/flytools/*.flytool 复制到宿主输出 Tools/Bundled，不 ProjectReference 工具工程。
+  若产物缺失则先跑 Pack-FlyTools.ps1（组包逻辑/UI DLL）。
+  设 FlyScreenSkipFlyTools=true 可跳过。
+-->
+<Project>
+  <PropertyGroup>
+    <_FsFlyToolsScript>$(MSBuildThisFileDirectory)Pack-FlyTools.ps1</_FsFlyToolsScript>
+    <_FsFlyToolsOut Condition="'$(_FsFlyToolsOut)' == ''">$(MSBuildThisFileDirectory)..\artifacts\flytools</_FsFlyToolsOut>
+    <_FsFlyToolsBundledDir>$(TargetDir)Tools\Bundled\</_FsFlyToolsBundledDir>
+  </PropertyGroup>
+
+  <Target Name="FlyScreen_EnsureFlyToolsPacked"
+          BeforeTargets="FlyScreen_CopyBundledFlyTools"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
+    <PropertyGroup>
+      <_FsFlyToolsNeedPack>false</_FsFlyToolsNeedPack>
+      <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\color-picker.flytool')">true</_FsFlyToolsNeedPack>
+      <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\shared-devices.flytool')">true</_FsFlyToolsNeedPack>
+    </PropertyGroup>
+    <Message Importance="High"
+             Text="打包 .flytool → $(_FsFlyToolsOut)"
+             Condition="'$(_FsFlyToolsNeedPack)' == 'true'" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsFlyToolsScript)&quot; -Configuration &quot;$(Configuration)&quot; -OutRoot &quot;$(_FsFlyToolsOut)&quot; -SkipAppCopy"
+          Condition="'$(_FsFlyToolsNeedPack)' == 'true'"
+          IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="FlyScreen_CopyBundledFlyTools"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
+    <ItemGroup>
+      <_FsFlyToolPack Include="$(_FsFlyToolsOut)\*.flytool" />
+      <_FsFlyToolIndex Include="$(_FsFlyToolsOut)\tools-index.json" Condition="Exists('$(_FsFlyToolsOut)\tools-index.json')" />
+    </ItemGroup>
+    <MakeDir Directories="$(_FsFlyToolsBundledDir)" Condition="'@(_FsFlyToolPack)' != ''" />
+    <Copy SourceFiles="@(_FsFlyToolPack)"
+          DestinationFolder="$(_FsFlyToolsBundledDir)"
+          SkipUnchangedFiles="false"
+          OverwriteReadOnlyFiles="true"
+          Condition="'@(_FsFlyToolPack)' != ''" />
+    <Copy SourceFiles="@(_FsFlyToolIndex)"
+          DestinationFolder="$(_FsFlyToolsBundledDir)"
+          SkipUnchangedFiles="false"
+          OverwriteReadOnlyFiles="true"
+          Condition="'@(_FsFlyToolIndex)' != ''" />
+    <Message Importance="High"
+             Text="已复制 Bundled flytool → $(_FsFlyToolsBundledDir) (@(_FsFlyToolPack->Count()) 个)"
+             Condition="'@(_FsFlyToolPack)' != ''" />
+  </Target>
+
+  <!-- Maui：同时打进包内 Raw，便于 Android 私有 files 启动时种子拷贝 -->
+  <Target Name="FlyScreen_IncludeMauiFlyToolAssets"
+          DependsOnTargets="FlyScreen_EnsureFlyToolsPacked"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths"
+          Condition="'$(UseMaui)' == 'true' And '$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
+    <ItemGroup>
+      <_FsMauiFlyTool Include="$(_FsFlyToolsOut)\*.flytool" />
+      <_FsMauiFlyIndex Include="$(_FsFlyToolsOut)\tools-index.json" Condition="Exists('$(_FsFlyToolsOut)\tools-index.json')" />
+      <MauiAsset Include="@(_FsMauiFlyTool)">
+        <LogicalName>Tools/Bundled/%(Filename)%(Extension)</LogicalName>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </MauiAsset>
+      <MauiAsset Include="@(_FsMauiFlyIndex)">
+        <LogicalName>Tools/Bundled/%(Filename)%(Extension)</LogicalName>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </MauiAsset>
+    </ItemGroup>
+  </Target>
+</Project>

@@ -4,7 +4,7 @@ using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 
 namespace FlyScreen.AppMaui.Services;
 
@@ -17,10 +17,10 @@ public sealed class MauiAppHost : IAsyncDisposable
     private static MauiAppHost? _instance;
     private int _started;
     private IMauiPlatformServices _platform = NullMauiPlatformServices.Instance;
-    private SharedDevicesAudioBridge? _sharedDevicesAudio;
 #if ANDROID
     private Platforms.Android.AndroidSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
 #endif
+    private ISharedDevicesRuntime? _sharedDevices;
 
     public static MauiAppHost Instance =>
         _instance ?? throw new InvalidOperationException("MauiAppHost 未创建");
@@ -70,20 +70,11 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
-        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
-        sharedDevices.StatusMessage += msg =>
-        {
-            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
-        };
-#if ANDROID
-        sharedDevices.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
-        _sharedDevicesAudio = new SharedDevicesAudioBridge(
-            sharedDevices, new Platforms.Android.AndroidProjectionAudio());
-        _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sharedDevices);
-#elif WINDOWS
-        sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
-        _sharedDevicesAudio = new SharedDevicesAudioBridge(
-            sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        BundledFlyToolsSeeder.EnsureAsync().GetAwaiter().GetResult();
+        FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        TryWireSharedDevices();
+        FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
+#if WINDOWS
         FlyScreen.Services.Tools.ToolService.Instance.AttachColorSampler(new FlyScreen.Tools.WinScreenColorSampler());
 #endif
         var sink = new MauiClipboardApplySink();
@@ -271,6 +262,35 @@ public sealed class MauiAppHost : IAsyncDisposable
         return (PeerPlatform.MacOS, PeerDeviceClass.Desktop, PeerCaps.MacDesktopW1);
 #else
         return ("Unknown", PeerDeviceClass.Unknown, PeerCaps.AndroidMobile);
+#endif
+    }
+
+    private void TryWireSharedDevices()
+    {
+        var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<ISharedDevicesRuntime>();
+        if (ReferenceEquals(sd, _sharedDevices))
+            return;
+
+        if (_sharedDevices != null)
+            _sharedDevices.StatusMessage -= PublishStatus;
+
+#if ANDROID
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = null;
+#endif
+
+        _sharedDevices = sd;
+        if (sd == null)
+            return;
+
+        sd.StatusMessage += PublishStatus;
+#if ANDROID
+        sd.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
+        sd.AttachAudioEngine(new Platforms.Android.AndroidProjectionAudio());
+        _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sd);
+#elif WINDOWS
+        sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
+        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio());
 #endif
     }
 
@@ -889,8 +909,6 @@ public sealed class MauiAppHost : IAsyncDisposable
             try { winPlat.DisposeScreenExtendUi(); } catch { /* ignore */ }
         }
 #endif
-        try { _sharedDevicesAudio?.Dispose(); } catch { /* ignore */ }
-        _sharedDevicesAudio = null;
 #if ANDROID
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = null;

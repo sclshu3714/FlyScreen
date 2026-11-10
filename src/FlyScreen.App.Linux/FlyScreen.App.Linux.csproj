@@ -62,5 +62,6 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
 
 </Project>

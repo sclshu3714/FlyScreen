@@ -440,18 +440,29 @@
                 <!-- ===== 工具（目录卡片 + 内嵌工作区） ===== -->
                 <Grid x:Name="PageTools" IsVisible="False">
                     <Border Style="{StaticResource Card}" Padding="16">
-                        <Grid RowDefinitions="Auto,Auto,*">
-                            <HorizontalStackLayout Spacing="0">
-                                <Label x:Name="ToolsTitleText" Text="工具" FontSize="15" FontAttributes="Bold"
-                                       VerticalOptions="Center" />
-                                <HorizontalStackLayout x:Name="ToolsWorkspaceNavPanel" Spacing="0"
-                                                       VerticalOptions="Center" />
-                            </HorizontalStackLayout>
-                            <VerticalStackLayout Grid.Row="1" Spacing="8" Margin="0,4,0,12">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <Grid>
+                                <HorizontalStackLayout Spacing="0" HorizontalOptions="Start">
+                                    <Label x:Name="ToolsTitleText" Text="工具" FontSize="15" FontAttributes="Bold"
+                                           VerticalOptions="Center" />
+                                    <HorizontalStackLayout x:Name="ToolsWorkspaceNavPanel" Spacing="0"
+                                                           VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+                                <Button x:Name="ToolsImportBtn" Text="导入" HorizontalOptions="End"
+                                        Padding="12,4" Clicked="ToolsImport_Clicked" />
+                            </Grid>
+                            <VerticalStackLayout Grid.Row="1" Spacing="8" Margin="0,4,0,8">
                                 <Label x:Name="ToolsHintText"
                                        TextColor="{DynamicResource Muted}" FontSize="12" />
                             </VerticalStackLayout>
-                            <Grid Grid.Row="2">
+                            <ScrollView x:Name="ToolsShortcutHost" Grid.Row="2" Orientation="Horizontal"
+                                        Margin="0,0,0,12"
+                                        MinimumHeightRequest="72" HorizontalScrollBarVisibility="Default"
+                                        VerticalScrollBarVisibility="Never">
+                                <HorizontalStackLayout x:Name="ToolsShortcutBar" Spacing="10"
+                                                       HorizontalOptions="Start" />
+                            </ScrollView>
+                            <Grid Grid.Row="3">
                                 <ScrollView x:Name="ToolsScroll"
                                             VerticalScrollBarVisibility="Default"
                                             HorizontalScrollBarVisibility="Never">

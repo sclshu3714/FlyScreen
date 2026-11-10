@@ -1,5 +1,4 @@
 using FlyScreen.Helpers.Localization;
-using FlyScreen.Services.Tools.SharedDevices;
 
 namespace FlyScreen.Services.Tools;
 
@@ -23,9 +22,9 @@ public sealed class ToolCardRow
     public bool PrimaryEnabled { get; init; }
     public bool SecondaryEnabled { get; init; }
     public bool CanStart { get; init; }
-    /// <summary>本端可作为共享设备提供方（三点菜单「管理」）。</summary>
+    /// <summary>清单 feature「provide」能力位（菜单显隐由模块决定）。</summary>
     public bool CanProvide { get; init; }
-    /// <summary>本端可作为申请端（三点菜单「测试」）。</summary>
+    /// <summary>清单 feature「consume」能力位（菜单显隐由模块决定）。</summary>
     public bool CanConsume { get; init; }
     public bool IsRunning { get; init; }
     public bool IsInstalled { get; init; }
@@ -40,25 +39,29 @@ public sealed class ToolCardRow
     public string Tooltip { get; init; } = "";
     /// <summary>启动后嵌入工具页工作区。</summary>
     public bool HasWorkspace { get; init; }
+    /// <summary>卡片图标键（manifest.icon）。</summary>
+    public string IconKey { get; init; } = "";
 }
 
 public static class ToolCardRows
 {
-    public static IReadOnlyList<ToolCardRow> Build(
-        bool sharedDevicesRunning,
-        bool colorPickerRunning = false,
-        ToolInstallProgress? progress = null)
+    public static IReadOnlyList<ToolCardRow> Build(ToolInstallProgress? progress = null)
     {
+        ToolBundledCatalogAssets.Ensure();
+        Loc.EnsureToolLocalizationsFromLoadedAssemblies();
         progress ??= ToolService.Instance.InstallProgress;
+        var host = ToolService.Instance.Host;
         var rows = new List<ToolCardRow>();
         foreach (var card in ToolService.Instance.Catalog.GetCardsForLocalDevice())
         {
             var installed = card.Status == ToolInstallStatus.Installed;
-            var isShared = string.Equals(card.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase);
-            var isColor = string.Equals(card.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase);
-            var isRunning = (isShared && sharedDevicesRunning) || (isColor && colorPickerRunning);
+            var module = host.Get(card.Id);
+            var isRunning = module?.IsRunning == true;
             var isInstalling = progress.IsInstalling(card.Id);
             var percent = progress.GetPercent(card.Id);
+            var canStart = installed && !isRunning && (
+                card.Manifest.HasWorkspace
+                || card.CanConsume);
 
             string visualState;
             string status;
@@ -86,7 +89,6 @@ public static class ToolCardRows
             string primary;
             string secondary;
             var secondaryEnabled = true;
-            var canStart = false;
             var primaryEnabled = !isInstalling;
             if (!installed)
             {
@@ -94,11 +96,10 @@ public static class ToolCardRows
                 secondary = Loc.T("Tool.Uninstall");
                 secondaryEnabled = false;
             }
-            else if (isColor || (isShared && card.CanConsume))
+            else if (canStart || isRunning)
             {
                 if (isRunning)
                 {
-                    // 运行中不设卡片单击停止，避免误触；停止仅在 ⋯ 菜单
                     primary = Loc.T("Tool.StatusRunning");
                     secondary = Loc.T("Tool.Uninstall");
                     primaryEnabled = false;
@@ -107,7 +108,6 @@ public static class ToolCardRows
                 {
                     primary = Loc.T("Tool.Start");
                     secondary = Loc.T("Tool.Uninstall");
-                    canStart = true;
                 }
             }
             else
@@ -137,6 +137,7 @@ public static class ToolCardRows
                 InstallProgressRatio = Math.Clamp(percent / 100.0, 0, 1),
                 VisualState = visualState,
                 HasWorkspace = card.Manifest.HasWorkspace,
+                IconKey = card.Manifest.Icon,
                 CardBgHex = visualState switch
                 {
                     ToolVisualStates.Running => "#DBEAFE",
@@ -149,12 +150,4 @@ public static class ToolCardRows
 
         return rows;
     }
-
-    public static string LocalizeKind(string kind) => kind.ToLowerInvariant() switch
-    {
-        SharedDeviceKinds.Speaker => Loc.T("Tool.SharedDevices.Speaker"),
-        SharedDeviceKinds.Microphone => Loc.T("Tool.SharedDevices.Microphone"),
-        SharedDeviceKinds.Camera => Loc.T("Tool.SharedDevices.Camera"),
-        _ => kind
-    };
 }
