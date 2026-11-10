@@ -51,6 +51,7 @@ internal sealed class MauiTrayPopup : IDisposable
     private WndProc? _proc;
     private int _hoverIndex = -1;
     private bool _closing;
+    private int _dismissGen;
     private int _width;
     private int _height;
     private int _cardW;
@@ -463,8 +464,9 @@ internal sealed class MauiTrayPopup : IDisposable
                 return IntPtr.Zero;
             }
             case WmActivate:
+                // 点二级菜单时主菜单会先失活；若立刻 Close 会毁掉二级，导致切换机器点不中
                 if ((wParam.ToInt64() & 0xFFFF) == WaInactive)
-                    CloseMenu();
+                    ScheduleDismissIfFocusLeft();
                 return IntPtr.Zero;
             case WmDestroy:
                 return IntPtr.Zero;
@@ -519,13 +521,12 @@ internal sealed class MauiTrayPopup : IDisposable
         var anchorX = wnd.Left + (int)Math.Round((item.Right + 2) * scale);
         var anchorY = wnd.Top + (int)Math.Round((item.Top - PanelPadY) * scale);
         _subPopup?.Dispose();
-        _subPopup = MauiTraySubPopup.Show(anchorX, anchorY, _subItems, () =>
-        {
-            CloseMenu();
-        }, () =>
-        {
-            // 二级关闭且鼠标不在主菜单时，主菜单稍后由 deactivate 收起
-        });
+        _subPopup = MauiTraySubPopup.Show(
+            anchorX,
+            anchorY,
+            _subItems,
+            onItemInvoked: CloseMenu,
+            onDismissRequested: ScheduleDismissIfFocusLeft);
     }
 
     private void CloseSubmenu()
@@ -534,10 +535,48 @@ internal sealed class MauiTrayPopup : IDisposable
         _subPopup = null;
     }
 
+    private void ScheduleDismissIfFocusLeft()
+    {
+        var gen = Interlocked.Increment(ref _dismissGen);
+        _ = Task.Run(async () =>
+        {
+            try { await Task.Delay(150).ConfigureAwait(false); }
+            catch { return; }
+
+            if (gen != Volatile.Read(ref _dismissGen) || _closing) return;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (gen != Volatile.Read(ref _dismissGen) || _closing) return;
+                if (IsPointerOverSelfOrSub()) return;
+                CloseMenu();
+            });
+        });
+    }
+
+    private bool IsPointerOverSelfOrSub()
+    {
+        if (!GetCursorPos(out var pt)) return false;
+        if (_hwnd != IntPtr.Zero)
+        {
+            GetWindowRect(_hwnd, out var main);
+            if (PtInRect(ref main, pt)) return true;
+        }
+
+        var sub = _subPopup?.Hwnd ?? IntPtr.Zero;
+        if (sub != IntPtr.Zero)
+        {
+            GetWindowRect(sub, out var subRc);
+            if (PtInRect(ref subRc, pt)) return true;
+        }
+
+        return false;
+    }
+
     private void CloseMenu()
     {
         if (_closing) return;
         _closing = true;
+        Interlocked.Increment(ref _dismissGen);
         CloseSubmenu();
         if (ReferenceEquals(_open, this))
             _open = null;
@@ -721,6 +760,7 @@ internal sealed class MauiTrayPopup : IDisposable
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] private static extern bool PtInRect(ref RECT lprc, POINT pt);
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);

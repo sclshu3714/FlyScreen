@@ -209,14 +209,26 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 else MauiCloseToTray.RequestExit();
             },
             projectPhase: projectPhase,
-            switchMachines: () => TraySwitchMenu.BuildItems(_settings)
-                .Select(x => (x.Label, (Action)(() =>
+            switchMachines: () =>
+            {
+                var list = new List<(string Label, Action Action)>();
+                foreach (var item in TraySwitchMenu.BuildItems(_settings))
                 {
-                    if (TraySwitchMenu.EnsureSwitchHotkeyEnabled(_settings))
-                        AfterSwitchHotkeyModeChanged?.Invoke();
-                    _router?.TrySwitchToMachine(x.MachineName);
-                })))
-                .ToList(),
+                    var machine = item.MachineName;
+                    var label = item.Label;
+                    list.Add((label, () =>
+                    {
+                        if (TraySwitchMenu.EnsureSwitchHotkeyEnabled(_settings))
+                            AfterSwitchHotkeyModeChanged?.Invoke();
+                        if (_router == null)
+                            AppLog.Warn("托盘切换失败：输入路由未启动");
+                        else if (!_router.TrySwitchToMachine(machine))
+                            AppLog.Warn($"托盘切换未成功：{machine}");
+                    }));
+                }
+
+                return list;
+            },
             switchDisable: () => (
                 TraySwitchMenu.DisableLabel(_settings.SwitchHotkeyMode == 2),
                 (Action)(() =>

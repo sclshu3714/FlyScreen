@@ -34,26 +34,31 @@ internal sealed class MauiTraySubPopup : IDisposable
     private static readonly Color Shadow = Color.FromArgb(70, 0x14, 0x23, 0x3A);
 
     private readonly IReadOnlyList<(string Label, Action Action)> _items;
-    private readonly Action _onChosen;
+    private readonly Action _onItemInvoked;
+    private readonly Action? _onDismissRequested;
     private readonly Rectangle[] _itemRects;
     private readonly bool _sepBeforeLast;
 
     private IntPtr _hwnd;
     private WndProc? _proc;
     private int _hoverIndex = -1;
+    private bool _invoking;
     private int _width;
     private int _height;
     private int _cardW;
     private int _cardH;
 
     public bool IsVisible => _hwnd != IntPtr.Zero;
+    public IntPtr Hwnd => _hwnd;
 
     private MauiTraySubPopup(
         IReadOnlyList<(string Label, Action Action)> items,
-        Action onChosen)
+        Action onItemInvoked,
+        Action? onDismissRequested)
     {
         _items = items;
-        _onChosen = onChosen;
+        _onItemInvoked = onItemInvoked;
+        _onDismissRequested = onDismissRequested;
         _sepBeforeLast = items.Count > 1;
         _itemRects = new Rectangle[items.Count];
         Measure();
@@ -63,11 +68,10 @@ internal sealed class MauiTraySubPopup : IDisposable
         int screenX,
         int screenY,
         IReadOnlyList<(string Label, Action Action)> items,
-        Action onChosen,
-        Action? onClosed = null)
+        Action onItemInvoked,
+        Action? onDismissRequested = null)
     {
-        _ = onClosed;
-        var popup = new MauiTraySubPopup(items, onChosen);
+        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested);
         popup.ShowAt(screenX, screenY);
         return popup;
     }
@@ -268,15 +272,21 @@ internal sealed class MauiTraySubPopup : IDisposable
                 if (idx >= 0 && idx < _items.Count)
                 {
                     var act = _items[idx].Action;
-                    _onChosen();
-                    MainThread.BeginInvokeOnMainThread(() =>
-                    {
-                        try { act(); } catch { /* ignore */ }
-                    });
+                    _invoking = true;
+                    // 先执行切换，再关菜单；避免先 Destroy 导致动作被吃掉
+                    try { act(); }
+                    catch { /* ignore */ }
+                    try { _onItemInvoked(); }
+                    catch { /* ignore */ }
                 }
 
                 return IntPtr.Zero;
             }
+            case WmActivate:
+                // 点到桌面/其它窗时收起；点本菜单项时由 LButtonUp 处理
+                if ((wParam.ToInt64() & 0xFFFF) == 0 && !_invoking)
+                    _onDismissRequested?.Invoke();
+                return IntPtr.Zero;
             case WmNcDestroy:
             {
                 var ud = GetWindowLongPtr(hWnd, GwlpUserData);
@@ -418,6 +428,7 @@ internal sealed class MauiTraySubPopup : IDisposable
     private const uint WmMouseMove = 0x0200;
     private const uint WmLButtonUp = 0x0202;
     private const uint WmMouseLeave = 0x02A3;
+    private const uint WmActivate = 0x0006;
     private const uint WmNcDestroy = 0x0082;
     private const byte AcSrcOver = 0x00;
     private const byte AcSrcAlpha = 0x01;
