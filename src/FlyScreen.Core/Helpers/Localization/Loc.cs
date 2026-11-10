@@ -102,11 +102,7 @@ public static class Loc
             var name = asm.GetName().Name;
             if (name == null || !name.StartsWith("FlyScreen.Tool.", StringComparison.OrdinalIgnoreCase))
                 continue;
-            Type[] types;
-            try { types = asm.GetTypes(); }
-            catch { continue; }
-
-            foreach (var type in types)
+            foreach (var type in Services.Tools.ToolAssemblyScan.GetLoadableTypes(asm))
             {
                 if (type.IsAbstract || !typeof(IToolLocalization).IsAssignableFrom(type))
                     continue;

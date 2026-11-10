@@ -36,6 +36,13 @@ public sealed class ToolUiHost : IToolUiHost
             _handlers.Remove(key);
     }
 
+    /// <summary>重新发现贡献者前清空，避免错误 UI 栈的工厂残留。</summary>
+    public void ClearAll()
+    {
+        _handlers.Clear();
+        _workspaces.Clear();
+    }
+
     public async Task<object?> RequestAsync(
         string toolId, string kind, object? argument = null, CancellationToken ct = default)
     {

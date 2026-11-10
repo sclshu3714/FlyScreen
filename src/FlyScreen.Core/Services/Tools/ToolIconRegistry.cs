@@ -24,15 +24,16 @@ public static class ToolIconRegistry
         }
     }
 
-    /// <summary>卸载工具时移除贡献实例（保留位图缓存亦可；此处一并清掉以免陈旧）。</summary>
-    public static void Unregister(string? iconKey)
+    /// <summary>移除图标贡献；默认同时清位图缓存。Bundled 探测可保留缓存。</summary>
+    public static void Unregister(string? iconKey, bool clearBitmapCache = true)
     {
         if (string.IsNullOrWhiteSpace(iconKey)) return;
         var key = iconKey.Trim();
         lock (Gate)
         {
             ByKey.Remove(key);
-            BitmapCache.Remove(key);
+            if (clearBitmapCache)
+                BitmapCache.Remove(key);
         }
     }
 
@@ -84,11 +85,7 @@ public static class ToolIconRegistry
             if (name.Contains(".Ui.", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            Type[] types;
-            try { types = asm.GetTypes(); }
-            catch { continue; }
-
-            foreach (var type in types)
+            foreach (var type in ToolAssemblyScan.GetLoadableTypes(asm))
             {
                 if (type.IsAbstract || !typeof(IToolIconContribution).IsAssignableFrom(type))
                     continue;

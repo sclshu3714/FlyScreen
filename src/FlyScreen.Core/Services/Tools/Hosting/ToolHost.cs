@@ -303,22 +303,10 @@ public sealed class ToolHost
 
     private static IEnumerable<string> ResolveUiAssemblySuffixes()
     {
-        if (OperatingSystem.IsAndroid())
-        {
-            yield return ".Ui.Maui";
-            yield break;
-        }
-
-        if (OperatingSystem.IsWindows())
-        {
-            // WPF 宿主用 Ui.Win；Maui-Win 用 Ui.Maui（同进程只命中存在的 DLL）
-            yield return ".Ui.Win";
-            yield return ".Ui.Maui";
-            yield break;
-        }
-
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() || OperatingSystem.IsMacCatalyst())
-            yield return ".Ui.Desktop";
+        // 只加载当前宿主 UI 栈对应的卫星 DLL，避免 WPF 误载 Ui.Maui（工作区工厂被覆盖）
+        var suffix = ToolUiHostKind.PreferredAssemblySuffix;
+        if (!string.IsNullOrEmpty(suffix))
+            yield return suffix;
     }
 
     private void RaiseChanged()

@@ -12,18 +12,20 @@ public static class ToolUiDiscovery
         ArgumentNullException.ThrowIfNull(context);
 
         Loc.EnsureToolLocalizationsFromLoadedAssemblies();
+        if (ui is Hosting.ToolUiHost concrete)
+            concrete.ClearAll();
 
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
         {
             var name = asm.GetName().Name;
             if (name == null || !name.StartsWith("FlyScreen.Tool.", StringComparison.OrdinalIgnoreCase))
                 continue;
+            // 只注册当前宿主 UI 栈的卫星贡献者（勿让 Ui.Maui 覆盖 WPF 工作区）
+            if (name.Contains(".Ui.", StringComparison.OrdinalIgnoreCase)
+                && !ToolUiHostKind.IsPreferredUiAssembly(name))
+                continue;
 
-            Type[] types;
-            try { types = asm.GetExportedTypes(); }
-            catch { continue; }
-
-            foreach (var type in types)
+            foreach (var type in ToolAssemblyScan.GetLoadableTypes(asm))
             {
                 if (type.IsAbstract || !typeof(IToolUiContributor).IsAssignableFrom(type))
                     continue;
