@@ -12,7 +12,8 @@ namespace FlyScreen.Setup;
 
 public partial class MainWindow : Window
 {
-    private const int MaxConcurrentJobs = 2;
+    private readonly int _maxConcurrentJobs;
+    private readonly PublishConcurrency.Decision _concurrency;
 
     private readonly string _repoRoot;
     private readonly ObservableCollection<PublishTargetItem> _targets;
@@ -29,6 +30,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _concurrency = PublishConcurrency.Resolve();
+        _maxConcurrentJobs = _concurrency.MaxJobs;
         _repoRoot = RepoPaths.FindRepoRoot();
         _targets = new ObservableCollection<PublishTargetItem>(TargetCatalog.CreateDefaults());
         foreach (var t in _targets)
@@ -69,7 +72,8 @@ public partial class MainWindow : Window
         }
 
         AppendSystemLog($"仓库根目录: {_repoRoot}");
-        AppendSystemLog("打包固定使用 Release，发布产物将去除 .pdb。最多同时执行 2 个打包任务。");
+        AppendSystemLog("打包固定使用 Release，发布产物将去除 .pdb。");
+        AppendSystemLog(_concurrency.Summary);
         ApplyMutexRules();
         RefreshCascadeFromSelection();
         UpdateQueueEmptyHint();
@@ -395,7 +399,7 @@ public partial class MainWindow : Window
         List<PublishJobItem> toStart;
         lock (_schedulerLock)
         {
-            var slots = MaxConcurrentJobs - _runningIds.Count;
+            var slots = _maxConcurrentJobs - _runningIds.Count;
             if (slots <= 0) return;
 
             toStart = _jobs
@@ -441,7 +445,8 @@ public partial class MainWindow : Window
                     Dispatcher.Invoke(() => AppendJobLog(job, msg));
                 },
                 progress,
-                job.Cts.Token).ConfigureAwait(true);
+                job.Cts.Token,
+                jobId: job.Id.ToString("N")).ConfigureAwait(true);
 
             job.Percent = 100;
             job.Message = "全部任务完成";
@@ -591,7 +596,7 @@ public partial class MainWindow : Window
         var running = _jobs.Count(j => j.Status == PublishJobStatus.Running);
         var waiting = _jobs.Count(j => j.Status == PublishJobStatus.Waiting);
         var done = _jobs.Count(j => j.Status is PublishJobStatus.Completed or PublishJobStatus.Failed or PublishJobStatus.Cancelled);
-        StatusText.Text = $"就绪 · Release · 运行 {running}/{MaxConcurrentJobs} · 等待 {waiting} · 结束 {done}";
+        StatusText.Text = $"就绪 · Release · 运行 {running}/{_maxConcurrentJobs} · 等待 {waiting} · 结束 {done}";
     }
 
     private PublishOptions BuildOptions() => new()

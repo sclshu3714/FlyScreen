@@ -1,0 +1,22 @@
+<Project>
+  <!--
+    FlyScreen.Setup 并行打包：子进程设置环境变量 FlyScreenJobId 后，
+    各工程中间输出落到 artifacts/setup-work/{jobId}/obj/{ProjectName}/，
+    避免多任务抢同一 obj / Payload。
+
+    注意：一旦改写 BaseIntermediateOutputPath，SDK 的 DefaultItemExcludes 会跟着变成
+    只排除「新中间目录」，不再排除工程目录下默认的 obj/**。旧 TFM（如 net8.0）残留的
+    AssemblyInfo.cs / AssemblyAttributes.cs 会被 **/*.cs 编进来，与新目录生成文件撞车 → CS0579。
+  -->
+  <PropertyGroup Condition="'$(FlyScreenJobId)' != ''">
+    <_FlyScreenJobObjRoot>$(MSBuildThisFileDirectory)artifacts\setup-work\$(FlyScreenJobId)\obj\</_FlyScreenJobObjRoot>
+    <!--
+      只改写中间输出，不改 MSBuildProjectExtensionsPath：
+      WPF 会生成 *_wpftmp 临时工程，若 ExtensionsPath 也按项目名重定向，
+      会去找不存在的 project.assets.json（NETSDK1004）。
+      NuGet 资产仍共用工程目录 obj/；并行冲突主要在编译输出与 Installer Payload。
+    -->
+    <BaseIntermediateOutputPath Condition="!$([System.String]::Copy('$(MSBuildProjectName)').Contains('_wpftmp'))">$(_FlyScreenJobObjRoot)$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

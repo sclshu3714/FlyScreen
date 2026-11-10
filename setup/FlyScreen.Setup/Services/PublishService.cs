@@ -10,6 +10,11 @@ public sealed class PublishService
     private readonly ProcessRunner _runner = new();
     private readonly string _repoRoot;
 
+    /// <summary>当前任务工作区（artifacts/setup-work/{jobId}）；空表示未隔离。</summary>
+    private string _workRoot = "";
+    private string _jobId = "";
+    private IReadOnlyDictionary<string, string>? _jobEnv;
+
     public PublishService(string repoRoot) => _repoRoot = repoRoot;
 
     public async Task PublishAsync(
@@ -17,82 +22,139 @@ public sealed class PublishService
         PublishOptions options,
         Action<string> log,
         IProgress<PublishProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? jobId = null)
     {
         if (targets.Count == 0)
             throw new InvalidOperationException("请至少选择一个打包目标。");
 
-        Report(progress, 0, "准备资源…");
-        AssetGenerator.EnsurePublisherAssets(
-            Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets"),
-            log);
-
-        Directory.CreateDirectory(options.OutputRoot);
-
-        var total = Math.Max(1, targets.Count);
-        for (var i = 0; i < targets.Count; i++)
+        BeginJobWorkspace(jobId, log);
+        try
         {
-            var target = targets[i];
-            ct.ThrowIfCancellationRequested();
-            var from = i * 100.0 / total;
-            var to = (i + 1) * 100.0 / total;
-            var slice = new RangeProgress(progress, from, to);
+            Report(progress, 0, "准备资源…");
+            AssetGenerator.EnsurePublisherAssets(
+                Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets"),
+                log);
 
-            target.ApplySelectedFrameworkRuntime();
-            log($"======== 开始打包: {target.DisplayName} ({target.Rid}" +
-                (string.IsNullOrWhiteSpace(target.Framework) ? "" : $", {target.Framework}") +
-                ") ========");
-            Report(slice, 0, $"[{i + 1}/{total}] {target.DisplayName}");
+            Directory.CreateDirectory(options.OutputRoot);
 
-            if (target.RequiresMac && !OperatingSystem.IsMacOS())
+            var total = Math.Max(1, targets.Count);
+            for (var i = 0; i < targets.Count; i++)
             {
-                log($"跳过 {target.DisplayName}：需要在 macOS 上构建。");
-                Report(slice, 100, $"跳过 {target.DisplayName}");
-                continue;
-            }
+                var target = targets[i];
+                ct.ThrowIfCancellationRequested();
+                var from = i * 100.0 / total;
+                var to = (i + 1) * 100.0 / total;
+                var slice = new RangeProgress(progress, from, to);
 
-            if (options.PackageMode == PackageMode.Installer)
-            {
-                if (!target.SupportsInstaller)
+                target.ApplySelectedFrameworkRuntime();
+                log($"======== 开始打包: {target.DisplayName} ({target.Rid}" +
+                    (string.IsNullOrWhiteSpace(target.Framework) ? "" : $", {target.Framework}") +
+                    ") ========");
+                Report(slice, 0, $"[{i + 1}/{total}] {target.DisplayName}");
+
+                if (target.RequiresMac && !OperatingSystem.IsMacOS())
                 {
-                    log($"跳过 {target.DisplayName}：不支持安装包模式。");
+                    log($"跳过 {target.DisplayName}：需要在 macOS 上构建。");
                     Report(slice, 100, $"跳过 {target.DisplayName}");
                     continue;
                 }
 
-                if (target.UsesWindowsSetup)
+                if (options.PackageMode == PackageMode.Installer)
                 {
-                    await PublishInstallerAsync(target, options, log, slice, ct).ConfigureAwait(false);
-                }
-                else if (target.UsesArchiveInstaller)
-                {
-                    log($"{target.DisplayName} → 安装包产物（tar.gz，含字体与许可）。");
-                    await PublishStandaloneAsync(target, options, log, slice, ct, archiveInstaller: true)
-                        .ConfigureAwait(false);
+                    if (!target.SupportsInstaller)
+                    {
+                        log($"跳过 {target.DisplayName}：不支持安装包模式。");
+                        Report(slice, 100, $"跳过 {target.DisplayName}");
+                        continue;
+                    }
+
+                    if (target.UsesWindowsSetup)
+                    {
+                        await PublishInstallerAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                    }
+                    else if (target.UsesArchiveInstaller)
+                    {
+                        log($"{target.DisplayName} → 安装包产物（tar.gz，含字体与许可）。");
+                        await PublishStandaloneAsync(target, options, log, slice, ct, archiveInstaller: true)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        log($"{target.DisplayName} → 安装包产物（APK）。");
+                        await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
-                    log($"{target.DisplayName} → 安装包产物（APK）。");
+                    if (!target.SupportsStandalone)
+                    {
+                        log($"跳过 {target.DisplayName}：须使用「安装包」模式（如 Android APK）。");
+                        Report(slice, 100, $"跳过 {target.DisplayName}");
+                        continue;
+                    }
+
                     await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
                 }
-            }
-            else
-            {
-                if (!target.SupportsStandalone)
-                {
-                    log($"跳过 {target.DisplayName}：须使用「安装包」模式（如 Android APK）。");
-                    Report(slice, 100, $"跳过 {target.DisplayName}");
-                    continue;
-                }
 
-                await PublishStandaloneAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                Report(slice, 100, $"{target.DisplayName} 完成");
             }
 
-            Report(slice, 100, $"{target.DisplayName} 完成");
+            Report(progress, 100, "全部任务完成");
+            log("全部任务完成。");
         }
+        finally
+        {
+            CleanupJobWorkspace(log);
+        }
+    }
 
-        Report(progress, 100, "全部任务完成");
-        log("全部任务完成。");
+    private void BeginJobWorkspace(string? jobId, Action<string> log)
+    {
+        _jobId = string.IsNullOrWhiteSpace(jobId)
+            ? Guid.NewGuid().ToString("N")
+            : jobId.Trim();
+        _workRoot = Path.Combine(_repoRoot, "artifacts", "setup-work", _jobId);
+        PrepareCleanDir(_workRoot);
+
+        _jobEnv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["FlyScreenJobId"] = _jobId,
+            // 避免 MSBuild 节点复用跨任务抢锁
+            ["MSBUILDDISABLENODEREUSE"] = "1"
+        };
+
+        log($"任务工作区: {_workRoot}");
+    }
+
+    private void CleanupJobWorkspace(Action<string> log)
+    {
+        if (string.IsNullOrWhiteSpace(_workRoot) || !Directory.Exists(_workRoot))
+            return;
+
+        try
+        {
+            Directory.Delete(_workRoot, recursive: true);
+            log($"已清理中间文件: {_workRoot}");
+        }
+        catch (Exception ex)
+        {
+            log($"清理中间文件失败（可稍后手动删除）: {_workRoot} — {ex.Message}");
+        }
+        finally
+        {
+            _workRoot = "";
+            _jobId = "";
+            _jobEnv = null;
+        }
+    }
+
+    private string JobPath(params string[] parts)
+    {
+        var segs = new string[parts.Length + 1];
+        segs[0] = _workRoot;
+        Array.Copy(parts, 0, segs, 1, parts.Length);
+        return Path.Combine(segs);
     }
 
     private async Task PublishStandaloneAsync(
@@ -103,7 +165,7 @@ public sealed class PublishService
         CancellationToken ct,
         bool archiveInstaller = false)
     {
-        var staging = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "app");
+        var staging = JobPath("app");
         PrepareCleanDir(staging);
 
         EnsureReleaseConfiguration(options, log);
@@ -126,11 +188,16 @@ public sealed class PublishService
                 var androidTfm = string.IsNullOrWhiteSpace(target.Framework)
                     ? "net10.0-android"
                     : target.Framework;
+                // 与 Directory.Build.props 中 BaseIntermediateOutputPath 对齐
+                var intermediateDir = Path.Combine(
+                    "artifacts", "setup-work", _jobId, "obj", "FlyScreen.App.Maui",
+                    "Release", androidTfm, "android", "bin");
                 var args =
                     $"-NoProfile -ExecutionPolicy Bypass -File \"{apkScript}\" " +
                     $"-OutDir \"{staging}\" -PackageId \"com.xuanniao.flyscreen\" " +
-                    $"-IntermediateDir \"src\\FlyScreen.App.Maui\\obj\\Release\\{androidTfm}\\android\\bin\"";
-                exit = await _runner.RunAsync("powershell", args, _repoRoot, log, ct).ConfigureAwait(false);
+                    $"-IntermediateDir \"{intermediateDir}\"";
+                exit = await _runner.RunAsync("powershell", args, _repoRoot, log, ct, _jobEnv)
+                    .ConfigureAwait(false);
                 if (exit != 0)
                     throw new InvalidOperationException("Ensure-MauiSignedApk 失败");
             }
@@ -143,7 +210,8 @@ public sealed class PublishService
             $"-NoProfile -ExecutionPolicy Bypass -File \"{finish}\" " +
             $"-SourceDir \"{staging}\" -Rid \"{target.Rid}\" -Kind {kind} " +
             $"-RepoRoot \"{_repoRoot}\" -OutDir \"{options.OutputRoot}\"";
-        exit = await _runner.RunAsync("powershell", finishArgs, _repoRoot, log, ct).ConfigureAwait(false);
+        exit = await _runner.RunAsync("powershell", finishArgs, _repoRoot, log, ct, _jobEnv)
+            .ConfigureAwait(false);
         if (exit != 0)
             throw new InvalidOperationException($"Finish-PublishToArtifacts 失败 ({target.Id})");
     }
@@ -166,12 +234,13 @@ public sealed class PublishService
             : options.LicenseFile;
 
         Report(progress, 5, $"{target.DisplayName}：准备安装资源…");
+        // 轮播/许可仍同步到安装工程 Assets（只读资源）；payload/清单写入本任务工作区
         AssetGenerator.EnsureInstallerAssets(installerDir, carouselSource, licenseSource, log);
 
         EnsureReleaseConfiguration(options, log);
 
         Report(progress, 12, $"{target.DisplayName}：发布应用…");
-        var appStaging = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "app");
+        var appStaging = JobPath("app");
         PrepareCleanDir(appStaging);
         var exit = await RunDotnetPublishAsync(target, options, appStaging, singleFile: false, log, ct)
             .ConfigureAwait(false);
@@ -185,11 +254,9 @@ public sealed class PublishService
         await PublishUninstallerIntoAsync(appStaging, options, log, ct).ConfigureAwait(false);
 
         Report(progress, 58, $"{target.DisplayName}：打包 payload…");
-        var payloadDir = Path.Combine(installerDir, "Payload");
-        PrepareCleanDir(payloadDir);
-        var payloadZip = Path.Combine(payloadDir, "payload.zip");
-        log($"打包 payload: {payloadZip}");
+        var payloadZip = JobPath("payload.zip");
         if (File.Exists(payloadZip)) File.Delete(payloadZip);
+        log($"打包 payload: {payloadZip}");
         ZipFile.CreateFromDirectory(appStaging, payloadZip, CompressionLevel.Optimal, includeBaseDirectory: false);
 
         var requiredBytes = new FileInfo(payloadZip).Length + 32L * 1024 * 1024;
@@ -217,7 +284,7 @@ public sealed class PublishService
             CarouselImages = carouselFiles
         };
 
-        var manifestPath = Path.Combine(installerDir, "Assets", "installer.json");
+        var manifestPath = JobPath("installer.json");
         File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions
         {
             WriteIndented = true
@@ -225,8 +292,11 @@ public sealed class PublishService
         log($"已写入安装清单: {manifestPath}");
 
         Report(progress, 72, $"{target.DisplayName}：发布安装程序…");
-        var setupOut = Path.Combine(_repoRoot, "artifacts", "setup-staging", target.Rid, "setup");
+        var setupOut = JobPath("setup");
         PrepareCleanDir(setupOut);
+
+        var installerObj = JobPath("obj", "FlyScreen.Installer");
+        Directory.CreateDirectory(installerObj);
 
         var sc = options.DeploymentMode == DeploymentMode.SelfContained ? "true" : "false";
         var publishArgs =
@@ -234,9 +304,14 @@ public sealed class PublishService
             $"-c Release -r win-x64 --self-contained {sc} " +
             $"-p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true " +
             $"-p:DebugType=None -p:DebugSymbols=false " +
-            $"-p:EnableCompressionInSingleFile=true -o \"{setupOut}\"";
+            $"-p:EnableCompressionInSingleFile=true " +
+            $"-p:FlyScreenPayloadZip=\"{payloadZip}\" " +
+            $"-p:FlyScreenInstallerJson=\"{manifestPath}\" " +
+            $"-p:BaseIntermediateOutputPath={QuoteMsBuildDir(installerObj)} " +
+            $"-o \"{setupOut}\"";
 
-        exit = await _runner.RunAsync("dotnet", publishArgs, _repoRoot, log, ct).ConfigureAwait(false);
+        exit = await _runner.RunAsync("dotnet", publishArgs, _repoRoot, log, ct, _jobEnv)
+            .ConfigureAwait(false);
         if (exit != 0)
             throw new InvalidOperationException("安装程序 publish 失败");
 
@@ -254,6 +329,16 @@ public sealed class PublishService
         File.Copy(setupExe, finalPath, overwrite: true);
         log($"安装包已输出: {finalPath}");
     }
+
+    private static string TrimSlash(string path)
+        => path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    /// <summary>
+    /// 供 -p:Dir= 使用。Windows 上 <c>"D:\path\"</c> 末尾反斜杠会转义结束引号，
+    /// 把后面的 <c>-o ...</c> 吞进属性值（NuGet「文件名语法不正确」）。改用正斜杠结尾。
+    /// </summary>
+    private static string QuoteMsBuildDir(string path)
+        => "\"" + TrimSlash(path).Replace('\\', '/') + "/\"";
 
     private static void Report(IProgress<PublishProgress>? progress, double percent, string message)
         => progress?.Report(PublishProgress.Create(percent, message));
@@ -335,8 +420,8 @@ public sealed class PublishService
             }
         }
 
-        log($"dotnet publish → {target.Id} ({configuration}, 无 PDB)");
-        var exit = await _runner.RunAsync("dotnet", string.Join(' ', args), _repoRoot, log, ct)
+        log($"dotnet publish → {target.Id} ({configuration}, 无 PDB, job={_jobId})");
+        var exit = await _runner.RunAsync("dotnet", string.Join(' ', args), _repoRoot, log, ct, _jobEnv)
             .ConfigureAwait(false);
         if (exit == 0 && target.SupportsVddOffline && !options.IncludeVddOffline)
             StripVddOfflineFromDir(outputDir, log);
@@ -401,7 +486,7 @@ public sealed class PublishService
             return;
         }
 
-        var unOut = Path.Combine(_repoRoot, "artifacts", "setup-staging", "uninstaller");
+        var unOut = JobPath("uninstaller");
         PrepareCleanDir(unOut);
 
         EnsureReleaseConfiguration(options, log);
@@ -414,7 +499,7 @@ public sealed class PublishService
             $"-o \"{unOut}\"";
 
         log("发布卸载程序 Uninstall.exe（Release）…");
-        var exit = await _runner.RunAsync("dotnet", args, _repoRoot, log, ct).ConfigureAwait(false);
+        var exit = await _runner.RunAsync("dotnet", args, _repoRoot, log, ct, _jobEnv).ConfigureAwait(false);
         if (exit != 0)
             throw new InvalidOperationException("卸载程序 publish 失败");
 
