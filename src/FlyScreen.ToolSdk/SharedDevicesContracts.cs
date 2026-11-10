@@ -31,30 +31,15 @@ public sealed class NullSharedDevicesHardware : ISharedDevicesHardware
     public IReadOnlyList<SharedLocalDevice> Enumerate(string kind) => [];
 }
 
-/// <summary>无法细枚举时提供「系统默认」占位，保证管理/接收 UI 可选。</summary>
+/// <summary>
+/// 无法细枚举的平台占位：返回空，避免无硬件机被宣告为可提供。
+/// Mac/Linux 等接入真实枚举前，对端会显示「(无设备)」。
+/// </summary>
 public sealed class DefaultSharedDevicesHardware : ISharedDevicesHardware
 {
     public static DefaultSharedDevicesHardware Instance { get; } = new();
 
-    public IReadOnlyList<SharedLocalDevice> Enumerate(string kind)
-    {
-        if (!SharedDeviceKinds.IsValid(kind)) return [];
-        var name = kind.Equals(SharedDeviceKinds.Camera, StringComparison.OrdinalIgnoreCase)
-            ? "系统默认摄像头"
-            : kind.Equals(SharedDeviceKinds.Microphone, StringComparison.OrdinalIgnoreCase)
-                ? "系统默认麦克风"
-                : "系统默认扬声器";
-        return
-        [
-            new SharedLocalDevice
-            {
-                Kind = kind.Trim().ToLowerInvariant(),
-                Id = "default",
-                Name = name,
-                IsDefault = true
-            }
-        ];
-    }
+    public IReadOnlyList<SharedLocalDevice> Enumerate(string kind) => [];
 }
 
 /// <summary>

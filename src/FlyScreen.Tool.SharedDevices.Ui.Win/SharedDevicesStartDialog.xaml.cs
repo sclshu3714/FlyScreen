@@ -49,17 +49,36 @@ public partial class SharedDevicesStartDialog : Window
             var first = rows.FirstOrDefault(r => r.Selectable);
             if (first != null)
                 PeerList.SelectedItem = first;
+            ApplyKindsForSelection(first?.Info);
         }
-
-        KindSpeaker.IsChecked = true;
-        KindMicrophone.IsChecked = true;
-        KindCamera.IsChecked = true;
     }
 
     private void PeerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (PeerList.SelectedItem is PeerRow row && !row.Selectable)
+        {
             PeerList.SelectedItem = null;
+            ApplyKindsForSelection(null);
+            return;
+        }
+
+        ApplyKindsForSelection((PeerList.SelectedItem as PeerRow)?.Info);
+    }
+
+    private void ApplyKindsForSelection(SharedDevicesTargetInfo? info)
+    {
+        var kinds = info?.ProvidableKinds ?? [];
+        ConfigureKind(KindSpeaker, SharedDeviceKinds.Speaker, kinds);
+        ConfigureKind(KindMicrophone, SharedDeviceKinds.Microphone, kinds);
+        ConfigureKind(KindCamera, SharedDeviceKinds.Camera, kinds);
+    }
+
+    private static void ConfigureKind(System.Windows.Controls.CheckBox box, string kind, IReadOnlyList<string> kinds)
+    {
+        var ok = kinds.Any(k => k.Equals(kind, StringComparison.OrdinalIgnoreCase));
+        box.IsEnabled = ok;
+        box.IsChecked = ok;
+        box.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)
@@ -72,9 +91,9 @@ public partial class SharedDevicesStartDialog : Window
         }
 
         var kinds = new List<string>();
-        if (KindSpeaker.IsChecked == true) kinds.Add(SharedDeviceKinds.Speaker);
-        if (KindMicrophone.IsChecked == true) kinds.Add(SharedDeviceKinds.Microphone);
-        if (KindCamera.IsChecked == true) kinds.Add(SharedDeviceKinds.Camera);
+        if (KindSpeaker.IsEnabled && KindSpeaker.IsChecked == true) kinds.Add(SharedDeviceKinds.Speaker);
+        if (KindMicrophone.IsEnabled && KindMicrophone.IsChecked == true) kinds.Add(SharedDeviceKinds.Microphone);
+        if (KindCamera.IsEnabled && KindCamera.IsChecked == true) kinds.Add(SharedDeviceKinds.Camera);
         if (kinds.Count == 0)
         {
             MessageBox.Show(this, Loc.T("Tool.SharedDevices.PickKinds"), Title,

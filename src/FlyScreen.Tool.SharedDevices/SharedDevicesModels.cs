@@ -60,8 +60,8 @@ public sealed class SharedDevicesTargetInfo
     public bool ToolInstalled { get; set; }
     public bool Connected { get; set; }
     public bool IsDesktop { get; set; }
-    /// <summary>对端可提供种类（未知时默认三种，由对端拒绝校正）。</summary>
-    public List<string> ProvidableKinds { get; set; } = [.. SharedDeviceKinds.All];
+    /// <summary>对端可提供种类（来自 Caps；旧端未知时默认三种）。</summary>
+    public List<string> ProvidableKinds { get; set; } = [];
 
     /// <summary>可选：已装工具、已连接、至少一种可提供设备（电脑/手机/平板均可）。</summary>
     public bool CanProvide => ToolInstalled && Connected && ProvidableKinds.Count > 0;

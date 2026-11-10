@@ -25,6 +25,9 @@ public sealed class SharedDevicesStartPage : ContentPage
     private readonly CheckBox _kindMicrophone = new() { IsChecked = true };
     private readonly CheckBox _kindCamera = new() { IsChecked = true };
     private readonly Label _hint = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
+    private View? _speakerRow;
+    private View? _micRow;
+    private View? _cameraRow;
     private PeerRow? _selected;
 
     public Task<(string? Peer, string[] Kinds)> Result => _tcs.Task;
@@ -72,21 +75,24 @@ public sealed class SharedDevicesStartPage : ContentPage
             {
                 _peerList.SelectedItem = null;
                 _selected = null;
+                ApplyKindsForSelection(null);
                 return;
             }
 
             _selected = e.CurrentSelection.FirstOrDefault() as PeerRow;
+            ApplyKindsForSelection(_selected?.Info);
         };
 
+        PeerRow? initial = null;
         if (rows.Count == 0)
             _hint.Text = Loc.T("Tool.SharedDevices.NoTargets");
         else
         {
-            var first = rows.FirstOrDefault(r => r.Selectable);
-            if (first != null)
+            initial = rows.FirstOrDefault(r => r.Selectable);
+            if (initial != null)
             {
-                _peerList.SelectedItem = first;
-                _selected = first;
+                _peerList.SelectedItem = initial;
+                _selected = initial;
             }
         }
 
@@ -170,9 +176,9 @@ public sealed class SharedDevicesStartPage : ContentPage
                         TextColor = muted,
                         Margin = new Thickness(0, 4, 0, 0)
                     },
-                    KindRow(_kindSpeaker, Loc.T("Tool.SharedDevices.Speaker"), text),
-                    KindRow(_kindMicrophone, Loc.T("Tool.SharedDevices.Microphone"), text),
-                    KindRow(_kindCamera, Loc.T("Tool.SharedDevices.Camera"), text),
+                    (_speakerRow = KindRow(_kindSpeaker, Loc.T("Tool.SharedDevices.Speaker"), text)),
+                    (_micRow = KindRow(_kindMicrophone, Loc.T("Tool.SharedDevices.Microphone"), text)),
+                    (_cameraRow = KindRow(_kindCamera, Loc.T("Tool.SharedDevices.Camera"), text)),
                     _hint,
                     new HorizontalStackLayout
                     {
@@ -191,6 +197,8 @@ public sealed class SharedDevicesStartPage : ContentPage
             Padding = new Thickness(12, 16),
             Children = { dialogCard }
         };
+
+        ApplyKindsForSelection(initial?.Info);
 
         SizeChanged += (_, _) =>
         {
@@ -211,7 +219,7 @@ public sealed class SharedDevicesStartPage : ContentPage
         };
     }
 
-    private static View KindRow(CheckBox box, string title, Color text)
+    private View KindRow(CheckBox box, string title, Color text)
     {
         var label = new Label
         {
@@ -222,9 +230,30 @@ public sealed class SharedDevicesStartPage : ContentPage
         };
         var row = new HorizontalStackLayout { Spacing = 8, Children = { box, label } };
         var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) => box.IsChecked = !box.IsChecked;
+        tap.Tapped += (_, _) =>
+        {
+            if (box.IsEnabled)
+                box.IsChecked = !box.IsChecked;
+        };
         row.GestureRecognizers.Add(tap);
         return row;
+    }
+
+    private void ApplyKindsForSelection(SharedDevicesTargetInfo? info)
+    {
+        var kinds = info?.ProvidableKinds ?? [];
+        ConfigureKind(_kindSpeaker, _speakerRow, SharedDeviceKinds.Speaker, kinds);
+        ConfigureKind(_kindMicrophone, _micRow, SharedDeviceKinds.Microphone, kinds);
+        ConfigureKind(_kindCamera, _cameraRow, SharedDeviceKinds.Camera, kinds);
+    }
+
+    private static void ConfigureKind(CheckBox box, View? row, string kind, IReadOnlyList<string> kinds)
+    {
+        var ok = kinds.Any(k => k.Equals(kind, StringComparison.OrdinalIgnoreCase));
+        box.IsEnabled = ok;
+        box.IsChecked = ok;
+        if (row != null)
+            row.IsVisible = ok;
     }
 
     private async void Ok_Clicked(object? sender, EventArgs e)
@@ -236,9 +265,9 @@ public sealed class SharedDevicesStartPage : ContentPage
         }
 
         var kinds = new List<string>();
-        if (_kindSpeaker.IsChecked) kinds.Add(SharedDeviceKinds.Speaker);
-        if (_kindMicrophone.IsChecked) kinds.Add(SharedDeviceKinds.Microphone);
-        if (_kindCamera.IsChecked) kinds.Add(SharedDeviceKinds.Camera);
+        if (_kindSpeaker.IsEnabled && _kindSpeaker.IsChecked) kinds.Add(SharedDeviceKinds.Speaker);
+        if (_kindMicrophone.IsEnabled && _kindMicrophone.IsChecked) kinds.Add(SharedDeviceKinds.Microphone);
+        if (_kindCamera.IsEnabled && _kindCamera.IsChecked) kinds.Add(SharedDeviceKinds.Camera);
         if (kinds.Count == 0)
         {
             await DisplayAlertAsync(Title, Loc.T("Tool.SharedDevices.PickKinds"), "OK");

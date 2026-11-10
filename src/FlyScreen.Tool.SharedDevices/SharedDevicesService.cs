@@ -62,7 +62,26 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
 
     /// <summary>挂接本机硬件枚举（Android / Windows 提供方）。</summary>
     public void AttachHardware(ISharedDevicesHardware hardware)
-        => _hardware = hardware ?? NullSharedDevicesHardware.Instance;
+    {
+        _hardware = hardware ?? NullSharedDevicesHardware.Instance;
+        try { _catalog.RefreshExtraCaps(); }
+        catch { /* ignore */ }
+    }
+
+    /// <summary>本机按实机枚举宣告的 kinds Caps（供 ToolCatalog 动态附加）。</summary>
+    public IEnumerable<string> BuildAdvertisedCaps()
+    {
+        yield return PeerCaps.ToolSharedDevicesKindsV1;
+        foreach (var kind in SharedDeviceKinds.All)
+        {
+            if (EnumerateLocalDevices(kind).Count > 0)
+                yield return PeerCaps.ToolSharedDevicesKindCap(kind);
+        }
+    }
+
+    /// <summary>本机当前实际可提供的设备种类。</summary>
+    public string[] ListLocalProvidableKinds()
+        => SharedDeviceKinds.All.Where(k => EnumerateLocalDevices(k).Count > 0).ToArray();
 
     public bool IsProviderSessionActive
     {
@@ -179,11 +198,35 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
                 Connected = status.Bidirectional || status.AnyAlive,
                 IsDesktop = isDesktop,
                 ToolInstalled = toolInstalled,
-                ProvidableKinds = [.. SharedDeviceKinds.All]
+                ProvidableKinds = ParseRemoteProvidableKinds(info)
             });
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// 从对端 Caps 解析可提供种类。宣告 kinds-v1 时按实机种类；旧端未宣告则保守视为三种。
+    /// </summary>
+    internal static List<string> ParseRemoteProvidableKinds(PeerRemoteInfo? info)
+    {
+        if (info?.Caps == null || info.Caps.Length == 0)
+            return [.. SharedDeviceKinds.All];
+
+        if (!info.Caps.Contains(PeerCaps.ToolSharedDevices, StringComparer.OrdinalIgnoreCase))
+            return [];
+
+        if (!info.Caps.Contains(PeerCaps.ToolSharedDevicesKindsV1, StringComparer.OrdinalIgnoreCase))
+            return [.. SharedDeviceKinds.All];
+
+        var list = new List<string>();
+        foreach (var kind in SharedDeviceKinds.All)
+        {
+            if (info.Caps.Contains(PeerCaps.ToolSharedDevicesKindCap(kind), StringComparer.OrdinalIgnoreCase))
+                list.Add(kind);
+        }
+
+        return list;
     }
 
     /// <summary>申请端确认启动：向目标发 request。</summary>
@@ -210,6 +253,13 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
 
         if (!_connections.GetPeerStatus(peer).AnyAlive)
             return (false, $"「{peer}」未连接");
+
+        var providable = ParseRemoteProvidableKinds(info);
+        kindList = kindList
+            .Where(k => providable.Any(p => p.Equals(k, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (kindList.Length == 0)
+            return (false, $"「{peer}」无可申请的共享设备");
 
         lock (_gate)
         {
@@ -287,14 +337,28 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
         if (!_catalog.IsInstalled(ToolIds.SharedDevices))
             return;
 
+        var kinds = FilterKindsWithLocalHardware(req.Kinds);
+        if (deviceIds is { Count: > 0 })
+        {
+            kinds = kinds
+                .Where(k => deviceIds.Keys.Any(id => id.Equals(k, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+        }
+
+        if (kinds.Length == 0)
+        {
+            await RejectIncomingAsync(req, "no-device").ConfigureAwait(false);
+            return;
+        }
+
         // 仅勾选「记住适配」才写入；未勾选则下次仍须手动同意
         if (remember)
-            _remember.Remember(req.FromPeer, req.Kinds);
+            _remember.Remember(req.FromPeer, kinds);
 
         if (deviceIds != null && deviceIds.Count > 0)
             ApplyDeviceSelections(deviceIds);
 
-        var body = new SharedDevicesAcceptBody { Kinds = req.Kinds };
+        var body = new SharedDevicesAcceptBody { Kinds = kinds };
         var env = new ToolEnvelope
         {
             ToolId = ToolIds.SharedDevices,
@@ -312,14 +376,14 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
             {
                 SessionId = req.SessionId,
                 PeerName = req.FromPeer,
-                Kinds = req.Kinds,
+                Kinds = kinds,
                 IsApplicant = false,
                 Phase = SharedDevicesSessionPhase.Active
             };
         }
 
         RaiseSessionChanged();
-        Publish($"已同意「{req.FromPeer}」使用：{string.Join("、", req.Kinds)}");
+        Publish($"已同意「{req.FromPeer}」使用：{string.Join("、", kinds)}");
     }
 
     public async Task RejectIncomingAsync(SharedDevicesIncomingRequest req, string reason = "denied")
@@ -523,11 +587,11 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
     private void HandleRequest(string peer, ToolEnvelope env)
     {
         var body = DecodeBody<SharedDevicesRequestBody>(env.BodyJson);
-        var kinds = (body?.Kinds ?? [])
+        var kinds = FilterKindsWithLocalHardware((body?.Kinds ?? [])
             .Where(SharedDeviceKinds.IsValid)
             .Select(k => k.Trim().ToLowerInvariant())
             .Distinct()
-            .ToArray();
+            .ToArray());
         if (kinds.Length == 0)
         {
             _ = RejectIncomingAsync(new SharedDevicesIncomingRequest
@@ -555,6 +619,14 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
         try { IncomingRequest?.Invoke(incoming); }
         catch (Exception ex) { AppLog.Warn("IncomingRequest: " + ex.Message); }
     }
+
+    private string[] FilterKindsWithLocalHardware(IEnumerable<string> kinds)
+        => kinds
+            .Where(SharedDeviceKinds.IsValid)
+            .Select(k => k.Trim().ToLowerInvariant())
+            .Distinct()
+            .Where(k => EnumerateLocalDevices(k).Count > 0)
+            .ToArray();
 
     private void HandleAccept(string peer, ToolEnvelope env)
     {

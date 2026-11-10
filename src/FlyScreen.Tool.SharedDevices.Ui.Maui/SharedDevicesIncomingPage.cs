@@ -38,12 +38,19 @@ public sealed class SharedDevicesIncomingPage : ContentPage
         var deviceStack = new VerticalStackLayout { Spacing = 10 };
         foreach (var kind in req.Kinds)
         {
+            if (sd.EnumerateLocalDevices(kind).Count == 0)
+                continue;
+
             var sel = new SharedDevicesDeviceSelector(
                 this, sd, kind, SharedDevicesKindLabels.Localize(kind),
                 text, muted, line, card, controlBg);
             _selectors.Add(sel);
             deviceStack.Children.Add(sel.View);
         }
+
+        if (_selectors.Count == 0)
+            body = string.Format(Loc.T("Tool.SharedDevices.IncomingBody"), req.FromPeer,
+                Loc.T("Tool.SharedDevices.PeerNoDevice"));
 
         _remember = new CheckBox { IsChecked = false, Color = blue };
         var rememberRow = new HorizontalStackLayout
@@ -62,10 +69,26 @@ public sealed class SharedDevicesIncomingPage : ContentPage
         };
 
         var accept = Primary(Loc.T("Tool.SharedDevices.Accept"), blue);
+        accept.IsEnabled = _selectors.Count > 0;
         accept.Clicked += async (_, _) =>
         {
+            if (_selectors.Count == 0)
+            {
+                _completed = true;
+                _result.TrySetResult((false, false, new Dictionary<string, string>()));
+                await Navigation.PopModalAsync();
+                return;
+            }
+
+            var devices = Collect();
+            if (devices.Count == 0)
+            {
+                await DisplayAlertAsync(Title, Loc.T("Tool.SharedDevices.NoLocalDevice"), "OK");
+                return;
+            }
+
             _completed = true;
-            _result.TrySetResult((true, _remember.IsChecked, Collect()));
+            _result.TrySetResult((true, _remember.IsChecked, devices));
             await Navigation.PopModalAsync();
         };
         var reject = Outline(Loc.T("Tool.SharedDevices.Reject"), text, line);

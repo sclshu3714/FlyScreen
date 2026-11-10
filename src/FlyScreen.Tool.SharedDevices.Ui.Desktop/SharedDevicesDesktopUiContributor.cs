@@ -25,11 +25,8 @@ public sealed class SharedDevicesDesktopUiContributor : IToolUiContributor
                     return Task.FromResult<object?>(null);
                 }
 
-                var targets = sd.ListApplicantTargets()
-                    .Where(t => t.CanProvide)
-                    .Select(t => t.PeerName)
-                    .ToList();
-                if (targets.Count == 0)
+                var target = sd.ListApplicantTargets().FirstOrDefault(t => t.CanProvide);
+                if (target == null || target.ProvidableKinds.Count == 0)
                 {
                     Dispatcher.UIThread.Post(() => setStatus?.Invoke(Loc.T("Tool.SharedDevices.NoTargets")));
                     return Task.FromResult<object?>(null);
@@ -37,8 +34,8 @@ public sealed class SharedDevicesDesktopUiContributor : IToolUiContributor
 
                 return Task.FromResult<object?>(new SharedDevicesStartUiResult
                 {
-                    Peer = targets[0],
-                    Kinds = SharedDeviceKinds.All
+                    Peer = target.PeerName,
+                    Kinds = target.ProvidableKinds.ToArray()
                 });
             });
 

@@ -28,12 +28,12 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
             var iid = typeof(IMMDeviceEnumerator).GUID;
             if (CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out var obj) != 0
                 || obj is not IMMDeviceEnumerator en)
-                return FallbackAudio(capture);
+                return [];
 
             var dataFlow = capture ? 1 : 0;
             const uint deviceStateActive = 0x1;
             if (en.EnumAudioEndpoints(dataFlow, deviceStateActive, out var collPtr) != 0 || collPtr == IntPtr.Zero)
-                return FallbackAudio(capture);
+                return [];
 
             var coll = (IMMDeviceCollection)Marshal.GetObjectForIUnknown(collPtr);
             Marshal.Release(collPtr);
@@ -66,11 +66,12 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
         }
         catch
         {
-            return FallbackAudio(capture);
+            return [];
         }
 
+        // 无活动端点则如实返回空，勿伪造「系统默认」（否则无硬件机仍可被申请）
         if (list.Count == 0)
-            return FallbackAudio(capture);
+            return list;
         if (!list.Any(d => d.IsDefault))
         {
             var first = list[0];
@@ -126,43 +127,24 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
             var n = name.ToString().Trim();
             if (string.IsNullOrEmpty(n))
                 n = $"摄像头 {i + 1}";
+            // 无物理摄像头时 VFW 常仍返回此驱动名，不算可用设备
+            if (IsPhantomCameraDriver(n))
+                continue;
             list.Add(new SharedLocalDevice
             {
                 Kind = SharedDeviceKinds.Camera,
                 Id = i.ToString(),
                 Name = n,
-                IsDefault = i == 0
+                IsDefault = list.Count == 0
             });
         }
 
-        return list.Count == 0
-            ?
-            [
-                new SharedLocalDevice
-                {
-                    Kind = SharedDeviceKinds.Camera,
-                    Id = "0",
-                    Name = "系统默认摄像头",
-                    IsDefault = true
-                }
-            ]
-            : list;
+        return list;
     }
 
-    private static IReadOnlyList<SharedLocalDevice> FallbackAudio(bool capture)
-    {
-        var kind = capture ? SharedDeviceKinds.Microphone : SharedDeviceKinds.Speaker;
-        return
-        [
-            new SharedLocalDevice
-            {
-                Kind = kind,
-                Id = "default",
-                Name = "系统默认",
-                IsDefault = true
-            }
-        ];
-    }
+    private static bool IsPhantomCameraDriver(string name)
+        => name.Contains("WDM Image Capture", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("Microsoft WDM Image Capture (Win32)", StringComparison.OrdinalIgnoreCase);
 
     private static readonly PropertyKey PkeyDeviceFriendlyName = new()
     {

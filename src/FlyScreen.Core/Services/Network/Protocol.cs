@@ -188,7 +188,13 @@ public static class PeerCaps
     /// <summary>已安装共享设备工具（扬声器/麦克风/摄像头）。</summary>
     public const string ToolSharedDevices = "Tool:shared-devices";
 
+    /// <summary>对端会按实机枚举宣告 <c>Tool:shared-devices:speaker|microphone|camera</c>。</summary>
+    public const string ToolSharedDevicesKindsV1 = "Tool:shared-devices:kinds-v1";
+
     public static string ToolCap(string toolId) => "Tool:" + toolId;
+
+    public static string ToolSharedDevicesKindCap(string kind)
+        => ToolSharedDevices + ":" + kind.Trim().ToLowerInvariant();
 
     public static readonly string[] DesktopFull =
     [

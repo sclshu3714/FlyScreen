@@ -32,32 +32,34 @@ public partial class SharedDevicesIncomingDialog : Window
         AcceptBtn.Content = Loc.T("Tool.SharedDevices.Accept");
         RejectBtn.Content = Loc.T("Tool.SharedDevices.Reject");
 
+        var anyDevice = false;
         foreach (var kind in req.Kinds)
         {
+            var list = _sd.EnumerateLocalDevices(kind);
+            if (list.Count == 0)
+                continue;
+
+            anyDevice = true;
             var label = new TextBlock
             {
                 Text = SharedDevicesKindLabels.Localize(kind),
                 Margin = new Thickness(0, 0, 0, 4)
             };
             var combo = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
-            FillCombo(combo, kind);
+            FillCombo(combo, kind, list);
             DevicePanel.Children.Add(label);
             DevicePanel.Children.Add(combo);
             _combos[kind] = combo;
         }
+
+        AcceptBtn.IsEnabled = anyDevice;
+        if (!anyDevice)
+            BodyText.Text = string.Format(Loc.T("Tool.SharedDevices.IncomingBody"), req.FromPeer,
+                Loc.T("Tool.SharedDevices.PeerNoDevice"));
     }
 
-    private void FillCombo(ComboBox combo, string kind)
+    private void FillCombo(ComboBox combo, string kind, IReadOnlyList<FlyScreen.ToolSdk.SharedLocalDevice> list)
     {
-        var list = _sd.EnumerateLocalDevices(kind);
-        if (list.Count == 0)
-        {
-            combo.Items.Add(new DeviceItem("", Loc.T("Tool.SharedDevices.NoLocalDevice")));
-            combo.SelectedIndex = 0;
-            combo.IsEnabled = false;
-            return;
-        }
-
         var selected = _sd.GetSelectedDeviceId(kind);
         DeviceItem? pick = null;
         foreach (var d in list)
@@ -73,11 +75,26 @@ public partial class SharedDevicesIncomingDialog : Window
 
     private void Accept_Click(object sender, RoutedEventArgs e)
     {
+        if (_combos.Count == 0)
+        {
+            Accepted = false;
+            DialogResult = false;
+            Close();
+            return;
+        }
+
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (kind, combo) in _combos)
         {
             if (combo.SelectedItem is DeviceItem item && !string.IsNullOrEmpty(item.Id))
                 map[kind] = item.Id;
+        }
+
+        if (map.Count == 0)
+        {
+            MessageBox.Show(this, Loc.T("Tool.SharedDevices.NoLocalDevice"), Title,
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
         }
 
         SelectedDevices = map;

@@ -100,26 +100,11 @@ public sealed class AndroidSharedDevicesHardware : ISharedDevicesHardware
         }
 
         if (list.Count == 0)
-            return FallbackAudio(inputs);
+            return list;
 
         if (!list.Any(d => d.IsDefault))
             list[0] = CloneDefault(list[0]);
         return list;
-    }
-
-    private static IReadOnlyList<SharedLocalDevice> FallbackAudio(bool inputs)
-    {
-        var kind = inputs ? SharedDeviceKinds.Microphone : SharedDeviceKinds.Speaker;
-        return
-        [
-            new SharedLocalDevice
-            {
-                Kind = kind,
-                Id = "default",
-                Name = "系统默认",
-                IsDefault = true
-            }
-        ];
     }
 
     private static SharedLocalDevice CloneDefault(SharedLocalDevice d) => new()

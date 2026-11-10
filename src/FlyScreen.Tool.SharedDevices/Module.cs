@@ -92,6 +92,13 @@ public class SharedDevicesToolModule : IToolModule
         host.RegisterService(_service);
         host.RegisterService<ISharedDevicesRuntime>(_service);
 
+        if (catalog != null)
+        {
+            catalog.RegisterDynamicCapProvider(() =>
+                _service?.BuildAdvertisedCaps() ?? []);
+            catalog.RefreshExtraCaps();
+        }
+
         var audio = host.GetService<IProjectionAudioEngine>();
         if (audio != null)
             _service.AttachAudioEngine(audio);

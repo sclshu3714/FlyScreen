@@ -153,9 +153,23 @@ public sealed class ToolCatalog
         RaiseChanged();
     }
 
+    private readonly List<Func<IEnumerable<string>>> _dynamicCapProviders = [];
+
+    /// <summary>工具运行时附加 Caps（如共享设备按实机枚举的 speaker/microphone/camera）。</summary>
+    public void RegisterDynamicCapProvider(Func<IEnumerable<string>> provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        lock (_gate)
+        {
+            if (!_dynamicCapProviders.Contains(provider))
+                _dynamicCapProviders.Add(provider);
+        }
+    }
+
     public void RefreshExtraCaps()
     {
         var caps = new List<string>();
+        List<Func<IEnumerable<string>>> providers;
         lock (_gate)
         {
             foreach (var rec in _state.Tools)
@@ -167,6 +181,24 @@ public sealed class ToolCatalog
                     if (!string.IsNullOrWhiteSpace(c))
                         caps.Add(c.Trim());
                 }
+            }
+
+            providers = _dynamicCapProviders.ToList();
+        }
+
+        foreach (var provider in providers)
+        {
+            try
+            {
+                foreach (var c in provider())
+                {
+                    if (!string.IsNullOrWhiteSpace(c))
+                        caps.Add(c.Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("动态 Caps 提供失败: " + ex.Message);
             }
         }
 
