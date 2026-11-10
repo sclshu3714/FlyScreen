@@ -978,11 +978,18 @@ public sealed class MauiInputRouter : IDisposable
         return false;
     }
 
-    /// <summary>托盘/UI 跳转到布局中的机器（本机中央落点；对端与热键切换同一路径）。</summary>
+    /// <summary>
+    /// 托盘/UI 强制跳转到布局中的机器：任意穿边模式可用，落点屏幕中央。
+    /// 与鼠标穿边门控 / EasyMouse / SwitchHotkeyMode 无关。
+    /// </summary>
     public bool TrySwitchToMachine(string machineName)
     {
         if (string.IsNullOrWhiteSpace(machineName)) return false;
         machineName = machineName.Trim();
+
+        _switchCooldownUntilTick = 0;
+        _edgeGate.Reset();
+
         if (IsLocalMachine(machineName))
         {
             VirtualScreen.GetBounds(out var l, out var t, out var w, out var h);
@@ -990,7 +997,26 @@ public sealed class MauiInputRouter : IDisposable
             return true;
         }
 
-        return TryHotkeySwitchToPeer(machineName);
+        if (!_connections.IsPeerReachable(machineName))
+        {
+            AppLog.Warn($"托盘切换失败：对端不可达 {machineName}");
+            return false;
+        }
+
+        if (!_connections.PeerSupports(machineName, PeerCaps.InjectInput))
+        {
+            AppLog.Warn($"托盘切换失败：对端无 InjectInput（手机/平板请开启无障碍）{machineName}");
+            return false;
+        }
+
+        if (IsEdgeCrossExcluded?.Invoke(machineName) == true)
+        {
+            AppLog.Warn($"托盘切换失败：对端被扩展屏排除 {machineName}");
+            return false;
+        }
+
+        SwitchToPeer(machineName, 0.5, 0.5, peerSide: 0);
+        return true;
     }
 
     /// <summary>热键切换到布局中的对端（含手机/平板：有 InjectInput 即可）。</summary>
