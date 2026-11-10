@@ -355,6 +355,22 @@ public partial class MainPage : ContentPage
     private void EnsureDesktopTray()
     {
         if (!_host.Platform.SupportsTray) return;
+#if WINDOWS
+        if (_host.Platform is Platforms.Windows.WindowsMauiPlatformServices winPlat)
+        {
+            winPlat.AfterSwitchHotkeyModeChanged = () =>
+            {
+                var mode = _host.Settings.SwitchHotkeyMode;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    HotF.IsChecked = mode == 0;
+                    HotNum.IsChecked = mode == 1;
+                    HotOff.IsChecked = mode == 2;
+                });
+                _ = _host.BroadcastBehaviorSyncAsync();
+            };
+        }
+#endif
         _host.Platform.EnsureTray(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),

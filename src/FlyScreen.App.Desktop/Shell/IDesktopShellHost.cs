@@ -29,6 +29,9 @@ public interface IDesktopShellHost
     bool SupportsTray { get; }
     bool SupportsAutoStart { get; }
 
+    /// <summary>托盘「切换机器」：跳到布局中的本机/对端；无穿边路由时返回 false。</summary>
+    bool TrySwitchToMachine(string machineName) => false;
+
     Task StartAsync();
     Task RestartNetworkingAsync();
     /// <summary>应用设置：默认保持连接；仅端口/网卡/密钥变化时整网重启。</summary>

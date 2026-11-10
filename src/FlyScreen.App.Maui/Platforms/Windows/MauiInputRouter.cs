@@ -655,6 +655,8 @@ public sealed class MauiInputRouter : IDisposable
         var msg = wParam.ToInt32();
         var down = msg is NativeMethods.WM_KEYDOWN or NativeMethods.WM_SYSKEYDOWN;
 
+        ModifierKeyRelease.ObservePhysicalKey((int)info.vkCode, down);
+
         if (down)
         {
             _lastPhysicalInputTick = Environment.TickCount64;
@@ -663,7 +665,7 @@ public sealed class MauiInputRouter : IDisposable
         }
 
         // Ctrl+Alt+热键（成功后必须松开修饰键，否则切入远端后本机 KEYUP 被吞会粘滞）
-        if (down && IsCtrlAlt())
+        if (down && ModifierKeyRelease.IsCtrlAltHeld())
         {
             var peerBefore = _controllingRemote ? _activePeer : null;
             var triggerVk = (ushort)info.vkCode;
@@ -883,7 +885,7 @@ public sealed class MauiInputRouter : IDisposable
 
     private bool HandleHotkey(int vk)
     {
-        // 切换机器 F1-F4 / 1-4
+        // 切换机器 F1-F4 / 1-4 → 布局固定 4 格（单行左→右；双行上排 F1 F2、下排 F3 F4）
         if (_settings.SwitchHotkeyMode != 2)
         {
             var slots = GetLayoutSlots();
@@ -896,9 +898,12 @@ public sealed class MauiInputRouter : IDisposable
             {
                 var target = slots[idx]!;
                 if (IsLocalMachine(target))
-                    TakeLocalControl();
+                {
+                    VirtualScreen.GetBounds(out var l, out var t, out var w, out var h);
+                    TakeLocalControl(l + w * 0.5, t + h * 0.5);
+                }
                 else
-                    SwitchToPeer(target, 0.5, 0.5, ResolvePeerSide(target));
+                    _ = TryHotkeySwitchToPeer(target);
                 return true;
             }
         }
@@ -973,32 +978,50 @@ public sealed class MauiInputRouter : IDisposable
         return false;
     }
 
-    private static bool IsCtrlAlt()
+    /// <summary>托盘/UI 跳转到布局中的机器（本机中央落点；对端与热键切换同一路径）。</summary>
+    public bool TrySwitchToMachine(string machineName)
     {
-        const int VK_CONTROL = 0x11;
-        const int VK_MENU = 0x12;
-        return (NativeMethods.GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
-               && (NativeMethods.GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+        if (string.IsNullOrWhiteSpace(machineName)) return false;
+        machineName = machineName.Trim();
+        if (IsLocalMachine(machineName))
+        {
+            VirtualScreen.GetBounds(out var l, out var t, out var w, out var h);
+            TakeLocalControl(l + w * 0.5, t + h * 0.5);
+            return true;
+        }
+
+        return TryHotkeySwitchToPeer(machineName);
     }
 
-    private static bool IsCtrlDown()
-        => (NativeMethods.GetAsyncKeyState(0x11) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0xA2) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0xA3) & 0x8000) != 0;
+    /// <summary>热键切换到布局中的对端（含手机/平板：有 InjectInput 即可）。</summary>
+    private bool TryHotkeySwitchToPeer(string peer)
+    {
+        if (!_connections.IsPeerReachable(peer))
+        {
+            AppLog.Warn($"热键切换失败：对端不可达 {peer}");
+            return false;
+        }
 
-    private static bool IsShiftDown()
-        => (NativeMethods.GetAsyncKeyState(0x10) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0xA0) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0xA1) & 0x8000) != 0;
+        if (!_connections.PeerSupports(peer, PeerCaps.InjectInput))
+        {
+            AppLog.Warn($"热键切换失败：对端无 InjectInput（手机/平板请开启无障碍）{peer}");
+            return false;
+        }
 
-    private static bool IsAltDown()
-        => (NativeMethods.GetAsyncKeyState(0x12) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0xA4) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0xA5) & 0x8000) != 0;
+        if (IsEdgeCrossExcluded?.Invoke(peer) == true)
+        {
+            AppLog.Warn($"热键切换失败：对端被扩展屏排除 {peer}");
+            return false;
+        }
 
-    private static bool IsWinDown()
-        => (NativeMethods.GetAsyncKeyState(0x5B) & 0x8000) != 0
-           || (NativeMethods.GetAsyncKeyState(0x5C) & 0x8000) != 0;
+        SwitchToPeer(peer, 0.5, 0.5, ResolvePeerSide(peer));
+        return true;
+    }
+
+    private static bool IsCtrlDown() => ModifierKeyRelease.IsCtrlHeld();
+    private static bool IsShiftDown() => ModifierKeyRelease.IsShiftHeld();
+    private static bool IsAltDown() => ModifierKeyRelease.IsAltHeld();
+    private static bool IsWinDown() => ModifierKeyRelease.IsWinHeld();
 
     /// <summary>
     /// 固定 4 格布局（与设置页矩阵一致）：

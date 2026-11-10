@@ -252,6 +252,30 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         EdgeFileDrag?.SetHover(null);
     }
 
+    /// <summary>托盘/UI 跳转到布局中的机器（本机中央落点；对端与穿边切换同一路径）。</summary>
+    public bool TrySwitchToMachine(string machineName)
+    {
+        if (string.IsNullOrWhiteSpace(machineName)) return false;
+        machineName = machineName.Trim();
+        if (IsLocalMachine(machineName))
+        {
+            GetVirtualBounds(out var l, out var t, out var w, out var h);
+            TakeLocalControl();
+            var cx = l + w / 2;
+            var cy = t + h / 2;
+            Win32.SetCursorPos(cx, cy);
+            _lastX = cx;
+            _lastY = cy;
+            return true;
+        }
+
+        if (!_connections.IsPeerReachable(machineName)) return false;
+        if (!_connections.PeerSupports(machineName, PeerCaps.InjectInput)) return false;
+        if (IsEdgeCrossExcluded?.Invoke(machineName) == true) return false;
+        SwitchToPeer(machineName, 0.5, 0.5, 0);
+        return true;
+    }
+
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode < 0)

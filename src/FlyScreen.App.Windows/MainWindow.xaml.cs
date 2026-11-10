@@ -404,6 +404,10 @@ public partial class MainWindow : Window
 
     private void ShowTrayContextMenu()
     {
+        var s = _host.Settings;
+        var machines = TraySwitchMenu.BuildItems(s)
+            .Select(x => (x.Label, (Action)(() => TraySwitchToMachine(x.MachineName))))
+            .ToList();
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
@@ -414,7 +418,36 @@ public partial class MainWindow : Window
                 ShowFromTray();
                 ShowPage(5);
             },
-            onExit: ExitApp);
+            onExit: ExitApp,
+            switchMachines: machines,
+            disableLabel: TraySwitchMenu.DisableLabel(s.SwitchHotkeyMode == 2),
+            onToggleDisable: ToggleTraySwitchHotkeyDisable);
+    }
+
+    private void TraySwitchToMachine(string machineName)
+    {
+        if (TraySwitchMenu.EnsureSwitchHotkeyEnabled(_host.Settings))
+        {
+            ApplySwitchHotkeyRadiosFromSettings();
+            _ = _host.BroadcastBehaviorSyncAsync();
+        }
+
+        _host.Input.TrySwitchToMachine(machineName);
+    }
+
+    private void ToggleTraySwitchHotkeyDisable()
+    {
+        TraySwitchMenu.ToggleSwitchHotkeyDisabled(_host.Settings);
+        ApplySwitchHotkeyRadiosFromSettings();
+        _ = _host.BroadcastBehaviorSyncAsync();
+    }
+
+    private void ApplySwitchHotkeyRadiosFromSettings()
+    {
+        var mode = _host.Settings.SwitchHotkeyMode;
+        HotF.IsChecked = mode == 0;
+        HotNum.IsChecked = mode == 1;
+        HotOff.IsChecked = mode == 2;
     }
 
     private void ApplyTrayLocalized()
@@ -567,7 +600,7 @@ public partial class MainWindow : Window
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
         s.AutoStart = wantAutoStart;
-        s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
+        TraySwitchMenu.ApplyMode(s, HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0);
         s.HotkeySettings = HkSettings.Text.Trim();
         s.HotkeyReconnect = HkReconnect.Text.Trim();
         s.HotkeyExit = HkExit.Text.Trim();

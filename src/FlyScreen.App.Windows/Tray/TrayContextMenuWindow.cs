@@ -1,10 +1,12 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Threading;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using WinForms = System.Windows.Forms;
@@ -29,6 +31,13 @@ public sealed class TrayContextMenuWindow : Window
     private readonly ProjectionUiPhase _projectPhase;
     private readonly Action _onAbout;
     private readonly Action _onExit;
+    private readonly IReadOnlyList<(string Label, Action Action)> _switchMachines;
+    private readonly string _disableLabel;
+    private readonly Action _onToggleDisable;
+    private Popup? _switchPopup;
+    private DispatcherTimer? _switchCloseTimer;
+    private Border? _switchParentRow;
+    private Border? _switchParentAccent;
     private bool _closing;
 
     public TrayContextMenuWindow(
@@ -37,7 +46,10 @@ public sealed class TrayContextMenuWindow : Window
         Action onProject,
         ProjectionUiPhase projectPhase,
         Action onAbout,
-        Action onExit)
+        Action onExit,
+        IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
+        string? disableLabel = null,
+        Action? onToggleDisable = null)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
@@ -45,6 +57,9 @@ public sealed class TrayContextMenuWindow : Window
         _projectPhase = projectPhase;
         _onAbout = onAbout;
         _onExit = onExit;
+        _switchMachines = switchMachines ?? Array.Empty<(string, Action)>();
+        _disableLabel = disableLabel ?? Loc.T("Hot.Off");
+        _onToggleDisable = onToggleDisable ?? (() => { });
 
         AllowsTransparency = true;
         Background = WpfBrushes.Transparent;
@@ -75,11 +90,16 @@ public sealed class TrayContextMenuWindow : Window
         Action onProject,
         ProjectionUiPhase projectPhase,
         Action onAbout,
-        Action onExit)
+        Action onExit,
+        IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
+        string? disableLabel = null,
+        Action? onToggleDisable = null)
     {
         try { _open?.CloseMenu(); } catch { /* ignore */ }
 
-        var w = new TrayContextMenuWindow(onOpen, onReconnect, onProject, projectPhase, onAbout, onExit);
+        var w = new TrayContextMenuWindow(
+            onOpen, onReconnect, onProject, projectPhase, onAbout, onExit,
+            switchMachines, disableLabel, onToggleDisable);
         _open = w;
         // 先在光标处就位再显示。直接 Show 会先画在 (0,0)，再跳到鼠标，看起来从左上角闪过来。
         w.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -128,9 +148,229 @@ public sealed class TrayContextMenuWindow : Window
         stack.Children.Add(BuildProjectItem());
         stack.Children.Add(BuildItem(Loc.T("Tray.About"), _onAbout));
         stack.Children.Add(BuildSeparator());
+        stack.Children.Add(BuildSwitchFlyoutItem());
+        stack.Children.Add(BuildSeparator());
         stack.Children.Add(BuildItem(Loc.T("Tray.Exit"), _onExit));
         card.Child = stack;
         return card;
+    }
+
+    private FrameworkElement BuildSwitchFlyoutItem()
+    {
+        var hoverBg = new SolidColorBrush(WpfColor.FromRgb(0xE8, 0xF2, 0xFF));
+        var hoverBorder = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xC3, 0xDE));
+        var accentBrush = new SolidColorBrush(WpfColor.FromRgb(0x25, 0x63, 0xEB));
+
+        var accent = new Border
+        {
+            Width = 3,
+            Height = 20,
+            CornerRadius = new CornerRadius(1.5),
+            Background = WpfBrushes.Transparent,
+            HorizontalAlignment = WpfHAlign.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(-8, 0, 0, 0)
+        };
+        var text = new TextBlock
+        {
+            Text = Loc.T("Tray.Switch"),
+            FontSize = 13,
+            FontFamily = new WpfFontFamily("Microsoft YaHei UI, Segoe UI"),
+            Foreground = new SolidColorBrush(WpfColor.FromRgb(0x11, 0x18, 0x27)),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = WpfHAlign.Left
+        };
+        var chevron = new TextBlock
+        {
+            Text = "\uE76C", // ChevronRight
+            FontSize = 12,
+            FontFamily = new WpfFontFamily("Segoe MDL2 Assets"),
+            Foreground = new SolidColorBrush(WpfColor.FromRgb(0x6B, 0x7C, 0x8F)),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = WpfHAlign.Right
+        };
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(text, 0);
+        Grid.SetColumn(chevron, 1);
+        content.Children.Add(text);
+        content.Children.Add(chevron);
+
+        var inner = new Grid();
+        inner.Children.Add(accent);
+        inner.Children.Add(content);
+
+        var row = new Border
+        {
+            Background = WpfBrushes.Transparent,
+            BorderBrush = WpfBrushes.Transparent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 0, 14, 0),
+            Height = 36,
+            Margin = new Thickness(4, 1, 4, 1),
+            Cursor = WpfCursors.Hand,
+            Child = inner,
+            SnapsToDevicePixels = true
+        };
+
+        var subStack = new StackPanel { Margin = new Thickness(4, 6, 4, 6) };
+        foreach (var (label, action) in _switchMachines)
+            subStack.Children.Add(BuildSubItem(label, action));
+        if (_switchMachines.Count > 0)
+            subStack.Children.Add(BuildSeparator());
+        subStack.Children.Add(BuildSubItem(_disableLabel, _onToggleDisable));
+
+        var subCard = new Border
+        {
+            Margin = new Thickness(4),
+            Background = new SolidColorBrush(WpfColor.FromRgb(0xFB, 0xFD, 0xFF)),
+            BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0xC9, 0xD7, 0xE8)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            MinWidth = 168,
+            Child = subStack,
+            SnapsToDevicePixels = true,
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 18,
+                ShadowDepth = 2,
+                Direction = 270,
+                Opacity = 0.24,
+                Color = WpfColor.FromRgb(0x14, 0x23, 0x3A),
+                RenderingBias = RenderingBias.Quality
+            }
+        };
+
+        _switchPopup = new Popup
+        {
+            PlacementTarget = row,
+            Placement = PlacementMode.Right,
+            HorizontalOffset = 2,
+            VerticalOffset = -10,
+            AllowsTransparency = true,
+            StaysOpen = true,
+            Focusable = false,
+            Child = subCard
+        };
+
+        _switchParentRow = row;
+        _switchParentAccent = accent;
+
+        void OpenSwitch()
+        {
+            CancelSwitchClose();
+            if (_switchPopup != null)
+                _switchPopup.IsOpen = true;
+            row.Background = hoverBg;
+            row.BorderBrush = hoverBorder;
+            accent.Background = accentBrush;
+        }
+
+        row.MouseEnter += (_, _) => OpenSwitch();
+        row.MouseLeave += (_, _) => ScheduleSwitchClose();
+        subCard.MouseEnter += (_, _) => CancelSwitchClose();
+        subCard.MouseLeave += (_, _) => ScheduleSwitchClose();
+        row.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            OpenSwitch();
+        };
+        return row;
+    }
+
+    private void CancelSwitchClose()
+    {
+        if (_switchCloseTimer == null) return;
+        _switchCloseTimer.Stop();
+    }
+
+    private void ScheduleSwitchClose()
+    {
+        _switchCloseTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+        _switchCloseTimer.Tick -= SwitchCloseTick;
+        _switchCloseTimer.Tick += SwitchCloseTick;
+        _switchCloseTimer.Stop();
+        _switchCloseTimer.Start();
+    }
+
+    private void SwitchCloseTick(object? sender, EventArgs e)
+    {
+        CancelSwitchClose();
+        if (_switchPopup != null)
+            _switchPopup.IsOpen = false;
+        if (_switchParentRow != null)
+        {
+            _switchParentRow.Background = WpfBrushes.Transparent;
+            _switchParentRow.BorderBrush = WpfBrushes.Transparent;
+        }
+
+        if (_switchParentAccent != null)
+            _switchParentAccent.Background = WpfBrushes.Transparent;
+    }
+
+    private FrameworkElement BuildSubItem(string label, Action action)
+    {
+        var hoverBg = new SolidColorBrush(WpfColor.FromRgb(0xE8, 0xF2, 0xFF));
+        var hoverBorder = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xC3, 0xDE));
+        var accentBrush = new SolidColorBrush(WpfColor.FromRgb(0x25, 0x63, 0xEB));
+
+        var accent = new Border
+        {
+            Width = 3,
+            Height = 20,
+            CornerRadius = new CornerRadius(1.5),
+            Background = WpfBrushes.Transparent,
+            HorizontalAlignment = WpfHAlign.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(-8, 0, 0, 0)
+        };
+        var text = new TextBlock
+        {
+            Text = label,
+            FontSize = 13,
+            FontFamily = new WpfFontFamily("Microsoft YaHei UI, Segoe UI"),
+            Foreground = new SolidColorBrush(WpfColor.FromRgb(0x11, 0x18, 0x27)),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var inner = new Grid();
+        inner.Children.Add(accent);
+        inner.Children.Add(text);
+
+        var row = new Border
+        {
+            Background = WpfBrushes.Transparent,
+            BorderBrush = WpfBrushes.Transparent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 0, 14, 0),
+            Height = 36,
+            Margin = new Thickness(4, 1, 4, 1),
+            Cursor = WpfCursors.Hand,
+            Child = inner,
+            SnapsToDevicePixels = true
+        };
+        row.MouseEnter += (_, _) =>
+        {
+            CancelSwitchClose();
+            row.Background = hoverBg;
+            row.BorderBrush = hoverBorder;
+            accent.Background = accentBrush;
+        };
+        row.MouseLeave += (_, _) =>
+        {
+            row.Background = WpfBrushes.Transparent;
+            row.BorderBrush = WpfBrushes.Transparent;
+            accent.Background = WpfBrushes.Transparent;
+        };
+        row.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            CloseMenu();
+            try { action(); } catch { /* ignore */ }
+        };
+        return row;
     }
 
     private static FrameworkElement BuildSeparator()
@@ -299,6 +539,14 @@ public sealed class TrayContextMenuWindow : Window
     {
         if (_closing) return;
         _closing = true;
+        CancelSwitchClose();
+        try
+        {
+            if (_switchPopup != null)
+                _switchPopup.IsOpen = false;
+        }
+        catch { /* ignore */ }
+
         if (ReferenceEquals(_open, this))
             _open = null;
         try { Close(); } catch { /* ignore */ }

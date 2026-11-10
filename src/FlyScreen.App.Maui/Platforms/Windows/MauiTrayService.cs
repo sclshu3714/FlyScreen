@@ -31,6 +31,8 @@ public sealed class MauiTrayService : IDisposable
     private Action? _about;
     private Action? _exit;
     private Func<ProjectionUiPhase>? _projectPhase;
+    private Func<IReadOnlyList<(string Label, Action Action)>>? _switchMachines;
+    private Func<(string Label, Action Toggle)>? _switchDisable;
     private bool _added;
 
     public void Ensure(
@@ -39,7 +41,9 @@ public sealed class MauiTrayService : IDisposable
         Action project,
         Action about,
         Action exit,
-        Func<ProjectionUiPhase>? projectPhase = null)
+        Func<ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action)>>? switchMachines = null,
+        Func<(string Label, Action Toggle)>? switchDisable = null)
     {
         _show = show;
         _reconnect = reconnect;
@@ -47,6 +51,8 @@ public sealed class MauiTrayService : IDisposable
         _about = about;
         _exit = exit;
         _projectPhase = projectPhase;
+        _switchMachines = switchMachines;
+        _switchDisable = switchDisable;
         if (_hwnd != IntPtr.Zero) return;
 
         _proc = WndProcImpl;
@@ -132,13 +138,31 @@ public sealed class MauiTrayService : IDisposable
 
     private void ShowContextMenu()
     {
+        IReadOnlyList<(string Label, Action Action)>? machines = null;
+        try { machines = _switchMachines?.Invoke(); } catch { /* ignore */ }
+        string? disableLabel = null;
+        Action? onToggle = null;
+        try
+        {
+            if (_switchDisable != null)
+            {
+                var d = _switchDisable();
+                disableLabel = d.Label;
+                onToggle = d.Toggle;
+            }
+        }
+        catch { /* ignore */ }
+
         MauiTrayPopup.ShowNearCursor(
             onOpen: () => _show?.Invoke(),
             onReconnect: () => _reconnect?.Invoke(),
             onProject: () => _project?.Invoke(),
             projectPhase: _projectPhase?.Invoke() ?? ProjectionUiPhase.Idle,
             onAbout: () => _about?.Invoke(),
-            onExit: () => _exit?.Invoke());
+            onExit: () => _exit?.Invoke(),
+            switchMachines: machines,
+            disableLabel: disableLabel,
+            onToggleDisable: onToggle);
     }
 
     private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

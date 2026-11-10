@@ -725,7 +725,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.ShareClipboard = shareClipboard;
         Settings.TransferFile = transferFile;
         Settings.EasyMouse = easyMouse;
-        Settings.EdgeCrossMode = edgeCrossMode is >= 0 and <= 2 ? edgeCrossMode : 0;
+        // 0 无障碍 / 1 双击 / 2 极速 / 3 快捷键（与 BehaviorSyncHelper、Win 端一致）
+        Settings.EdgeCrossMode = edgeCrossMode is >= 0 and <= 3 ? edgeCrossMode : 0;
         Settings.SameSubnetOnly = sameSubnet;
         Settings.HideMouseAtEdge = hideMouseAtEdge;
         Settings.DrawMouseCursor = drawMouseCursor;
@@ -734,7 +735,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.BlockScreenSaver = blockScreenSaver;
         Settings.MoveMouseRelatively = moveMouseRelatively;
         Settings.BlockMouseAtCorners = blockMouseAtCorners;
-        Settings.SwitchHotkeyMode = switchHotkeyMode;
+        FlyScreen.Helpers.TraySwitchMenu.ApplyMode(Settings, switchHotkeyMode);
         if (hotkeySettings != null) Settings.HotkeySettings = hotkeySettings;
         if (hotkeyLock != null) Settings.HotkeyLock = hotkeyLock;
         if (hotkeyReconnect != null) Settings.HotkeyReconnect = hotkeyReconnect;

@@ -76,6 +76,8 @@ public sealed class AppSettings
     /// <summary>对本机发现/握手名的覆盖；空则自动（WSL 会加发行版后缀避免与宿主机撞名）。</summary>
     public string MachineNameOverride { get; set; } = "";
     public int SwitchHotkeyMode { get; set; } // 0=F1-F4, 1=1-4, 2=禁用
+    /// <summary>禁用前的切换热键模式（0/1），取消禁用时恢复。</summary>
+    public int SwitchHotkeyModeBeforeOff { get; set; }
     public string HotkeySettings { get; set; } = "M";
     public string HotkeyLock { get; set; } = "L";
     public string HotkeyReconnect { get; set; } = "R";

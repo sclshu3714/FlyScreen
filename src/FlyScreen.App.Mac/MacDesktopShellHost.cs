@@ -79,6 +79,9 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public bool SupportsTray => true;
     public bool SupportsAutoStart => false;
 
+    public bool TrySwitchToMachine(string machineName)
+        => _host.WindowsEdge?.TrySwitchToMachine(machineName) == true;
+
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();
     public Task ApplyNetworkingAsync(

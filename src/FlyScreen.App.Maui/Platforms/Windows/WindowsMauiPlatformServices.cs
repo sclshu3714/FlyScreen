@@ -54,6 +54,12 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public event Action<string?>? ControlTargetChanged;
 
+    /// <summary>托盘切换热键模式变更后回调（用于跨机 BehaviorSync）。</summary>
+    public Action? AfterSwitchHotkeyModeChanged { get; set; }
+
+    public bool TrySwitchToMachine(string machineName)
+        => _router?.TrySwitchToMachine(machineName) == true;
+
     public void SetRemotePointerSuppressed(bool suppressed) { /* 桌面不需要触控板屏蔽 */ }
 
     public void AttachEdgeFileDrag(EdgeFileDragService drag)
@@ -202,7 +208,22 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 if (exit != null) exit();
                 else MauiCloseToTray.RequestExit();
             },
-            projectPhase: projectPhase);
+            projectPhase: projectPhase,
+            switchMachines: () => TraySwitchMenu.BuildItems(_settings)
+                .Select(x => (x.Label, (Action)(() =>
+                {
+                    if (TraySwitchMenu.EnsureSwitchHotkeyEnabled(_settings))
+                        AfterSwitchHotkeyModeChanged?.Invoke();
+                    _router?.TrySwitchToMachine(x.MachineName);
+                })))
+                .ToList(),
+            switchDisable: () => (
+                TraySwitchMenu.DisableLabel(_settings.SwitchHotkeyMode == 2),
+                (Action)(() =>
+                {
+                    TraySwitchMenu.ToggleSwitchHotkeyDisabled(_settings);
+                    AfterSwitchHotkeyModeChanged?.Invoke();
+                })));
     }
 
     public void HideToBackground(

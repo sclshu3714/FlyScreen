@@ -639,8 +639,53 @@ public partial class MainWindow : Window
             ShowPage(5);
         }));
         menu.Add(new NativeMenuItemSeparator());
+
+        var switchRoot = new NativeMenuItem(Loc.T("Tray.Switch"));
+        var switchSub = new NativeMenu();
+        foreach (var item in TraySwitchMenu.BuildItems(_host.Settings))
+        {
+            var machine = item.MachineName;
+            switchSub.Add(TrayItem(item.Label, () => TraySwitchToMachine(machine)));
+        }
+
+        if (switchSub.Items.Count > 0)
+            switchSub.Add(new NativeMenuItemSeparator());
+        var disabled = _host.Settings.SwitchHotkeyMode == 2;
+        switchSub.Add(TrayItem(TraySwitchMenu.DisableLabel(disabled), ToggleTraySwitchHotkeyDisable));
+        switchRoot.Menu = switchSub;
+        menu.Add(switchRoot);
+
+        menu.Add(new NativeMenuItemSeparator());
         menu.Add(TrayItem(Loc.T("Tray.Exit"), () => Exit_Click(null, new RoutedEventArgs())));
         return menu;
+    }
+
+    private void TraySwitchToMachine(string machineName)
+    {
+        if (TraySwitchMenu.EnsureSwitchHotkeyEnabled(_host.Settings))
+        {
+            ApplySwitchHotkeyRadiosFromSettings();
+            _ = _host.BroadcastBehaviorSyncAsync();
+            ApplyTrayLocalized();
+        }
+
+        _host.TrySwitchToMachine(machineName);
+    }
+
+    private void ToggleTraySwitchHotkeyDisable()
+    {
+        TraySwitchMenu.ToggleSwitchHotkeyDisabled(_host.Settings);
+        ApplySwitchHotkeyRadiosFromSettings();
+        _ = _host.BroadcastBehaviorSyncAsync();
+        ApplyTrayLocalized();
+    }
+
+    private void ApplySwitchHotkeyRadiosFromSettings()
+    {
+        var mode = _host.Settings.SwitchHotkeyMode;
+        HotF.IsChecked = mode == 0;
+        HotNum.IsChecked = mode == 1;
+        HotOff.IsChecked = mode == 2;
     }
 
     private static NativeMenuItem TrayItem(string header, Action action)
@@ -1000,7 +1045,7 @@ public partial class MainWindow : Window
             AutoStartCheck.IsChecked = s.AutoStart;
         }
 
-        s.SwitchHotkeyMode = HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0;
+        TraySwitchMenu.ApplyMode(s, HotNum.IsChecked == true ? 1 : HotOff.IsChecked == true ? 2 : 0);
         s.HotkeySettings = HkSettings.Text?.Trim() ?? "";
         s.HotkeyReconnect = HkReconnect.Text?.Trim() ?? "";
         s.HotkeyExit = HkExit.Text?.Trim() ?? "";
