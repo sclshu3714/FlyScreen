@@ -10,13 +10,20 @@
   -->
   <PropertyGroup Condition="'$(FlyScreenJobId)' != ''">
     <_FlyScreenJobObjRoot>$(MSBuildThisFileDirectory)artifacts\setup-work\$(FlyScreenJobId)\obj\</_FlyScreenJobObjRoot>
+    <_FlyScreenSkipJobObj Condition="$([System.String]::Copy('$(MSBuildProjectName)').Contains('_wpftmp'))">true</_FlyScreenSkipJobObj>
+    <!--
+      MAUI / WinAppSDK 仍把 MsixContent、resources.pri 写到工程目录 obj\...\MsixContent，
+      与 BaseIntermediateOutputPath 重定向不同步；重定向后易出现 MSB3030（找不到 pri）或并行抢锁。
+    -->
+    <_FlyScreenSkipJobObj Condition="'$(MSBuildProjectName)' == 'FlyScreen.App.Maui'">true</_FlyScreenSkipJobObj>
     <!--
       只改写中间输出，不改 MSBuildProjectExtensionsPath：
       WPF 会生成 *_wpftmp 临时工程，若 ExtensionsPath 也按项目名重定向，
       会去找不存在的 project.assets.json（NETSDK1004）。
       NuGet 资产仍共用工程目录 obj/；并行冲突主要在编译输出与 Installer Payload。
     -->
-    <BaseIntermediateOutputPath Condition="!$([System.String]::Copy('$(MSBuildProjectName)').Contains('_wpftmp'))">$(_FlyScreenJobObjRoot)$(MSBuildProjectName)\</BaseIntermediateOutputPath>
-    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
+    <BaseIntermediateOutputPath Condition="'$(_FlyScreenSkipJobObj)' != 'true'">$(_FlyScreenJobObjRoot)$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <!-- 仅在实际重定向中间目录时排除工程本地 obj/bin，避免与新目录双份 AssemblyInfo（CS0579）。 -->
+    <DefaultItemExcludes Condition="'$(_FlyScreenSkipJobObj)' != 'true'">$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 </Project>

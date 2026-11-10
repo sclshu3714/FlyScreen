@@ -402,17 +402,30 @@ public partial class MainWindow : Window
             var slots = _maxConcurrentJobs - _runningIds.Count;
             if (slots <= 0) return;
 
-            toStart = _jobs
-                .Where(j => j.Status == PublishJobStatus.Waiting)
-                .Take(slots)
-                .ToList();
+            // 同一 csproj（如 maui-win / maui-android）不可并行：WinAppSDK MsixContent、Android obj 都落在工程目录。
+            var busyProjects = _jobs
+                .Where(j => j.Status == PublishJobStatus.Running || _runningIds.Contains(j.Id))
+                .Select(j => NormalizeProjectKey(j.Target.ProjectPath))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var job in toStart)
+            toStart = [];
+            foreach (var job in _jobs.Where(j => j.Status == PublishJobStatus.Waiting))
             {
+                if (slots <= 0) break;
+                var key = NormalizeProjectKey(job.Target.ProjectPath);
+                if (!busyProjects.Add(key))
+                {
+                    if (string.IsNullOrWhiteSpace(job.Message) || job.Message == "等待执行")
+                        job.Message = "等待同工程任务结束…";
+                    continue;
+                }
+
                 job.Status = PublishJobStatus.Running;
                 job.Message = "准备中…";
                 job.Percent = 0;
                 _runningIds.Add(job.Id);
+                toStart.Add(job);
+                slots--;
             }
         }
 
@@ -421,6 +434,9 @@ public partial class MainWindow : Window
 
         RefreshStatusBar();
     }
+
+    private static string NormalizeProjectKey(string? projectPath)
+        => (projectPath ?? "").Replace('/', '\\').Trim().ToLowerInvariant();
 
     private async Task RunJobAsync(PublishJobItem job)
     {
