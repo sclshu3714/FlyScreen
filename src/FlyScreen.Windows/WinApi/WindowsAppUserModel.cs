@@ -1,26 +1,80 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace FlyScreen.WinApi;
 
 /// <summary>
 /// 仅改任务栏/Shell 显示名，不改 exe / AssemblyName。
-/// Win / Maui / TopologyGuard 共用。
+/// Win / Maui / TopologyGuard 共用；WPF 与 Maui 必须使用不同 AUMID，否则任务栏「属性」会指到后启动的那一个。
 /// </summary>
 public static class WindowsAppUserModel
 {
     /// <summary>
-    /// 正式安装与 Debug 必须用不同 AUMID，否则 F5 会激活「开始菜单/Program Files」里已安装的同 ID 实例，
-    /// 看起来像调试却在跑安装包路径。
+    /// 正式安装与 Debug、以及 WPF / Maui 双轨，必须用不同 AUMID，
+    /// 否则 F5 会激活其它宿主的同 ID 实例，看起来像调试却在跑错误路径。
     /// </summary>
+    public static string MainAppId
+    {
+        get
+        {
+            if (IsMauiHostProcess)
+            {
 #if DEBUG
-    public const string MainAppId = "XuanNiao.FlyScreen.Debug";
-    public const string MainDisplayName = "玄鸟 (调试)";
+                return "XuanNiao.FlyScreen.Maui.Debug";
 #else
-    public const string MainAppId = "XuanNiao.FlyScreen";
-    public const string MainDisplayName = "玄鸟";
+                return "XuanNiao.FlyScreen.Maui";
 #endif
+            }
+
+#if DEBUG
+            // 与旧共用 ID 脱钩：曾被 Maui 写入的 RelaunchCommand 会污染任务栏「属性」
+            return "XuanNiao.FlyScreen.Wpf.Debug";
+#else
+            return "XuanNiao.FlyScreen";
+#endif
+        }
+    }
+
+    public static string MainDisplayName
+    {
+        get
+        {
+            if (IsMauiHostProcess)
+            {
+#if DEBUG
+                return "玄鸟 Maui (调试)";
+#else
+                return "玄鸟 Maui";
+#endif
+            }
+
+#if DEBUG
+            return "玄鸟 WPF (调试)";
+#else
+            return "玄鸟";
+#endif
+        }
+    }
+
     public const string GuardAppId = "XuanNiao.FlyScreen.TopologyGuard";
     public const string GuardDisplayName = "玄鸟·守护";
+
+    /// <summary>入口程序集是否为 MAUI 宿主（与 WPF <c>FlyScreen.exe</c> 区分）。</summary>
+    public static bool IsMauiHostProcess
+    {
+        get
+        {
+            var entry = Assembly.GetEntryAssembly()?.GetName().Name;
+            if (!string.IsNullOrEmpty(entry)
+                && entry.Contains("Maui", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var path = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(path)) return false;
+            var file = Path.GetFileNameWithoutExtension(path);
+            return file.Contains("Maui", StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     private static readonly HashSet<nint> AppliedHwnds = [];
     private static string? _processId;
