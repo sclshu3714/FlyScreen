@@ -9,7 +9,10 @@ namespace FlyScreen.AppMaui.Platforms.Windows;
 /// </summary>
 internal static class Win32PathPicker
 {
-    public static IReadOnlyList<string> PickFiles(bool multiSelect = true)
+    public static IReadOnlyList<string> PickFiles(
+        bool multiSelect = true,
+        string? title = null,
+        string? filter = null)
     {
         const int chars = 64 * 1024;
         var buffer = Marshal.AllocHGlobal((multiSelect ? chars : 260) * sizeof(char));
@@ -24,10 +27,12 @@ internal static class Win32PathPicker
             {
                 lStructSize = Marshal.SizeOf<OpenFileName>(),
                 hwndOwner = GetActiveWindow(),
-                lpstrFilter = "所有文件 (*.*)\0*.*\0\0",
+                lpstrFilter = string.IsNullOrWhiteSpace(filter)
+                    ? "所有文件 (*.*)\0*.*\0\0"
+                    : filter,
                 lpstrFile = buffer,
                 nMaxFile = nMax,
-                lpstrTitle = "选择要传输的文件",
+                lpstrTitle = string.IsNullOrWhiteSpace(title) ? "选择要传输的文件" : title,
                 Flags = Of.Explorer | Of.FileMustExist | Of.PathMustExist | Of.NoChangeDir
                         | (multiSelect ? Of.AllowMultiSelect : 0)
             };
@@ -43,6 +48,13 @@ internal static class Win32PathPicker
         {
             Marshal.FreeHGlobal(buffer);
         }
+    }
+
+    /// <summary>单选；取消返回 null。</summary>
+    public static string? PickSingleFile(string? title = null, string? filter = null)
+    {
+        var files = PickFiles(multiSelect: false, title: title, filter: filter);
+        return files.Count > 0 ? files[0] : null;
     }
 
     public static string? PickFolder()

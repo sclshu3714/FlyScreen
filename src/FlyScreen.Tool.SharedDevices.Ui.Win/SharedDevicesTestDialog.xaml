@@ -13,6 +13,10 @@
         FontSize="13"
         Closed="Window_Closed">
   <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Themes/SharedDevicesWinControls.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
     <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
     <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
     <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
@@ -90,6 +94,7 @@
         </Setter.Value>
       </Setter>
     </Style>
+    </ResourceDictionary>
   </Window.Resources>
 
   <Grid Margin="16">

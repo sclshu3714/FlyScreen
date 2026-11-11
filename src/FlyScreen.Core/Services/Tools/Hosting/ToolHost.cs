@@ -152,8 +152,8 @@ public sealed class ToolHost
                 _modules[toolId] = module;
             }
 
-            RaiseChanged();
-
+            // 必须先 OnLoaded（RegisterService）再 ModulesChanged，
+            // 否则宿主 TryWireSharedDevices 时 GetToolService 仍为空，重装后硬件挂不上
             var services = Services;
             if (services != null)
             {
@@ -161,6 +161,7 @@ public sealed class ToolHost
                 await module.OnLoadedAsync(services, ct).ConfigureAwait(false);
             }
 
+            RaiseChanged();
             return module;
         }
         catch (Exception ex)
@@ -229,7 +230,7 @@ public sealed class ToolHost
         foreach (var rec in catalog.GetInstalledRecords())
         {
             ct.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(rec.Path) || !Directory.Exists(rec.Path))
+            if (!ToolInstaller.IsInstallComplete(rec))
                 continue;
             if (Get(rec.Id) != null) continue;
             await LoadInstalledAsync(rec.Id, rec.Path, ct).ConfigureAwait(false);

@@ -147,6 +147,13 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="MinHeight" Value="36"/>
     </Style>
+    <Style Selector="ListBox.logList ListBoxItem:selected">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <Style Selector="ListBox.logList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+    </Style>
     <Style Selector="Button.softWarn">
       <Setter Property="Background" Value="{DynamicResource WarnSoft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
@@ -1073,7 +1080,7 @@
                   <TextBlock x:Name="LogHintText" Text="收录运行中的状态与错误。新记录在底部。"
                              FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
                 </StackPanel>
-                <ListBox x:Name="LogList" Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                <ListBox x:Name="LogList" Classes="logList" Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
                          SelectionMode="Multiple" KeyDown="LogList_KeyDown">
                   <ListBox.ItemTemplate>
                     <DataTemplate DataType="diag:AppLogEntry">
@@ -1084,7 +1091,8 @@
                         <TextBlock Grid.Column="1" Text="{Binding LevelText}" MinWidth="40"
                                    Margin="0,0,8,0" FontWeight="SemiBold"
                                    Foreground="{Binding Level, Converter={x:Static local:LogLevelBrushConverter.Instance}}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Text}"/>
                       </Grid>
                     </DataTemplate>
                   </ListBox.ItemTemplate>

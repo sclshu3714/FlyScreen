@@ -1,7 +1,10 @@
 using System.Windows;
+using System.Windows.Data;
+using System.Windows.Markup;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Tools;
 using FlyScreen.Tool.SharedDevices;
+using FlyScreen.ToolSdk;
 using ComboBox = System.Windows.Controls.ComboBox;
 using TextBlock = System.Windows.Controls.TextBlock;
 
@@ -9,6 +12,8 @@ namespace FlyScreen.Tool.SharedDevices.Ui.Win;
 
 public partial class SharedDevicesIncomingDialog : Window
 {
+    private static readonly DataTemplate DeviceNameTemplate = CreateDeviceNameTemplate();
+
     private readonly SharedDevicesService _sd;
     private readonly SharedDevicesIncomingRequest _req;
     private readonly Dictionary<string, ComboBox> _combos = new(StringComparer.OrdinalIgnoreCase);
@@ -45,7 +50,7 @@ public partial class SharedDevicesIncomingDialog : Window
                 Text = SharedDevicesKindLabels.Localize(kind),
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            var combo = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
+            var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 10) };
             FillCombo(combo, kind, list);
             DevicePanel.Children.Add(label);
             DevicePanel.Children.Add(combo);
@@ -58,19 +63,20 @@ public partial class SharedDevicesIncomingDialog : Window
                 Loc.T("Tool.SharedDevices.PeerNoDevice"));
     }
 
-    private void FillCombo(ComboBox combo, string kind, IReadOnlyList<FlyScreen.ToolSdk.SharedLocalDevice> list)
+    private void FillCombo(ComboBox combo, string kind, IReadOnlyList<SharedLocalDevice> list)
     {
+        // WPF 禁止同时设 DisplayMemberPath + ItemTemplate；只用 ItemTemplate 显示 Name。
+        combo.ItemTemplate = DeviceNameTemplate;
+
         var selected = _sd.GetSelectedDeviceId(kind);
-        DeviceItem? pick = null;
+        SharedLocalDevice? pick = null;
         foreach (var d in list)
         {
-            var item = new DeviceItem(d.Id, d.Name);
-            combo.Items.Add(item);
-            if (d.Id == selected) pick = item;
+            combo.Items.Add(d);
+            if (d.Id == selected) pick = d;
         }
 
         combo.SelectedItem = pick ?? combo.Items[0];
-        combo.DisplayMemberPath = nameof(DeviceItem.Name);
     }
 
     private void Accept_Click(object sender, RoutedEventArgs e)
@@ -86,8 +92,8 @@ public partial class SharedDevicesIncomingDialog : Window
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (kind, combo) in _combos)
         {
-            if (combo.SelectedItem is DeviceItem item && !string.IsNullOrEmpty(item.Id))
-                map[kind] = item.Id;
+            if (combo.SelectedItem is SharedLocalDevice d && !string.IsNullOrEmpty(d.Id))
+                map[kind] = d.Id;
         }
 
         if (map.Count == 0)
@@ -110,6 +116,14 @@ public partial class SharedDevicesIncomingDialog : Window
         Close();
     }
 
-    private sealed record DeviceItem(string Id, string Name);
+    private static DataTemplate CreateDeviceNameTemplate()
+    {
+        const string xaml =
+            """
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+            </DataTemplate>
+            """;
+        return (DataTemplate)XamlReader.Parse(xaml);
+    }
 }
-

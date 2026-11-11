@@ -23,6 +23,8 @@ internal sealed class MauiTraySubPopup : IDisposable
     private const int PanelPadY = 6;
     private const int CornerRadius = 12;
     private const int ItemCorner = 8;
+    private const int IconSize = 16;
+    private const int IconGap = 8;
 
     private static readonly Color CardBg = Color.FromArgb(255, 0xFB, 0xFD, 0xFF);
     private static readonly Color CardBorder = Color.FromArgb(255, 0xC9, 0xD7, 0xE8);
@@ -33,11 +35,12 @@ internal sealed class MauiTraySubPopup : IDisposable
     private static readonly Color Accent = Color.FromArgb(255, 0x25, 0x63, 0xEB);
     private static readonly Color Shadow = Color.FromArgb(70, 0x14, 0x23, 0x3A);
 
-    private readonly IReadOnlyList<(string Label, Action Action)> _items;
+    private readonly IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> _items;
     private readonly Action _onItemInvoked;
     private readonly Action? _onDismissRequested;
     private readonly Rectangle[] _itemRects;
     private readonly bool _sepBeforeLast;
+    private readonly bool _showIcons;
 
     private IntPtr _hwnd;
     private WndProc? _proc;
@@ -52,7 +55,7 @@ internal sealed class MauiTraySubPopup : IDisposable
     public IntPtr Hwnd => _hwnd;
 
     private MauiTraySubPopup(
-        IReadOnlyList<(string Label, Action Action)> items,
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
         Action onItemInvoked,
         Action? onDismissRequested,
         bool sepBeforeLast)
@@ -61,6 +64,7 @@ internal sealed class MauiTraySubPopup : IDisposable
         _onItemInvoked = onItemInvoked;
         _onDismissRequested = onDismissRequested;
         _sepBeforeLast = sepBeforeLast && items.Count > 1;
+        _showIcons = items.Any(x => x.IconPng is { Length: > 0 });
         _itemRects = new Rectangle[items.Count];
         Measure();
     }
@@ -68,7 +72,7 @@ internal sealed class MauiTraySubPopup : IDisposable
     public static MauiTraySubPopup Show(
         int screenX,
         int screenY,
-        IReadOnlyList<(string Label, Action Action)> items,
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
         Action onItemInvoked,
         Action? onDismissRequested = null,
         bool sepBeforeLast = true)
@@ -81,15 +85,16 @@ internal sealed class MauiTraySubPopup : IDisposable
     private void Measure()
     {
         using var font = new Font("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
-        var textW = CardMinWidth - PanelPadX * 2 - ItemMargin * 2 - ItemHPad * 2;
+        var iconSlot = _showIcons ? IconSize + IconGap : 0;
+        var textW = CardMinWidth - PanelPadX * 2 - ItemMargin * 2 - ItemHPad * 2 - iconSlot;
         using (var tmp = new Bitmap(8, 8))
         using (var g = Graphics.FromImage(tmp))
         {
-            foreach (var (label, _) in _items)
+            foreach (var (label, _, _) in _items)
                 textW = Math.Max(textW, (int)Math.Ceiling(g.MeasureString(label, font).Width));
         }
 
-        _cardW = Math.Max(CardMinWidth, textW + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
+        _cardW = Math.Max(CardMinWidth, textW + iconSlot + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
         var sepBlock = _sepBeforeLast ? 1 + 6 * 2 : 0;
         _cardH = PanelPadY * 2
                  + _items.Count * (ItemHeight + ItemMargin * 2)
@@ -197,7 +202,30 @@ internal sealed class MauiTraySubPopup : IDisposable
                     g.FillRectangle(accentBrush, rect.X - 2, rect.Y + (ItemHeight - 20) / 2, 3, 20);
                 }
 
-                var textRect = new RectangleF(rect.X + ItemHPad, rect.Y, rect.Width - ItemHPad * 2, rect.Height);
+                var x = rect.X + ItemHPad;
+                if (_showIcons)
+                {
+                    var iconPng = _items[i].IconPng;
+                    if (iconPng is { Length: > 0 })
+                    {
+                        try
+                        {
+                            using var ms = new MemoryStream(iconPng);
+                            using var icon = System.Drawing.Image.FromStream(ms);
+                            var iy = rect.Y + (rect.Height - IconSize) / 2;
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.DrawImage(icon, x, iy, IconSize, IconSize);
+                        }
+                        catch
+                        {
+                            /* ignore bad icon */
+                        }
+                    }
+
+                    x += IconSize + IconGap;
+                }
+
+                var textRect = new RectangleF(x, rect.Y, Math.Max(8, rect.Right - ItemHPad - x), rect.Height);
                 g.DrawString(_items[i].Label, font, textBrush, textRect, sf);
             }
         }

@@ -70,7 +70,7 @@ internal sealed class MauiTrayPopup : IDisposable
 
     private sealed class SubmenuSpec
     {
-        public required IReadOnlyList<(string Label, Action Action)> Items { get; init; }
+        public required IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> Items { get; init; }
         public bool SepBeforeLast { get; init; }
     }
 
@@ -84,7 +84,7 @@ internal sealed class MauiTrayPopup : IDisposable
         IReadOnlyList<(string Label, Action Action)>? switchMachines,
         string disableLabel,
         Action onToggleDisable,
-        IReadOnlyList<(string Label, Action Action)>? toolShortcuts)
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts)
     {
         _projectPhase = projectPhase;
         _rows = [];
@@ -101,17 +101,21 @@ internal sealed class MauiTrayPopup : IDisposable
 
         var switchClickIndex = CountClickable();
         _rows.Add(new TrayRow { Label = Loc.T("Tray.Switch"), IsSubmenu = true });
-        var switchItems = new List<(string Label, Action Action)>();
+        var switchItems = new List<(string Label, Action Action, byte[]? IconPng)>();
         if (switchMachines != null)
-            switchItems.AddRange(switchMachines);
-        switchItems.Add((disableLabel, onToggleDisable));
+        {
+            foreach (var (label, action) in switchMachines)
+                switchItems.Add((label, action, null));
+        }
+
+        switchItems.Add((disableLabel, onToggleDisable, null));
         _submenus[switchClickIndex] = new SubmenuSpec { Items = switchItems, SepBeforeLast = true };
 
         var toolsClickIndex = CountClickable();
         _rows.Add(new TrayRow { Label = Loc.T("Tray.Tools"), IsSubmenu = true });
-        var toolItems = new List<(string Label, Action Action)>();
+        var toolItems = new List<(string Label, Action Action, byte[]? IconPng)>();
         if (toolShortcuts == null || toolShortcuts.Count == 0)
-            toolItems.Add((Loc.T("Tray.ToolsEmpty"), () => { }));
+            toolItems.Add((Loc.T("Tray.ToolsEmpty"), () => { }, null));
         else
             toolItems.AddRange(toolShortcuts);
         _submenus[toolsClickIndex] = new SubmenuSpec { Items = toolItems, SepBeforeLast = false };
@@ -141,7 +145,7 @@ internal sealed class MauiTrayPopup : IDisposable
         IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
         string? disableLabel = null,
         Action? onToggleDisable = null,
-        IReadOnlyList<(string Label, Action Action)>? toolShortcuts = null)
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts = null)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
         var popup = new MauiTrayPopup(

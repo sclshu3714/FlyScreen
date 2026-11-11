@@ -179,6 +179,9 @@ public sealed class PublishService
         Report(progress, 72, $"{target.DisplayName}：清理调试符号…");
         StripDebugSymbols(staging, log);
 
+        Report(progress, 74, $"{target.DisplayName}：工具仅保留 Bundled（未安装）…");
+        StripToolsInstallStateFromDir(staging, log);
+
         if (target.Id == "maui-android")
         {
             Report(progress, 78, $"{target.DisplayName}：签名 APK…");
@@ -249,6 +252,9 @@ public sealed class PublishService
 
         Report(progress, 48, $"{target.DisplayName}：清理调试符号…");
         StripDebugSymbols(appStaging, log);
+
+        Report(progress, 50, $"{target.DisplayName}：工具仅保留 Bundled（未安装）…");
+        StripToolsInstallStateFromDir(appStaging, log);
 
         Report(progress, 52, $"{target.DisplayName}：发布卸载器…");
         await PublishUninstallerIntoAsync(appStaging, options, log, ct).ConfigureAwait(false);
@@ -449,6 +455,68 @@ public sealed class PublishService
 
         if (removed > 0)
             log($"已从产物中移除 VddOffline 离线包（{removed} 项）。");
+    }
+
+    /// <summary>
+    /// 安装包/发布产物只携带 <c>Tools/Bundled/*.flytool</c>，不预装、不带安装记录。
+    /// 避免开发机旁路 <c>Installed</c>/<c>tools-install.json</c> 被打进 payload，导致安装后显示「已安装」却不可用。
+    /// </summary>
+    private static void StripToolsInstallStateFromDir(string dir, Action<string> log)
+    {
+        if (!Directory.Exists(dir)) return;
+        var removed = 0;
+
+        foreach (var toolsRoot in Directory.EnumerateDirectories(dir, "Tools", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var installed = Path.Combine(toolsRoot, "Installed");
+                if (Directory.Exists(installed))
+                {
+                    Directory.Delete(installed, recursive: true);
+                    removed++;
+                }
+
+                // 保留空 Installed 目录结构也可；此处不重建，运行时 EnsureToolsLayout 会建
+
+                foreach (var name in new[]
+                         {
+                             "tools-install.json",
+                             "tools-shortcuts.json",
+                             "tools-local-programs.json",
+                             "tools-index.cache.json"
+                         })
+                {
+                    var f = Path.Combine(toolsRoot, name);
+                    if (!File.Exists(f)) continue;
+                    File.Delete(f);
+                    removed++;
+                }
+
+                // 非 Bundled 的杂项目录一律去掉（Cache 等遗留）
+                foreach (var sub in Directory.EnumerateDirectories(toolsRoot))
+                {
+                    var leaf = Path.GetFileName(sub);
+                    if (leaf.Equals("Bundled", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    try
+                    {
+                        Directory.Delete(sub, recursive: true);
+                        removed++;
+                    }
+                    catch { /* ignore */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                log($"清理 Tools 安装态失败: {toolsRoot} — {ex.Message}");
+            }
+        }
+
+        if (removed > 0)
+            log($"已从产物剥离工具安装态（{removed} 项），仅保留 Tools/Bundled 供安装后手动安装。");
+        else
+            log("工具目录已是未安装态（仅 Bundled / 无安装记录）。");
     }
 
     private static void EnsureReleaseConfiguration(PublishOptions options, Action<string> log)

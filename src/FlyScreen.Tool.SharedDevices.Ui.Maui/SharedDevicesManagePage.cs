@@ -5,7 +5,6 @@ namespace FlyScreen.Tool.SharedDevices.Ui.Maui;
 
 public sealed class SharedDevicesManagePage : ContentPage
 {
-    private const double ContentMaxWidth = 440;
     private readonly TaskCompletionSource _closed = new();
     private readonly SharedDevicesService _sd;
     private readonly SharedDevicesDeviceSelector _speaker;
@@ -13,7 +12,7 @@ public sealed class SharedDevicesManagePage : ContentPage
     private readonly SharedDevicesDeviceSelector _camera;
     private readonly Label _clearStatus;
     private readonly Grid _host;
-    private readonly VerticalStackLayout _column;
+    private readonly Border _shell;
 
     public Task Closed => _closed.Task;
 
@@ -22,7 +21,6 @@ public sealed class SharedDevicesManagePage : ContentPage
         _sd = sd;
         Title = Loc.T("Tool.SharedDevices.ManageTitle");
         NavigationPage.SetHasNavigationBar(this, false);
-        
 
         var text = ColorOf("Text") ?? Colors.Black;
         var muted = ColorOf("Muted") ?? Colors.Gray;
@@ -73,7 +71,10 @@ public sealed class SharedDevicesManagePage : ContentPage
             await Navigation.PopModalAsync();
         };
 
-        _column = new VerticalStackLayout
+        foreach (var v in new[] { _speaker.View, _mic.View, _camera.View })
+            v.HorizontalOptions = LayoutOptions.Fill;
+
+        var column = new VerticalStackLayout
         {
             Spacing = 12,
             HorizontalOptions = LayoutOptions.Fill,
@@ -109,10 +110,21 @@ public sealed class SharedDevicesManagePage : ContentPage
             }
         };
 
+        // 固定宽外壳：测量边界由壳决定，内部选项文字只能截断
+        _shell = new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Colors.Transparent,
+            Padding = 0,
+            HorizontalOptions = LayoutOptions.Center,
+            Content = column
+        };
+
         _host = new Grid
         {
             Padding = new Thickness(12, 16),
-            Children = { _column }
+            HorizontalOptions = LayoutOptions.Fill,
+            Children = { _shell }
         };
 
         Content = new ScrollView
@@ -120,11 +132,26 @@ public sealed class SharedDevicesManagePage : ContentPage
             BackgroundColor = winBg,
             Orientation = ScrollOrientation.Vertical,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Never,
-            Content = _host
+            VerticalScrollBarVisibility = ScrollBarVisibility.Default,
+            // 禁止横向按内容无限测宽
+            Content = new Grid
+            {
+                HorizontalOptions = LayoutOptions.Fill,
+                Children = { _host }
+            }
         };
 
         SizeChanged += OnPageSizeChanged;
-        ApplyResponsiveLayout(Width, Height);
+        SharedDevicesMauiLayout.Apply(_host, _shell, Width, Height);
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        _speaker.Reload();
+        _mic.Reload();
+        _camera.Reload();
+        SharedDevicesMauiLayout.Apply(_host, _shell, Width, Height);
     }
 
     protected override void OnDisappearing()
@@ -135,28 +162,7 @@ public sealed class SharedDevicesManagePage : ContentPage
     }
 
     private void OnPageSizeChanged(object? sender, EventArgs e)
-        => ApplyResponsiveLayout(Width, Height);
-
-    private void ApplyResponsiveLayout(double width, double height)
-    {
-        if (width <= 0 || double.IsNaN(width)) return;
-        var landscape = width > height;
-        var narrow = DeviceInfo.Idiom == DeviceIdiom.Phone || width < 600;
-        _host.Padding = new Thickness(
-            narrow ? (landscape ? 20 : 12) : 20,
-            narrow ? (landscape ? 10 : 14) : 20);
-
-        if (narrow && !landscape)
-        {
-            _column.MaximumWidthRequest = double.PositiveInfinity;
-            _column.HorizontalOptions = LayoutOptions.Fill;
-        }
-        else
-        {
-            _column.MaximumWidthRequest = ContentMaxWidth;
-            _column.HorizontalOptions = LayoutOptions.Center;
-        }
-    }
+        => SharedDevicesMauiLayout.Apply(_host, _shell, Width, Height);
 
     private static Button Primary(string t, Color blue) => new()
     {
@@ -185,4 +191,3 @@ public sealed class SharedDevicesManagePage : ContentPage
     private static Color? ColorOf(string key)
         => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c ? c : null;
 }
-

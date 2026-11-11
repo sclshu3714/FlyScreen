@@ -161,18 +161,23 @@ public sealed class MacAppHost : IAsyncDisposable
     private void TryWireSharedDevices()
     {
         var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<FlyScreen.ToolSdk.ISharedDevicesRuntime>();
-        if (ReferenceEquals(sd, _sharedDevices))
-            return;
-
-        if (_sharedDevices != null)
-            _sharedDevices.StatusMessage -= PublishStatus;
-
-        _sharedDevices = sd;
         if (sd == null)
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            _sharedDevices = null;
             return;
+        }
+
+        if (!ReferenceEquals(sd, _sharedDevices))
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            _sharedDevices = sd;
+            sd.StatusMessage += PublishStatus;
+        }
 
         sd.AttachHardware(FlyScreen.ToolSdk.DefaultSharedDevicesHardware.Instance);
-        sd.StatusMessage += PublishStatus;
     }
 
     private void PublishStatus(string message)

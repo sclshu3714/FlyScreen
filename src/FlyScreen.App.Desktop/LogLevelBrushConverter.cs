@@ -10,21 +10,21 @@ public sealed class LogLevelBrushConverter : IValueConverter
 {
     public static readonly LogLevelBrushConverter Instance = new();
 
-    private static readonly IBrush Error = new SolidColorBrush(Color.Parse("#DC2626"));
-    private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#D97706"));
-    private static readonly IBrush Debug = new SolidColorBrush(Color.Parse("#6B7280"));
-    private static readonly IBrush Info = new SolidColorBrush(Color.Parse("#2563EB"));
-
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is AppLogLevel level
-            ? level switch
-            {
-                AppLogLevel.Error => Error,
-                AppLogLevel.Warn => Warn,
-                AppLogLevel.Debug => Debug,
-                _ => Info
-            }
-            : Info;
+    {
+        var dark = DesktopUi.Helpers.DesktopThemeService.IsDark(DesktopUi.Helpers.DesktopThemeService.Current);
+        if (value is not AppLogLevel level)
+            return BrushFrom(dark ? "#3B82F6" : "#2563EB");
+        return level switch
+        {
+            AppLogLevel.Error => BrushFrom(dark ? "#F87171" : "#DC2626"),
+            AppLogLevel.Warn => BrushFrom(dark ? "#FBBF24" : "#D97706"),
+            AppLogLevel.Debug => BrushFrom(dark ? "#94A3B8" : "#6B7280"),
+            _ => BrushFrom(dark ? "#3B82F6" : "#2563EB")
+        };
+    }
+
+    private static IBrush BrushFrom(string hex) => new SolidColorBrush(Color.Parse(hex));
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

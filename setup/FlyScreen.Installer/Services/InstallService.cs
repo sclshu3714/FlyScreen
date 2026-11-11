@@ -76,8 +76,11 @@ public sealed class InstallService
             // 45–88% 复制文件
             await Task.Run(() =>
             {
+                // 安装包只交付 Bundled 源包；剥离可能混入的安装态，安装后由工具页自行安装
+                StripToolsInstallState(staging);
                 EnsureParentDirectory(installDir);
                 CopyDirectory(staging, installDir, progress, 45, 88, ct);
+                StripToolsInstallState(installDir);
             }, ct).ConfigureAwait(false);
 
             ct.ThrowIfCancellationRequested();
@@ -172,6 +175,46 @@ public sealed class InstallService
 
     private static void Report(IProgress<ProgressReport>? progress, double percent, string message)
         => progress?.Report(ProgressReport.Create(percent, message));
+
+    /// <summary>
+    /// 主程序安装只落地 <c>Tools/Bundled</c>；去掉 Installed / tools-install.json 等运行态，
+    /// 避免升级合并或脏 payload 导致工具显示「已安装」却不可用。
+    /// </summary>
+    private static void StripToolsInstallState(string root)
+    {
+        if (!Directory.Exists(root)) return;
+
+        foreach (var toolsRoot in Directory.EnumerateDirectories(root, "Tools", SearchOption.AllDirectories))
+        {
+            try
+            {
+                foreach (var name in new[]
+                         {
+                             "tools-install.json",
+                             "tools-shortcuts.json",
+                             "tools-local-programs.json",
+                             "tools-index.cache.json"
+                         })
+                {
+                    var f = Path.Combine(toolsRoot, name);
+                    if (File.Exists(f))
+                        File.Delete(f);
+                }
+
+                foreach (var sub in Directory.EnumerateDirectories(toolsRoot))
+                {
+                    if (Path.GetFileName(sub).Equals("Bundled", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    try { Directory.Delete(sub, recursive: true); }
+                    catch { /* ignore */ }
+                }
+            }
+            catch
+            {
+                // 清理失败不阻断安装；运行时仍按未安装展示残缺记录
+            }
+        }
+    }
 
     private static void ExtractZipWithProgress(
         string zipPath,

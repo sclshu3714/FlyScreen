@@ -57,13 +57,21 @@ public partial class SharedDevicesTestWindow : Window
         var peer = ok ? snap!.PeerName : "";
         if (!ok)
         {
+            _camOn = false;
+            _micOn = false;
+            _micPeak = 0;
+            CameraPreview.Source = null;
+            CameraStopBtn.IsEnabled = false;
+            MicStopBtn.IsEnabled = false;
             CameraHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             SpeakerHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             MicHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             CameraStartBtn.IsEnabled = false;
             SpeakerPlayBtn.IsEnabled = false;
             MicStartBtn.IsEnabled = false;
+            CameraStatus.IsVisible = true;
             CameraStatus.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
+            MicStatus.Text = "";
             return;
         }
 

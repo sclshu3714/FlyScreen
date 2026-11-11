@@ -41,7 +41,6 @@ public partial class MainPage : ContentPage
     private DateTime? _logFrom;
     private DateTime? _logTo;
     private readonly ObservableCollection<LogListItem> _logItems = new();
-    private static readonly Color LogRowSelectedBg = Color.FromArgb("#DBEAFE");
     private static readonly Color LogRowNormalBg = Colors.Transparent;
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
@@ -379,9 +378,9 @@ public partial class MainPage : ContentPage
             toolShortcuts: BuildTrayToolShortcutActions);
     }
 
-    private IReadOnlyList<(string Label, Action Action)> BuildTrayToolShortcutActions()
+    private IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> BuildTrayToolShortcutActions()
     {
-        var list = new List<(string Label, Action Action)>();
+        var list = new List<(string Label, Action Action, byte[]? IconPng)>();
         foreach (var item in TrayToolsMenu.BuildItems())
         {
             var toolId = item.ToolId;
@@ -391,7 +390,7 @@ public partial class MainPage : ContentPage
                 var row = TrayToolsMenu.ResolveRow(toolId);
                 if (row != null)
                     _ = HandleToolActionAsync(row, primary: true);
-            })));
+            }), TrayToolsMenu.TryGetIconPng(item.IconKey)));
         }
 
         return list;
@@ -2888,10 +2887,11 @@ public partial class MainPage : ContentPage
             swipe.Swiped += async (_, _) =>
             {
                 if (!row.IsInstalled) return;
+                var action = row.IsLocalProgram ? Loc.T("Tool.Remove") : Loc.T("Tool.Uninstall");
                 var ok = await DisplayAlertAsync(
-                    Loc.T("Tool.Uninstall"),
+                    action,
                     row.Name,
-                    Loc.T("Tool.Uninstall"),
+                    action,
                     Loc.T("Tool.Cancel"));
                 if (ok)
                     await HandleToolActionAsync(row, primary: false);
@@ -2904,6 +2904,14 @@ public partial class MainPage : ContentPage
 
     private static IEnumerable<(string Text, string Action)> EnumerateToolMenuActions(ToolCardRow row)
     {
+        if (row.IsLocalProgram)
+        {
+            if (row.CanStart)
+                yield return (Loc.T("Tool.Start"), "primary");
+            yield return (Loc.T("Tool.Remove"), "uninstall");
+            yield break;
+        }
+
         if (!row.IsInstalled)
         {
             yield return (Loc.T("Tool.Install"), "primary");
@@ -2982,6 +2990,7 @@ public partial class MainPage : ContentPage
         {
             ToolVisualStates.Running => dark ? "#1E3A5F" : "#DBEAFE",
             ToolVisualStates.Installed => dark ? "#0F3D2E" : "#ECFDF5",
+            ToolVisualStates.LocalProgram => dark ? "#0F3D2E" : "#ECFDF5",
             ToolVisualStates.Installing => dark ? "#243447" : "#EFF6FF",
             _ => dark ? "#1E293B" : "#F3F4F6"
         };
@@ -3521,31 +3530,74 @@ public partial class MainPage : ContentPage
     {
         try
         {
+            string? path;
+#if WINDOWS
+            // unpackaged / 管理员下 MAUI FilePicker 常 COMException，并弹出空警告框
+            path = await MainThread.InvokeOnMainThreadAsync(() =>
+                Platforms.Windows.Win32PathPicker.PickSingleFile(
+                    title: Loc.T("Tool.ImportTitle"),
+                    filter: "玄鸟工具包 (*.flytool)\0*.flytool\0可执行程序 (*.exe;*.bat;*.cmd)\0*.exe;*.bat;*.cmd\0所有文件 (*.*)\0*.*\0\0"));
+#else
             var result = await FilePicker.Default.PickAsync(new PickOptions
             {
                 PickerTitle = Loc.T("Tool.ImportTitle"),
                 FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
                 {
-                    { DevicePlatform.WinUI, new[] { ".flytool" } },
                     { DevicePlatform.Android, new[] { "application/octet-stream", "*/*" } },
                     { DevicePlatform.iOS, new[] { "public.data" } },
-                    { DevicePlatform.MacCatalyst, new[] { "public.data" } }
+                    { DevicePlatform.MacCatalyst, new[] { "public.data", "public.unix-executable" } }
                 })
             });
             if (result == null) return;
-            await using var stream = await result.OpenReadAsync();
-            var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), result.FileName);
-            await using (var fs = File.Create(tmp))
-                await stream.CopyToAsync(fs);
-            var r = await ToolService.Instance.InstallFromFileAsync(tmp);
+
+            path = result.FullPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                await using var stream = await result.OpenReadAsync();
+                path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), result.FileName);
+                await using (var fs = File.Create(path))
+                    await stream.CopyToAsync(fs);
+            }
+#endif
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return;
+
+            var plan = ToolService.Instance.AnalyzeImport(path);
+            if (!plan.Ok)
+            {
+                await DisplayAlertAsync(Loc.T("Tool.ImportTitle"),
+                    string.IsNullOrWhiteSpace(plan.Message) ? "无法导入所选文件" : plan.Message, "OK");
+                return;
+            }
+
+            var overwrite = true;
+            if (plan.HasConflict)
+            {
+                overwrite = await DisplayAlertAsync(
+                    Loc.T("Tool.ImportTitle"),
+                    string.Format(Loc.T("Tool.ImportOverwrite"), plan.DisplayName),
+                    Loc.T("Tool.Overwrite"),
+                    Loc.T("Tool.Discard"));
+                if (!overwrite)
+                {
+                    StatusLabel.Text = Loc.T("Tool.ImportDiscarded");
+                    return;
+                }
+            }
+
+            var r = await ToolService.Instance.CommitImportAsync(plan, overwrite);
             StatusLabel.Text = r.Message;
             if (!r.Success)
-                await DisplayAlertAsync(Loc.T("Tool.ImportTitle"), r.Message, "OK");
+            {
+                await DisplayAlertAsync(Loc.T("Tool.ImportTitle"),
+                    string.IsNullOrWhiteSpace(r.Message) ? "导入失败" : r.Message, "OK");
+            }
             RefreshToolsPage();
         }
         catch (Exception ex)
         {
-            await DisplayAlertAsync(Loc.T("Tool.ImportTitle"), ex.Message, "OK");
+            var msg = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+            await DisplayAlertAsync(Loc.T("Tool.ImportTitle"), msg, "OK");
         }
     }
 
@@ -3560,6 +3612,25 @@ public partial class MainPage : ContentPage
     {
         try
         {
+            if (row.IsLocalProgram)
+            {
+                if (primary)
+                {
+                    var (ok, message) = ToolService.Instance.LaunchLocalProgram(row.Id);
+                    if (!string.IsNullOrWhiteSpace(message))
+                        StatusLabel.Text = message;
+                    if (!ok && !string.IsNullOrWhiteSpace(message))
+                        await DisplayAlertAsync(Loc.T("Tool.Title"), message, "OK");
+                }
+                else
+                {
+                    var r = ToolService.Instance.RemoveLocalProgram(row.Id);
+                    StatusLabel.Text = r.Message;
+                    RefreshToolsPage();
+                }
+                return;
+            }
+
             if (!row.IsInstalled && primary)
             {
                 if (row.IsInstalling) return;
@@ -5419,7 +5490,17 @@ public partial class MainPage : ContentPage
         public string Message => Entry.Message;
         public AppLogLevel Level => Entry.Level;
         public string Display => Entry.Display;
-        public Color RowBg => _isSelected ? LogRowSelectedBg : LogRowNormalBg;
+        public Color RowBg
+        {
+            get
+            {
+                if (!_isSelected) return LogRowNormalBg;
+                var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+                if (Application.Current?.Resources.TryGetValue("BlueSoft", out var v) == true && v is Color c)
+                    return c;
+                return Color.FromArgb(dark ? "#1E3A5F" : "#DBEAFE");
+            }
+        }
 
         public bool IsSelected
         {

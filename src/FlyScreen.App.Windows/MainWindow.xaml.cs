@@ -386,7 +386,8 @@ public partial class MainWindow : Window
             .Select(x =>
             {
                 var toolId = x.ToolId;
-                return (x.Label, (Action)(() => LaunchTrayToolShortcut(toolId)));
+                return (x.Label, (Action)(() => LaunchTrayToolShortcut(toolId)),
+                    ToolIconImageFactory.TryGet(x.IconKey));
             })
             .ToList();
         TrayContextMenuWindow.ShowNearCursor(
@@ -2987,7 +2988,30 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            var r = await ToolService.Instance.InstallFromFileAsync(dlg.FileName);
+            var plan = ToolService.Instance.AnalyzeImport(dlg.FileName);
+            if (!plan.Ok)
+            {
+                MessageBox.Show(this, plan.Message, Loc.T("Tool.ImportTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var overwrite = true;
+            if (plan.HasConflict)
+            {
+                var ask = ConfirmDialog.Show(
+                    this,
+                    Loc.T("Tool.ImportTitle"),
+                    string.Format(Loc.T("Tool.ImportOverwrite"), plan.DisplayName),
+                    primaryText: Loc.T("Tool.Overwrite"),
+                    cancelText: Loc.T("Tool.Discard"));
+                if (ask != UiConfirmChoice.Primary)
+                {
+                    StatusText.Text = Loc.T("Tool.ImportDiscarded");
+                    return;
+                }
+            }
+
+            var r = await ToolService.Instance.CommitImportAsync(plan, overwrite);
             StatusText.Text = r.Message;
             if (!r.Success)
                 MessageBox.Show(this, r.Message, Loc.T("Tool.ImportTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -3292,7 +3316,18 @@ public partial class MainWindow : Window
             menu.Items.Add(item);
         }
 
-        if (!row.IsInstalled)
+        if (row.IsLocalProgram)
+        {
+            if (row.CanStart)
+                AddItem(Loc.T("Tool.Start"), async (_, _) => await HandleToolActionAsync(row, primary: true));
+            AddItem(Loc.T("Tool.Shortcut.DragHere"), (_, _) =>
+            {
+                ToolService.Instance.Shortcuts.TryAppend(row.Id);
+                RefreshToolsShortcuts();
+            });
+            AddItem(Loc.T("Tool.Remove"), async (_, _) => await HandleToolActionAsync(row, primary: false));
+        }
+        else if (!row.IsInstalled)
         {
             AddItem(Loc.T("Tool.Install"), async (_, _) => await HandleToolActionAsync(row, primary: true));
         }
@@ -3323,6 +3358,25 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (row.IsLocalProgram)
+            {
+                if (primary)
+                {
+                    var (ok, message) = ToolService.Instance.LaunchLocalProgram(row.Id);
+                    if (!string.IsNullOrWhiteSpace(message))
+                        StatusText.Text = message;
+                    if (!ok && !string.IsNullOrWhiteSpace(message))
+                        MessageBox.Show(this, message, Loc.T("Tool.Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else
+                {
+                    var r = ToolService.Instance.RemoveLocalProgram(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+                return;
+            }
+
             if (!row.IsInstalled && primary)
             {
                 if (row.IsInstalling) return;

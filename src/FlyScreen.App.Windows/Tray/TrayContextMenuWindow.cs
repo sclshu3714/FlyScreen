@@ -34,7 +34,7 @@ public sealed class TrayContextMenuWindow : Window
     private readonly IReadOnlyList<(string Label, Action Action)> _switchMachines;
     private readonly string _disableLabel;
     private readonly Action _onToggleDisable;
-    private readonly IReadOnlyList<(string Label, Action Action)> _toolShortcuts;
+    private readonly IReadOnlyList<(string Label, Action Action, ImageSource? Icon)> _toolShortcuts;
     private Popup? _switchPopup;
     private Popup? _toolsPopup;
     private DispatcherTimer? _switchCloseTimer;
@@ -55,7 +55,7 @@ public sealed class TrayContextMenuWindow : Window
         IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
         string? disableLabel = null,
         Action? onToggleDisable = null,
-        IReadOnlyList<(string Label, Action Action)>? toolShortcuts = null)
+        IReadOnlyList<(string Label, Action Action, ImageSource? Icon)>? toolShortcuts = null)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
@@ -66,7 +66,7 @@ public sealed class TrayContextMenuWindow : Window
         _switchMachines = switchMachines ?? Array.Empty<(string, Action)>();
         _disableLabel = disableLabel ?? Loc.T("Hot.Off");
         _onToggleDisable = onToggleDisable ?? (() => { });
-        _toolShortcuts = toolShortcuts ?? Array.Empty<(string, Action)>();
+        _toolShortcuts = toolShortcuts ?? Array.Empty<(string, Action, ImageSource?)>();
 
         AllowsTransparency = true;
         Background = WpfBrushes.Transparent;
@@ -101,7 +101,7 @@ public sealed class TrayContextMenuWindow : Window
         IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
         string? disableLabel = null,
         Action? onToggleDisable = null,
-        IReadOnlyList<(string Label, Action Action)>? toolShortcuts = null)
+        IReadOnlyList<(string Label, Action Action, ImageSource? Icon)>? toolShortcuts = null)
     {
         try { _open?.CloseMenu(); } catch { /* ignore */ }
 
@@ -357,8 +357,8 @@ public sealed class TrayContextMenuWindow : Window
         }
         else
         {
-            foreach (var (label, action) in _toolShortcuts)
-                subStack.Children.Add(BuildSubItem(label, action, forTools: true));
+            foreach (var (label, action, icon) in _toolShortcuts)
+                subStack.Children.Add(BuildSubItem(label, action, forTools: true, icon: icon));
         }
 
         var subCard = new Border
@@ -486,7 +486,8 @@ public sealed class TrayContextMenuWindow : Window
             _toolsParentAccent.Background = WpfBrushes.Transparent;
     }
 
-    private FrameworkElement BuildSubItem(string label, Action action, bool forTools = false)
+    private FrameworkElement BuildSubItem(
+        string label, Action action, bool forTools = false, ImageSource? icon = null)
     {
         var hoverBg = new SolidColorBrush(WpfColor.FromRgb(0xE8, 0xF2, 0xFF));
         var hoverBorder = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xC3, 0xDE));
@@ -510,9 +511,43 @@ public sealed class TrayContextMenuWindow : Window
             Foreground = new SolidColorBrush(WpfColor.FromRgb(0x11, 0x18, 0x27)),
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        FrameworkElement content = text;
+        if (forTools)
+        {
+            var rowContent = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var iconBox = new Border
+            {
+                Width = 16,
+                Height = 16,
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                SnapsToDevicePixels = true
+            };
+            if (icon != null)
+            {
+                iconBox.Child = new System.Windows.Controls.Image
+                {
+                    Source = icon,
+                    Width = 16,
+                    Height = 16,
+                    Stretch = Stretch.Uniform,
+                    SnapsToDevicePixels = true
+                };
+            }
+
+            rowContent.Children.Add(iconBox);
+            rowContent.Children.Add(text);
+            content = rowContent;
+        }
+
         var inner = new Grid();
         inner.Children.Add(accent);
-        inner.Children.Add(text);
+        inner.Children.Add(content);
 
         var row = new Border
         {

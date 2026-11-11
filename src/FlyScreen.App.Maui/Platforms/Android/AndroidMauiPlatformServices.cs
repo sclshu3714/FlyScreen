@@ -379,7 +379,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         Action? about = null,
         Action? exit = null,
         Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
-        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null) { }
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null) { }
 
     public void HideToBackground(
         Action showMain,
@@ -388,7 +388,7 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
         Action? about = null,
         Action? exit = null,
         Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
-        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
     {
         var activity = Platform.CurrentActivity;
         activity?.MoveTaskToBack(true);

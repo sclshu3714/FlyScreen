@@ -8,6 +8,7 @@ public static class ToolVisualStates
     public const string Installed = "Installed";
     public const string Running = "Running";
     public const string Installing = "Installing";
+    public const string LocalProgram = "LocalProgram";
 }
 
 /// <summary>三端工具页共用的卡片数据（独立卡片 + 状态底色 + 安装进度）。</summary>
@@ -29,6 +30,8 @@ public sealed class ToolCardRow
     public bool IsRunning { get; init; }
     public bool IsInstalled { get; init; }
     public bool IsInstalling { get; init; }
+    /// <summary>本地运行程序（无安装/卸载，状态文案为「本地程序」，次操作为移除）。</summary>
+    public bool IsLocalProgram { get; init; }
     public int InstallPercent { get; init; }
     /// <summary>0..1，卡片背景进度条水平缩放。</summary>
     public double InstallProgressRatio { get; init; }
@@ -133,6 +136,7 @@ public static class ToolCardRows
                 IsRunning = isRunning,
                 IsInstalled = installed,
                 IsInstalling = isInstalling,
+                IsLocalProgram = false,
                 InstallPercent = percent,
                 InstallProgressRatio = Math.Clamp(percent / 100.0, 0, 1),
                 VisualState = visualState,
@@ -145,6 +149,41 @@ public static class ToolCardRows
                     ToolVisualStates.Installing => "#EFF6FF",
                     _ => "#F3F4F6"
                 }
+            });
+        }
+
+        foreach (var prog in ToolService.Instance.LocalPrograms.Items)
+        {
+            var pathOk = !string.IsNullOrWhiteSpace(prog.ExecutablePath) && File.Exists(prog.ExecutablePath);
+            var summary = pathOk
+                ? prog.ExecutablePath
+                : Loc.T("Tool.LocalProgramMissing");
+            rows.Add(new ToolCardRow
+            {
+                Id = prog.Id,
+                Name = string.IsNullOrWhiteSpace(prog.DisplayName)
+                    ? Path.GetFileName(prog.ExecutablePath)
+                    : prog.DisplayName,
+                Summary = summary,
+                StatusText = Loc.T("Tool.StatusLocalProgram"),
+                PrimaryAction = Loc.T("Tool.Start"),
+                SecondaryAction = Loc.T("Tool.Remove"),
+                PrimaryEnabled = pathOk,
+                SecondaryEnabled = true,
+                CanStart = pathOk,
+                CanProvide = false,
+                CanConsume = false,
+                IsRunning = false,
+                IsInstalled = true,
+                IsInstalling = false,
+                IsLocalProgram = true,
+                InstallPercent = 0,
+                InstallProgressRatio = 0,
+                VisualState = ToolVisualStates.LocalProgram,
+                HasWorkspace = false,
+                IconKey = prog.IconKey,
+                CardBgHex = "#ECFDF5",
+                Tooltip = prog.ExecutablePath
             });
         }
 

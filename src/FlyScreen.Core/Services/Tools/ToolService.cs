@@ -19,11 +19,13 @@ public sealed class ToolService
     public ToolUiHost Ui { get; } = new();
     public ToolShortcutsStore Shortcuts { get; }
     public ToolRemoteIndexClient RemoteIndex { get; } = new();
+    public ToolLocalProgramCatalog LocalPrograms { get; }
 
     private readonly object _gate = new();
     private ToolHostServices? _hostServices;
     private IScreenColorSampler? _colorSampler;
     private IToolUiContext? _uiContext;
+    private IToolExecutableIconExtractor? _exeIconExtractor;
 
     private ToolService()
     {
@@ -32,6 +34,14 @@ public sealed class ToolService
         InstallProgress = new ToolInstallProgress();
         Installer = new ToolInstaller(Catalog, InstallProgress);
         Shortcuts = new ToolShortcutsStore();
+        LocalPrograms = new ToolLocalProgramCatalog();
+    }
+
+    /// <summary>挂接本机可执行文件图标提取（Win / Maui-Win 等）。</summary>
+    public void AttachExecutableIconExtractor(IToolExecutableIconExtractor? extractor)
+    {
+        lock (_gate)
+            _exeIconExtractor = extractor;
     }
 
     /// <summary>已加载的颜色拾取器服务（实现位于工具包程序集）。</summary>
@@ -161,23 +171,184 @@ public sealed class ToolService
     }
 
     public async Task<ToolInstallResult> InstallFromFileAsync(string flytoolPath, CancellationToken ct = default)
+        => await CommitImportAsync(AnalyzeImport(flytoolPath), overwrite: true, ct).ConfigureAwait(false);
+
+    /// <summary>探测导入：.flytool 或本地可执行程序；有冲突时宿主先询问覆盖/放弃。</summary>
+    public ToolImportPlan AnalyzeImport(string path)
     {
-        var result = await Installer.InstallFromFlyToolFileAsync(flytoolPath, ToolTrustLevel.Unknown, ct)
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return ToolImportPlan.Fail("找不到文件");
+
+        var full = Path.GetFullPath(path);
+        if (full.EndsWith(".flytool", StringComparison.OrdinalIgnoreCase))
+        {
+            var pack = ToolPackageResolver.ReadManifestFromPackAsync(full).GetAwaiter().GetResult();
+            if (pack == null || string.IsNullOrWhiteSpace(pack.Id))
+                return ToolImportPlan.Fail("无效的 .flytool（缺少 manifest）");
+
+            var id = pack.Id.Trim();
+            var name = ToolCatalog.DisplayName(pack.ToToolManifest());
+            if (string.IsNullOrWhiteSpace(name) || name == id)
+                name = id;
+
+            var existing = Catalog.FindRecord(id);
+            var conflict = existing != null && ToolInstaller.IsInstallComplete(existing);
+            return new ToolImportPlan
+            {
+                Ok = true,
+                Kind = ToolImportKind.FlyTool,
+                SourcePath = full,
+                TargetId = id,
+                DisplayName = name,
+                HasConflict = conflict,
+                ConflictDetail = conflict
+                    ? $"{name} ({existing!.Version})"
+                    : "",
+                Message = conflict ? "已存在同名工具" : ""
+            };
+        }
+
+        if (!IsLocalProgramCandidate(full))
+            return ToolImportPlan.Fail("请选择 .flytool 工具包或本机可运行程序");
+
+        var localId = ToolLocalProgramCatalog.MakeId(full);
+        var display = ToolLocalProgramCatalog.SuggestDisplayName(full);
+        var existingLocal = LocalPrograms.FindById(localId) ?? LocalPrograms.FindByPath(full);
+        return new ToolImportPlan
+        {
+            Ok = true,
+            Kind = ToolImportKind.LocalProgram,
+            SourcePath = full,
+            TargetId = localId,
+            DisplayName = display,
+            HasConflict = existingLocal != null,
+            ConflictDetail = existingLocal == null
+                ? ""
+                : $"{existingLocal.DisplayName} → {existingLocal.ExecutablePath}",
+            Message = existingLocal != null ? "已存在相同本地程序" : ""
+        };
+    }
+
+    /// <summary>提交导入。有冲突时须 <paramref name="overwrite"/> = true，否则视为放弃。</summary>
+    public async Task<ToolInstallResult> CommitImportAsync(
+        ToolImportPlan plan, bool overwrite, CancellationToken ct = default)
+    {
+        if (plan == null || !plan.Ok)
+            return ToolInstallResult.Fail(plan?.Message ?? "无效导入");
+        if (plan.HasConflict && !overwrite)
+            return ToolInstallResult.Fail(Helpers.Localization.Loc.T("Tool.ImportDiscarded"));
+
+        if (plan.Kind == ToolImportKind.LocalProgram)
+            return ImportLocalProgram(plan, overwrite);
+
+        // flytool
+        if (plan.HasConflict && overwrite)
+        {
+            try { await Host.UnloadAsync(plan.TargetId, ct).ConfigureAwait(false); }
+            catch (Exception ex) { AppLog.Warn($"覆盖安装前停止工具失败 {plan.TargetId}: {ex.Message}"); }
+        }
+
+        var result = await Installer.InstallFromFlyToolFileAsync(
+                plan.SourcePath, ToolTrustLevel.Unknown, ct, forceOverwrite: plan.HasConflict && overwrite)
             .ConfigureAwait(false);
         if (result.Success)
         {
-            var id = (await ToolPackageResolver.ReadManifestFromPackAsync(flytoolPath, ct).ConfigureAwait(false))?.Id;
-            if (!string.IsNullOrEmpty(id))
-            {
-                var rec = Catalog.FindRecord(id);
-                if (rec?.Path != null)
-                    await Host.LoadInstalledAsync(id, rec.Path, ct).ConfigureAwait(false);
-                lock (_gate) ApplyColorSamplerUnlocked();
-                RefreshToolUiContributors();
-            }
+            var rec = Catalog.FindRecord(plan.TargetId);
+            if (rec?.Path != null)
+                await Host.LoadInstalledAsync(plan.TargetId, rec.Path, ct).ConfigureAwait(false);
+            lock (_gate) ApplyColorSamplerUnlocked();
+            RefreshToolUiContributors();
         }
 
         return result;
+    }
+
+    public ToolInstallResult RemoveLocalProgram(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return ToolInstallResult.Fail("无效 Id");
+        Shortcuts.ClearTool(id);
+        if (!LocalPrograms.Remove(id))
+            return ToolInstallResult.Fail("未找到本地程序");
+        return ToolInstallResult.Ok(Helpers.Localization.Loc.T("Tool.RemoveLocalOk"));
+    }
+
+    public (bool Ok, string Message) LaunchLocalProgram(string id)
+    {
+        var rec = LocalPrograms.FindById(id);
+        if (rec == null)
+            return (false, "未找到本地程序");
+        if (string.IsNullOrWhiteSpace(rec.ExecutablePath) || !File.Exists(rec.ExecutablePath))
+            return (false, Helpers.Localization.Loc.T("Tool.LocalProgramMissing"));
+
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = rec.ExecutablePath,
+                UseShellExecute = true
+            };
+            if (!string.IsNullOrWhiteSpace(rec.Arguments))
+                psi.Arguments = rec.Arguments;
+            if (!string.IsNullOrWhiteSpace(rec.WorkingDirectory) && Directory.Exists(rec.WorkingDirectory))
+                psi.WorkingDirectory = rec.WorkingDirectory;
+            else
+            {
+                var dir = Path.GetDirectoryName(rec.ExecutablePath);
+                if (!string.IsNullOrEmpty(dir))
+                    psi.WorkingDirectory = dir;
+            }
+
+            System.Diagnostics.Process.Start(psi);
+            return (true, Helpers.Localization.Loc.T("Tool.LocalProgramLaunched"));
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    private ToolInstallResult ImportLocalProgram(ToolImportPlan plan, bool overwrite)
+    {
+        if (plan.HasConflict && !overwrite)
+            return ToolInstallResult.Fail(Helpers.Localization.Loc.T("Tool.ImportDiscarded"));
+
+        byte[]? iconPng = null;
+        IToolExecutableIconExtractor? extractor;
+        lock (_gate) extractor = _exeIconExtractor;
+        try { iconPng = extractor?.TryExtractPng(plan.SourcePath); }
+        catch (Exception ex) { AppLog.Warn("提取本地程序图标失败: " + ex.Message); }
+
+        var iconKey = ToolLocalProgramCatalog.MakeIconKey(plan.TargetId);
+        var record = new ToolLocalProgramRecord
+        {
+            Id = plan.TargetId,
+            DisplayName = plan.DisplayName,
+            ExecutablePath = plan.SourcePath,
+            IconKey = iconKey,
+            IconPngBase64 = iconPng is { Length: > 0 } ? Convert.ToBase64String(iconPng) : null,
+            AddedAt = DateTimeOffset.UtcNow
+        };
+        LocalPrograms.Upsert(record);
+        return ToolInstallResult.Ok(plan.HasConflict
+            ? Helpers.Localization.Loc.T("Tool.ImportLocalUpdated")
+            : Helpers.Localization.Loc.T("Tool.ImportLocalOk"));
+    }
+
+    private static bool IsLocalProgramCandidate(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var ext = Path.GetExtension(path);
+            return ext.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                   || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase)
+                   || ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+                   || ext.Equals(".com", StringComparison.OrdinalIgnoreCase)
+                   || ext.Equals(".msc", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Mac / Linux：用户点选的文件即视为可启动目标
+        return true;
     }
 
     /// <summary>安装/ALC 加载后补扫 UI 贡献者（宿主已 BindUi 时生效）。</summary>

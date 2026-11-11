@@ -11,6 +11,11 @@ public sealed class SharedDevicesWinUiContributor : IToolUiContributor
     {
         var owner = context.Owner as Window;
         var tools = ToolService.Instance;
+        void Theme(Window dlg)
+        {
+            context.ApplyWindowTheme?.Invoke(dlg);
+            dlg.Loaded += (_, _) => context.ApplyWindowTheme?.Invoke(dlg);
+        }
 
         ui.RegisterHandler(ToolIds.SharedDevices, SharedDevicesToolModule.UiStart,
             (arg, _) =>
@@ -18,6 +23,7 @@ public sealed class SharedDevicesWinUiContributor : IToolUiContributor
                 var sd = arg as SharedDevicesService ?? tools.GetToolService<SharedDevicesService>();
                 if (sd == null) return Task.FromResult<object?>(null);
                 var dlg = new SharedDevicesStartDialog(sd.ListApplicantTargets()) { Owner = owner };
+                Theme(dlg);
                 if (dlg.ShowDialog() != true || string.IsNullOrEmpty(dlg.SelectedPeer))
                     return Task.FromResult<object?>(null);
                 return Task.FromResult<object?>(new SharedDevicesStartUiResult
@@ -36,6 +42,7 @@ public sealed class SharedDevicesWinUiContributor : IToolUiContributor
                 return owner.Dispatcher.InvokeAsync(() =>
                 {
                     var dlg = new SharedDevicesIncomingDialog(incoming.Service, incoming.Request) { Owner = owner };
+                    Theme(dlg);
                     var ok = dlg.ShowDialog() == true && dlg.Accepted;
                     return (object?)new SharedDevicesIncomingUiResult
                     {
@@ -50,6 +57,7 @@ public sealed class SharedDevicesWinUiContributor : IToolUiContributor
             (_, _) =>
             {
                 var dlg = new SharedDevicesTestDialog { Owner = owner };
+                Theme(dlg);
                 dlg.ShowDialog();
                 return Task.FromResult<object?>(null);
             });
@@ -60,6 +68,7 @@ public sealed class SharedDevicesWinUiContributor : IToolUiContributor
                 var sd = arg as SharedDevicesService ?? tools.GetToolService<SharedDevicesService>();
                 if (sd == null) return Task.FromResult<object?>(null);
                 var dlg = new SharedDevicesManageDialog(sd) { Owner = owner };
+                Theme(dlg);
                 dlg.ShowDialog();
                 return Task.FromResult<object?>(null);
             });

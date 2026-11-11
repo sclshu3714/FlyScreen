@@ -19,6 +19,8 @@ public sealed class MauiAppHost : IAsyncDisposable
     private IMauiPlatformServices _platform = NullMauiPlatformServices.Instance;
 #if ANDROID
     private Platforms.Android.AndroidSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
+#elif WINDOWS
+    private FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
 #endif
     private ISharedDevicesRuntime? _sharedDevices;
 
@@ -71,6 +73,10 @@ public sealed class MauiAppHost : IAsyncDisposable
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
         BundledFlyToolsSeeder.EnsureAsync().GetAwaiter().GetResult();
+#if WINDOWS
+        FlyScreen.Services.Tools.ToolService.Instance.AttachExecutableIconExtractor(
+            new FlyScreen.Tools.WindowsToolExecutableIconExtractor());
+#endif
         FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
         TryWireSharedDevices();
         FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
@@ -268,29 +274,42 @@ public sealed class MauiAppHost : IAsyncDisposable
     private void TryWireSharedDevices()
     {
         var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<ISharedDevicesRuntime>();
-        if (ReferenceEquals(sd, _sharedDevices))
-            return;
-
-        if (_sharedDevices != null)
-            _sharedDevices.StatusMessage -= PublishStatus;
-
-#if ANDROID
-        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
-        _sharedDevicesProviderMedia = null;
-#endif
-
-        _sharedDevices = sd;
         if (sd == null)
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+#if ANDROID || WINDOWS
+            try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+            _sharedDevicesProviderMedia = null;
+#endif
+            _sharedDevices = null;
             return;
+        }
 
-        sd.StatusMessage += PublishStatus;
+        if (!ReferenceEquals(sd, _sharedDevices))
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+#if ANDROID || WINDOWS
+            try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+            _sharedDevicesProviderMedia = null;
+#endif
+            _sharedDevices = sd;
+            sd.StatusMessage += PublishStatus;
+        }
+
+        // 同实例也重新挂硬件：工具 ALC 重载后管理页才能枚举到本机设备
 #if ANDROID
         sd.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
         sd.AttachAudioEngine(new Platforms.Android.AndroidProjectionAudio());
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sd);
 #elif WINDOWS
         sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
-        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio("共享扬声器"));
+        Platforms.Windows.MauiWindowsSharedDevicesCamera.Register();
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = new FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia(sd);
 #endif
     }
 
@@ -909,7 +928,10 @@ public sealed class MauiAppHost : IAsyncDisposable
             try { winPlat.DisposeScreenExtendUi(); } catch { /* ignore */ }
         }
 #endif
-#if ANDROID
+#if ANDROID || WINDOWS
+#if WINDOWS
+        Platforms.Windows.MauiWindowsSharedDevicesCamera.Unregister();
+#endif
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = null;
 #endif

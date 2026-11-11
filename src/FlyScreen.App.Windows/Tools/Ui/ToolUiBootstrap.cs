@@ -1,4 +1,5 @@
 using System.Windows;
+using FlyScreen.Helpers;
 using FlyScreen.Services.Tools;
 using FlyScreen.ToolSdk;
 
@@ -17,7 +18,13 @@ public static class ToolUiBootstrap
             {
                 if (owner is MainWindow mw)
                     mw.StatusText.Text = s;
-            })
+            }),
+            // 工具独立 Window 不在 MainWindow 资源树内，需显式套用系统样式
+            ApplyWindowTheme = o =>
+            {
+                if (o is Window win)
+                    ThemeService.ApplyToChildWindow(win);
+            }
         };
         tools.BindUi(ctx);
         ToolUiDiscovery.RegisterAll(tools.Ui, ctx);

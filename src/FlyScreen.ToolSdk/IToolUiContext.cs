@@ -11,6 +11,12 @@ public interface IToolUiContext
 
     /// <summary>Maui：返回 <c>INavigation</c>；其它端可为 null。</summary>
     Func<object?>? GetNavigation { get; }
+
+    /// <summary>
+    /// 将当前系统主题应用到工具弹窗（WPF <c>Window</c> 等）。
+    /// 宿主实现：如 Win 端 <c>ThemeService.ApplyToChildWindow</c>。
+    /// </summary>
+    Action<object>? ApplyWindowTheme { get; }
 }
 
 public sealed class ToolUiContext : IToolUiContext
@@ -18,4 +24,5 @@ public sealed class ToolUiContext : IToolUiContext
     public object? Owner { get; init; }
     public Action<string>? ReportStatus { get; init; }
     public Func<object?>? GetNavigation { get; init; }
+    public Action<object>? ApplyWindowTheme { get; init; }
 }

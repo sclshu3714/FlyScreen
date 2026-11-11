@@ -48,6 +48,7 @@ public sealed class ToolCatalog
 
     public void Reload()
     {
+        var pruned = false;
         lock (_gate)
         {
             try
@@ -67,7 +68,20 @@ public sealed class ToolCatalog
                 AppLog.Warn("读取工具安装状态失败: " + ex.Message);
                 _state = new ToolInstallStateFile();
             }
+
+            // 残缺/标记安装从状态文件剔除，避免 UI 显示「已安装」却无法加载
+            var before = _state.Tools.Count;
+            _state.Tools.RemoveAll(t => !ToolInstaller.IsInstallComplete(t));
+            if (_state.Tools.Count != before)
+            {
+                pruned = true;
+                try { SaveUnlocked(); }
+                catch { /* ignore */ }
+            }
         }
+
+        if (pruned)
+            AppLog.Info("已清除残缺工具安装记录（ Bundled 包需在工具页重新安装）");
 
         RefreshExtraCaps();
         RaiseChanged();
@@ -83,12 +97,14 @@ public sealed class ToolCatalog
             if (!IsApplicable(m, platform, deviceClass))
                 continue;
             var rec = FindRecord(m.Id);
+            var complete = ToolInstaller.IsInstallComplete(rec);
             var features = ResolveFeatures(m, deviceClass);
             list.Add(new ToolCardVm
             {
                 Manifest = m,
-                Status = rec == null ? ToolInstallStatus.NotInstalled : ToolInstallStatus.Installed,
-                InstalledVersion = rec?.Version,
+                // 残缺/仅标记安装按未安装展示，引导用户从 Bundled 正式安装
+                Status = complete ? ToolInstallStatus.Installed : ToolInstallStatus.NotInstalled,
+                InstalledVersion = complete ? rec?.Version : null,
                 CanConsume = features.Contains("consume", StringComparer.OrdinalIgnoreCase),
                 CanProvide = features.Contains("provide", StringComparer.OrdinalIgnoreCase)
             });
@@ -97,8 +113,9 @@ public sealed class ToolCatalog
         return list;
     }
 
+    /// <summary>已解压且入口程序集可用；残缺记录不算已安装。</summary>
     public bool IsInstalled(string toolId)
-        => FindRecord(toolId) != null;
+        => ToolInstaller.IsInstallComplete(FindRecord(toolId));
 
     public ToolInstallRecord? FindRecord(string toolId)
     {
@@ -174,6 +191,8 @@ public sealed class ToolCatalog
         {
             foreach (var rec in _state.Tools)
             {
+                if (!ToolInstaller.IsInstallComplete(rec))
+                    continue;
                 var m = FindManifest(rec.Id);
                 if (m == null) continue;
                 foreach (var c in m.CapNames)

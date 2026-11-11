@@ -44,6 +44,7 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
         _remember = remember ?? new SharedDevicesRememberStore();
         _selection = selection ?? new SharedDevicesSelectionStore();
         _connections.MessageReceived += OnMessage;
+        _connections.PeerLinkChanged += OnPeerLinkChanged;
     }
 
     public event Action? SessionChanged;
@@ -301,13 +302,10 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
 
     public async Task StopAsync(string? reason = null)
     {
-        SharedDevicesSession? snap;
-        lock (_gate)
-        {
-            snap = _session;
-            if (snap == null) return;
-            _session = null;
-        }
+        var snap = ClearSession();
+        if (snap == null) return;
+
+        StopLocalMedia(snap);
 
         var body = new SharedDevicesCloseBody { Kinds = snap.Kinds, Reason = reason };
         var env = new ToolEnvelope
@@ -323,7 +321,10 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
             await _connections.SendToAsync(snap.PeerName, MessageType.ToolSignal, MessageCodec.JsonBytes(env))
                 .ConfigureAwait(false);
         }
-        catch { /* ignore */ }
+        catch (Exception ex)
+        {
+            AppLog.Warn("共享设备停止通知对端失败: " + ex.Message);
+        }
 
         RaiseSessionChanged();
         Publish("共享设备已停止");
@@ -382,8 +383,9 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
             };
         }
 
-        RaiseSessionChanged();
+        // 先记「已同意」再 Raise：音频桥在 SessionChanged 里同步开播，避免日志早于同意
         Publish($"已同意「{req.FromPeer}」使用：{string.Join("、", kinds)}");
+        RaiseSessionChanged();
     }
 
     public async Task RejectIncomingAsync(SharedDevicesIncomingRequest req, string reason = "denied")
@@ -640,8 +642,8 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
             _session.Phase = SharedDevicesSessionPhase.Active;
         }
 
-        RaiseSessionChanged();
         Publish($"「{peer}」已同意，共享设备可用");
+        RaiseSessionChanged();
     }
 
     private void HandleReject(string peer, ToolEnvelope env)
@@ -660,17 +662,65 @@ public sealed class SharedDevicesService : ISharedDevicesRuntime
 
     private void HandleClose(string peer, ToolEnvelope env)
     {
+        SharedDevicesSession? snap;
         lock (_gate)
         {
-            if (_session == null) return;
-            if (!string.Equals(_session.SessionId, env.SessionId, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(_session.PeerName, peer, StringComparison.OrdinalIgnoreCase))
+            snap = _session;
+            if (snap == null) return;
+            // 必须是会话对端；SessionId 有值时再核对，避免误关
+            if (!string.Equals(snap.PeerName, peer, StringComparison.OrdinalIgnoreCase))
+                return;
+            if (!string.IsNullOrEmpty(env.SessionId)
+                && !string.IsNullOrEmpty(snap.SessionId)
+                && !string.Equals(snap.SessionId, env.SessionId, StringComparison.OrdinalIgnoreCase))
                 return;
             _session = null;
         }
 
+        StopLocalMedia(snap);
         RaiseSessionChanged();
         Publish($"「{peer}」结束了共享设备会话");
+    }
+
+    /// <summary>对端断链：本机会话一并结束（对端可能来不及发 session-close）。</summary>
+    private void OnPeerLinkChanged(string name, bool outbound, bool inbound)
+    {
+        if (outbound || inbound) return;
+
+        SharedDevicesSession? snap;
+        lock (_gate)
+        {
+            snap = _session;
+            if (snap == null) return;
+            if (!string.Equals(snap.PeerName, name, StringComparison.OrdinalIgnoreCase))
+                return;
+            _session = null;
+        }
+
+        StopLocalMedia(snap);
+        RaiseSessionChanged();
+        Publish($"「{name}」已断开，共享设备已停止");
+    }
+
+    private SharedDevicesSession? ClearSession()
+    {
+        lock (_gate)
+        {
+            var snap = _session;
+            _session = null;
+            return snap;
+        }
+    }
+
+    /// <summary>停本机提供方采集/试音（摄像头/麦克风/扬声器测试）。</summary>
+    private void StopLocalMedia(SharedDevicesSession snap)
+    {
+        foreach (var kind in snap.Kinds)
+        {
+            if (!SharedDeviceKinds.IsValid(kind)) continue;
+            try { ProviderTestCommand?.Invoke(kind, false); }
+            catch (Exception ex) { AppLog.Warn($"停止共享设备媒体失败 {kind}: " + ex.Message); }
+        }
     }
 
     private void HandleToolData(string peer, byte[] payload)
