@@ -606,6 +606,7 @@
                                                 <Label Grid.Column="2"
                                                        Text="{Binding Message}"
                                                        FontSize="12"
+                                                       TextColor="{DynamicResource Text}"
                                                        LineBreakMode="WordWrap"
                                                        VerticalOptions="Center"
                                                        VerticalTextAlignment="Center" />

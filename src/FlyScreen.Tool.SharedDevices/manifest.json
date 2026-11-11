@@ -22,7 +22,7 @@
   "icon": "tool-shared-devices",
   "permissions": ["camera", "microphone", "speaker", "virtualAudio", "peerNetwork"],
   "package": {
-    "version": "1.0.2",
+    "version": "1.0.5",
     "format": "flytool",
     "formatVersion": 1
   },

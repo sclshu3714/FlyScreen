@@ -306,7 +306,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sd);
 #elif WINDOWS
         sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
-        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio("共享扬声器"));
+        Platforms.Windows.MauiWindowsSharedDevicesCamera.Register();
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = new FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia(sd);
 #endif
@@ -928,6 +929,9 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
 #endif
 #if ANDROID || WINDOWS
+#if WINDOWS
+        Platforms.Windows.MauiWindowsSharedDevicesCamera.Unregister();
+#endif
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = null;
 #endif

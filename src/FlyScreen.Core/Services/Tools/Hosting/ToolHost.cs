@@ -230,7 +230,7 @@ public sealed class ToolHost
         foreach (var rec in catalog.GetInstalledRecords())
         {
             ct.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(rec.Path) || !Directory.Exists(rec.Path))
+            if (!ToolInstaller.IsInstallComplete(rec))
                 continue;
             if (Get(rec.Id) != null) continue;
             await LoadInstalledAsync(rec.Id, rec.Path, ct).ConfigureAwait(false);

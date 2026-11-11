@@ -41,7 +41,6 @@ public partial class MainPage : ContentPage
     private DateTime? _logFrom;
     private DateTime? _logTo;
     private readonly ObservableCollection<LogListItem> _logItems = new();
-    private static readonly Color LogRowSelectedBg = Color.FromArgb("#DBEAFE");
     private static readonly Color LogRowNormalBg = Colors.Transparent;
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
@@ -5491,7 +5490,17 @@ public partial class MainPage : ContentPage
         public string Message => Entry.Message;
         public AppLogLevel Level => Entry.Level;
         public string Display => Entry.Display;
-        public Color RowBg => _isSelected ? LogRowSelectedBg : LogRowNormalBg;
+        public Color RowBg
+        {
+            get
+            {
+                if (!_isSelected) return LogRowNormalBg;
+                var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+                if (Application.Current?.Resources.TryGetValue("BlueSoft", out var v) == true && v is Color c)
+                    return c;
+                return Color.FromArgb(dark ? "#1E3A5F" : "#DBEAFE");
+            }
+        }
 
         public bool IsSelected
         {

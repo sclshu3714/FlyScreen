@@ -160,6 +160,12 @@ public sealed class SharedDevicesTestPage : ContentPage
         var peer = ok ? snap!.PeerName : "";
         if (!ok)
         {
+            _camOn = false;
+            _micOn = false;
+            _micPeak = 0;
+            _camPreview.Source = null;
+            _camStop.IsEnabled = false;
+            _micStop.IsEnabled = false;
             var need = Loc.T("Tool.SharedDevices.TestNeedSession");
             _camHint.Text = need;
             _speakerHint.Text = need;
@@ -169,6 +175,7 @@ public sealed class SharedDevicesTestPage : ContentPage
             _micStart.IsEnabled = false;
             _camStatus.Text = need;
             _camStatus.IsVisible = true;
+            _micStatus.Text = "";
             return;
         }
 

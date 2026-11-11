@@ -12,6 +12,12 @@ namespace FlyScreen.SharedDevices;
 /// </summary>
 public sealed class WindowsSharedDevicesProviderMedia : IDisposable
 {
+    /// <summary>
+    /// Maui-Win 等环境可注入 MediaCapture 采集（MF 枚举常失败）。
+    /// 返回 true 表示已接管摄像头循环。
+    /// </summary>
+    public static Func<string?, Func<bool>, Action<byte[]>, Action<string>, bool>? CameraCaptureOverride { get; set; }
+
     private readonly ISharedDevicesRuntime _svc;
     private readonly object _gate = new();
     private int _disposed;
@@ -97,7 +103,6 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
         _camRun = true;
         _camThread = new Thread(CameraLoop) { IsBackground = true, Name = "FlyScreen.SdCam" };
         _camThread.Start();
-        _svc.PublishStatus("本机摄像头测试推流中");
     }
 
     private void StopCamera()
@@ -109,6 +114,25 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
 
     private void CameraLoop()
     {
+        var prefer = _svc.GetSelectedDeviceId(SharedDeviceKinds.Camera);
+        var captureOverride = CameraCaptureOverride;
+        if (captureOverride != null)
+        {
+            try
+            {
+                if (captureOverride(
+                        prefer,
+                        () => _camRun,
+                        jpeg => _svc.PostCameraJpeg(jpeg),
+                        msg => _svc.PublishStatus(msg)))
+                    return;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("摄像头 MediaCapture 回退失败: " + ex.Message);
+            }
+        }
+
         CoInitializeEx(IntPtr.Zero, 0x2);
         if (MFStartup(MfVersion, 0) != 0)
         {
@@ -132,6 +156,7 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
                 height = 480;
             }
 
+            _svc.PublishStatus("本机摄像头测试推流中");
             var lastMs = 0L;
             while (_camRun)
             {
@@ -175,73 +200,175 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
     private bool TryOpenCameraReader(out IMFSourceReader? reader)
     {
         reader = null;
-        if (MFCreateAttributes(out var attrs, 1) != 0 || attrs == null)
-            return false;
-        try
-        {
-            var srcType = MfDevsourceAttributeSourceType;
-            var vidCap = MfDevsourceAttributeSourceTypeVidcapGuid;
-            if (attrs.SetGUID(ref srcType, ref vidCap) != 0)
-                return false;
-            if (MFEnumDeviceSources(attrs, out var devices, out var count) != 0
-                || devices == IntPtr.Zero || count == 0)
-                return false;
+        var prefer = _svc.GetSelectedDeviceId(SharedDeviceKinds.Camera);
 
+        // Maui-Win / WinUI 上 MFEnumDeviceSources 常为空，但 SetupAPI/DirectShow 仍能列出真实摄像头。
+        var links = WindowsSharedDevicesHardware.ListCameraSymbolicLinks(prefer);
+        if (links.Count == 0)
+            AppLog.Warn("摄像头测试：未解析到任何符号链接（列表可能只有实例 Id）");
+        else
+            AppLog.Info($"摄像头测试：尝试 {links.Count} 个符号链接打开");
+
+        foreach (var link in links)
+        {
+            if (TryOpenCameraBySymbolicLink(link, out reader) && reader != null)
+                return true;
+        }
+
+        if (!string.IsNullOrEmpty(prefer)
+            && prefer.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
+            && TryOpenCameraBySymbolicLink(prefer, out reader) && reader != null)
+            return true;
+
+        // MF 枚举（桌面 WPF 等环境仍可用）
+        if (MFCreateAttributes(out var attrs, 1) == 0 && attrs != null)
+        {
             try
             {
-                var prefer = _svc.GetSelectedDeviceId(SharedDeviceKinds.Camera);
-                IMFActivate? pick = null;
-                for (uint i = 0; i < count; i++)
+                var srcType = MfDevsourceAttributeSourceType;
+                var vidCap = MfDevsourceAttributeSourceTypeVidcapGuid;
+                if (attrs.SetGUID(ref srcType, ref vidCap) == 0
+                    && MFEnumDeviceSources(attrs, out var devices, out var count) == 0
+                    && devices != IntPtr.Zero && count > 0)
                 {
-                    var p = Marshal.ReadIntPtr(devices, (int)(i * (nuint)IntPtr.Size));
-                    if (p == IntPtr.Zero) continue;
-                    var act = (IMFActivate)Marshal.GetObjectForIUnknown(p);
-                    Marshal.Release(p);
-                    if (pick == null)
-                        pick = act;
-                    else if (!string.IsNullOrEmpty(prefer) && ActivateMatches(act, prefer))
-                    {
-                        SafeRelease(pick);
-                        pick = act;
-                    }
-                    else
-                    {
-                        SafeRelease(act);
-                    }
-                }
-
-                if (pick == null)
-                    return false;
-
-                try
-                {
-                    var iid = typeof(IMFMediaSource).GUID;
-                    if (pick.ActivateObject(ref iid, out var srcObj) != 0 || srcObj == null)
-                        return false;
-                    var source = (IMFMediaSource)srcObj;
                     try
                     {
-                        return MFCreateSourceReaderFromMediaSource(source, null, out reader) == 0
-                               && reader != null;
+                        var activates = new List<IMFActivate>((int)count);
+                        try
+                        {
+                            for (uint i = 0; i < count; i++)
+                            {
+                                var p = Marshal.ReadIntPtr(devices, (int)(i * (nuint)IntPtr.Size));
+                                if (p == IntPtr.Zero) continue;
+                                activates.Add((IMFActivate)Marshal.GetObjectForIUnknown(p));
+                                Marshal.Release(p);
+                            }
+
+                            var preferred = new List<IMFActivate>();
+                            var rest = new List<IMFActivate>();
+                            foreach (var a in activates)
+                            {
+                                if (!string.IsNullOrEmpty(prefer) && ActivateMatches(a, prefer))
+                                    preferred.Add(a);
+                                else
+                                    rest.Add(a);
+                            }
+
+                            foreach (var act in preferred.Concat(rest))
+                            {
+                                if (TryActivateReader(act, out reader) && reader != null)
+                                    return true;
+                            }
+
+                            AppLog.Warn($"摄像头测试：已尝试 {activates.Count} 个 MF 设备均无法打开");
+                        }
+                        finally
+                        {
+                            foreach (var a in activates)
+                                SafeRelease(a);
+                        }
                     }
                     finally
                     {
-                        SafeRelease(source);
+                        Marshal.FreeCoTaskMem(devices);
                     }
                 }
-                finally
+                else
                 {
-                    SafeRelease(pick);
+                    AppLog.Warn("摄像头测试：MF 未枚举到视频捕获设备（已尝试符号链接回退）");
                 }
             }
             finally
             {
-                Marshal.FreeCoTaskMem(devices);
+                SafeRelease(attrs);
             }
+        }
+
+        return false;
+    }
+
+    private static bool TryOpenCameraBySymbolicLink(string symbolicLink, out IMFSourceReader? reader)
+    {
+        reader = null;
+        if (string.IsNullOrWhiteSpace(symbolicLink)) return false;
+        if (MFCreateAttributes(out var attrs, 2) != 0 || attrs == null)
+            return false;
+        IMFMediaSource? source = null;
+        try
+        {
+            var srcType = MfDevsourceAttributeSourceType;
+            var vidCap = MfDevsourceAttributeSourceTypeVidcapGuid;
+            var linkKey = MfDevsourceAttributeSourceTypeVidcapSymbolicLink;
+            if (attrs.SetGUID(ref srcType, ref vidCap) != 0)
+                return false;
+            if (attrs.SetString(ref linkKey, symbolicLink) != 0)
+                return false;
+            var hr = MFCreateDeviceSource(attrs, out source);
+            if (hr != 0 || source == null)
+            {
+                AppLog.Warn($"摄像头测试：按符号链接打开失败 hr=0x{hr:X8}");
+                return false;
+            }
+
+            hr = MFCreateSourceReaderFromMediaSource(source, null, out reader);
+            if (hr != 0 || reader == null)
+            {
+                AppLog.Warn($"摄像头测试：符号链接 SourceReader 失败 hr=0x{hr:X8}");
+                reader = null;
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("摄像头测试：符号链接打开异常 " + ex.Message);
+            reader = null;
+            return false;
         }
         finally
         {
+            SafeRelease(source);
             SafeRelease(attrs);
+        }
+    }
+
+    private static bool TryActivateReader(IMFActivate act, out IMFSourceReader? reader)
+    {
+        reader = null;
+        try
+        {
+            var iid = typeof(IMFMediaSource).GUID;
+            var hr = act.ActivateObject(ref iid, out var srcObj);
+            if (hr != 0 || srcObj == null)
+            {
+                AppLog.Warn($"摄像头测试：ActivateObject 失败 hr=0x{hr:X8}");
+                return false;
+            }
+
+            var source = (IMFMediaSource)srcObj;
+            try
+            {
+                hr = MFCreateSourceReaderFromMediaSource(source, null, out reader);
+                if (hr != 0 || reader == null)
+                {
+                    AppLog.Warn($"摄像头测试：创建 SourceReader 失败 hr=0x{hr:X8}");
+                    reader = null;
+                    return false;
+                }
+
+                return true;
+            }
+            finally
+            {
+                SafeRelease(source);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("摄像头测试：打开异常 " + ex.Message);
+            reader = null;
+            return false;
         }
     }
 
@@ -394,7 +521,6 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
         _micRun = true;
         _micThread = new Thread(MicLoop) { IsBackground = true, Name = "FlyScreen.SdMic" };
         _micThread.Start();
-        _svc.PublishStatus("本机麦克风测试推流中");
     }
 
     private void StopMic()
@@ -408,9 +534,11 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
     {
         CoInitializeEx(IntPtr.Zero, 0x2);
         object? clientObj = null;
+        object? captureObj = null;
         try
         {
-            if (!TryOpenWasapiCapture(out clientObj, out var rate, out var channels) || clientObj == null)
+            if (!TryOpenWasapiCapture(out clientObj, out var rate, out var channels, out var isFloat)
+                || clientObj == null)
             {
                 _svc.PublishStatus("无法打开本机麦克风");
                 return;
@@ -424,14 +552,16 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
                 return;
             }
 
-            var capture = (IAudioCaptureClient)Marshal.GetObjectForIUnknown(capPtr);
+            captureObj = Marshal.GetObjectForIUnknown(capPtr);
             Marshal.Release(capPtr);
+            var capture = (IAudioCaptureClient)captureObj;
             if (audio.Start() != 0)
             {
                 _svc.PublishStatus("无法开始麦克风采集");
                 return;
             }
 
+            _svc.PublishStatus("本机麦克风测试推流中");
             while (_micRun)
             {
                 if (capture.GetNextPacketSize(out var frames) != 0)
@@ -445,18 +575,20 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
                 var hr = capture.GetBuffer(out var data, out var got, out var flags, out _, out _);
                 if (hr != 0)
                 {
-                    if (hr == unchecked((int)0x08890001)) continue;
+                    if (hr == unchecked((int)0x08890001)) continue; // AUDCLNT_S_BUFFER_EMPTY
                     break;
                 }
 
                 try
                 {
+                    // flags bit1 = AUDCLNT_BUFFERFLAGS_SILENT
                     if (got > 0 && (flags & 2) == 0 && data != IntPtr.Zero)
                     {
-                        var bytes = (int)got * channels * 2;
-                        var pcm = new byte[bytes];
-                        Marshal.Copy(data, pcm, 0, bytes);
-                        _svc.PostMicAudio(pcm, rate, channels);
+                        var pcm = isFloat
+                            ? FloatToPcm16(data, (int)got, channels)
+                            : CopyPcm16(data, (int)got, channels);
+                        if (pcm.Length > 0)
+                            _svc.PostMicAudio(pcm, rate, channels);
                     }
                 }
                 finally
@@ -474,16 +606,46 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
         }
         finally
         {
-            if (clientObj != null)
-                SafeRelease(clientObj);
+            SafeRelease(captureObj);
+            SafeRelease(clientObj);
         }
     }
 
-    private bool TryOpenWasapiCapture(out object? client, out int sampleRate, out int channels)
+    private static byte[] CopyPcm16(IntPtr data, int frames, int channels)
+    {
+        var bytes = frames * channels * 2;
+        if (bytes <= 0) return [];
+        var pcm = new byte[bytes];
+        Marshal.Copy(data, pcm, 0, bytes);
+        return pcm;
+    }
+
+    private static byte[] FloatToPcm16(IntPtr data, int frames, int channels)
+    {
+        var samples = frames * channels;
+        if (samples <= 0) return [];
+        var pcm = new byte[samples * 2];
+        for (var i = 0; i < samples; i++)
+        {
+            var f = Marshal.PtrToStructure<float>(data + i * 4);
+            var s = (short)Math.Clamp((int)(f * 32767f), short.MinValue, short.MaxValue);
+            pcm[i * 2] = (byte)(s & 0xff);
+            pcm[i * 2 + 1] = (byte)((s >> 8) & 0xff);
+        }
+
+        return pcm;
+    }
+
+    /// <summary>
+    /// 打开麦克风：优先 PCM16 + AUTOCONVERT；失败再退回 mix（float 时在读缓冲时转换）。
+    /// 注意 <see cref="IAudioClient"/> 只能有一个 Initialize，多声明会错位虚表导致 AccessViolation。
+    /// </summary>
+    private bool TryOpenWasapiCapture(out object? client, out int sampleRate, out int channels, out bool isFloat)
     {
         client = null;
         sampleRate = 16000;
         channels = 1;
+        isFloat = false;
         try
         {
             var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
@@ -491,57 +653,104 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
             var prefer = _svc.GetSelectedDeviceId(SharedDeviceKinds.Microphone);
             if (!string.IsNullOrEmpty(prefer))
                 en.GetDevice(prefer, out device);
-            if (device == null && en.GetDefaultAudioEndpoint(1, 0, out device) != 0)
+            if (device == null && en.GetDefaultAudioEndpoint(1 /* eCapture */, 0 /* eConsole */, out device) != 0)
                 return false;
             if (device == null) return false;
 
             var iid = typeof(IAudioClient).GUID;
-            if (device.Activate(ref iid, 1, IntPtr.Zero, out var obj) != 0 || obj == null)
+            // CLSCTX_ALL = 23；Initialize 失败后同一 IAudioClient 不能再 Initialize，须重新 Activate
+            if (device.Activate(ref iid, 23, IntPtr.Zero, out var obj) != 0 || obj == null)
                 return false;
             var audio = (IAudioClient)obj;
-            if (audio.GetMixFormat(out var fmtPtr) != 0 || fmtPtr == IntPtr.Zero)
+
+            if (audio.GetMixFormat(out var mixPtr) != 0 || mixPtr == IntPtr.Zero)
+            {
+                SafeRelease(audio);
                 return false;
+            }
 
             try
             {
-                var mix = Marshal.PtrToStructure<WaveFormatEx>(fmtPtr);
-                sampleRate = (int)mix.nSamplesPerSec;
-                channels = Math.Clamp((int)mix.nChannels, 1, 2);
-                var pcmFmt = new WaveFormatEx
+                var mixRate = Marshal.ReadInt32(mixPtr, 4);
+                var mixCh = Marshal.ReadInt16(mixPtr, 2);
+                sampleRate = mixRate is >= 8000 and <= 48000 ? mixRate : 48000;
+                channels = Math.Clamp((int)mixCh, 1, 2);
+
+                // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | SRC_DEFAULT_QUALITY
+                const uint autoConvert = 0x80000000u | 0x08000000u;
+                var pcmMem = Marshal.AllocCoTaskMem(Marshal.SizeOf<WaveFormatEx>());
+                try
                 {
-                    wFormatTag = 1,
-                    nChannels = (ushort)channels,
-                    nSamplesPerSec = (uint)sampleRate,
-                    wBitsPerSample = 16,
-                    nBlockAlign = (ushort)(channels * 2),
-                    nAvgBytesPerSec = (uint)(sampleRate * channels * 2),
-                    cbSize = 0
-                };
-                var hr = audio.Initialize(0, 0, 10_000_000, 0, ref pcmFmt, IntPtr.Zero);
-                if (hr != 0)
-                {
-                    // 某些驱动只接受 mix format
-                    hr = audio.Initialize(0, 0, 10_000_000, 0, fmtPtr, IntPtr.Zero);
-                    if (hr != 0)
-                        return false;
-                    // mix 可能是 float；为简化仍按 16bit*ch 读取可能失败——强制要求 PCM 成功
-                    if (mix.wFormatTag != 1 && mix.wBitsPerSample != 16)
+                    var pcmFmt = new WaveFormatEx
                     {
-                        _svc.PublishStatus("麦克风格式不受支持，请改用默认麦克风");
-                        return false;
+                        wFormatTag = 1,
+                        nChannels = (ushort)channels,
+                        nSamplesPerSec = (uint)sampleRate,
+                        wBitsPerSample = 16,
+                        nBlockAlign = (ushort)(channels * 2),
+                        nAvgBytesPerSec = (uint)(sampleRate * channels * 2),
+                        cbSize = 0
+                    };
+                    Marshal.StructureToPtr(pcmFmt, pcmMem, false);
+                    var hr = audio.Initialize(0, autoConvert, 10_000_000, 0, pcmMem, IntPtr.Zero);
+                    if (hr == 0)
+                    {
+                        isFloat = false;
+                        client = audio;
+                        audio = null!; // 所有权交给 client
+                        return true;
                     }
+                }
+                finally
+                {
+                    Marshal.FreeCoTaskMem(pcmMem);
+                }
+
+                SafeRelease(audio);
+                audio = null!;
+                if (device.Activate(ref iid, 23, IntPtr.Zero, out obj) != 0 || obj == null)
+                    return false;
+                audio = (IAudioClient)obj;
+
+                // 退回设备 mix（可能为 float / extensible）
+                var hrMix = audio.Initialize(0, 0, 10_000_000, 0, mixPtr, IntPtr.Zero);
+                if (hrMix != 0)
+                {
+                    SafeRelease(audio);
+                    return false;
+                }
+
+                sampleRate = mixRate > 0 ? mixRate : sampleRate;
+                channels = Math.Clamp((int)mixCh, 1, 8);
+                var tag = (ushort)Marshal.ReadInt16(mixPtr, 0);
+                var bits = (ushort)Marshal.ReadInt16(mixPtr, 14);
+                isFloat = tag == 3;
+                if (tag == 0xFFFE && Marshal.ReadInt16(mixPtr, 16) >= 22)
+                {
+                    var sub = Marshal.ReadInt32(mixPtr, 24);
+                    isFloat = sub == 3;
+                }
+
+                if (!isFloat && bits != 16)
+                {
+                    SafeRelease(audio);
+                    _svc.PublishStatus("麦克风格式不受支持，请改用默认麦克风");
+                    return false;
                 }
 
                 client = audio;
+                audio = null!;
                 return true;
             }
             finally
             {
-                Marshal.FreeCoTaskMem(fmtPtr);
+                Marshal.FreeCoTaskMem(mixPtr);
+                SafeRelease(audio);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            AppLog.Warn("打开麦克风失败: " + ex.Message);
             return false;
         }
     }
@@ -664,6 +873,9 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
     private static extern int MFEnumDeviceSources(
         IMFAttributes attrs, out IntPtr devices, out uint count);
 
+    [DllImport("mf.dll")]
+    private static extern int MFCreateDeviceSource(IMFAttributes attrs, out IMFMediaSource? source);
+
     [DllImport("mfplat.dll")]
     private static extern int MFCreateMediaType(out IMFMediaType? mediaType);
 
@@ -741,13 +953,12 @@ public sealed class WindowsSharedDevicesProviderMedia : IDisposable
         [PreserveSig] int GetState(out uint state);
     }
 
+    // 虚表须与 WASAPI IAudioClient 一一对应；不得重载 Initialize，否则后续槽位错位引发 AccessViolation
     [ComImport, Guid("1CB9AD4C-DBFA-4c32-B178-C2F568A703B2"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IAudioClient
     {
-        [PreserveSig] int Initialize(int shareMode, int streamFlags, long bufferDuration,
-            long periodicity, ref WaveFormatEx format, IntPtr session);
-        [PreserveSig] int Initialize(int shareMode, int streamFlags, long bufferDuration,
+        [PreserveSig] int Initialize(int shareMode, uint streamFlags, long bufferDuration,
             long periodicity, IntPtr format, IntPtr session);
         [PreserveSig] int GetBufferSize(out uint bufferSize);
         [PreserveSig] int GetStreamLatency(out long latency);

@@ -15,7 +15,7 @@ public static class TargetCatalog
                 Rid = "win-x64",
                 Kind = "Exe",
                 ProjectPath = @"src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj",
-                Framework = "net10.0-windows7.0",
+                Framework = "net10.0-windows10.0.19041.0",
                 SupportsInstaller = true,
                 UsesWindowsSetup = true,
                 SupportsVddOffline = true,
@@ -24,7 +24,7 @@ public static class TargetCatalog
                 [
                     new FrameworkChoice
                     {
-                        Framework = "net10.0-windows7.0",
+                        Framework = "net10.0-windows10.0.19041.0",
                         Runtimes = ["win-x64", "win-arm64", "win-x86"]
                     }
                 ]

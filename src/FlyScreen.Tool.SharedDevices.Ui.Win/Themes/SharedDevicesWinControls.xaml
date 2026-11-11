@@ -77,13 +77,24 @@
                 </ControlTemplate>
               </ToggleButton.Template>
             </ToggleButton>
+            <!-- 优先 ItemTemplate，避免 SelectionBoxItemTemplate 为空时走对象 ToString -->
             <ContentPresenter Margin="{TemplateBinding Padding}"
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                               Content="{TemplateBinding SelectionBoxItem}"
                               ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                               ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                              IsHitTestVisible="False"/>
+                              IsHitTestVisible="False">
+              <ContentPresenter.Style>
+                <Style TargetType="ContentPresenter">
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource TemplatedParent}}" Value="{x:Null}">
+                      <Setter Property="ContentTemplate" Value="{Binding ItemTemplate, RelativeSource={RelativeSource TemplatedParent}}"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </ContentPresenter.Style>
+            </ContentPresenter>
             <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                    AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
               <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"

@@ -8,10 +8,13 @@ namespace FlyScreen.SharedDevices;
 public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
 {
     /// <summary>GUID_DEVCLASS_CAMERA — 设备管理器「照相机」。</summary>
-    private static readonly Guid GuidDevClassCamera = new("ca3e32d7-a3b0-4f7b-8e9d-2e8c7c8e0c5e");
+    private static readonly Guid GuidDevClassCamera = new("ca3e7ab9-b4c3-4ae6-8251-579ef933890f");
 
     /// <summary>KSCATEGORY_VIDEO_CAMERA — 视频采集设备接口。</summary>
     private static readonly Guid KsCategoryVideoCamera = new("e5323777-f976-4f5b-9b55-b94699c46e44");
+
+    /// <summary>KSCATEGORY_CAPTURE — 部分 UVC 只挂在此类。</summary>
+    private static readonly Guid KsCategoryCapture = new("65e8773d-8f56-11d0-a3b9-00a0c9223196");
 
     public IReadOnlyList<SharedLocalDevice> Enumerate(string kind)
     {
@@ -127,23 +130,106 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
 
     private static IReadOnlyList<SharedLocalDevice> EnumCameras()
     {
-        // 现代 UVC 在设备管理器「照相机」类；合并设备接口枚举，避免只命中一类
-        var list = EnumCamerasBySetupClass();
-        foreach (var d in EnumCamerasByVideoInterface())
+        // 优先符号链接（MF/MediaCapture 可打开）；再补照相机类实例 Id
+        var list = EnumCamerasByDeviceInterface(KsCategoryVideoCamera);
+        foreach (var d in EnumCamerasByDeviceInterface(KsCategoryCapture))
         {
             if (list.Any(x => x.Id.Equals(d.Id, StringComparison.OrdinalIgnoreCase)
-                              || x.Name.Equals(d.Name, StringComparison.OrdinalIgnoreCase)))
+                              || x.Name.Equals(d.Name, StringComparison.OrdinalIgnoreCase)
+                              || IdsLikelySameCamera(x.Id, d.Id)))
                 continue;
+            list.Add(d);
+        }
+
+        foreach (var d in EnumCamerasBySetupClass())
+        {
+            if (list.Any(x => x.Id.Equals(d.Id, StringComparison.OrdinalIgnoreCase)
+                              || x.Name.Equals(d.Name, StringComparison.OrdinalIgnoreCase)
+                              || IdsLikelySameCamera(x.Id, d.Id)))
+                continue;
+            // 尝试把实例 Id 换成已有符号链接，避免 UI 选中后无法打开
+            var link = ListCameraSymbolicLinks(d.Id).FirstOrDefault(IsSymbolicLinkPath);
             list.Add(new SharedLocalDevice
             {
                 Kind = d.Kind,
-                Id = d.Id,
+                Id = link ?? d.Id,
                 Name = d.Name,
-                IsDefault = list.Count == 0
+                IsDefault = false
             });
         }
 
+        if (list.Count > 0 && !list.Any(d => d.IsDefault))
+        {
+            var first = list[0];
+            list[0] = new SharedLocalDevice
+            {
+                Kind = first.Kind,
+                Id = first.Id,
+                Name = first.Name,
+                IsDefault = true
+            };
+        }
+
         return list;
+    }
+
+    /// <summary>
+    /// 供采集端打开：返回视频捕获符号链接（\\?\...），按 prefer（符号链接或实例 Id）排序。
+    /// </summary>
+    public static IReadOnlyList<string> ListCameraSymbolicLinks(string? prefer = null)
+    {
+        var links = new List<string>();
+        void AddLink(string? id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            if (!IsSymbolicLinkPath(id)) return;
+            if (links.Any(x => x.Equals(id, StringComparison.OrdinalIgnoreCase))) return;
+            links.Add(id);
+        }
+
+        foreach (var d in EnumCamerasByDeviceInterface(KsCategoryVideoCamera))
+            AddLink(d.Id);
+        foreach (var d in EnumCamerasByDeviceInterface(KsCategoryCapture))
+            AddLink(d.Id);
+        foreach (var path in EnumDirectShowCameraDevicePaths())
+            AddLink(path);
+
+        // 选用的若已是符号链接也纳入
+        AddLink(prefer);
+
+        if (string.IsNullOrEmpty(prefer) || links.Count <= 1)
+            return links;
+
+        return links
+            .OrderByDescending(l => IdsLikelySameCamera(l, prefer!) ||
+                                    l.Equals(prefer, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private static bool IsSymbolicLinkPath(string id)
+        => id.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
+           || id.StartsWith(@"\\.\", StringComparison.OrdinalIgnoreCase)
+           || id.StartsWith(@"\??\", StringComparison.Ordinal);
+
+    private static bool IdsLikelySameCamera(string a, string b)
+    {
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+        if (a.Equals(b, StringComparison.OrdinalIgnoreCase)) return true;
+        // 符号链接里常含规范化后的实例片段；实例 Id 形如 USB\VID_xxxx&PID_xxxx\...
+        var na = NormalizeDeviceKey(a);
+        var nb = NormalizeDeviceKey(b);
+        return na.Length >= 12 && nb.Length >= 12
+               && (na.Contains(nb, StringComparison.OrdinalIgnoreCase)
+                   || nb.Contains(na, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeDeviceKey(string id)
+    {
+        var s = id.Replace('\\', '#').Replace('/', '#').ToUpperInvariant();
+        // 去掉 \\?\ / \\.\ 前缀噪音，便于实例 Id 与符号链接互认
+        s = s.Replace(@"#?#USB#", "#USB#", StringComparison.Ordinal)
+             .Replace(@"#?#", "#", StringComparison.Ordinal);
+        return s;
     }
 
     private static List<SharedLocalDevice> EnumCamerasBySetupClass()
@@ -185,10 +271,10 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
         return list;
     }
 
-    private static List<SharedLocalDevice> EnumCamerasByVideoInterface()
+    private static List<SharedLocalDevice> EnumCamerasByDeviceInterface(Guid category)
     {
         var list = new List<SharedLocalDevice>();
-        var guid = KsCategoryVideoCamera;
+        var guid = category;
         var info = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero,
             DigcfPresent | DigcfDeviceInterface);
         if (info == IntPtr.Zero || info == new IntPtr(-1))
@@ -211,8 +297,11 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
                 if (string.IsNullOrWhiteSpace(name) || IsPhantomCameraDriver(name))
                     continue;
 
-                var id = GetDeviceInstanceId(info, ref devData) ?? path;
-                if (list.Any(d => d.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                var instanceId = GetDeviceInstanceId(info, ref devData);
+                var id = !string.IsNullOrEmpty(path) ? path : (instanceId ?? $"camera-if-{i}");
+                if (list.Any(d => d.Id.Equals(id, StringComparison.OrdinalIgnoreCase)
+                                  || (!string.IsNullOrEmpty(instanceId)
+                                      && d.Id.Equals(instanceId, StringComparison.OrdinalIgnoreCase))))
                     continue;
 
                 list.Add(new SharedLocalDevice
@@ -227,6 +316,62 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
         finally
         {
             SetupDiDestroyDeviceInfoList(info);
+        }
+
+        return list;
+    }
+
+    /// <summary>DirectShow 视频输入设备的 DevicePath（常比 SetupAPI 更全）。</summary>
+    private static List<string> EnumDirectShowCameraDevicePaths()
+    {
+        var list = new List<string>();
+        try
+        {
+            _ = CoInitializeEx(IntPtr.Zero, 0x2);
+            var clsid = ClsidSystemDeviceEnum;
+            var iid = typeof(ICreateDevEnum).GUID;
+            if (CoCreateInstance(ref clsid, IntPtr.Zero, 23, ref iid, out var obj) != 0 || obj == null)
+                return list;
+            var create = (ICreateDevEnum)obj;
+            var cat = ClsidVideoInputDeviceCategory;
+            if (create.CreateClassEnumerator(ref cat, out var enumMon, 0) != 0 || enumMon == null)
+                return list;
+
+            var monikers = new IMoniker[1];
+            while (enumMon.Next(1, monikers, IntPtr.Zero) == 0)
+            {
+                var mon = monikers[0];
+                if (mon == null) continue;
+                try
+                {
+                    var iidBag = IidPropertyBag;
+                    if (mon.BindToStorage(IntPtr.Zero, IntPtr.Zero, ref iidBag, out var bagObj) != 0
+                        || bagObj == null)
+                        continue;
+                    var bag = (IPropertyBag)bagObj;
+                    try
+                    {
+                        object pathObj = "";
+                        if (bag.Read("DevicePath", ref pathObj, IntPtr.Zero) != 0)
+                            continue;
+                        if (pathObj is string path && !string.IsNullOrWhiteSpace(path))
+                            list.Add(path.Trim());
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(bag);
+                    }
+                }
+                catch { /* ignore */ }
+                finally
+                {
+                    Marshal.ReleaseComObject(mon);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
         }
 
         return list;
@@ -432,5 +577,61 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
 
     [DllImport("ole32.dll")]
     private static extern int PropVariantClear(ref PropVariant pvar);
+
+    [DllImport("ole32.dll")]
+    private static extern int CoCreateInstance(
+        ref Guid clsid, IntPtr outer, int ctx, ref Guid iid,
+        [MarshalAs(UnmanagedType.IUnknown)] out object? ppv);
+
+    private static readonly Guid ClsidSystemDeviceEnum = new("62BE5D10-60EB-11D0-BD3B-00A0C911CE86");
+    private static readonly Guid ClsidVideoInputDeviceCategory = new("860BB310-5D01-11D0-BD3B-00A0C911CE86");
+
+    [ComImport, Guid("29840822-5B84-11D0-BD3B-00A0C911CE86"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface ICreateDevEnum
+    {
+        [PreserveSig]
+        int CreateClassEnumerator(ref Guid type, out IEnumMoniker? enumMoniker, int flags);
+    }
+
+    [ComImport, Guid("00000102-0000-0000-C000-000000000046"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IEnumMoniker
+    {
+        [PreserveSig] int Next(int celt, [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 0)] IMoniker[] rgelt, IntPtr pceltFetched);
+        [PreserveSig] int Skip(int celt);
+        [PreserveSig] int Reset();
+        [PreserveSig] int Clone(out IEnumMoniker enumMoniker);
+    }
+
+    // IMoniker : IPersistStream : IPersist — 虚表按继承顺序
+    [ComImport, Guid("0000000F-0000-0000-C000-000000000046"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMoniker
+    {
+        [PreserveSig] int GetClassID(out Guid pClassID);
+        [PreserveSig] int IsDirty();
+        [PreserveSig] int Load(IntPtr pStm);
+        [PreserveSig] int Save(IntPtr pStm, [MarshalAs(UnmanagedType.Bool)] bool fClearDirty);
+        [PreserveSig] int GetSizeMax(out long pcbSize);
+        [PreserveSig] int BindToObject(IntPtr pbc, IntPtr pmkToLeft, ref Guid riidResult,
+            [MarshalAs(UnmanagedType.IUnknown)] out object? ppvResult);
+        [PreserveSig] int BindToStorage(IntPtr pbc, IntPtr pmkToLeft, ref Guid riid,
+            [MarshalAs(UnmanagedType.IUnknown)] out object? ppvObj);
+    }
+
+    private static readonly Guid IidPropertyBag = new("55272A00-42CB-11CE-8135-00AA004BB851");
+
+    [ComImport, Guid("55272A00-42CB-11CE-8135-00AA004BB851"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IPropertyBag
+    {
+        [PreserveSig]
+        int Read([MarshalAs(UnmanagedType.LPWStr)] string propName,
+            [In, Out, MarshalAs(UnmanagedType.Struct)] ref object var, IntPtr errorLog);
+        [PreserveSig]
+        int Write([MarshalAs(UnmanagedType.LPWStr)] string propName,
+            [In, MarshalAs(UnmanagedType.Struct)] ref object var);
+    }
 }
 

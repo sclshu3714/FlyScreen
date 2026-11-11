@@ -1989,22 +1989,27 @@
                                                         <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding Level}" Value="Error">
-                                                                <Setter Property="Foreground" Value="#DC2626"/>
+                                                                <Setter Property="Foreground" Value="#F87171"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Level}" Value="Warn">
-                                                                <Setter Property="Foreground" Value="#D97706"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Level}" Value="Debug">
-                                                                <Setter Property="Foreground" Value="#6B7280"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Level}" Value="Info">
-                                                                <Setter Property="Foreground" Value="#2563EB"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+                                                            </DataTrigger>
+                                                            <!-- 选中行：级别色改为主题文字，避免深色 BlueSoft 底上发灰发糊 -->
+                                                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Text}"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </TextBlock.Style>
                                             </TextBlock>
-                                            <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource Text}"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>

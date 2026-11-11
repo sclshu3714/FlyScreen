@@ -144,6 +144,7 @@ public sealed class AppHost : IAsyncDisposable
         {
             if (_sharedDevices != null)
                 _sharedDevices.StatusMessage -= PublishStatus;
+            WinSharedDevicesCamera.Unregister();
             try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
             _sharedDevicesProviderMedia = null;
             _sharedDevices = null;
@@ -154,13 +155,15 @@ public sealed class AppHost : IAsyncDisposable
         {
             if (_sharedDevices != null)
                 _sharedDevices.StatusMessage -= PublishStatus;
+            WinSharedDevicesCamera.Unregister();
             _sharedDevices = sd;
             sd.StatusMessage += PublishStatus;
         }
 
         // 同实例也重新挂硬件：卸载再装后 ALC 新服务必须再 Attach
         sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
-        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio("共享扬声器"));
+        WinSharedDevicesCamera.Register();
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = new FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia(sd);
     }
@@ -660,6 +663,7 @@ public sealed class AppHost : IAsyncDisposable
         _securityKeySync = null;
         _displayInfo?.Dispose();
         _displayInfo = null;
+        WinSharedDevicesCamera.Unregister();
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = null;
         ScreenExtendUi.Dispose();
