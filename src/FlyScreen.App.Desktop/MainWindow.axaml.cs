@@ -586,7 +586,10 @@ public partial class MainWindow : Window
         DisposeDesktopTray();
     }
 
-    private void ShowFromTray()
+    private void ShowFromTray() => BringToFront();
+
+    /// <summary>二次启动 / 托盘：显示并激活主窗。</summary>
+    public void BringToFront()
     {
         Show();
         WindowState = WindowState.Normal;
@@ -765,18 +768,21 @@ public partial class MainWindow : Window
 
     private void BuildPlatformActions()
     {
-        PlatformActionsPanel.Children.Clear();
-        foreach (var (label, invoke) in _host.PlatformActions)
+        TitlePlatformActionsPanel.Children.Clear();
+        foreach (var (label, icon, invoke) in _host.PlatformActions)
         {
             var btn = new Button
             {
-                Content = label,
-                Classes = { "normal" },
-                Margin = new Thickness(0),
-                HorizontalAlignment = HorizontalAlignment.Stretch
+                Content = string.IsNullOrWhiteSpace(icon) ? "⚙" : icon,
+                Classes = { "link" },
+                Width = 36,
+                Height = 32,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0)
             };
+            ToolTip.SetTip(btn, label);
             btn.Click += (_, _) => invoke();
-            PlatformActionsPanel.Children.Add(btn);
+            TitlePlatformActionsPanel.Children.Add(btn);
         }
     }
 
@@ -2922,8 +2928,14 @@ public partial class MainWindow : Window
 
     private async void Reconnect_Click(object? sender, RoutedEventArgs e)
     {
+        var s = _host.Settings;
+        var prevTcp = s.TcpPort;
+        var prevUdp = s.UdpPort;
+        var prevNic = s.PreferredNicId ?? "";
+        var prevIp = s.PreferredLocalIp ?? "";
+        var prevKey = s.SecurityKey ?? "";
         ApplySettingsFromUi();
-        await _host.Connections.ReconnectNowAsync();
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         StatusText.Text = "正在重新连接…";
     }
 

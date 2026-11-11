@@ -259,7 +259,8 @@ public sealed class AppHost : IAsyncDisposable
             || previousUdpPort != Settings.UdpPort
             || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal)
+            || Connections.NeedsListenRebind();
 
         if (needRestart || !Connections.IsRunning)
             await Connections.StartAsync().ConfigureAwait(false);

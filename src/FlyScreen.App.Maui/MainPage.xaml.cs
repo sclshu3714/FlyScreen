@@ -4497,6 +4497,13 @@ public partial class MainPage : ContentPage
         if (tcp <= 0) tcp = 15155;
         if (udp <= 0) udp = 15156;
 
+        // 必须先采 prev，再写偏好网卡；否则 ApplyNetworking 永远认为网卡未变、不重绑监听
+        var prevTcp = _host.Settings.TcpPort;
+        var prevUdp = _host.Settings.UdpPort;
+        var prevNic = _host.Settings.PreferredNicId ?? "";
+        var prevIp = _host.Settings.PreferredLocalIp ?? "";
+        var prevKey = _host.Settings.SecurityKey ?? "";
+
         if (NicPicker.SelectedItem is NicInfo nic)
         {
             _host.Settings.PreferredNicId = nic.Id;
@@ -4515,12 +4522,6 @@ public partial class MainPage : ContentPage
             LayoutSlotMerge.NonEmptyNames(newSlots), StringComparer.OrdinalIgnoreCase);
         var removedAny = prevSet.Any(n => !newSet.Contains(n));
         var layoutMerge = !removedAny && newSet.Count >= prevSet.Count;
-
-        var prevTcp = _host.Settings.TcpPort;
-        var prevUdp = _host.Settings.UdpPort;
-        var prevNic = _host.Settings.PreferredNicId ?? "";
-        var prevIp = _host.Settings.PreferredLocalIp ?? "";
-        var prevKey = _host.Settings.SecurityKey ?? "";
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
         _host.ApplyFromUi(
@@ -4807,7 +4808,10 @@ public partial class MainPage : ContentPage
 
     private async void Reconnect_Clicked(object? sender, EventArgs e)
     {
-        await _host.Connections.ReconnectNowAsync();
+        if (_host.Connections.NeedsListenRebind())
+            await _host.RestartNetworkingAsync();
+        else
+            await _host.Connections.ReconnectNowAsync();
         StatusLabel.Text = "正在重新连接…";
     }
 

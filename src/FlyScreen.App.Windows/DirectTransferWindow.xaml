@@ -95,6 +95,7 @@
     <Style TargetType="ComboBox">
       <Setter Property="Height" Value="32"/>
       <Setter Property="Padding" Value="10,0,32,0"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
       <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
@@ -102,6 +103,8 @@
       <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+      <!-- 按列宽拉满，避免随当前选项文字长短忽宽忽窄 -->
+      <Setter Property="MinWidth" Value="0"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ComboBox">
@@ -239,6 +242,7 @@
 
         <TextBlock x:Name="PeerLabel" Text="目标电脑" VerticalAlignment="Center"/>
         <ComboBox x:Name="PeerCombo" Grid.Column="1"
+                  HorizontalAlignment="Stretch"
                   SelectionChanged="PeerCombo_SelectionChanged">
           <ComboBox.ItemTemplate>
             <DataTemplate>
@@ -249,6 +253,7 @@
 
         <TextBlock x:Name="PresetLabel" Grid.Row="1" Text="常用位置" VerticalAlignment="Center" Margin="0,10,0,0"/>
         <ComboBox x:Name="FolderPresetCombo" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
+                  HorizontalAlignment="Stretch"
                   SelectionChanged="FolderPreset_SelectionChanged">
           <ComboBox.ItemTemplate>
             <DataTemplate>

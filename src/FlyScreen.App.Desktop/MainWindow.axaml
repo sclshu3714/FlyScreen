@@ -413,6 +413,9 @@
         </Border>
         <Border Grid.Column="1" Background="Transparent"/>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+          <!-- Mac：辅助功能 / 屏幕录制等平台操作，紧挨投影左侧 -->
+          <StackPanel x:Name="TitlePlatformActionsPanel" Orientation="Horizontal" Spacing="2"
+                      VerticalAlignment="Center"/>
           <Button x:Name="TitleProjectBtn" Classes="link" MinWidth="78" Height="32" Padding="8,0"
                   Click="TitleProject_Click" ToolTip.Tip="投影到电脑"/>
           <Button Classes="link" Content="—" Width="40" Height="32" Padding="0"
@@ -531,7 +534,6 @@
                      TextWrapping="Wrap" MaxHeight="36" TextTrimming="CharacterEllipsis"
                      ToolTip.Tip="{Binding Text, RelativeSource={RelativeSource Self}}"
                      Text="就绪"/>
-          <StackPanel x:Name="PlatformActionsPanel" Spacing="4"/>
         </StackPanel>
       </Grid>
     </Border>

@@ -15,7 +15,8 @@ namespace FlyScreen.AppMaui;
 [Activity(
     Theme = "@style/Maui.SplashTheme",
     MainLauncher = true,
-    LaunchMode = LaunchMode.SingleTop,
+    // 同机只保留一个任务根 Activity；再次点图标 / 通知拉起时激活已有界面
+    LaunchMode = LaunchMode.SingleTask,
     Icon = "@mipmap/appicon",
     RoundIcon = "@mipmap/appicon_round",
     ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode |
@@ -47,6 +48,20 @@ public class MainActivity : MauiAppCompatActivity
         base.OnNewIntent(intent);
         if (intent != null)
             Intent = intent;
+
+        // 二次启动：把已有任务拉到前台（SingleTask 会回调此处）
+        try
+        {
+            if (IsFinishing) return;
+            Window?.DecorView?.RequestFocus();
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.Lollipop)
+            {
+                var am = GetSystemService(ActivityService) as ActivityManager;
+                // MOVE_TASK_WITH_HOME = 2
+                am?.MoveTaskToFront(TaskId, 2);
+            }
+        }
+        catch { /* ignore */ }
     }
 
     protected override void OnDestroy()

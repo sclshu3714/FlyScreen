@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.DesktopUi;
@@ -155,27 +156,17 @@ public partial class DirectTransferWindow : Window
             TargetPathBox.Text = "";
 
             var folders = await _host.Transfers.QueryRemoteFoldersAsync(peer).ConfigureAwait(true);
+            var info = _host.Connections.GetPeerRemoteInfo(peer);
+            _presets.Clear();
+            foreach (var (label, path) in DirectTransferDestinations.BuildPresets(folders, info))
+                _presets.Add(new FolderPreset(label, path));
+
             if (folders == null)
-            {
                 StatusText.Text = string.Format(Loc.T("DT.QueryFail"), peer);
-                _presets.Add(new FolderPreset(Loc.T("DT.CustomPath"), ""));
-                FolderPresetCombo.SelectedIndex = 0;
-                return;
-            }
+            else
+                StatusText.Text = string.Format(Loc.T("DT.Connected"), peer, _paths.Count);
 
-            void Add(string label, string path)
-            {
-                if (!string.IsNullOrWhiteSpace(path))
-                    _presets.Add(new FolderPreset(label, path.Trim()));
-            }
-
-            Add(Loc.T("DT.Desktop"), folders.Desktop);
-            Add(Loc.T("DT.Documents"), folders.Documents);
-            Add(Loc.T("DT.Downloads"), folders.Downloads);
-            Add(Loc.T("DT.Inbox"), folders.Inbox);
-            _presets.Add(new FolderPreset(Loc.T("DT.CustomPath"), folders.Downloads));
-            FolderPresetCombo.SelectedIndex = 0;
-            StatusText.Text = string.Format(Loc.T("DT.Connected"), peer, _paths.Count);
+            ApplyFirstPresetToPath();
         }
         finally
         {
@@ -183,10 +174,22 @@ public partial class DirectTransferWindow : Window
         }
     }
 
+    private void ApplyFirstPresetToPath()
+    {
+        if (_presets.Count == 0)
+        {
+            TargetPathBox.Text = "";
+            return;
+        }
+
+        FolderPresetCombo.SelectedIndex = 0;
+        TargetPathBox.Text = _presets[0].Path;
+    }
+
     private void FolderPreset_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (FolderPresetCombo.SelectedItem is FolderPreset p && !string.IsNullOrWhiteSpace(p.Path))
-            TargetPathBox.Text = p.Path;
+        if (FolderPresetCombo.SelectedItem is FolderPreset p)
+            TargetPathBox.Text = p.Path ?? "";
     }
 
     private async void AddFiles_Click(object? sender, RoutedEventArgs e)

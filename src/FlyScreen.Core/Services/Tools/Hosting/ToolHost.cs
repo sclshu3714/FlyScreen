@@ -17,6 +17,9 @@ public sealed class ToolHost
 
     public event Action? ModulesChanged;
 
+    /// <summary>当前运行时是否支持可回收 ALC（移动端 Mono 为 false）。</summary>
+    public static bool SupportsCollectibleLoadContext => ToolLoadContext.SupportsCollectible;
+
     public IToolHostServices? Services
     {
         get { lock (_gate) return _services; }
@@ -120,9 +123,11 @@ public sealed class ToolHost
         // 已加载则先卸
         await UnloadAsync(toolId, ct).ConfigureAwait(false);
 
-        var alc = new ToolLoadContext(toolId, asmPath);
+        ToolLoadContext? alc = null;
         try
         {
+            // Android/iOS 等 Mono 宿主：可回收 ALC 会抛 PlatformNotSupportedException（Arg_PlatformNotSupported）
+            alc = new ToolLoadContext(toolId, asmPath);
             // 按字节流加载，避免 Windows 锁住 Installed 目录下的 DLL（否则卸载/重装会失败）
             var asm = alc.LoadFromFileBytes(asmPath);
             LoadSatelliteUiAssemblies(alc, installDir, pack.EntryAssembly);
@@ -131,7 +136,7 @@ public sealed class ToolHost
                            string.Equals(t.FullName, pack.EntryType, StringComparison.OrdinalIgnoreCase));
             if (type == null || !typeof(IToolModule).IsAssignableFrom(type))
             {
-                alc.Unload();
+                TryUnload(alc);
                 AppLog.Warn($"工具入口类型无效: {pack.EntryType}");
                 return null;
             }
@@ -139,7 +144,7 @@ public sealed class ToolHost
             var module = (IToolModule?)Activator.CreateInstance(type);
             if (module == null)
             {
-                alc.Unload();
+                TryUnload(alc);
                 return null;
             }
 
@@ -166,8 +171,10 @@ public sealed class ToolHost
         }
         catch (Exception ex)
         {
-            try { alc.Unload(); } catch { /* ignore */ }
-            AppLog.Warn($"ALC 加载工具失败 {toolId}: {ex.Message}");
+            TryUnload(alc);
+            AppLog.Warn($"ALC 加载工具失败 {toolId}: {ex.GetType().Name}: {ex.Message}");
+            if (ex.InnerException != null)
+                AppLog.Warn($"ALC 加载内部异常 {toolId}: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
             return null;
         }
     }
@@ -203,14 +210,16 @@ public sealed class ToolHost
 
         if (ctx != null)
         {
-            try { ctx.Unload(); }
-            catch (Exception ex) { AppLog.Warn($"ALC Unload 失败 {toolId}: {ex.Message}"); }
+            TryUnload(ctx);
             ctx = null;
             // 促使可回收 ALC 尽快释放（流式加载后文件通常已不锁，仍利于内存回收）
-            for (var i = 0; i < 2; i++)
+            if (SupportsCollectibleLoadContext)
             {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                for (var i = 0; i < 2; i++)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
             }
         }
 
@@ -315,16 +324,47 @@ public sealed class ToolHost
         try { ModulesChanged?.Invoke(); } catch { /* ignore */ }
     }
 
+    /// <summary>非可回收 ALC 上调用 <see cref="AssemblyLoadContext.Unload"/> 会抛，需跳过。</summary>
+    private static void TryUnload(AssemblyLoadContext? alc)
+    {
+        if (alc is not { IsCollectible: true }) return;
+        try { alc.Unload(); }
+        catch (Exception ex) { AppLog.Warn($"ALC Unload 失败: {ex.Message}"); }
+    }
+
     private sealed class ToolLoadContext : AssemblyLoadContext
     {
         private readonly string _pluginDir;
-        private readonly AssemblyDependencyResolver _resolver;
+        private readonly AssemblyDependencyResolver? _resolver;
+
+        /// <summary>
+        /// CoreCLR 桌面支持可回收 ALC；Android / iOS / Mac Catalyst / Browser（Mono）创建可回收上下文会抛
+        /// <see cref="PlatformNotSupportedException"/>（界面常见原文 Arg_PlatformNotSupported）。
+        /// </summary>
+        public static bool SupportsCollectible
+            => !IsMobileOrBrowserRuntime();
+
+        /// <summary>
+        /// <see cref="AssemblyDependencyResolver"/> 标注 UnsupportedOSPlatform(android/ios/tvos/browser)，
+        /// 构造即抛 PlatformNotSupportedException；移动端改用安装目录旁路解析。
+        /// </summary>
+        public static bool SupportsAssemblyDependencyResolver
+            => !IsMobileOrBrowserRuntime();
+
+        private static bool IsMobileOrBrowserRuntime()
+            => OperatingSystem.IsAndroid()
+               || OperatingSystem.IsIOS()
+               || OperatingSystem.IsTvOS()
+               || OperatingSystem.IsMacCatalyst()
+               || OperatingSystem.IsBrowser();
 
         public ToolLoadContext(string name, string mainAssemblyPath)
-            : base(name, isCollectible: true)
+            : base(name, isCollectible: SupportsCollectible)
         {
             _pluginDir = Path.GetDirectoryName(mainAssemblyPath) ?? mainAssemblyPath;
-            _resolver = new AssemblyDependencyResolver(mainAssemblyPath);
+            _resolver = SupportsAssemblyDependencyResolver
+                ? new AssemblyDependencyResolver(mainAssemblyPath)
+                : null;
         }
 
         public Assembly LoadFromFileBytes(string assemblyPath)
@@ -346,7 +386,7 @@ public sealed class ToolHost
             if (ShouldShareWithDefaultContext(assemblyName.Name))
                 return null;
 
-            var path = _resolver.ResolveAssemblyToPath(assemblyName);
+            var path = _resolver?.ResolveAssemblyToPath(assemblyName);
             if (path != null)
                 return LoadFromFileBytes(path);
 

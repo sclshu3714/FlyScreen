@@ -184,17 +184,23 @@ public sealed class PublishService
 
         if (target.Id == "maui-android")
         {
+            var androidTfm = string.IsNullOrWhiteSpace(target.Framework)
+                ? "net10.0-android"
+                : target.Framework;
+            // 与 Directory.Build.props 中 BaseIntermediateOutputPath 对齐
+            var intermediateDir = Path.Combine(
+                _repoRoot, "artifacts", "setup-work", _jobId, "obj", "FlyScreen.App.Maui",
+                "Release", androidTfm, "android", "bin");
+            if (Directory.Exists(intermediateDir))
+            {
+                Report(progress, 76, $"{target.DisplayName}：清理中间产物工具安装态…");
+                StripToolsInstallStateFromDir(intermediateDir, log);
+            }
+
             Report(progress, 78, $"{target.DisplayName}：签名 APK…");
             var apkScript = Path.Combine(_repoRoot, "build", "Ensure-MauiSignedApk.ps1");
             if (File.Exists(apkScript))
             {
-                var androidTfm = string.IsNullOrWhiteSpace(target.Framework)
-                    ? "net10.0-android"
-                    : target.Framework;
-                // 与 Directory.Build.props 中 BaseIntermediateOutputPath 对齐
-                var intermediateDir = Path.Combine(
-                    "artifacts", "setup-work", _jobId, "obj", "FlyScreen.App.Maui",
-                    "Release", androidTfm, "android", "bin");
                 var args =
                     $"-NoProfile -ExecutionPolicy Bypass -File \"{apkScript}\" " +
                     $"-OutDir \"{staging}\" -PackageId \"com.xuanniao.flyscreen\" " +
@@ -204,6 +210,7 @@ public sealed class PublishService
                 if (exit != 0)
                     throw new InvalidOperationException("Ensure-MauiSignedApk 失败");
             }
+            // Ensure-MauiSignedApk 内已在签名前剥离目录与 APK 内 Tools 安装态，勿在签名后再改 APK
         }
 
         Report(progress, 88, $"{target.DisplayName}：整理产物…");
@@ -457,9 +464,19 @@ public sealed class PublishService
             log($"已从产物中移除 VddOffline 离线包（{removed} 项）。");
     }
 
+    private static readonly string[] ToolInstallStateFileNames =
+    [
+        "tools-install.json",
+        "tools-shortcuts.json",
+        "tools-local-programs.json",
+        "tools-index.cache.json"
+    ];
+
     /// <summary>
     /// 安装包/发布产物只携带 <c>Tools/Bundled/*.flytool</c>，不预装、不带安装记录。
-    /// 避免开发机旁路 <c>Installed</c>/<c>tools-install.json</c> 被打进 payload，导致安装后显示「已安装」却不可用。
+    /// 只清理磁盘上的 Tools 目录；禁止用 Zip 改写 .apk（会破坏 APK Sig Block，
+    /// 在 Android 13+ 表现为 PackageInfo 为 null / 无法安装）。
+    /// Android 包内仅有 MauiAsset 的 Bundled，本就不会带 Installed。
     /// </summary>
     private static void StripToolsInstallStateFromDir(string dir, Action<string> log)
     {
@@ -470,42 +487,7 @@ public sealed class PublishService
         {
             try
             {
-                var installed = Path.Combine(toolsRoot, "Installed");
-                if (Directory.Exists(installed))
-                {
-                    Directory.Delete(installed, recursive: true);
-                    removed++;
-                }
-
-                // 保留空 Installed 目录结构也可；此处不重建，运行时 EnsureToolsLayout 会建
-
-                foreach (var name in new[]
-                         {
-                             "tools-install.json",
-                             "tools-shortcuts.json",
-                             "tools-local-programs.json",
-                             "tools-index.cache.json"
-                         })
-                {
-                    var f = Path.Combine(toolsRoot, name);
-                    if (!File.Exists(f)) continue;
-                    File.Delete(f);
-                    removed++;
-                }
-
-                // 非 Bundled 的杂项目录一律去掉（Cache 等遗留）
-                foreach (var sub in Directory.EnumerateDirectories(toolsRoot))
-                {
-                    var leaf = Path.GetFileName(sub);
-                    if (leaf.Equals("Bundled", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    try
-                    {
-                        Directory.Delete(sub, recursive: true);
-                        removed++;
-                    }
-                    catch { /* ignore */ }
-                }
+                removed += StripToolsRootOnDisk(toolsRoot);
             }
             catch (Exception ex)
             {
@@ -517,6 +499,32 @@ public sealed class PublishService
             log($"已从产物剥离工具安装态（{removed} 项），仅保留 Tools/Bundled 供安装后手动安装。");
         else
             log("工具目录已是未安装态（仅 Bundled / 无安装记录）。");
+    }
+
+    private static int StripToolsRootOnDisk(string toolsRoot)
+    {
+        var removed = 0;
+        foreach (var name in ToolInstallStateFileNames)
+        {
+            var f = Path.Combine(toolsRoot, name);
+            if (!File.Exists(f)) continue;
+            File.Delete(f);
+            removed++;
+        }
+
+        foreach (var sub in Directory.EnumerateDirectories(toolsRoot))
+        {
+            if (Path.GetFileName(sub).Equals("Bundled", StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
+            {
+                Directory.Delete(sub, recursive: true);
+                removed++;
+            }
+            catch { /* ignore */ }
+        }
+
+        return removed;
     }
 
     private static void EnsureReleaseConfiguration(PublishOptions options, Action<string> log)

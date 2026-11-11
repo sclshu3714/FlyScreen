@@ -170,7 +170,9 @@ public static class ToolBundledCatalogAssets
 
     private sealed class CatalogLoadContext : AssemblyLoadContext
     {
-        public CatalogLoadContext(string name) : base(name, isCollectible: true) { }
+        // 与 ToolHost 一致：移动端 Mono 不可用可回收 ALC
+        public CatalogLoadContext(string name)
+            : base(name, isCollectible: Hosting.ToolHost.SupportsCollectibleLoadContext) { }
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {

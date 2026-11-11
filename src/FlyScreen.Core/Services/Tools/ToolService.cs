@@ -162,7 +162,15 @@ public sealed class ToolService
         {
             var rec = Catalog.FindRecord(toolId);
             if (rec != null && !string.IsNullOrEmpty(rec.Path) && Directory.Exists(rec.Path))
-                await Host.LoadInstalledAsync(toolId, rec.Path, ct).ConfigureAwait(false);
+            {
+                var mod = await Host.LoadInstalledAsync(toolId, rec.Path, ct).ConfigureAwait(false);
+                if (mod == null)
+                {
+                    AppLog.Warn($"工具已写入安装目录但 ALC 加载失败：{toolId}");
+                    result = ToolInstallResult.Fail("安装文件已就绪，但加载失败，请重试或重启应用");
+                }
+            }
+
             lock (_gate) ApplyColorSamplerUnlocked();
             RefreshToolUiContributors();
         }
@@ -255,7 +263,15 @@ public sealed class ToolService
         {
             var rec = Catalog.FindRecord(plan.TargetId);
             if (rec?.Path != null)
-                await Host.LoadInstalledAsync(plan.TargetId, rec.Path, ct).ConfigureAwait(false);
+            {
+                var mod = await Host.LoadInstalledAsync(plan.TargetId, rec.Path, ct).ConfigureAwait(false);
+                if (mod == null)
+                {
+                    AppLog.Warn($"导入后 ALC 加载失败：{plan.TargetId}");
+                    result = ToolInstallResult.Fail("安装文件已就绪，但加载失败，请重试或重启应用");
+                }
+            }
+
             lock (_gate) ApplyColorSamplerUnlocked();
             RefreshToolUiContributors();
         }

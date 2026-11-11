@@ -1194,8 +1194,14 @@ public partial class MainWindow : Window
 
     private async void Reconnect_Click(object sender, RoutedEventArgs e)
     {
+        var s = _host.Settings;
+        var prevTcp = s.TcpPort;
+        var prevUdp = s.UdpPort;
+        var prevNic = s.PreferredNicId ?? "";
+        var prevIp = s.PreferredLocalIp ?? "";
+        var prevKey = s.SecurityKey ?? "";
         ApplySettingsFromUi();
-        await _host.Connections.ReconnectNowAsync();
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         StatusText.Text = "正在重新连接…";
     }
 

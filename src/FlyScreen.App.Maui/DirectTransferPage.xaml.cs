@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Services.Clipboard;
 #if WINDOWS
 using FlyScreen.Win32Clipboard;
 #endif
@@ -13,6 +14,11 @@ namespace FlyScreen.AppMaui;
 
 public partial class DirectTransferPage : ContentPage
 {
+    private const string IcAddFiles = "＋";
+    private const string IcAddFolder = "📁";
+    private const string IcRemove = "－";
+    private const string IcClear = "✕";
+
     private readonly MauiAppHost _host;
     private readonly ObservableCollection<PathItem> _paths = [];
     private readonly ObservableCollection<PeerOption> _peers = [];
@@ -36,15 +42,19 @@ public partial class DirectTransferPage : ContentPage
         PeerPicker.ItemsSource = _peers;
         FolderPresetPicker.ItemsSource = _presets;
         _paths.CollectionChanged += (_, _) => UpdateDropHint();
+        SizeChanged += (_, _) => ApplyToolbarIcons();
         Loaded += OnLoaded;
+    }
+
+    private bool IsPhoneOrTabletUi()
+    {
+        var idiom = DeviceInfo.Idiom;
+        return (idiom == DeviceIdiom.Phone || idiom == DeviceIdiom.Tablet)
+               && DeviceInfo.Platform != DevicePlatform.WinUI;
     }
 
     private void ApplyLocalizedUi()
     {
-        AddFilesBtn.Text = Loc.T("DT.AddFiles");
-        AddFolderBtn.Text = Loc.T("DT.AddFolder");
-        RemoveSelectedBtn.Text = Loc.T("DT.Remove");
-        ClearPathsBtn.Text = Loc.T("DT.Clear");
         TargetHintText.Text = Loc.T("DT.TargetHint");
         PeerLabel.Text = Loc.T("DT.Peer");
         PresetLabel.Text = Loc.T("DT.Preset");
@@ -52,12 +62,9 @@ public partial class DirectTransferPage : ContentPage
         TargetPathBox.Placeholder = Loc.T("DT.PathTip");
         CancelBtn.Text = Loc.T("DT.Cancel");
         StartBtn.Text = Loc.T("DT.Start");
+        ApplyToolbarIcons();
 
-        // 手机/平板无桌面拖放；文案与按钮按平台调整
-        var idiom = DeviceInfo.Idiom;
-        var mobile = (idiom == DeviceIdiom.Phone || idiom == DeviceIdiom.Tablet)
-                     && DeviceInfo.Platform != DevicePlatform.WinUI;
-        if (mobile)
+        if (IsPhoneOrTabletUi())
         {
 #if ANDROID
             ContentHintText.Text = Loc.T("DT.MobileContentHintAndroid");
@@ -78,19 +85,49 @@ public partial class DirectTransferPage : ContentPage
         }
     }
 
-    private void OnLoaded(object? sender, EventArgs e)
+    /// <summary>窄屏/手机：工具栏只留符号，避免裁切；宽屏符号+文字。</summary>
+    private void ApplyToolbarIcons()
+    {
+        var narrow = IsPhoneOrTabletUi() || Width > 0 && Width < 640;
+        AddFilesBtn.Text = narrow ? IcAddFiles : $"{IcAddFiles}  {Loc.T("DT.AddFiles")}";
+        AddFolderBtn.Text = narrow ? IcAddFolder : $"{IcAddFolder}  {Loc.T("DT.AddFolder")}";
+        RemoveSelectedBtn.Text = narrow ? IcRemove : $"{IcRemove}  {Loc.T("DT.Remove")}";
+        ClearPathsBtn.Text = narrow ? IcClear : $"{IcClear}  {Loc.T("DT.Clear")}";
+
+        var pad = narrow ? new Thickness(0) : new Thickness(10, 0);
+        foreach (var b in new[] { AddFilesBtn, AddFolderBtn, RemoveSelectedBtn, ClearPathsBtn })
+        {
+            b.Padding = pad;
+            b.MinimumWidthRequest = narrow ? 34 : 36;
+            b.WidthRequest = narrow ? 34 : -1;
+            ToolTipProperties.SetText(b, b == AddFilesBtn ? Loc.T("DT.AddFiles")
+                : b == AddFolderBtn ? Loc.T("DT.AddFolder")
+                : b == RemoveSelectedBtn ? Loc.T("DT.Remove")
+                : Loc.T("DT.Clear"));
+        }
+    }
+
+    private async void OnLoaded(object? sender, EventArgs e)
     {
         AttachExplorerDrop();
+        ApplyToolbarIcons();
+        // 避免 WinUI 残留 Title 浮标
+        SyncAndroidPickerTitle(PeerPicker, "");
+        SyncAndroidPickerTitle(FolderPresetPicker, "");
         RefreshPeers();
         if (_peers.Count == 0)
         {
             StatusText.Text = Loc.T("DT.NoPeers");
             StartBtn.IsEnabled = false;
+            return;
         }
-        else
-        {
-            PeerPicker.SelectedIndex = 0;
-        }
+
+        // Android Picker 程序化设 SelectedIndex 常不触发 SelectedIndexChanged，须显式拉目录
+        PeerPicker.SelectedIndex = 0;
+        if (PeerPicker.SelectedItem is PeerOption peer)
+            await LoadRemoteFoldersAsync(peer.Name).ConfigureAwait(true);
+        else if (_peers.Count > 0)
+            await LoadRemoteFoldersAsync(_peers[0].Name).ConfigureAwait(true);
     }
 
     private void AttachExplorerDrop()
@@ -152,6 +189,7 @@ public partial class DirectTransferPage : ContentPage
     private async void PeerPicker_SelectedIndexChanged(object? sender, EventArgs e)
     {
         if (PeerPicker.SelectedItem is not PeerOption peer) return;
+        SyncAndroidPickerTitle(PeerPicker, peer.Name);
         await LoadRemoteFoldersAsync(peer.Name).ConfigureAwait(true);
     }
 
@@ -165,30 +203,17 @@ public partial class DirectTransferPage : ContentPage
             TargetPathBox.Text = "";
 
             var folders = await _host.Transfers.QueryRemoteFoldersAsync(peer).ConfigureAwait(true);
+            var info = _host.Connections.GetPeerRemoteInfo(peer);
             _presets.Clear();
+            foreach (var (label, path) in DirectTransferDestinations.BuildPresets(folders, info))
+                _presets.Add(new FolderPreset(label, path));
 
             if (folders == null)
-            {
                 StatusText.Text = string.Format(Loc.T("DT.QueryFail"), peer);
-                _presets.Add(new FolderPreset(Loc.T("DT.CustomPath"), ""));
-                FolderPresetPicker.SelectedIndex = 0;
-                return;
-            }
+            else
+                StatusText.Text = string.Format(Loc.T("DT.Connected"), peer, _paths.Count);
 
-            void Add(string label, string path)
-            {
-                if (!string.IsNullOrWhiteSpace(path))
-                    _presets.Add(new FolderPreset(label, path.Trim()));
-            }
-
-            Add(Loc.T("DT.Desktop"), folders.Desktop);
-            Add(Loc.T("DT.Documents"), folders.Documents);
-            Add(Loc.T("DT.Downloads"), folders.Downloads);
-            Add(Loc.T("DT.Inbox"), folders.Inbox);
-            _presets.Add(new FolderPreset(Loc.T("DT.CustomPath"), folders.Downloads));
-
-            FolderPresetPicker.SelectedIndex = 0;
-            StatusText.Text = string.Format(Loc.T("DT.Connected"), peer, _paths.Count);
+            ApplyFirstPresetToPath();
         }
         finally
         {
@@ -196,11 +221,44 @@ public partial class DirectTransferPage : ContentPage
         }
     }
 
+    private void ApplyFirstPresetToPath()
+    {
+        if (_presets.Count == 0)
+        {
+            TargetPathBox.Text = "";
+            SyncAndroidPickerTitle(FolderPresetPicker, Loc.T("DT.Preset"));
+            return;
+        }
+
+        FolderPresetPicker.SelectedIndex = 0;
+        var first = _presets[0];
+        TargetPathBox.Text = first.Path;
+        // Title 仅 Android 兜底；WinUI 上 Title 会浮在框外且颜色发灰，破坏布局
+        SyncAndroidPickerTitle(FolderPresetPicker, first.Label);
+        if (PeerPicker.SelectedItem is PeerOption peer)
+            SyncAndroidPickerTitle(PeerPicker, peer.Name);
+        else if (_peers.Count > 0)
+            SyncAndroidPickerTitle(PeerPicker, _peers[0].Name);
+    }
+
     private void FolderPreset_SelectedIndexChanged(object? sender, EventArgs e)
     {
         if (FolderPresetPicker.SelectedItem is not FolderPreset preset) return;
-        if (!string.IsNullOrWhiteSpace(preset.Path))
-            TargetPathBox.Text = preset.Path;
+        TargetPathBox.Text = preset.Path ?? "";
+        SyncAndroidPickerTitle(FolderPresetPicker, preset.Label);
+    }
+
+    /// <summary>
+    /// Android Picker 常不画 SelectedItem，用 Title 显示当前值。
+    /// WinUI/桌面必须保持 Title 为空，否则会出现框外浮字 + 框内空白。
+    /// </summary>
+    private static void SyncAndroidPickerTitle(Picker picker, string text)
+    {
+#if ANDROID
+        picker.Title = text ?? "";
+#else
+        picker.Title = "";
+#endif
     }
 
     private async void AddFiles_Clicked(object? sender, EventArgs e)

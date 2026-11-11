@@ -105,10 +105,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     }
 
     private static void ShowMainWindow()
-    {
-        var window = Application.Current?.Windows.FirstOrDefault();
-        MauiAutostartUi.TryShowNative(window);
-    }
+        => MauiAutostartUi.ActivateMainWindow();
 
     private static void HideMainWindow()
     {

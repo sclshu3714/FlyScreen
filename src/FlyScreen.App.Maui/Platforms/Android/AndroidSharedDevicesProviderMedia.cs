@@ -427,14 +427,14 @@ public sealed class AndroidSharedDevicesProviderMedia : IDisposable
                 .GetSystemService(global::Android.Content.Context.AudioService) as AudioManager;
             if (am == null) return;
             var isMic = kind.Equals(SharedDeviceKinds.Microphone, StringComparison.OrdinalIgnoreCase);
-            var method = am.Class.GetMethod("getDevices", Java.Lang.Integer.Type!);
-            var raw = method?.Invoke(am, new Java.Lang.Integer(isMic ? 1 : 2));
+            var flags = isMic ? GetDevicesTargets.Inputs : GetDevicesTargets.Outputs;
             AudioDeviceInfo? match = null;
-            if (raw is System.Collections.IEnumerable seq)
+            var devices = am.GetDevices(flags);
+            if (devices != null)
             {
-                foreach (var o in seq)
+                foreach (var d in devices)
                 {
-                    if (o is AudioDeviceInfo d && d.Id == id)
+                    if (d != null && d.Id == id)
                     {
                         match = d;
                         break;

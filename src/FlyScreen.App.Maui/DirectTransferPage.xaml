@@ -67,18 +67,27 @@
       <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="100,*" RowSpacing="10" ColumnSpacing="8">
         <Label x:Name="PeerLabel" Text="目标电脑" VerticalOptions="Center" TextColor="{DynamicResource Text}" />
         <Picker x:Name="PeerPicker" Grid.Column="1" Title="" HeightRequest="40"
+                TextColor="{DynamicResource Text}"
+                TitleColor="{DynamicResource Muted}"
+                HorizontalOptions="Fill"
+                VerticalOptions="Center"
                 ItemDisplayBinding="{Binding Name}"
                 SelectedIndexChanged="PeerPicker_SelectedIndexChanged" />
 
         <Label x:Name="PresetLabel" Grid.Row="1" Text="常用位置" VerticalOptions="Center"
                TextColor="{DynamicResource Text}" />
         <Picker x:Name="FolderPresetPicker" Grid.Row="1" Grid.Column="1" Title="" HeightRequest="40"
+                TextColor="{DynamicResource Text}"
+                TitleColor="{DynamicResource Muted}"
+                HorizontalOptions="Fill"
+                VerticalOptions="Center"
                 ItemDisplayBinding="{Binding Label}"
                 SelectedIndexChanged="FolderPreset_SelectedIndexChanged" />
 
         <Label x:Name="PathLabel" Grid.Row="2" Text="保存路径" VerticalOptions="Center"
                TextColor="{DynamicResource Text}" />
-        <Entry x:Name="TargetPathBox" Grid.Row="2" Grid.Column="1" HeightRequest="40" />
+        <Entry x:Name="TargetPathBox" Grid.Row="2" Grid.Column="1" HeightRequest="40"
+               HorizontalOptions="Fill" />
       </Grid>
     </Border>
 
