@@ -617,6 +617,7 @@
                                   PointerPressed="SlotCard_PointerPressed"
                                   PointerMoved="SlotCard_PointerMoved"
                                   PointerReleased="SlotCard_PointerReleased"
+                                  PointerCaptureLost="SlotCard_PointerCaptureLost"
                                   DragDrop.AllowDrop="True">
                             <StackPanel Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center"
                                         IsHitTestVisible="False">

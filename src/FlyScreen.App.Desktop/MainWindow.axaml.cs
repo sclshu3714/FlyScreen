@@ -50,6 +50,8 @@ public partial class MainWindow : Window
     private Border? _dragGhost;
     private Control? _dragHighlight;
     private Cursor? _savedCursor;
+    /// <summary>是否已把窗口光标改成 DragMove；结束拖拽时必须清，不能依赖 _savedCursor!=null（默认 Cursor 常为 null）。</summary>
+    private bool _dragCursorActive;
     private readonly GitHubReleaseChecker _helpUpdater = new();
     private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
@@ -3093,6 +3095,7 @@ public partial class MainWindow : Window
             SuppressSlotTooltips();
             _dragSourceVisual?.Classes.Add("slot-dragging");
             _savedCursor = Cursor;
+            _dragCursorActive = true;
             Cursor = new Cursor(StandardCursorType.DragMove);
             ShowDragGhost(_dragSlot, _dragSourceVisual, e.GetPosition(DragGhostLayer));
         }
@@ -3108,6 +3111,13 @@ public partial class MainWindow : Window
     private void SlotCard_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         FinishSlotDrag(e, commit: true);
+    }
+
+    private void SlotCard_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        // 失焦/切窗时可能没有 Released，仍要清拖拽光标
+        if (_dragSlot == null && !_dragCursorActive) return;
+        ClearDragState();
     }
 
     private void FinishSlotDrag(PointerEventArgs e, bool commit)
@@ -3153,10 +3163,12 @@ public partial class MainWindow : Window
             _dragSourceVisual = null;
         }
 
-        if (_savedCursor != null)
+        // 默认 Cursor 常为 null，不能用 _savedCursor!=null 判断是否改过光标
+        if (_dragCursorActive)
         {
-            Cursor = _savedCursor;
+            Cursor = _savedCursor ?? Cursor.Default;
             _savedCursor = null;
+            _dragCursorActive = false;
         }
     }
 
