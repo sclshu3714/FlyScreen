@@ -25,6 +25,15 @@ $ErrorActionPreference = 'Stop'
 $OutDir = $OutDir.Trim().Trim('"').TrimEnd('\', '/')
 $PackageId = $PackageId.Trim().Trim('"')
 
+# 签名前仅剥离磁盘 Tools 安装态；勿 Zip 改写 .apk（会破坏 Sig Block）
+$stripScript = Join-Path $PSScriptRoot 'Strip-ToolsInstallState.ps1'
+if (Test-Path -LiteralPath $stripScript) {
+    & $stripScript -Root $OutDir
+    if ($IntermediateDir -and (Test-Path -LiteralPath $IntermediateDir)) {
+        & $stripScript -Root $IntermediateDir
+    }
+}
+
 function Start-RestoreAfterVisualStudio {
     if (-not $RestoreAfterVisualStudio) { return }
     $self = $PSCommandPath

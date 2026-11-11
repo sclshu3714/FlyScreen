@@ -34,6 +34,11 @@ public sealed class MauiConnectionDiagnostics
         else
             report.Add("网卡", $"{nic.Name} ({nic.IPv4})", MauiDiagnosticLevel.Ok);
 
+        if (nic != null && cm.IsListening && cm.NeedsListenRebind())
+            report.Add("监听网卡",
+                $"监听仍为 {cm.BindIp}，当前偏好网卡为 {nic.IPv4}，需重绑",
+                MauiDiagnosticLevel.Error);
+
         if (!NetworkInterface.GetIsNetworkAvailable())
             report.Add("网络", "系统报告当前无可用网络", MauiDiagnosticLevel.Error);
 
@@ -106,15 +111,16 @@ public sealed class MauiConnectionDiagnostics
         Log("防火墙", fw.Message, fw.Ok ? MauiDiagnosticLevel.Ok : MauiDiagnosticLevel.Warn);
 #endif
 
-        progress?.Report("重新连接…");
+        progress?.Report("网络重绑…");
         try
         {
-            await cm.ReconnectNowAsync().ConfigureAwait(false);
-            Log("重新连接", "已触发全量重连", MauiDiagnosticLevel.Ok);
+            // 换网后 BindIp 常落后于偏好网卡；对齐 Win，整网 Restart 而非只重连
+            await _host.RestartNetworkingAsync().ConfigureAwait(false);
+            Log("网络重绑", $"已重启监听 · {_host.Connections.BindIp}", MauiDiagnosticLevel.Ok);
         }
         catch (Exception ex)
         {
-            Log("重新连接", ex.Message, MauiDiagnosticLevel.Error);
+            Log("网络重绑", ex.Message, MauiDiagnosticLevel.Error);
         }
 
         await Task.Delay(800).ConfigureAwait(false);

@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Threading;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers;
 
 namespace FlyScreen.LinuxApp.Gui;
@@ -10,8 +11,18 @@ internal static class GuiEntry
     {
         UiMarshal.Configure(a => a());
 
-        return BuildAvaloniaApp()
-            .StartWithClassicDesktopLifetime(args);
+        if (!DesktopSingleInstance.TryEnter())
+            return 0;
+
+        try
+        {
+            return BuildAvaloniaApp()
+                .StartWithClassicDesktopLifetime(args);
+        }
+        finally
+        {
+            DesktopSingleInstance.Release();
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp()

@@ -37,6 +37,11 @@ public sealed class ConnectionDiagnostics
         else
             report.Add("网卡", $"{nic.Name} ({nic.IPv4})", DiagnosticLevel.Ok);
 
+        if (nic != null && cm.IsListening && cm.NeedsListenRebind())
+            report.Add("监听网卡",
+                $"监听仍为 {cm.BindIp}，当前偏好网卡为 {nic.IPv4}，需重绑",
+                DiagnosticLevel.Error);
+
         if (!NetworkInterface.GetIsNetworkAvailable())
             report.Add("网络", "系统报告当前无可用网络", DiagnosticLevel.Error);
 

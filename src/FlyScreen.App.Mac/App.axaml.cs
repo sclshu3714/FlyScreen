@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using FlyScreen.DesktopUi;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers;
 using FlyScreen.Mac;
 
@@ -27,6 +28,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow(new MacDesktopShellHost(host));
+            DesktopSingleInstance.Attach(desktop);
             desktop.ShutdownRequested += async (_, e) =>
             {
                 e.Cancel = true;

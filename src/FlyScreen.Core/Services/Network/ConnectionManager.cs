@@ -46,6 +46,19 @@ public sealed class ConnectionManager : IAsyncDisposable
     /// <summary>监听与维护循环是否已在运行（未 Stop）。</summary>
     public bool IsRunning => _cts != null && _listener != null;
 
+    /// <summary>
+    /// 偏好网卡当前 IP 与运行中宣告/绑定 IP 是否不一致（换 Wi‑Fi / DHCP 后常见）。
+    /// 为 true 时应 <see cref="StartAsync"/> 重绑，不能只 Refresh/Reconnect。
+    /// </summary>
+    public bool NeedsListenRebind()
+    {
+        if (!IsListening) return true;
+        var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
+        if (nic == null || string.IsNullOrWhiteSpace(nic.IPv4)) return false;
+        if (string.IsNullOrWhiteSpace(_bindIp) || _bindIp == "0.0.0.0") return true;
+        return !string.Equals(_bindIp, nic.IPv4, StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task StartAsync()
     {
         await StopAsync().ConfigureAwait(false);

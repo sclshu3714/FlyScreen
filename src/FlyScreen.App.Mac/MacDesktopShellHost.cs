@@ -70,10 +70,10 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         }
     }
 
-    public IReadOnlyList<(string Label, Action Invoke)> PlatformActions { get; } =
+    public IReadOnlyList<(string Label, string Icon, Action Invoke)> PlatformActions { get; } =
     [
-        ("打开辅助功能设置", AccessibilityPermission.OpenSystemSettings),
-        ("打开屏幕录制设置", MacScreenRecording.OpenSettings)
+        ("打开辅助功能设置", "⌨", AccessibilityPermission.OpenSystemSettings),
+        ("打开屏幕录制设置", "⏺", MacScreenRecording.OpenSettings)
     ];
 
     public bool SupportsTray => true;

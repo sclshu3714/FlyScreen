@@ -50,6 +50,8 @@ public partial class MainWindow : Window
     private Border? _dragGhost;
     private Control? _dragHighlight;
     private Cursor? _savedCursor;
+    /// <summary>是否已把窗口光标改成 DragMove；结束拖拽时必须清，不能依赖 _savedCursor!=null（默认 Cursor 常为 null）。</summary>
+    private bool _dragCursorActive;
     private readonly GitHubReleaseChecker _helpUpdater = new();
     private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
@@ -586,7 +588,10 @@ public partial class MainWindow : Window
         DisposeDesktopTray();
     }
 
-    private void ShowFromTray()
+    private void ShowFromTray() => BringToFront();
+
+    /// <summary>二次启动 / 托盘：显示并激活主窗。</summary>
+    public void BringToFront()
     {
         Show();
         WindowState = WindowState.Normal;
@@ -765,18 +770,21 @@ public partial class MainWindow : Window
 
     private void BuildPlatformActions()
     {
-        PlatformActionsPanel.Children.Clear();
-        foreach (var (label, invoke) in _host.PlatformActions)
+        TitlePlatformActionsPanel.Children.Clear();
+        foreach (var (label, icon, invoke) in _host.PlatformActions)
         {
             var btn = new Button
             {
-                Content = label,
-                Classes = { "normal" },
-                Margin = new Thickness(0),
-                HorizontalAlignment = HorizontalAlignment.Stretch
+                Content = string.IsNullOrWhiteSpace(icon) ? "⚙" : icon,
+                Classes = { "link" },
+                Width = 36,
+                Height = 32,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0)
             };
+            ToolTip.SetTip(btn, label);
             btn.Click += (_, _) => invoke();
-            PlatformActionsPanel.Children.Add(btn);
+            TitlePlatformActionsPanel.Children.Add(btn);
         }
     }
 
@@ -2922,8 +2930,14 @@ public partial class MainWindow : Window
 
     private async void Reconnect_Click(object? sender, RoutedEventArgs e)
     {
+        var s = _host.Settings;
+        var prevTcp = s.TcpPort;
+        var prevUdp = s.UdpPort;
+        var prevNic = s.PreferredNicId ?? "";
+        var prevIp = s.PreferredLocalIp ?? "";
+        var prevKey = s.SecurityKey ?? "";
         ApplySettingsFromUi();
-        await _host.Connections.ReconnectNowAsync();
+        await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         StatusText.Text = "正在重新连接…";
     }
 
@@ -3081,6 +3095,7 @@ public partial class MainWindow : Window
             SuppressSlotTooltips();
             _dragSourceVisual?.Classes.Add("slot-dragging");
             _savedCursor = Cursor;
+            _dragCursorActive = true;
             Cursor = new Cursor(StandardCursorType.DragMove);
             ShowDragGhost(_dragSlot, _dragSourceVisual, e.GetPosition(DragGhostLayer));
         }
@@ -3096,6 +3111,13 @@ public partial class MainWindow : Window
     private void SlotCard_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         FinishSlotDrag(e, commit: true);
+    }
+
+    private void SlotCard_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        // 失焦/切窗时可能没有 Released，仍要清拖拽光标
+        if (_dragSlot == null && !_dragCursorActive) return;
+        ClearDragState();
     }
 
     private void FinishSlotDrag(PointerEventArgs e, bool commit)
@@ -3141,10 +3163,12 @@ public partial class MainWindow : Window
             _dragSourceVisual = null;
         }
 
-        if (_savedCursor != null)
+        // 默认 Cursor 常为 null，不能用 _savedCursor!=null 判断是否改过光标
+        if (_dragCursorActive)
         {
-            Cursor = _savedCursor;
+            Cursor = _savedCursor ?? Cursor.Default;
             _savedCursor = null;
+            _dragCursorActive = false;
         }
     }
 
