@@ -24,6 +24,19 @@ public static class ToolIconRegistry
         }
     }
 
+    /// <summary>直接缓存位图（本地程序从 exe 提取的 PNG 等，无贡献者类型）。</summary>
+    public static void RegisterBitmap(string iconKey, byte[] pngBytes)
+    {
+        if (string.IsNullOrWhiteSpace(iconKey) || pngBytes == null || pngBytes.Length == 0)
+            return;
+        var key = iconKey.Trim();
+        lock (Gate)
+        {
+            ByKey.Remove(key);
+            BitmapCache[key] = pngBytes;
+        }
+    }
+
     /// <summary>移除图标贡献；默认同时清位图缓存。Bundled 探测可保留缓存。</summary>
     public static void Unregister(string? iconKey, bool clearBitmapCache = true)
     {
@@ -53,7 +66,7 @@ public static class ToolIconRegistry
         lock (Gate)
         {
             if (BitmapCache.TryGetValue(key, out var cached))
-                return cached;
+                return cached.Length == 0 ? null : cached;
             if (!ByKey.TryGetValue(key, out var c))
                 return null;
             try

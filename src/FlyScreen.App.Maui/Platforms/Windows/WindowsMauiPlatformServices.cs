@@ -184,7 +184,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         Action? about = null,
         Action? exit = null,
         Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
-        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
     {
         _tray ??= new MauiTrayService();
         _tray.Ensure(
@@ -247,7 +247,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         Action? about = null,
         Action? exit = null,
         Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
-        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
     {
         EnsureTray(showMain, reconnect, project, about, exit, projectPhase, toolShortcuts);
         HideMainWindow();

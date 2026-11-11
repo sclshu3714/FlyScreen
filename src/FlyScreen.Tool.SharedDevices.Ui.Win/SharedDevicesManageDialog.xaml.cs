@@ -30,6 +30,7 @@ public partial class SharedDevicesManageDialog : Window
     private void FillCombo(ComboBox combo, string kind)
     {
         combo.Items.Clear();
+        combo.DisplayMemberPath = nameof(DeviceItem.Name);
         var list = _sd.EnumerateLocalDevices(kind);
         if (list.Count == 0)
         {
@@ -49,7 +50,6 @@ public partial class SharedDevicesManageDialog : Window
         }
 
         combo.SelectedItem = pick ?? combo.Items[0];
-        combo.DisplayMemberPath = nameof(DeviceItem.Name);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -79,6 +79,9 @@ public partial class SharedDevicesManageDialog : Window
         Close();
     }
 
-    private sealed record DeviceItem(string Id, string Name);
+    private sealed record DeviceItem(string Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
 }
 

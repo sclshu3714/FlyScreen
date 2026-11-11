@@ -79,6 +79,9 @@ public static class FlyScreenDataPaths
     /// <summary>工具页快捷栏槽位。</summary>
     public static string ToolsShortcutsFile => Path.Combine(ToolsRoot, "tools-shortcuts.json");
 
+    /// <summary>工具页本地运行程序登记（无安装态）。</summary>
+    public static string ToolsLocalProgramsFile => Path.Combine(ToolsRoot, "tools-local-programs.json");
+
     /// <summary>远程 tools-index 本地缓存。</summary>
     public static string ToolsIndexCacheFile => Path.Combine(ToolsRoot, "tools-index.cache.json");
 

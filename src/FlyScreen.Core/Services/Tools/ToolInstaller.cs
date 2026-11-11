@@ -37,7 +37,8 @@ public sealed class ToolInstaller
     public async Task<ToolInstallResult> InstallFromFlyToolFileAsync(
         string flytoolPath,
         ToolTrustLevel trustHint = ToolTrustLevel.Unknown,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool forceOverwrite = false)
     {
         if (string.IsNullOrWhiteSpace(flytoolPath) || !File.Exists(flytoolPath))
             return ToolInstallResult.Fail("找不到工具包文件");
@@ -64,15 +65,18 @@ public sealed class ToolInstaller
             return ToolInstallResult.Fail("正在安装中");
 
         var existing = _catalog.FindRecord(toolId);
-        if (existing != null
+        if (!forceOverwrite
+            && existing != null
             && IsInstallComplete(existing)
             && string.Equals(existing.Version, pack.PackageVersion, StringComparison.OrdinalIgnoreCase))
             return ToolInstallResult.Ok("已安装");
 
-        // 残缺安装或版本升级：先卸再装（调用方应已 Host.Unload；此处只清目录/记录）
+        // 残缺安装、版本升级或用户确认覆盖：先卸再装（调用方应已 Host.Unload；此处只清目录/记录）
         if (existing != null)
         {
-            AppLog.Info($"工具需重装（残缺或版本变更）：{toolId} {existing.Version} → {pack.PackageVersion}");
+            AppLog.Info(forceOverwrite
+                ? $"工具覆盖重装：{toolId} {existing.Version} → {pack.PackageVersion}"
+                : $"工具需重装（残缺或版本变更）：{toolId} {existing.Version} → {pack.PackageVersion}");
             var removed = Uninstall(toolId);
             if (!removed.Success)
                 return removed;

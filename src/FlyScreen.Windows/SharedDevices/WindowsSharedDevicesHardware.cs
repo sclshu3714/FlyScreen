@@ -4,9 +4,15 @@ using FlyScreen.ToolSdk;
 
 namespace FlyScreen.SharedDevices;
 
-/// <summary>Windows：WASAPI 枚举扬声器/麦克风；VFW 枚举摄像头。</summary>
+/// <summary>Windows：WASAPI 枚举扬声器/麦克风；SetupAPI（照相机类）枚举摄像头。</summary>
 public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
 {
+    /// <summary>GUID_DEVCLASS_CAMERA — 设备管理器「照相机」。</summary>
+    private static readonly Guid GuidDevClassCamera = new("ca3e32d7-a3b0-4f7b-8e9d-2e8c7c8e0c5e");
+
+    /// <summary>KSCATEGORY_VIDEO_CAMERA — 视频采集设备接口。</summary>
+    private static readonly Guid KsCategoryVideoCamera = new("e5323777-f976-4f5b-9b55-b94699c46e44");
+
     public IReadOnlyList<SharedLocalDevice> Enumerate(string kind)
     {
         if (kind.Equals(SharedDeviceKinds.Camera, StringComparison.OrdinalIgnoreCase))
@@ -23,12 +29,18 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
         var list = new List<SharedLocalDevice>();
         try
         {
-            CoInitializeEx(IntPtr.Zero, 0);
-            var clsid = typeof(MMDeviceEnumeratorComObject).GUID;
-            var iid = typeof(IMMDeviceEnumerator).GUID;
-            if (CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out var obj) != 0
-                || obj is not IMMDeviceEnumerator en)
+            // UI 线程常为 STA；忽略 RPC_E_CHANGED_MODE，继续用已有套间
+            _ = CoInitializeEx(IntPtr.Zero, 0x2 /* COINIT_APARTMENTTHREADED */);
+            IMMDeviceEnumerator en;
+            try
+            {
+                // Activator/CLSID 比 CoCreateInstance+is 在 MAUI 下更稳
+                en = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+            }
+            catch
+            {
                 return [];
+            }
 
             var dataFlow = capture ? 1 : 0;
             const uint deviceStateActive = 0x1;
@@ -115,26 +127,18 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
 
     private static IReadOnlyList<SharedLocalDevice> EnumCameras()
     {
-        var list = new List<SharedLocalDevice>();
-        var name = new StringBuilder(256);
-        var ver = new StringBuilder(256);
-        for (short i = 0; i < 10; i++)
+        // 现代 UVC 在设备管理器「照相机」类；合并设备接口枚举，避免只命中一类
+        var list = EnumCamerasBySetupClass();
+        foreach (var d in EnumCamerasByVideoInterface())
         {
-            name.Clear();
-            ver.Clear();
-            if (!capGetDriverDescriptionA(i, name, name.Capacity, ver, ver.Capacity))
-                break;
-            var n = name.ToString().Trim();
-            if (string.IsNullOrEmpty(n))
-                n = $"摄像头 {i + 1}";
-            // 无物理摄像头时 VFW 常仍返回此驱动名，不算可用设备
-            if (IsPhantomCameraDriver(n))
+            if (list.Any(x => x.Id.Equals(d.Id, StringComparison.OrdinalIgnoreCase)
+                              || x.Name.Equals(d.Name, StringComparison.OrdinalIgnoreCase)))
                 continue;
             list.Add(new SharedLocalDevice
             {
-                Kind = SharedDeviceKinds.Camera,
-                Id = i.ToString(),
-                Name = n,
+                Kind = d.Kind,
+                Id = d.Id,
+                Name = d.Name,
                 IsDefault = list.Count == 0
             });
         }
@@ -142,19 +146,219 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
         return list;
     }
 
+    private static List<SharedLocalDevice> EnumCamerasBySetupClass()
+    {
+        var list = new List<SharedLocalDevice>();
+        var guid = GuidDevClassCamera;
+        var info = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero, DigcfPresent);
+        if (info == IntPtr.Zero || info == new IntPtr(-1))
+            return list;
+
+        try
+        {
+            var data = new SpDevinfoData { cbSize = (uint)Marshal.SizeOf<SpDevinfoData>() };
+            for (uint i = 0; SetupDiEnumDeviceInfo(info, i, ref data); i++)
+            {
+                var name = GetDeviceRegistryString(info, ref data, SpdrpFriendlyName)
+                           ?? GetDeviceRegistryString(info, ref data, SpdrpDevdesc);
+                if (string.IsNullOrWhiteSpace(name) || IsPhantomCameraDriver(name))
+                    continue;
+
+                var id = GetDeviceInstanceId(info, ref data) ?? $"camera-class-{i}";
+                if (list.Any(d => d.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                list.Add(new SharedLocalDevice
+                {
+                    Kind = SharedDeviceKinds.Camera,
+                    Id = id,
+                    Name = name.Trim(),
+                    IsDefault = list.Count == 0
+                });
+            }
+        }
+        finally
+        {
+            SetupDiDestroyDeviceInfoList(info);
+        }
+
+        return list;
+    }
+
+    private static List<SharedLocalDevice> EnumCamerasByVideoInterface()
+    {
+        var list = new List<SharedLocalDevice>();
+        var guid = KsCategoryVideoCamera;
+        var info = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero,
+            DigcfPresent | DigcfDeviceInterface);
+        if (info == IntPtr.Zero || info == new IntPtr(-1))
+            return list;
+
+        try
+        {
+            var ifData = new SpDeviceInterfaceData
+            {
+                cbSize = (uint)Marshal.SizeOf<SpDeviceInterfaceData>()
+            };
+            for (uint i = 0; SetupDiEnumDeviceInterfaces(info, IntPtr.Zero, ref guid, i, ref ifData); i++)
+            {
+                if (!TryGetInterfaceDetail(info, ref ifData, out var path, out var devData))
+                    continue;
+
+                var name = GetDeviceRegistryString(info, ref devData, SpdrpFriendlyName)
+                           ?? GetDeviceRegistryString(info, ref devData, SpdrpDevdesc)
+                           ?? path;
+                if (string.IsNullOrWhiteSpace(name) || IsPhantomCameraDriver(name))
+                    continue;
+
+                var id = GetDeviceInstanceId(info, ref devData) ?? path;
+                if (list.Any(d => d.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                list.Add(new SharedLocalDevice
+                {
+                    Kind = SharedDeviceKinds.Camera,
+                    Id = id,
+                    Name = name.Trim(),
+                    IsDefault = list.Count == 0
+                });
+            }
+        }
+        finally
+        {
+            SetupDiDestroyDeviceInfoList(info);
+        }
+
+        return list;
+    }
+
+    private static bool TryGetInterfaceDetail(
+        IntPtr info, ref SpDeviceInterfaceData ifData, out string path, out SpDevinfoData devData)
+    {
+        path = "";
+        devData = new SpDevinfoData { cbSize = (uint)Marshal.SizeOf<SpDevinfoData>() };
+        uint needed = 0;
+        SetupDiGetDeviceInterfaceDetail(info, ref ifData, IntPtr.Zero, 0, ref needed, IntPtr.Zero);
+        if (needed == 0)
+            return false;
+
+        var buf = Marshal.AllocHGlobal((int)needed);
+        try
+        {
+            // SP_DEVICE_INTERFACE_DETAIL_DATA.cbSize：x64=8，x86 Unicode=6
+            Marshal.WriteInt32(buf, IntPtr.Size == 8 ? 8 : 4 + Marshal.SystemDefaultCharSize);
+            if (!SetupDiGetDeviceInterfaceDetail(info, ref ifData, buf, needed, ref needed, ref devData))
+                return false;
+
+            var pathOffset = IntPtr.Size == 8 ? 8 : 4;
+            path = Marshal.PtrToStringUni(buf + pathOffset) ?? "";
+            return !string.IsNullOrEmpty(path);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
+    }
+
+    private static string? GetDeviceRegistryString(IntPtr info, ref SpDevinfoData data, uint prop)
+    {
+        uint regType = 0;
+        uint needed = 0;
+        SetupDiGetDeviceRegistryProperty(info, ref data, prop, ref regType, IntPtr.Zero, 0, ref needed);
+        if (needed == 0)
+            return null;
+
+        var buf = Marshal.AllocHGlobal((int)needed);
+        try
+        {
+            if (!SetupDiGetDeviceRegistryProperty(info, ref data, prop, ref regType, buf, needed, ref needed))
+                return null;
+            return Marshal.PtrToStringUni(buf);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
+    }
+
+    private static string? GetDeviceInstanceId(IntPtr info, ref SpDevinfoData data)
+    {
+        var sb = new StringBuilder(512);
+        if (!SetupDiGetDeviceInstanceId(info, ref data, sb, sb.Capacity, out _))
+            return null;
+        return sb.ToString();
+    }
+
     private static bool IsPhantomCameraDriver(string name)
-        => name.Contains("WDM Image Capture", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("Microsoft WDM Image Capture (Win32)", StringComparison.OrdinalIgnoreCase);
+        => name.Contains("WDM Image Capture", StringComparison.OrdinalIgnoreCase);
+
+    private const uint DigcfPresent = 0x00000002;
+    private const uint DigcfDeviceInterface = 0x00000010;
+    private const uint SpdrpDevdesc = 0x00000000;
+    private const uint SpdrpFriendlyName = 0x0000000C;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SpDevinfoData
+    {
+        public uint cbSize;
+        public Guid ClassGuid;
+        public uint DevInst;
+        public IntPtr Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SpDeviceInterfaceData
+    {
+        public uint cbSize;
+        public Guid InterfaceClassGuid;
+        public uint Flags;
+        public IntPtr Reserved;
+    }
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SetupDiGetClassDevs(
+        ref Guid classGuid, IntPtr enumerator, IntPtr hwndParent, uint flags);
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern bool SetupDiDestroyDeviceInfoList(IntPtr deviceInfoSet);
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern bool SetupDiEnumDeviceInfo(
+        IntPtr deviceInfoSet, uint memberIndex, ref SpDevinfoData deviceInfoData);
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiEnumDeviceInterfaces(
+        IntPtr deviceInfoSet, IntPtr deviceInfoData, ref Guid interfaceClassGuid,
+        uint memberIndex, ref SpDeviceInterfaceData deviceInterfaceData);
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiGetDeviceInterfaceDetail(
+        IntPtr deviceInfoSet, ref SpDeviceInterfaceData deviceInterfaceData,
+        IntPtr deviceInterfaceDetailData, uint deviceInterfaceDetailDataSize,
+        ref uint requiredSize, IntPtr deviceInfoData);
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiGetDeviceInterfaceDetail(
+        IntPtr deviceInfoSet, ref SpDeviceInterfaceData deviceInterfaceData,
+        IntPtr deviceInterfaceDetailData, uint deviceInterfaceDetailDataSize,
+        ref uint requiredSize, ref SpDevinfoData deviceInfoData);
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiGetDeviceRegistryProperty(
+        IntPtr deviceInfoSet, ref SpDevinfoData deviceInfoData, uint property,
+        ref uint propertyRegDataType, IntPtr propertyBuffer, uint propertyBufferSize,
+        ref uint requiredSize);
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiGetDeviceInstanceId(
+        IntPtr deviceInfoSet, ref SpDevinfoData deviceInfoData,
+        StringBuilder deviceInstanceId, int deviceInstanceIdSize, out uint requiredSize);
 
     private static readonly PropertyKey PkeyDeviceFriendlyName = new()
     {
         fmtid = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"),
         pid = 14
     };
-
-    [DllImport("avicap32.dll", CharSet = CharSet.Ansi)]
-    private static extern bool capGetDriverDescriptionA(
-        short index, StringBuilder name, int nameLen, StringBuilder ver, int verLen);
 
     [ComImport]
     [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
@@ -225,11 +429,6 @@ public sealed class WindowsSharedDevicesHardware : ISharedDevicesHardware
 
     [DllImport("ole32.dll")]
     private static extern int CoInitializeEx(IntPtr reserved, uint coinit);
-
-    [DllImport("ole32.dll")]
-    private static extern int CoCreateInstance(
-        ref Guid clsid, IntPtr outer, uint ctx, ref Guid iid,
-        [MarshalAs(UnmanagedType.IUnknown)] out object? instance);
 
     [DllImport("ole32.dll")]
     private static extern int PropVariantClear(ref PropVariant pvar);

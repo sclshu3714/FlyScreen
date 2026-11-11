@@ -33,7 +33,7 @@ public sealed class MauiTrayService : IDisposable
     private Func<ProjectionUiPhase>? _projectPhase;
     private Func<IReadOnlyList<(string Label, Action Action)>>? _switchMachines;
     private Func<(string Label, Action Toggle)>? _switchDisable;
-    private Func<IReadOnlyList<(string Label, Action Action)>>? _toolShortcuts;
+    private Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? _toolShortcuts;
     private bool _added;
 
     public void Ensure(
@@ -45,7 +45,7 @@ public sealed class MauiTrayService : IDisposable
         Func<ProjectionUiPhase>? projectPhase = null,
         Func<IReadOnlyList<(string Label, Action Action)>>? switchMachines = null,
         Func<(string Label, Action Toggle)>? switchDisable = null,
-        Func<IReadOnlyList<(string Label, Action Action)>>? toolShortcuts = null)
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
     {
         _show = show;
         _reconnect = reconnect;
@@ -156,7 +156,7 @@ public sealed class MauiTrayService : IDisposable
         }
         catch { /* ignore */ }
 
-        IReadOnlyList<(string Label, Action Action)>? tools = null;
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? tools = null;
         try { tools = _toolShortcuts?.Invoke(); } catch { /* ignore */ }
 
         MauiTrayPopup.ShowNearCursor(

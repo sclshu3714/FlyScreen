@@ -661,7 +661,8 @@ public partial class MainWindow : Window
             foreach (var item in shortcuts)
             {
                 var toolId = item.ToolId;
-                toolsSub.Add(TrayItem(item.Label, () => LaunchTrayToolShortcut(toolId)));
+                toolsSub.Add(TrayItem(item.Label, () => LaunchTrayToolShortcut(toolId),
+                    TrayToolsMenu.TryGetIconPng(item.IconKey)));
             }
         }
 
@@ -710,9 +711,22 @@ public partial class MainWindow : Window
         HotOff.IsChecked = mode == 2;
     }
 
-    private static NativeMenuItem TrayItem(string header, Action action)
+    private static NativeMenuItem TrayItem(string header, Action action, byte[]? iconPng = null)
     {
         var item = new NativeMenuItem(header);
+        if (iconPng is { Length: > 0 })
+        {
+            try
+            {
+                using var ms = new MemoryStream(iconPng);
+                item.Icon = new Avalonia.Media.Imaging.Bitmap(ms);
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
         item.Click += (_, _) =>
         {
             try { action(); } catch { /* ignore */ }
@@ -1430,7 +1444,11 @@ public partial class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("flytool") { Patterns = ["*.flytool"] }
+                new FilePickerFileType("flytool") { Patterns = ["*.flytool"] },
+                new FilePickerFileType("executable")
+                {
+                    Patterns = ["*.exe", "*.bat", "*.cmd", "*.sh", "*.AppImage", "*"]
+                }
             ]
         });
         if (files.Count == 0) return;
@@ -1438,7 +1456,31 @@ public partial class MainWindow : Window
         {
             var path = files[0].TryGetLocalPath();
             if (string.IsNullOrEmpty(path)) return;
-            var r = await ToolService.Instance.InstallFromFileAsync(path);
+
+            var plan = ToolService.Instance.AnalyzeImport(path);
+            if (!plan.Ok)
+            {
+                StatusText.Text = plan.Message;
+                return;
+            }
+
+            var overwrite = true;
+            if (plan.HasConflict)
+            {
+                var choice = await ConfirmDialog.ShowAsync(
+                    this,
+                    Loc.T("Tool.ImportTitle"),
+                    string.Format(Loc.T("Tool.ImportOverwrite"), plan.DisplayName),
+                    primaryText: Loc.T("Tool.Overwrite"),
+                    cancelText: Loc.T("Tool.Discard"));
+                if (choice != UiConfirmChoice.Primary)
+                {
+                    StatusText.Text = Loc.T("Tool.ImportDiscarded");
+                    return;
+                }
+            }
+
+            var r = await ToolService.Instance.CommitImportAsync(plan, overwrite);
             StatusText.Text = r.Message;
             RefreshToolsPage();
         }
@@ -1692,7 +1734,28 @@ public partial class MainWindow : Window
     private void OpenToolCardMenu(Control? anchor, ToolCardRow row)
     {
         var menu = new ContextMenu();
-        if (!row.IsInstalled)
+        if (row.IsLocalProgram)
+        {
+            if (row.CanStart)
+            {
+                var start = new MenuItem { Header = Loc.T("Tool.Start") };
+                start.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
+                menu.Items.Add(start);
+            }
+
+            var pin = new MenuItem { Header = Loc.T("Tool.Shortcut.DragHere") };
+            pin.Click += (_, _) =>
+            {
+                ToolService.Instance.Shortcuts.TryAppend(row.Id);
+                RefreshToolsShortcuts();
+            };
+            menu.Items.Add(pin);
+
+            var remove = new MenuItem { Header = Loc.T("Tool.Remove") };
+            remove.Click += async (_, _) => await HandleToolActionAsync(row, primary: false);
+            menu.Items.Add(remove);
+        }
+        else if (!row.IsInstalled)
         {
             var install = new MenuItem { Header = Loc.T("Tool.Install") };
             install.Click += async (_, _) => await HandleToolActionAsync(row, primary: true);
@@ -1745,6 +1808,23 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (row.IsLocalProgram)
+            {
+                if (primary)
+                {
+                    var (ok, message) = ToolService.Instance.LaunchLocalProgram(row.Id);
+                    if (!string.IsNullOrWhiteSpace(message))
+                        StatusText.Text = message;
+                }
+                else
+                {
+                    var r = ToolService.Instance.RemoveLocalProgram(row.Id);
+                    StatusText.Text = r.Message;
+                    RefreshToolsPage();
+                }
+                return;
+            }
+
             if (!row.IsInstalled && primary)
             {
                 if (row.IsInstalling) return;

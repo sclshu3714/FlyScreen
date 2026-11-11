@@ -5,13 +5,13 @@
                       "id":  "color-picker",
                       "version":  "1.0.1",
                       "fileName":  "color-picker.flytool",
-                      "sha256":  "fdfa9d5f2999501a78cf09988e1df3d69806636bf12b6e935d1875a0e038a244"
+                      "sha256":  "42a1ba5e0a72a7b582817a6d7d5cd33fa6f29f61bce5ac68de6b7cf000be8ac2"
                   },
                   {
                       "id":  "shared-devices",
                       "version":  "1.0.2",
                       "fileName":  "shared-devices.flytool",
-                      "sha256":  "ec5c95227147b82661bb5ebb8ae04885dfad2d0bdec272a5ed85715b1e5aa40f"
+                      "sha256":  "41d403dbe51571892a01dfbdbcf9989b800a2c43ab37f234a59ab3b5c5c65c7a"
                   }
               ]
 }

@@ -1781,6 +1781,9 @@
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Installed">
                                                                 <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
                                                             </DataTrigger>
+                                                            <DataTrigger Binding="{Binding VisualState}" Value="LocalProgram">
+                                                                <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
+                                                            </DataTrigger>
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Running">
                                                                 <Setter Property="Background" Value="{DynamicResource ToolCardRunningBg}"/>
                                                             </DataTrigger>

@@ -41,8 +41,10 @@ public sealed class SharedDevicesDeviceSelector
             FontSize = 14,
             TextColor = text,
             LineBreakMode = LineBreakMode.TailTruncation,
+            MaxLines = 1,
             VerticalTextAlignment = TextAlignment.Center,
-            HorizontalOptions = LayoutOptions.Fill
+            HorizontalOptions = LayoutOptions.Fill,
+            HorizontalTextAlignment = TextAlignment.Start
         };
 
         var chevron = new Label
@@ -51,18 +53,24 @@ public sealed class SharedDevicesDeviceSelector
             FontSize = 14,
             TextColor = muted,
             VerticalTextAlignment = TextAlignment.Center,
+            VerticalOptions = LayoutOptions.Center,
             Margin = new Thickness(8, 0, 0, 0)
         };
 
+        // Grid * 列在父级已定宽时，Label 只能吃剩余宽并截断，不能反推撑开
         var row = new Grid
         {
             ColumnDefinitions =
             {
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Auto)
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto }
             },
-            Children = { _valueLabel, chevron }
+            HorizontalOptions = LayoutOptions.Fill,
+            ColumnSpacing = 0
         };
+        row.Children.Add(_valueLabel);
+        row.Children.Add(chevron);
+        Grid.SetColumn(_valueLabel, 0);
         Grid.SetColumn(chevron, 1);
 
         var field = new Border
@@ -92,6 +100,7 @@ public sealed class SharedDevicesDeviceSelector
             Content = new VerticalStackLayout
             {
                 Spacing = 10,
+                HorizontalOptions = LayoutOptions.Fill,
                 Children =
                 {
                     new Label

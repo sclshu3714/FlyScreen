@@ -11,6 +11,11 @@
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13">
   <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Themes/SharedDevicesWinControls.xaml"/>
+      </ResourceDictionary.MergedDictionaries>
+    <!-- 默认淡色种子；打开时由宿主按系统样式改色 -->
     <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
     <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
     <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
@@ -19,6 +24,7 @@
     <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
     <SolidColorBrush x:Key="Text" Color="#111827"/>
     <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ListBg" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
@@ -87,6 +93,7 @@
         </Setter.Value>
       </Setter>
     </Style>
+    </ResourceDictionary>
   </Window.Resources>
 
   <Grid Margin="16">

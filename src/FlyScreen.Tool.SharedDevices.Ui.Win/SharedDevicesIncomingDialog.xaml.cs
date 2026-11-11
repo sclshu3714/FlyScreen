@@ -45,7 +45,7 @@ public partial class SharedDevicesIncomingDialog : Window
                 Text = SharedDevicesKindLabels.Localize(kind),
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            var combo = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
+            var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 10) };
             FillCombo(combo, kind, list);
             DevicePanel.Children.Add(label);
             DevicePanel.Children.Add(combo);

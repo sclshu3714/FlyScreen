@@ -6,7 +6,6 @@ namespace FlyScreen.Tool.SharedDevices.Ui.Maui;
 
 public sealed class SharedDevicesIncomingPage : ContentPage
 {
-    private const double ContentMaxWidth = 440;
     private readonly TaskCompletionSource<(bool Accept, bool Remember, Dictionary<string, string> Devices)> _result = new();
     private readonly SharedDevicesService _sd;
     private readonly CheckBox _remember;
@@ -153,7 +152,7 @@ public sealed class SharedDevicesIncomingPage : ContentPage
         };
 
         SizeChanged += OnPageSizeChanged;
-        ApplyResponsiveLayout(Width, Height);
+        SharedDevicesMauiLayout.Apply(_host, _column, Width, Height);
     }
 
     protected override void OnDisappearing()
@@ -165,28 +164,7 @@ public sealed class SharedDevicesIncomingPage : ContentPage
     }
 
     private void OnPageSizeChanged(object? sender, EventArgs e)
-        => ApplyResponsiveLayout(Width, Height);
-
-    private void ApplyResponsiveLayout(double width, double height)
-    {
-        if (width <= 0 || double.IsNaN(width)) return;
-        var landscape = width > height;
-        var narrow = DeviceInfo.Idiom == DeviceIdiom.Phone || width < 600;
-        _host.Padding = new Thickness(
-            narrow ? (landscape ? 20 : 12) : 20,
-            narrow ? (landscape ? 10 : 14) : 20);
-
-        if (narrow && !landscape)
-        {
-            _column.MaximumWidthRequest = double.PositiveInfinity;
-            _column.HorizontalOptions = LayoutOptions.Fill;
-        }
-        else
-        {
-            _column.MaximumWidthRequest = ContentMaxWidth;
-            _column.HorizontalOptions = LayoutOptions.Center;
-        }
-    }
+        => SharedDevicesMauiLayout.Apply(_host, _column, Width, Height);
 
     private Dictionary<string, string> Collect()
     {

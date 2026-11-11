@@ -38,6 +38,7 @@ public sealed class AppHost : IAsyncDisposable
     private BehaviorSyncHelper? _behaviorSync;
     private LayoutSyncHelper? _layoutSync;
     private SecurityKeySyncHelper? _securityKeySync;
+    private FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
     private DisplayInfoService? _displayInfo;
     private ISharedDevicesRuntime? _sharedDevices;
     private AppHost()
@@ -46,6 +47,8 @@ public sealed class AppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
+        FlyScreen.Services.Tools.ToolService.Instance.AttachExecutableIconExtractor(
+            new FlyScreen.Tools.WindowsToolExecutableIconExtractor());
         FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
         TryWireSharedDevices();
         FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
@@ -137,19 +140,29 @@ public sealed class AppHost : IAsyncDisposable
     private void TryWireSharedDevices()
     {
         var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<ISharedDevicesRuntime>();
-        if (ReferenceEquals(sd, _sharedDevices))
-            return;
-
-        if (_sharedDevices != null)
-            _sharedDevices.StatusMessage -= PublishStatus;
-
-        _sharedDevices = sd;
         if (sd == null)
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+            _sharedDevicesProviderMedia = null;
+            _sharedDevices = null;
             return;
+        }
 
+        if (!ReferenceEquals(sd, _sharedDevices))
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            _sharedDevices = sd;
+            sd.StatusMessage += PublishStatus;
+        }
+
+        // 同实例也重新挂硬件：卸载再装后 ALC 新服务必须再 Attach
         sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
         sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio());
-        sd.StatusMessage += PublishStatus;
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = new FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia(sd);
     }
 
     private static Task<EdgeDragConflictAction> ConfirmEdgeDragConflict(EdgeDragConflictRequest request)
@@ -647,6 +660,8 @@ public sealed class AppHost : IAsyncDisposable
         _securityKeySync = null;
         _displayInfo?.Dispose();
         _displayInfo = null;
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = null;
         ScreenExtendUi.Dispose();
         ScreenExtend.Dispose();
         Clipboard.Dispose();
