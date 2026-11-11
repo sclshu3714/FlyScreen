@@ -9,7 +9,7 @@
     <Description>共享设备 Avalonia UI（工具包）</Description>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.2.5" />
+    <PackageReference Include="Avalonia" Version="11.3.23" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj" />
