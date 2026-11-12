@@ -68,6 +68,23 @@
                   </StackPanel>
                 </Border>
 
+                <!-- 版本号 -->
+                <Border Style="{StaticResource SectionCard}">
+                  <StackPanel>
+                    <TextBlock Text="版本号" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
+                    <DockPanel>
+                      <Button DockPanel.Dock="Right" Content="重置" MinWidth="72" Margin="8,0,0,0"
+                              Style="{StaticResource SecondaryButton}"
+                              ToolTip="恢复为当前仓库版本（build/version.json）"
+                              Click="ResetVersion_Click"/>
+                      <TextBox x:Name="VersionBox" Style="{StaticResource FieldTextBox}"/>
+                    </DockPanel>
+                    <TextBlock Text="默认取当前版本（最新 tag 自动 +1，且大于 9 进位后写入 version.json），可手动修改为 x.y.z。"
+                               TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource MutedBrush}"
+                               Margin="0,6,0,0"/>
+                  </StackPanel>
+                </Border>
+
                 <!-- 虚拟显示 -->
                 <Border Style="{StaticResource SectionCard}">
                   <StackPanel>

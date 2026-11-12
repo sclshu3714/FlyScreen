@@ -228,6 +228,9 @@ public sealed class PublishOptions
     /// </summary>
     public bool IncludeVddOffline { get; set; }
 
+    /// <summary>发布版本号（x.y.z）；默认取 build/version.json，可在 UI 中修改。</summary>
+    public string Version { get; set; } = "1.0.0";
+
     public PublishOptions Clone() => new()
     {
         PackageMode = PackageMode,
@@ -243,7 +246,8 @@ public sealed class PublishOptions
         ExeName = ExeName,
         CreateDesktopShortcut = CreateDesktopShortcut,
         CreateStartMenuShortcut = CreateStartMenuShortcut,
-        IncludeVddOffline = IncludeVddOffline
+        IncludeVddOffline = IncludeVddOffline,
+        Version = Version
     };
 }
 

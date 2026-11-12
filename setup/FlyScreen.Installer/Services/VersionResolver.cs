@@ -6,23 +6,23 @@ using System.Text.RegularExpressions;
 namespace FlyScreen.Installer.Services;
 
 /// <summary>
-/// 解析真实产品版本：安装清单 → build/version.json → 程序集 InformationalVersion。
+/// 解析真实产品版本：安装清单（Setup 打包写入）→ 程序集 → build/version.json。
+/// Setup 自定义版本时必须以清单为准，不可被仓库 version.json 覆盖。
 /// </summary>
 public static class VersionResolver
 {
     public static string Resolve(InstallerManifest? manifest = null)
     {
-        // 优先仓库/输出目录中的 version.json（与各端统一版本源一致）
-        var fromJson = TryReadVersionJson();
-        if (fromJson != null)
-            return fromJson;
-
         if (manifest != null && !string.IsNullOrWhiteSpace(manifest.Version))
             return Normalize(manifest.Version);
 
         var fromAsm = TryReadAssemblyVersion();
         if (fromAsm != null)
             return fromAsm;
+
+        var fromJson = TryReadVersionJson();
+        if (fromJson != null)
+            return fromJson;
 
         return "0.0.0";
     }
