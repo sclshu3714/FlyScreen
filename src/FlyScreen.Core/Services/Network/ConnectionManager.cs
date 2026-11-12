@@ -55,7 +55,11 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (!IsListening) return true;
         var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
         if (nic == null || string.IsNullOrWhiteSpace(nic.IPv4)) return false;
-        if (string.IsNullOrWhiteSpace(_bindIp) || _bindIp == "0.0.0.0") return true;
+
+        var wantAny = NicService.IsAutomatic(nic);
+        var listeningAny = string.IsNullOrWhiteSpace(_bindIp) || _bindIp == "0.0.0.0";
+        if (wantAny) return !listeningAny;
+        if (listeningAny) return true;
         return !string.Equals(_bindIp, nic.IPv4, StringComparison.OrdinalIgnoreCase);
     }
 

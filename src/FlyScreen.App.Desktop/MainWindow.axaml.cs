@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using FlyScreen.App.Desktop.Controls;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
@@ -75,6 +76,12 @@ public partial class MainWindow : Window
     private bool _openProgramLog;
     private EdgeFileDragOverlay? _edgeFileDrag;
     private TrayIcon? _trayIcon;
+    private readonly ObservableCollection<ConnectionEndpoint> _endpoints = [];
+    private readonly ObservableCollection<DeviceInventoryItem> _deviceInventory = [];
+    private string _networkSubPage = "conn";
+    private readonly FlyBreadcrumbBar _networkBreadcrumb = new();
+    private readonly FlyBreadcrumbBar _toolsBreadcrumb = new();
+    private bool _toolsBreadcrumbWired;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -484,6 +491,12 @@ public partial class MainWindow : Window
 
         LoadUiFromSettings();
         MachineMatrix.ItemsSource = _slots;
+        EndpointList.ItemsSource = _endpoints;
+        DeviceInventoryList.ItemsSource = _deviceInventory;
+        NetworkBreadcrumbHost.Children.Clear();
+        NetworkBreadcrumbHost.Children.Add(_networkBreadcrumb);
+        _networkBreadcrumb.SegmentClicked += OnNetworkBreadcrumbClick;
+        RefreshNetworkBreadcrumb();
         TransferList.ItemsSource = _host.TransferItems;
         _host.TransferItems.CollectionChanged += (_, _) =>
             TransferPlaceholder.IsVisible = _host.TransferItems.Count == 0;
@@ -821,6 +834,9 @@ public partial class MainWindow : Window
 
         TcpPortBox.Text = s.TcpPort.ToString();
         UdpPortBox.Text = s.UdpPort.ToString();
+        _endpoints.Clear();
+        foreach (var ep in s.ConnectionEndpoints ?? [])
+            _endpoints.Add(ep);
         HotF.IsChecked = s.SwitchHotkeyMode == 0;
         HotNum.IsChecked = s.SwitchHotkeyMode == 1;
         HotOff.IsChecked = s.SwitchHotkeyMode == 2;
@@ -945,6 +961,30 @@ public partial class MainWindow : Window
         if (XferColSize != null) XferColSize.Text = Loc.T("Xfer.Col.Size");
         if (XferColStatus != null) XferColStatus.Text = Loc.T("Xfer.Col.Status");
         if (TransferPlaceholder != null) TransferPlaceholder.Text = Loc.T("Xfer.Empty");
+        if (NicTitleText != null) NicTitleText.Text = Loc.T("Net.NicTitle");
+        if (NicHintText != null) NicHintText.Text = Loc.T("Net.NicHint");
+        if (RefreshNicsBtn != null) ToolTip.SetTip(RefreshNicsBtn, Loc.T("Net.RefreshNics"));
+        if (TcpPortLabel != null) TcpPortLabel.Text = Loc.T("Net.TcpPortShort");
+        if (UdpPortLabel != null) UdpPortLabel.Text = Loc.T("Net.UdpPortShort");
+        if (ConnConfigTitleText != null) ConnConfigTitleText.Text = Loc.T("Net.ConnConfigTitle");
+        if (ConnConfigHintText != null) ConnConfigHintText.Text = Loc.T("Net.ConnConfigHint");
+        if (ConnColType != null) ConnColType.Text = Loc.T("Net.Col.Type");
+        if (ConnColAddr != null) ConnColAddr.Text = Loc.T("Net.Col.Address");
+        if (ConnColOp != null) ConnColOp.Text = Loc.T("Net.Col.Action");
+        if (AddEndpointBtn != null) ToolTip.SetTip(AddEndpointBtn, Loc.T("Net.AddEndpoint"));
+        if (DiscoveryTitleText != null) DiscoveryTitleText.Text = Loc.T("Net.DeviceMgmtTitle");
+        if (DiscoveryHintText != null) DiscoveryHintText.Text = Loc.T("Net.DeviceMgmtHint");
+        if (RefreshDiscoveryBtn != null) ToolTip.SetTip(RefreshDiscoveryBtn, Loc.T("Net.RefreshDiscovery"));
+        if (DevFilterAll != null) DevFilterAll.Content = Loc.T("Net.Filter.All");
+        if (DevFilterLocal != null) DevFilterLocal.Content = Loc.T("Net.Filter.Local");
+        if (DevFilterRemote != null) DevFilterRemote.Content = Loc.T("Net.Filter.Remote");
+        if (DevFilterService != null) DevFilterService.Content = Loc.T("Net.Filter.Service");
+        if (DevColName != null) DevColName.Text = Loc.T("Net.Col.DeviceName");
+        if (DevColKind != null) DevColKind.Text = Loc.T("Net.Col.Kind");
+        if (DevColAddr != null) DevColAddr.Text = Loc.T("Net.Col.Address");
+        if (DevColStatus != null) DevColStatus.Text = Loc.T("Net.Col.Status");
+        if (DevColOp != null) DevColOp.Text = Loc.T("Net.Col.Action");
+        RefreshNetworkBreadcrumb();
         Title = Loc.T("App.Name");
         if (SecurityTitleText != null) SecurityTitleText.Text = Loc.T("Sec.Title");
         if (SecurityHintText != null) SecurityHintText.Text = Loc.T("Sec.Hint");
@@ -1104,6 +1144,8 @@ public partial class MainWindow : Window
             s.PreferredNicId = nic.Id;
             s.PreferredLocalIp = nic.IPv4;
         }
+
+        s.ConnectionEndpoints = _endpoints.ToList();
 
         if (LanguageCombo.SelectedItem is LanguageOption lang)
             s.UiLanguage = lang.Code;
@@ -1525,17 +1567,56 @@ public partial class MainWindow : Window
         ToolsHintText.IsVisible = !hasTabs || ws.IsShowingCatalog;
         ToolsTitleText.IsVisible = !hasTabs;
 
+        if (!_toolsBreadcrumbWired)
+        {
+            _toolsBreadcrumb.SegmentClicked += seg =>
+            {
+                if (string.IsNullOrEmpty(seg.Id))
+                    ToolService.Instance.Workspace.ShowCatalog();
+                else
+                    ToolService.Instance.Workspace.Activate(seg.Id);
+            };
+            _toolsBreadcrumb.SegmentCloseClicked += async seg =>
+            {
+                if (string.IsNullOrEmpty(seg.Id)) return;
+                var module = ToolService.Instance.Host.Get(seg.Id);
+                if (module != null)
+                    await module.StopAsync();
+                else
+                    ToolService.Instance.Workspace.Close(seg.Id);
+                RefreshToolsPage();
+            };
+            _toolsBreadcrumbWired = true;
+        }
+
         ToolsWorkspaceNavPanel.Children.Clear();
         if (hasTabs)
         {
-            ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(
-                Loc.T("Tool.Workspace.Catalog"), ws.IsShowingCatalog, null, showSep: false));
+            var crumbs = new List<BreadcrumbSegment>
+            {
+                new()
+                {
+                    Id = "",
+                    Title = Loc.T("Tool.Workspace.Catalog"),
+                    IsActive = ws.IsShowingCatalog,
+                    IsClickable = true
+                }
+            };
             foreach (var tab in ws.OpenTabs)
             {
                 var active = !ws.IsShowingCatalog
                     && string.Equals(ws.ActiveToolId, tab.ToolId, StringComparison.OrdinalIgnoreCase);
-                ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(tab.Title, active, tab.ToolId, showSep: true));
+                crumbs.Add(new BreadcrumbSegment
+                {
+                    Id = tab.ToolId,
+                    Title = tab.Title,
+                    IsActive = active,
+                    IsClickable = true,
+                    ShowClose = true
+                });
             }
+            _toolsBreadcrumb.SetItems(crumbs);
+            ToolsWorkspaceNavPanel.Children.Add(_toolsBreadcrumb);
         }
 
         var showCatalog = ws.IsShowingCatalog || !hasTabs;
@@ -1562,106 +1643,6 @@ public partial class MainWindow : Window
                     ToolsWorkspaceHost.Content = content;
             }
         }
-    }
-
-    private Control CreateWorkspaceCrumb(string title, bool isActive, string? toolId, bool showSep)
-    {
-        var row = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
-            Tag = toolId ?? ""
-        };
-        if (showSep)
-        {
-            var sep = new TextBlock
-            {
-                Text = "»",
-                FontSize = 15,
-                FontWeight = FontWeight.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0)
-            };
-            if (TryGetThemeBrush("Muted", out var muted)) sep.Foreground = muted;
-            row.Children.Add(sep);
-        }
-
-        var link = new TextBlock
-        {
-            Text = title,
-            FontSize = 15,
-            FontWeight = isActive ? FontWeight.SemiBold : FontWeight.Normal,
-            Cursor = new Cursor(StandardCursorType.Hand),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 4, 0),
-            Tag = toolId ?? ""
-        };
-        if (TryGetThemeBrush(isActive ? "Blue" : "Text", out var fg)) link.Foreground = fg;
-        link.PointerReleased += WorkspaceNavChip_Click;
-        row.Children.Add(link);
-
-        if (toolId != null)
-        {
-            var close = new Button
-            {
-                Content = "×",
-                Width = 22,
-                Height = 22,
-                Margin = new Thickness(8, 0, 0, 0),
-                Padding = new Thickness(0),
-                FontSize = 13,
-                CornerRadius = new CornerRadius(4),
-                VerticalAlignment = VerticalAlignment.Center,
-                Cursor = new Cursor(StandardCursorType.Hand),
-                Tag = toolId
-            };
-            if (TryGetThemeBrush("Muted", out var closeFg)) close.Foreground = closeFg;
-            if (TryGetThemeBrush("Line", out var closeLine)) close.BorderBrush = closeLine;
-            close.BorderThickness = new Thickness(1);
-            close.Background = Brushes.Transparent;
-            close.PointerEntered += (_, _) =>
-            {
-                if (TryGetThemeBrush("BlueSoft", out var bg)) close.Background = bg;
-                if (TryGetThemeBrush("Blue", out var blue))
-                {
-                    close.Foreground = blue;
-                    close.BorderBrush = blue;
-                }
-            };
-            close.PointerExited += (_, _) =>
-            {
-                close.Background = Brushes.Transparent;
-                if (TryGetThemeBrush("Muted", out var fg)) close.Foreground = fg;
-                if (TryGetThemeBrush("Line", out var line)) close.BorderBrush = line;
-            };
-            close.Click += WorkspaceNavClose_Click;
-            row.Children.Add(close);
-        }
-
-        return row;
-    }
-
-    private void WorkspaceNavChip_Click(object? sender, PointerReleasedEventArgs e)
-    {
-        if (sender is not Control fe) return;
-        if (e.Source is Button) return;
-        var id = fe.Tag as string;
-        if (string.IsNullOrEmpty(id))
-            ToolService.Instance.Workspace.ShowCatalog();
-        else
-            ToolService.Instance.Workspace.Activate(id);
-        e.Handled = true;
-    }
-
-    private async void WorkspaceNavClose_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Control { Tag: string toolId }) return;
-        var module = ToolService.Instance.Host.Get(toolId);
-        if (module != null)
-            await module.StopAsync();
-        else
-            ToolService.Instance.Workspace.Close(toolId);
-        RefreshToolsPage();
     }
 
     private async void ToolCard_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -2945,7 +2926,7 @@ public partial class MainWindow : Window
 
     private void RefreshNics()
     {
-        var nics = NicService.ListUsableIpv4Nics();
+        var nics = NicService.ListSelectableIpv4Nics();
         NicCombo.ItemsSource = nics;
         NicCombo.SelectedItem = null;
         var preferred = NicService.ResolvePreferred(_host.Settings.PreferredNicId, _host.Settings.PreferredLocalIp);
@@ -2956,16 +2937,245 @@ public partial class MainWindow : Window
             NicCombo.SelectedIndex = 0;
     }
 
-    private void RefreshDiscovery_Click(object? sender, RoutedEventArgs e) => RefreshDiscovery();
+    private async void RefreshDiscovery_Click(object? sender, RoutedEventArgs e)
+    {
+        await RevalidateEndpointsAsync().ConfigureAwait(true);
+        RefreshDiscovery();
+    }
 
     private void RefreshDiscovery()
     {
-        DiscoveryList.ItemsSource = UnusedDiscoveredPeers();
         foreach (var slot in _slots.Where(s => s.Enabled && !s.IsLocal))
         {
             var ip = _host.Connections.Discovery.FindIp(slot.Name);
             if (ip != null) slot.ResolvedIp = ip;
         }
+
+        var items = DeviceInventoryBuilder.Build(
+            _host.Connections.Discovery.GetPeers(),
+            _slots.ToList(),
+            _endpoints.ToList(),
+            _host.Settings.RemoteBindings,
+            LocalPeerIdentity.MachineName);
+
+        var filter = DevFilterRemote?.IsChecked == true ? DeviceInventoryItem.KindRemote
+            : DevFilterService?.IsChecked == true ? DeviceInventoryItem.KindService
+            : DevFilterLocal?.IsChecked == true ? DeviceInventoryItem.KindLocal
+            : (int?)null;
+
+        _deviceInventory.Clear();
+        foreach (var item in items)
+        {
+            if (filter is int kind && item.Kind != kind) continue;
+            _deviceInventory.Add(item);
+        }
+
+        if (DiscoveryList != null)
+            DiscoveryList.ItemsSource = UnusedDiscoveredPeers();
+    }
+
+    private void RefreshNetworkBreadcrumb()
+    {
+        var onDevices = _networkSubPage == "devices";
+        _networkBreadcrumb.SetItems(
+        [
+            new BreadcrumbSegment
+            {
+                Id = "network",
+                Title = Loc.T("Nav.Network"),
+                IsActive = false,
+                IsClickable = true
+            },
+            new BreadcrumbSegment
+            {
+                Id = "conn",
+                Title = Loc.T("Net.ConnConfigTitle"),
+                IsActive = !onDevices,
+                IsClickable = true
+            },
+            new BreadcrumbSegment
+            {
+                Id = "devices",
+                Title = Loc.T("Net.DeviceMgmtTitle"),
+                IsActive = onDevices,
+                IsClickable = true
+            }
+        ]);
+    }
+
+    private void OnNetworkBreadcrumbClick(BreadcrumbSegment seg)
+    {
+        if (seg.Id is "network" or "conn")
+            ShowNetworkSubPage("conn");
+        else if (seg.Id == "devices")
+            ShowNetworkSubPage("devices");
+    }
+
+    private void ShowNetworkSubPage(string page)
+    {
+        _networkSubPage = page == "devices" ? "devices" : "conn";
+        if (PanelConnConfig != null)
+            PanelConnConfig.IsVisible = _networkSubPage == "conn";
+        if (PanelDeviceMgmt != null)
+            PanelDeviceMgmt.IsVisible = _networkSubPage == "devices";
+        RefreshNetworkBreadcrumb();
+        if (_networkSubPage == "devices")
+            RefreshDiscovery();
+    }
+
+    private void DevFilter_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (IsLoaded) RefreshDiscovery();
+    }
+
+    private void AddEndpoint_Click(object? sender, RoutedEventArgs e)
+    {
+        _endpoints.Add(new ConnectionEndpoint
+        {
+            Kind = ConnectionEndpoint.KindRemote,
+            Address = "",
+            State = ConnectionEndpoint.StateUnknown
+        });
+    }
+
+    private async void TestEndpoint_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: ConnectionEndpoint ep }) return;
+        await TestEndpointAsync(ep).ConfigureAwait(true);
+    }
+
+    private async Task RevalidateEndpointsAsync()
+    {
+        foreach (var ep in _endpoints.ToList())
+        {
+            if (string.IsNullOrWhiteSpace(ep.Address)) continue;
+            await TestEndpointAsync(ep, updateStatusBar: false).ConfigureAwait(true);
+        }
+    }
+
+    private async Task TestEndpointAsync(ConnectionEndpoint ep, bool updateStatusBar = true)
+    {
+        if (updateStatusBar)
+            StatusText.Text = Loc.T("Net.TestingEndpoint");
+        var result = await ConnectionEndpointProbe.TestAsync(ep).ConfigureAwait(true);
+        if (result.Ok)
+        {
+            ep.LastError = "";
+            ep.LastRttMs = result.RttMs;
+            if (ep.Kind == ConnectionEndpoint.KindRemote)
+            {
+                ep.DiscoveredDevices = [];
+                ep.VerifiedPeerName = result.VerifiedPeerName?.Trim() ?? "";
+            }
+            else
+            {
+                ep.VerifiedPeerName = "";
+                ep.DiscoveredDevices = result.DiscoveredDevices?.ToList() ?? [];
+            }
+            ep.State = ConnectionEndpoint.StateConnected;
+        }
+        else
+        {
+            ep.ClearVerification();
+            ep.LastError = result.Message;
+            ep.State = ConnectionEndpoint.StateError;
+        }
+
+        if (updateStatusBar)
+            StatusText.Text = result.Ok ? $"{Loc.T("Net.TestOk")}: {result.Message}" : $"{Loc.T("Net.TestFail")}: {result.Message}";
+        RefreshDiscovery();
+    }
+
+    private async void DeleteEndpoint_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: ConnectionEndpoint ep }) return;
+        var bound = (_host.Settings.RemoteBindings ?? [])
+            .Any(b => string.Equals(b.EndpointId, ep.Id, StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(b.Endpoint, ep.Address, StringComparison.OrdinalIgnoreCase));
+        if (bound)
+        {
+            var confirm = await ConfirmDialog.ShowAsync(
+                this,
+                Loc.T("App.Name"),
+                Loc.T("Net.DeleteEndpointBoundConfirm"),
+                primaryText: Loc.T("Btn.Ok"),
+                cancelText: Loc.T("Btn.Cancel")).ConfigureAwait(true);
+            if (confirm != UiConfirmChoice.Primary) return;
+            _host.Settings.RemoteBindings.RemoveAll(b =>
+                string.Equals(b.EndpointId, ep.Id, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(b.Endpoint, ep.Address, StringComparison.OrdinalIgnoreCase));
+            _host.Settings.Save();
+        }
+        _endpoints.Remove(ep);
+        RefreshDiscovery();
+    }
+
+    private void DevicePrimaryAction_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: DeviceInventoryItem item }) return;
+        switch (item.Kind)
+        {
+            case DeviceInventoryItem.KindLocal:
+                if (item.LayoutSlotIndex >= 0)
+                    LocateLayoutSlot(item.LayoutSlotIndex);
+                else if (item.Peer != null)
+                    TryAddPeer(item.Peer);
+                else
+                    StatusText.Text = Loc.T("Net.NoPeerToAdd");
+                break;
+            case DeviceInventoryItem.KindRemote:
+                StatusText.Text = Loc.T("Net.RemoteBindSoon");
+                break;
+            case DeviceInventoryItem.KindService:
+            {
+                var endpoint = _endpoints.FirstOrDefault(x => x.Id == item.EndpointId);
+                if (endpoint != null)
+                    _ = TestEndpointAsync(endpoint);
+                break;
+            }
+        }
+    }
+
+    private void DeviceSecondaryAction_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: DeviceInventoryItem item }) return;
+        switch (item.Kind)
+        {
+            case DeviceInventoryItem.KindLocal when item.LayoutSlotIndex >= 0 && !item.IsLocalMachine:
+            {
+                var slot = _slots.ElementAtOrDefault(item.LayoutSlotIndex);
+                if (slot != null) TryRemoveSlot(slot);
+                break;
+            }
+            case DeviceInventoryItem.KindRemote:
+            {
+                _host.Settings.RemoteBindings.RemoveAll(b =>
+                    string.Equals("remote:" + b.RemoteId, item.Id, StringComparison.OrdinalIgnoreCase));
+                _host.Settings.Save();
+                RefreshDiscovery();
+                break;
+            }
+            case DeviceInventoryItem.KindService:
+            {
+                var endpoint = _endpoints.FirstOrDefault(x => x.Id == item.EndpointId);
+                if (endpoint != null)
+                {
+                    _endpoints.Remove(endpoint);
+                    _host.Settings.ConnectionEndpoints = _endpoints.ToList();
+                    _host.Settings.Save();
+                    RefreshDiscovery();
+                }
+                break;
+            }
+        }
+    }
+
+    private void LocateLayoutSlot(int index)
+    {
+        ShowPage(0);
+        if (index < 0 || index >= _slots.Count) return;
+        SelectSlot(_slots[index]);
+        StatusText.Text = string.Format(Loc.T("Net.LocatedSlot"), _slots[index].PositionLabel);
     }
 
     private List<DiscoveredPeer> UnusedDiscoveredPeers()
@@ -2999,6 +3209,7 @@ public partial class MainWindow : Window
         if (unused.Count == 0)
         {
             ShowPage(2);
+            ShowNetworkSubPage("devices");
             RefreshDiscovery();
             StatusText.Text = "暂无新发现的电脑，请先刷新发现或确认对端已启动";
             return;
