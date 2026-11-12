@@ -3,7 +3,7 @@
 ## 1. 发版前
 
 1. 确认改动已合并；跑通 [regression-windows.md](regression-windows.md)。  
-2. 查看当前构建版本（最新 tag 的 patch+1）：
+2. 查看当前构建版本（最新 tag 自动 +1，大于 9 进位）：
    ```powershell
    cd <repo>
    git tag -l "v*.*.*" --sort=-v:refname | Select-Object -First 1

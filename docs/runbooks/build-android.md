@@ -31,7 +31,7 @@ MAUI 当前 Caps 见 `PeerCaps.AndroidMobile`（另含 EdgeMouse/InjectInput）�
 
 ## 版本号（与 Win 对齐）
 
-与桌面端相同：`Version = 最新 vX.Y.Z 的 patch + 1`（`mobile/android/flyscreen-version.gradle.kts`）。  
+与桌面端相同：最新 `vX.Y.Z` 自动 +1，且 minor/patch 大于 9 进位（`mobile/android/flyscreen-version.gradle.kts`，如 `1.0.9→1.1.0`）。  
 Sync / 构建时自动读仓库 Git 标签；握手 `AppVersion` 使用无 flavor 后缀的 `BuildConfig.FLYSREEN_VERSION`。
 
 覆盖：`.\gradlew.bat :app:assemblePhoneDebug -Pflyscreen.version=1.1.0`

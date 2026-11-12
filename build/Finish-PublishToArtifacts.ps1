@@ -20,7 +20,8 @@ param(
     [string]$Kind = 'Exe',
 
     [string]$RepoRoot = '',
-    [string]$OutDir = ''
+    [string]$OutDir = '',
+    [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,5 +103,6 @@ else {
         RepoRoot = $RepoRoot
     }
     if ($OutDir) { $nameArgs.OutDir = $OutDir }
+    if ($Version) { $nameArgs.Version = $Version }
     & (Join-Path $PSScriptRoot 'Name-FlyScreenPackage.ps1') @nameArgs
 }
