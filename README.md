@@ -84,13 +84,14 @@ macOS / Linux / Android / 鸿蒙 / MAUI 构建说明见 [docs/README.md](docs/RE
 
 Windows / Linux / macOS / MAUI 共用 `build/FlyScreen.Version.targets`；Android / 鸿蒙用同一 Git 标签规则（Gradle 自动解析；鸿蒙发版前跑 `build/Sync-MobileVersion.ps1`）。
 
-规则：**项目版本 = 最新 `vX.Y.Z` 标签的 patch + 1**。多次提交、不打新 tag，版本号不变。`versionCode` = `major*10000+minor*100+patch`。
+规则：**项目版本 = 最新 `vX.Y.Z` 标签自动 +1**，且 **minor / patch 大于 9 向高位进位**（如 `1.0.9→1.1.0`，`1.9.9→2.0.0`）。多次提交、不打新 tag，版本号不变。`versionCode` = `major*10000+minor*100+patch`。
 
 | 最新 GitHub / 本地 tag | 构建出的 Version |
 |------------------------|------------------|
 | `v1.0.1` | 一直是 **1.0.2** |
 | 打上 `v1.0.2` 之后 | 一直是 **1.0.3** |
-| `v1.0.9` | **1.0.10** |
+| `v1.0.9` | **1.1.0** |
+| `v1.9.9` | **2.0.0** |
 | `v1.1.0` | **1.1.1** |
 
 发版推荐流程（以当前最新 tag 为 `v1.0.1`、构建为 `1.0.2` 为例）：

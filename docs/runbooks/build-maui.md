@@ -100,7 +100,7 @@ dotnet run --project src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release
 
 Maui-Win（`Platforms/Windows/app.manifest`）与 WPF 一样要求 **管理员**；否则全局键鼠钩子不稳，轻松鼠标穿边会表现为「很难跨屏」。F5/发布后首次启动应出现 UAC。
 
-版本号与 Win 同源：`build/FlyScreen.Version.targets`（最新 tag `vX.Y.Z` → 项目 `Version=X.Y.(Z+1)`）。  
+版本号与 Win 同源：`build/FlyScreen.Version.targets`（最新 tag `vX.Y.Z` 自动 +1，minor/patch 大于 9 进位，如 `1.0.9→1.1.0`）。  
 Android 系统「应用信息」中的版本来自 APK 的 `versionName`/`versionCode`，已与程序内版本对齐：生成清单前写入 `_AndroidVersionName`，并在 Manifest Merger 后二次校验补丁（见同文件 `FlyScreen_SetAndroidManifestVersion` / `Patch-AndroidManifestVersion.ps1`）。若仍见 `1.0.0`，请清 `obj` 后重新 `publish`/安装 **Signed** APK。
 
 ### Visual Studio 调试目标

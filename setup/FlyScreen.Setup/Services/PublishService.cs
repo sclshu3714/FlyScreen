@@ -37,6 +37,8 @@ public sealed class PublishService
                 log);
 
             Directory.CreateDirectory(options.OutputRoot);
+            options.Version = ResolvePublishVersion(options, log);
+            log($"打包版本以 Setup 配置为准: v{options.Version}（禁用 Git 自动递增）");
 
             var total = Math.Max(1, targets.Count);
             for (var i = 0; i < targets.Count; i++)
@@ -50,7 +52,7 @@ public sealed class PublishService
                 target.ApplySelectedFrameworkRuntime();
                 log($"======== 开始打包: {target.DisplayName} ({target.Rid}" +
                     (string.IsNullOrWhiteSpace(target.Framework) ? "" : $", {target.Framework}") +
-                    ") ========");
+                    $", v{options.Version}) ========");
                 Report(slice, 0, $"[{i + 1}/{total}] {target.DisplayName}");
 
                 if (target.RequiresMac && !OperatingSystem.IsMacOS())
@@ -216,10 +218,12 @@ public sealed class PublishService
         Report(progress, 88, $"{target.DisplayName}：整理产物…");
         var finish = Path.Combine(_repoRoot, "build", "Finish-PublishToArtifacts.ps1");
         var kind = archiveInstaller ? "UnixArchive" : target.Kind;
+        var version = ResolvePublishVersion(options, log);
         var finishArgs =
             $"-NoProfile -ExecutionPolicy Bypass -File \"{finish}\" " +
             $"-SourceDir \"{staging}\" -Rid \"{target.Rid}\" -Kind {kind} " +
-            $"-RepoRoot \"{_repoRoot}\" -OutDir \"{options.OutputRoot}\"";
+            $"-RepoRoot \"{_repoRoot}\" -OutDir \"{options.OutputRoot}\" " +
+            $"-Version \"{version}\"";
         exit = await _runner.RunAsync("powershell", finishArgs, _repoRoot, log, ct, _jobEnv)
             .ConfigureAwait(false);
         if (exit != 0)
@@ -273,7 +277,7 @@ public sealed class PublishService
         ZipFile.CreateFromDirectory(appStaging, payloadZip, CompressionLevel.Optimal, includeBaseDirectory: false);
 
         var requiredBytes = new FileInfo(payloadZip).Length + 32L * 1024 * 1024;
-        var version = ReadVersion();
+        var version = ResolvePublishVersion(options, log);
 
         Report(progress, 68, $"{target.DisplayName}：写入安装清单…");
         var carouselFiles = Directory.GetFiles(Path.Combine(installerDir, "Assets", "carousel"), "*.png")
@@ -312,12 +316,16 @@ public sealed class PublishService
         Directory.CreateDirectory(installerObj);
 
         var sc = options.DeploymentMode == DeploymentMode.SelfContained ? "true" : "false";
+        var versionCode = VersionResolver.ComputeVersionCode(version);
         var publishArgs =
             $"publish \"{Path.Combine(installerDir, "FlyScreen.Installer.csproj")}\" " +
             $"-c Release -r win-x64 --self-contained {sc} " +
             $"-p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true " +
             $"-p:DebugType=None -p:DebugSymbols=false " +
             $"-p:EnableCompressionInSingleFile=true " +
+            $"-p:Version={version} -p:AssemblyVersion={version}.0 -p:FileVersion={version}.0 " +
+            $"-p:InformationalVersion={version} -p:FlyScreenVersionCode={versionCode} " +
+            $"-p:IgnoreGitVersion=true " +
             $"-p:FlyScreenPayloadZip=\"{payloadZip}\" " +
             $"-p:FlyScreenInstallerJson=\"{manifestPath}\" " +
             $"-p:BaseIntermediateOutputPath={QuoteMsBuildDir(installerObj)} " +
@@ -432,6 +440,8 @@ public sealed class PublishService
                 log("已跳过虚拟显示离线包（使用时走 winget/在线安装）");
             }
         }
+
+        AppendVersionMsBuildProps(args, options, log);
 
         log($"dotnet publish → {target.Id} ({configuration}, 无 PDB, job={_jobId})");
         var exit = await _runner.RunAsync("dotnet", string.Join(' ', args), _repoRoot, log, ct, _jobEnv)
@@ -566,12 +576,17 @@ public sealed class PublishService
         PrepareCleanDir(unOut);
 
         EnsureReleaseConfiguration(options, log);
+        var version = ResolvePublishVersion(options, log);
+        var versionCode = VersionResolver.ComputeVersionCode(version);
         var sc = options.DeploymentMode == DeploymentMode.SelfContained ? "true" : "false";
         var args =
             $"publish \"{uninstallerProj}\" -c Release -r win-x64 " +
             $"--self-contained {sc} -p:PublishSingleFile=true " +
             $"-p:DebugType=None -p:DebugSymbols=false " +
             $"-p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true " +
+            $"-p:Version={version} -p:AssemblyVersion={version}.0 -p:FileVersion={version}.0 " +
+            $"-p:InformationalVersion={version} -p:FlyScreenVersionCode={versionCode} " +
+            $"-p:IgnoreGitVersion=true " +
             $"-o \"{unOut}\"";
 
         log("发布卸载程序 Uninstall.exe（Release）…");
@@ -592,20 +607,41 @@ public sealed class PublishService
         log($"已纳入卸载程序: {dest}");
     }
 
-    private string ReadVersion()
+    private string ResolvePublishVersion(PublishOptions options, Action<string> log)
     {
         try
         {
-            var json = File.ReadAllText(RepoPaths.VersionJson(_repoRoot));
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("version", out var v))
-                return v.GetString() ?? "1.0.0";
+            var version = VersionResolver.Normalize(
+                string.IsNullOrWhiteSpace(options.Version)
+                    ? VersionResolver.ReadCurrent(_repoRoot)
+                    : options.Version);
+            options.Version = version;
+            return version;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            log("版本号无效，回退到当前版本：" + ex.Message);
+            var fallback = VersionResolver.ReadCurrent(_repoRoot);
+            options.Version = fallback;
+            return fallback;
         }
-        return "1.0.0";
+    }
+
+    private static void AppendVersionMsBuildProps(List<string> args, PublishOptions options, Action<string> log)
+    {
+        var version = VersionResolver.Normalize(
+            string.IsNullOrWhiteSpace(options.Version) ? "1.0.0" : options.Version);
+        var versionCode = VersionResolver.ComputeVersionCode(version);
+        // 禁用 Git 自动递增，确保程序集/清单/产物文件名使用 Setup UI 指定版本
+        args.Add($"-p:Version={version}");
+        args.Add($"-p:AssemblyVersion={version}.0");
+        args.Add($"-p:FileVersion={version}.0");
+        args.Add($"-p:InformationalVersion={version}");
+        args.Add($"-p:FlyScreenVersionCode={versionCode}");
+        args.Add($"-p:ApplicationDisplayVersion={version}");
+        args.Add($"-p:ApplicationVersion={versionCode}");
+        args.Add("-p:IgnoreGitVersion=true");
+        log($"发布版本: {version} (versionCode={versionCode})");
     }
 
     private static string ResolveExeName(string appDir, string preferred)

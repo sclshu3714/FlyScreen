@@ -54,6 +54,7 @@ public partial class MainWindow : Window
         _jobs.CollectionChanged += Jobs_CollectionChanged;
 
         OutputDirBox.Text = RepoPaths.ArtifactsRelease(_repoRoot);
+        VersionBox.Text = VersionResolver.ReadCurrent(_repoRoot);
         InstallDirBox.Text = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao");
         LicenseUrlBox.Text = "https://github.com/sclshu3714/FlyScreen";
@@ -72,6 +73,7 @@ public partial class MainWindow : Window
         }
 
         AppendSystemLog($"仓库根目录: {_repoRoot}");
+        AppendSystemLog($"当前版本: {VersionBox.Text}");
         AppendSystemLog("打包固定使用 Release，发布产物将去除 .pdb。");
         AppendSystemLog(_concurrency.Summary);
         ApplyMutexRules();
@@ -305,6 +307,12 @@ public partial class MainWindow : Window
             OutputDirBox.Text = dlg.FolderName;
     }
 
+    private void ResetVersion_Click(object sender, RoutedEventArgs e)
+    {
+        VersionBox.Text = VersionResolver.ReadCurrent(_repoRoot);
+        AppendSystemLog($"版本号已重置为当前版本: {VersionBox.Text}");
+    }
+
     private void OpenOutput_Click(object sender, RoutedEventArgs e)
     {
         // 优先打开最近一次入队任务的输出目录，否则用当前配置的输出目录
@@ -372,14 +380,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        string version;
+        try
+        {
+            version = VersionResolver.Normalize(VersionBox.Text);
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Alert(this, "提示", ex.Message, MessageDialogKind.Info);
+            VersionBox.Focus();
+            return;
+        }
+
         selected.ApplySelectedFrameworkRuntime();
         var snapshot = selected.CloneForPublish();
-        var options = BuildOptions().Clone();
+        var options = BuildOptions(version).Clone();
 
         var job = new PublishJobItem
         {
             Title = snapshot.DisplayName,
-            Subtitle = $"{snapshot.Rid} · {snapshot.SelectedFramework ?? snapshot.Framework}",
+            Subtitle = $"v{options.Version} · {snapshot.Rid} · {snapshot.SelectedFramework ?? snapshot.Framework}",
             Target = snapshot,
             Options = options,
             Message = "等待执行",
@@ -615,7 +635,7 @@ public partial class MainWindow : Window
         StatusText.Text = $"就绪 · Release · 运行 {running}/{_maxConcurrentJobs} · 等待 {waiting} · 结束 {done}";
     }
 
-    private PublishOptions BuildOptions() => new()
+    private PublishOptions BuildOptions(string version) => new()
     {
         PackageMode = ModeInstaller.IsChecked == true ? PackageMode.Installer : PackageMode.Standalone,
         DeploymentMode = DeploySelfContained.IsChecked == true
@@ -635,6 +655,7 @@ public partial class MainWindow : Window
         CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true,
         CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
         IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
-                            && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline)
+                            && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline),
+        Version = version
     };
 }

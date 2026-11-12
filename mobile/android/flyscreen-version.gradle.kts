@@ -1,5 +1,6 @@
 /**
- * 与仓库 build/FlyScreen.Version.targets 同一规则。
+ * 与仓库 build/FlyScreen.Version.targets / Resolve-FlyScreenVersion.ps1 同一规则。
+ * 自动叠加：最新 vX.Y.Z +1；minor/patch 大于 9 向高位进位（1.0.9→1.1.0）。
  * 由 settings.gradle.kts apply；在 beforeProject 写入 :app 的 extra。
  */
 import java.io.ByteArrayOutputStream
@@ -11,6 +12,25 @@ fun versionCodeOf(version: String): Int {
     val patch = p.getOrElse(2) { 0 }
     return major * 10000 + minor * 100 + patch
 }
+
+/** minor/patch 大于 9 进位；major 可超过 9。 */
+fun normalizeVersionParts(majorIn: Int, minorIn: Int, patchIn: Int): Triple<Int, Int, Int> {
+    var major = majorIn.coerceAtLeast(0)
+    var minor = minorIn.coerceAtLeast(0)
+    var patch = patchIn.coerceAtLeast(0)
+    while (patch > 9) {
+        patch -= 10
+        minor++
+    }
+    while (minor > 9) {
+        minor -= 10
+        major++
+    }
+    return Triple(major, minor, patch)
+}
+
+fun bumpVersion(major: Int, minor: Int, patch: Int): Triple<Int, Int, Int> =
+    normalizeVersionParts(major, minor, patch + 1)
 
 val override = (providers.gradleProperty("flyscreen.version").orNull)?.trim().orEmpty()
 
@@ -44,7 +64,8 @@ if (override.isNotEmpty()) {
 
     if (latest != null) {
         val parts = latest.removePrefix("v").split('.').map { it.toInt() }
-        flyscreenVersion = "${parts[0]}.${parts[1]}.${parts[2] + 1}"
+        val bumped = bumpVersion(parts[0], parts[1], parts[2])
+        flyscreenVersion = "${bumped.first}.${bumped.second}.${bumped.third}"
         flyscreenVersionCode = versionCodeOf(flyscreenVersion)
     } else {
         flyscreenVersion = "1.0.0"
@@ -59,4 +80,4 @@ gradle.beforeProject {
     }
 }
 
-println("玄鸟 Android 版本: $flyscreenVersion (code=$flyscreenVersionCode) — 与 Win Git 标签规则一致")
+println("玄鸟 Android 版本: $flyscreenVersion (code=$flyscreenVersionCode) — 与 Win Git 标签规则一致（>9 进位）")
