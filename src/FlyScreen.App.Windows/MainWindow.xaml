@@ -292,14 +292,77 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <!-- 工具面包屑关闭：悬停浅蓝底 + 蓝色 × -->
-        <Style x:Key="WorkspaceCloseBtn" TargetType="Button">
-            <Setter Property="Width" Value="22"/>
-            <Setter Property="Height" Value="22"/>
-            <Setter Property="MinWidth" Value="22"/>
+        <!-- 网络操作列图标钮：与双按钮总宽对齐；单钮拉满 -->
+        <Style x:Key="NetIconOpBtn" TargetType="Button">
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="0"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
+                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Blue}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="NetIconOpBtnWarn" TargetType="Button" BasedOn="{StaticResource NetIconOpBtn}">
+            <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{DynamicResource WarnSoft}" BorderBrush="{DynamicResource Warn}"
+                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Content="{TemplateBinding Content}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Warn}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 工具面包屑关闭：紧凑方钮，悬停浅蓝底 + 蓝色 × -->
+        <Style x:Key="WorkspaceCloseBtn" TargetType="Button">
+            <Setter Property="Width" Value="18"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MaxWidth" Value="18"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
@@ -307,6 +370,7 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd" Background="Transparent" CornerRadius="4"
                                 BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                Width="18" Height="18"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                               RecognizesAccessKey="True"/>
@@ -1416,81 +1480,250 @@
                     </Grid>
                 </Grid>
 
-                <!-- ===== 网络设置 ===== -->
+                <!-- ===== 网络设置：连接配置 / 设备管理 ===== -->
                 <Grid x:Name="PageNetwork" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock x:Name="NicTitleText" Text="本机网卡" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                            <TextBlock x:Name="NicHintText" Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。"
-                         Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <ComboBox x:Name="NicCombo" DisplayMemberPath="Display"
-                          VerticalContentAlignment="Center"/>
-                                <Button x:Name="RefreshNicsBtn" Grid.Column="1" Content="刷新网卡" Click="RefreshNics_Click"/>
-                            </Grid>
-                            <Grid Margin="0,12,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="100"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="TcpPortLabel" Text="TCP 端口" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="TcpPortBox" Grid.Column="1" Text="15155"/>
-                                <TextBlock x:Name="UdpPortLabel" Grid.Column="2" Text="发现端口" VerticalAlignment="Center" Margin="20,0,8,0"/>
-                                <TextBox x:Name="UdpPortBox" Grid.Column="3" Text="15156"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="1" Style="{StaticResource Card}">
+                    <StackPanel x:Name="NetworkBreadcrumbHost" Orientation="Horizontal" Margin="0,0,0,10"/>
+                    <!-- 连接配置 -->
+                    <Border x:Name="PanelConnConfig" Grid.Row="1" Style="{StaticResource Card}">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <StackPanel Margin="0,0,0,8">
-                                <TextBlock x:Name="DiscoveryTitleText" Text="局域网自动发现" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DiscoveryHintText" Text="单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出"
-                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <Border Grid.Row="1" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                      CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
-                                <StackPanel Orientation="Horizontal">
-                                    <Button x:Name="RefreshDiscoveryBtn" Content="刷新发现" Margin="0" Click="RefreshDiscovery_Click"/>
+                            <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                                <Button x:Name="AddEndpointBtn" DockPanel.Dock="Right" Width="32" Height="28" Padding="0"
+                                        ToolTip="添加配置" Click="AddEndpoint_Click" Margin="8,0,0,0"
+                                        Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}" BorderThickness="1"
+                                        Foreground="{DynamicResource Blue}" FontWeight="SemiBold" FontSize="16" Content="+"/>
+                                <StackPanel>
+                                    <TextBlock x:Name="ConnConfigTitleText" Text="连接配置" FontWeight="SemiBold" FontSize="15"/>
+                                    <TextBlock x:Name="ConnConfigHintText"
+                                               Text="本机网卡用于局域网；可添加远程设备或中转服务地址（旧端忽略未知配置，局域网互通不受影响）。"
+                                               Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
+                            </DockPanel>
+                            <Border Grid.Row="1" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}"
+                                    BorderThickness="1" CornerRadius="8" Padding="0" Margin="0,0,0,8">
+                                <Grid Margin="12,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ConnColType" Text="类型" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Muted}" Width="96" TextAlignment="Right"/>
+                                </Grid>
                             </Border>
-                            <ListBox x:Name="DiscoveryList" Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                       Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
-                       MouseDoubleClick="DiscoveryList_DoubleClick">
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <!-- 固定：本机网卡；单操作钮拉满与双按钮同宽 -->
+                                    <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                                            BorderThickness="0,0,0,1" Padding="12,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="140"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="96"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center"
+                                                       FontWeight="SemiBold"/>
+                                            <ComboBox x:Name="NicCombo" Grid.Column="1" DisplayMemberPath="Display"
+                                                      VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+                                            <Button x:Name="RefreshNicsBtn" Grid.Column="2" Style="{StaticResource NetIconOpBtn}"
+                                                    Content="↻" ToolTip="刷新网卡" Click="RefreshNics_Click"
+                                                    HorizontalAlignment="Stretch"/>
+                                        </Grid>
+                                    </Border>
+                                    <ItemsControl x:Name="EndpointList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                                                        BorderThickness="0,0,0,1" Padding="12,10">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="140"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="96"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+                                                        <ComboBox SelectedIndex="{Binding Kind, Mode=TwoWay}"
+                                                                  VerticalContentAlignment="Center" FontWeight="SemiBold"
+                                                                  ToolTip="远程=一对一 IP；中转服务=一对多注册发现">
+                                                            <ComboBoxItem Content="远程"/>
+                                                            <ComboBoxItem Content="中转服务"/>
+                                                        </ComboBox>
+                                                        <TextBox Grid.Column="1" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Margin="0,0,8,0" VerticalContentAlignment="Center"
+                                                                 ToolTip="远程：host:port / IP；中转：wss://…"/>
+                                                        <Grid Grid.Column="2">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="6"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Button Grid.Column="0" Style="{StaticResource NetIconOpBtn}"
+                                                                    Content="⚡" ToolTip="测试（通过后才进入设备管理）" Click="TestEndpoint_Click" Tag="{Binding}"/>
+                                                            <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}"
+                                                                    Content="−" ToolTip="删除" Click="DeleteEndpoint_Click" Tag="{Binding}"/>
+                                                        </Grid>
+                                                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,4,8,0" FontSize="11"
+                                                                   Foreground="{DynamicResource Muted}"
+                                                                   Text="{Binding StatusText}"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <!-- 兼容：隐藏旧发现列表宿主，供代码迁移期引用 -->
+                                    <ListBox x:Name="DiscoveryList" Visibility="Collapsed" Height="0"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Grid Grid.Row="3" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="TcpPortLabel" Text="TCP" VerticalAlignment="Center" Margin="0,0,8,0"
+                                           Foreground="{DynamicResource Muted}"/>
+                                <TextBox x:Name="TcpPortBox" Grid.Column="1" Text="15155"/>
+                                <TextBlock x:Name="UdpPortLabel" Grid.Column="2" Text="发现" VerticalAlignment="Center" Margin="20,0,8,0"
+                                           Foreground="{DynamicResource Muted}"/>
+                                <TextBox x:Name="UdpPortBox" Grid.Column="3" Text="15156"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                    <!-- 设备管理 -->
+                    <Border x:Name="PanelDeviceMgmt" Grid.Row="1" Style="{StaticResource Card}" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <DockPanel Margin="0,0,0,4" LastChildFill="True">
+                                <Button x:Name="RefreshDiscoveryBtn" DockPanel.Dock="Right" Width="32" Height="28" Padding="0"
+                                        Content="↻" ToolTip="刷新发现" Click="RefreshDiscovery_Click"
+                                        Foreground="{DynamicResource Blue}" FontSize="14" FontWeight="SemiBold" Margin="8,0,0,0"/>
+                                <StackPanel>
+                                    <TextBlock x:Name="DiscoveryTitleText" Text="设备管理" FontWeight="SemiBold" FontSize="15"/>
+                                    <TextBlock x:Name="DiscoveryHintText"
+                                               Text="刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。"
+                                               Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DockPanel>
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <RadioButton x:Name="DevFilterAll" Content="全部" IsChecked="True" Margin="0,0,12,0"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                                <RadioButton x:Name="DevFilterLocal" Content="本地" Margin="0,0,12,0"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                                <RadioButton x:Name="DevFilterRemote" Content="远程" Margin="0,0,12,0"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                                <RadioButton x:Name="DevFilterService" Content="服务"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                            </StackPanel>
+                            <Border Grid.Row="2" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}"
+                                    BorderThickness="1" CornerRadius="8,8,0,0" Padding="12,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1.4*"/>
+                                        <ColumnDefinition Width="70"/>
+                                        <ColumnDefinition Width="1.2*"/>
+                                        <ColumnDefinition Width="1.6*"/>
+                                        <ColumnDefinition Width="96"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DevColName" Text="设备名称" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColKind" Grid.Column="1" Text="类型" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColAddr" Grid.Column="2" Text="地址" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColStatus" Grid.Column="3" Text="状态" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColOp" Grid.Column="4" Text="操作" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" TextAlignment="Right"/>
+                                </Grid>
+                            </Border>
+                            <ListBox x:Name="DeviceInventoryList" Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="1,0,1,1"
+                                     Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <DockPanel Margin="6,8">
-                                            <Button DockPanel.Dock="Right"
-                              Content="{Binding Value, Source={StaticResource Str.Add}}"
-                              Padding="10,0" Height="28" MinWidth="56"
-                              Margin="8,0,0,0" Click="AddDiscovered_Click" Tag="{Binding}"/>
-                                            <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource Success}"
-                              Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                            <TextBlock VerticalAlignment="Center">
-                        <Run Text="{Binding MachineName}" FontWeight="SemiBold"/>
-                        <Run Text="  "/><Run Text="{Binding Ip}" Foreground="{DynamicResource Muted}"/>
-                        <Run Text=":" Foreground="{DynamicResource Muted}"/><Run Text="{Binding TcpPort}" Foreground="{DynamicResource Muted}"/>
-                                            </TextBlock>
-                                        </DockPanel>
+                                        <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="12,10"
+                                                Background="{DynamicResource CardBg}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="1.4*"/>
+                                                    <ColumnDefinition Width="70"/>
+                                                    <ColumnDefinition Width="1.2*"/>
+                                                    <ColumnDefinition Width="1.6*"/>
+                                                    <ColumnDefinition Width="96"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding KindLabel}" VerticalAlignment="Center" FontWeight="SemiBold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource Success}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Kind}" Value="1">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding Kind}" Value="2">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Grid.Column="2" Text="{Binding Address}" Foreground="{DynamicResource Muted}"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" FontSize="12"/>
+                                                <Grid Grid.Column="4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="6"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button Style="{StaticResource NetIconOpBtn}"
+                                                            Content="{Binding PrimaryActionIcon}"
+                                                            ToolTip="{Binding PrimaryActionText}"
+                                                            Click="DevicePrimaryAction_Click" Tag="{Binding}"
+                                                            Grid.ColumnSpan="{Binding PrimaryActionColumnSpan}"
+                                                            Visibility="{Binding PrimaryActionVisible, Converter={StaticResource BoolToVis}}"/>
+                                                    <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}"
+                                                            Content="{Binding SecondaryActionIcon}"
+                                                            ToolTip="{Binding SecondaryActionText}"
+                                                            Click="DeviceSecondaryAction_Click" Tag="{Binding}"
+                                                            Visibility="{Binding SecondaryActionVisible, Converter={StaticResource BoolToVis}}"/>
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </Grid>
                     </Border>
+                    <!-- 兼容旧本地化字段名（隐藏） -->
+                    <TextBlock x:Name="NicHintText" Visibility="Collapsed"/>
                 </Grid>
 
                 <!-- ===== 文件传输 ===== -->
