@@ -14,7 +14,10 @@ public static class NicService
         "Bluetooth", "Teredo", "ISATAP", "NPCAP", "Npcap", "TAP-Windows", "TAP Adapter",
         "TUN", "WireGuard", "OpenVPN", "Hamachi", "Tailscale", "ZeroTier", "Cisco AnyConnect",
         "Fortinet", "Check Point", "VPN", "Pseudo", "Hosted Network", "Wi-Fi Direct",
-        "Microsoft Wi-Fi Direct", "Kernel Debug", "Loopback", "Virtual Adapter"
+        "Microsoft Wi-Fi Direct", "Kernel Debug", "Loopback", "Virtual Adapter",
+        // 企业/蒲公英等 VPN：名称不一定含 “VPN” 字样
+        "Oray", "OrayBox", "iNode", "SoftEther", "Sangfor", "EasyConnect", "SSLVPN",
+        "OpenVPN Connect", "DCO Adapter"
     ];
 
     /// <summary>可参与发现突发宣告的 overlay 网卡关键字（含 Tunnel 类型）。</summary>
@@ -84,6 +87,9 @@ public static class NicService
             // Tunnel 仅保留已知 overlay，避免收进无关隧道
             if (nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel
                 && !IsOverlayAdapter(nic))
+                continue;
+            // Oray/企业 VPN 等虚拟口不参与逐口宣告（否则本机地址会被刷成 172.x）
+            if (IsVirtualAdapter(nic) && !IsOverlayAdapter(nic))
                 continue;
 
             var props = nic.GetIPProperties();
@@ -344,6 +350,41 @@ public static class NicService
         {
             return false;
         }
+    }
+
+    /// <summary>Tailscale/CGNAT 100.64.0.0/10。</summary>
+    public static bool IsTailscaleCgNat(string? ip)
+    {
+        if (!IPAddress.TryParse(ip, out var addr) || addr.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+        var b = addr.GetAddressBytes();
+        return b[0] == 100 && b[1] >= 64 && b[1] <= 127;
+    }
+
+    /// <summary>
+    /// 对端地址是否落在本机某块物理/无线网卡同网段（用于设备管理「本地 vs 远程」）。
+    /// Tailscale CGNAT 一律视为跨网。
+    /// </summary>
+    public static bool IsOnLocalPhysicalSubnet(string? peerIp)
+    {
+        if (string.IsNullOrWhiteSpace(peerIp)
+            || !IPAddress.TryParse(peerIp, out var addr)
+            || !IsUsableUnicast(addr))
+            return false;
+        if (IsTailscaleCgNat(peerIp))
+            return false;
+
+        foreach (var nic in ListUsableIpv4Nics())
+        {
+            if (string.IsNullOrWhiteSpace(nic.IPv4) || nic.IPv4 == "0.0.0.0")
+                continue;
+            if (IsTailscaleCgNat(nic.IPv4))
+                continue;
+            if (SameSubnet(nic.IPv4, nic.SubnetMask, peerIp))
+                return true;
+        }
+
+        return false;
     }
 
     public static async Task<string?> ResolveHostAsync(string hostOrIp, CancellationToken ct = default)

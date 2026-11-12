@@ -2985,7 +2985,8 @@ public partial class MainWindow : Window
             _endpoints.ToList(),
             _host.Settings.RemoteBindings,
             LocalPeerIdentity.MachineName,
-            CurrentDeviceProjectingPeer());
+            CurrentDeviceProjectingPeer(),
+            _host.Connections.LocalAnnounceIp);
 
         var filter = DevFilterRemote?.IsChecked == true ? DeviceInventoryItem.KindRemote
             : DevFilterService?.IsChecked == true ? DeviceInventoryItem.KindService
@@ -3001,8 +3002,12 @@ public partial class MainWindow : Window
             DiscoveryList.ItemsSource = UnusedDiscoveredPeers();
     }
 
+    private string? _deviceMgmtProjectRemote;
+
     private string? CurrentDeviceProjectingPeer()
     {
+        if (!string.IsNullOrWhiteSpace(_deviceMgmtProjectRemote))
+            return _deviceMgmtProjectRemote;
         var se = _host.ScreenExtend;
         if (!se.IsActive || se.Role != ScreenExtendRole.Sink)
             return null;
@@ -3013,6 +3018,9 @@ public partial class MainWindow : Window
     {
         foreach (var item in _deviceInventory.Where(i => i.IsProjecting).ToList())
             _host.Connections.RemoveAdHocPeer(item.Name);
+        if (!string.IsNullOrWhiteSpace(_deviceMgmtProjectRemote))
+            _host.Connections.RemoveAdHocPeer(_deviceMgmtProjectRemote);
+        _deviceMgmtProjectRemote = null;
         RefreshDiscovery();
     }
 
@@ -3254,14 +3262,33 @@ public partial class MainWindow : Window
         {
             try
             {
+                await _host.ScreenExtend.RequestPeerEndHostAsync(remote).ConfigureAwait(true);
                 await _host.ScreenExtend.StopAsync("device-mgmt-stop").ConfigureAwait(true);
             }
             catch { /* ignore */ }
             _host.Connections.RemoveAdHocPeer(remote);
+            _deviceMgmtProjectRemote = null;
             RefreshDiscovery();
             StatusText.Text = string.Format(Loc.T("Remote.ProjectStopped"), remote);
             return;
         }
+
+        var targets = RemoteBindingHelper.ListLayoutTargets(_slots);
+        if (targets.Count == 0)
+        {
+            StatusText.Text = Loc.T("Net.BindNoLayout");
+            return;
+        }
+
+        var selected = await RemoteBindDialog.ShowAsync(this, remote, targets, LocalPeerIdentity.MachineName)
+            .ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(selected)) return;
+
+        var sink = selected.Trim();
+        if (string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+            || _slots.FirstOrDefault(s =>
+                   string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase))?.IsLocal == true)
+            sink = LocalPeerIdentity.MachineName;
 
         try
         {
@@ -3275,7 +3302,6 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var sink = LocalPeerIdentity.MachineName;
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
@@ -3283,23 +3309,27 @@ public partial class MainWindow : Window
             if (!ok)
             {
                 _host.Connections.RemoveAdHocPeer(remote);
+                _deviceMgmtProjectRemote = null;
                 StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
                 RefreshDiscovery();
                 return;
             }
 
+            _deviceMgmtProjectRemote = remote;
             RefreshDiscovery();
             StatusText.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
         }
         catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
         {
             _host.Connections.RemoveAdHocPeer(remote);
+            _deviceMgmtProjectRemote = null;
             StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), "操作超时或已取消");
             RefreshDiscovery();
         }
         catch (Exception ex)
         {
             _host.Connections.RemoveAdHocPeer(remote);
+            _deviceMgmtProjectRemote = null;
             StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), ex.Message);
             RefreshDiscovery();
         }

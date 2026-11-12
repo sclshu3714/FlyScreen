@@ -32,6 +32,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     public string LocalMachine => LocalPeerIdentity.MachineName;
     public DiscoveryService Discovery => _discovery;
     public string BindIp => _bindIp;
+    /// <summary>UDP/握手宣告用的本机 IPv4（自动监听时为优选物理网卡，非 VPN）。</summary>
+    public string LocalAnnounceIp => AdvertisedLocalIp;
 
     public event Action<string, bool, bool>? PeerLinkChanged;
     public event Action<string, NetMessage>? MessageReceived;
@@ -1409,7 +1411,13 @@ public sealed class ConnectionManager : IAsyncDisposable
         var observed = DiscoveryService.IsUsableLanIpv4(socketIp) ? socketIp : null;
         var advertised = DiscoveryService.IsUsableLanIpv4(advertisedIp) ? advertisedIp : observed;
         if (string.IsNullOrWhiteSpace(advertised)) return;
-        _discovery.RememberPeer(peerName, advertised, _settings.TcpPort, observed);
+        var origin = NicService.IsTailscaleCgNat(advertised)
+                     || NicService.IsTailscaleCgNat(observed)
+                     || (!NicService.IsOnLocalPhysicalSubnet(advertised)
+                         && !NicService.IsOnLocalPhysicalSubnet(observed))
+            ? DiscoveryOrigin.Remote
+            : DiscoveryOrigin.Lan;
+        _discovery.RememberPeer(peerName, advertised, _settings.TcpPort, observed, origin: origin);
     }
 
     private static async Task<NetMessage?> WaitMessageAsync(

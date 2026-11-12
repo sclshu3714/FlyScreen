@@ -493,14 +493,9 @@ public sealed class DiscoveryService : IAsyncDisposable
             var senderIp = SenderIpv4(remote);
             var ip = IsUsableLanIpv4(pkt.Ip) ? pkt.Ip : (observedIp ?? pkt.Ip);
 
-            // 同名且同 IP → 本机回环，忽略
-            if (string.Equals(pkt.MachineName, LocalMachine, StringComparison.OrdinalIgnoreCase)
-                && (string.IsNullOrWhiteSpace(BoundIp) || string.Equals(ip, BoundIp, StringComparison.OrdinalIgnoreCase)
-                    || IPAddress.IsLoopback(remote.Address)))
+            // 本机多网卡逐口宣告会带回 VPN/旁路 IP；一律忽略本机名，避免本机行地址被刷成 172.x
+            if (string.Equals(pkt.MachineName, LocalMachine, StringComparison.OrdinalIgnoreCase))
                 return;
-
-            // 同名但不同 IP：视为冲突对端（例如旧 WSL 与宿主机撞名），仍登记，便于排查
-            // 正常情况下 WSL 已使用带后缀的 MachineName，不会走到此分支
 
             var origin = ResolvePacketOrigin(pkt.Origin, senderIp);
             // 仅 IP/端口/来源等实质变化时通知，避免心跳刷 LastSeen 导致设备列表整表重绑闪烁
@@ -528,6 +523,11 @@ public sealed class DiscoveryService : IAsyncDisposable
             if (IPAddress.TryParse(kv.Key, out _)) continue;
             // 主机名目标：若宣告来自公网/跨网且我们正在探测该 host，无法在此解析；由 ConnectionManager 的 TCP Remember 补来源
         }
+
+        // Tailscale CGNAT / 不在本机物理网卡同网段 → 远程（双方经 overlay 互通时互为远程）
+        if (!string.IsNullOrWhiteSpace(senderIp)
+            && (NicService.IsTailscaleCgNat(senderIp) || !NicService.IsOnLocalPhysicalSubnet(senderIp)))
+            return DiscoveryOrigin.Remote;
 
         return DiscoveryOrigin.Lan;
     }

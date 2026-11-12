@@ -14,9 +14,11 @@ public static class DeviceInventoryBuilder
         IReadOnlyList<ConnectionEndpoint>? endpoints,
         IReadOnlyList<RemoteBinding>? bindings,
         string localMachineName,
-        string? projectingPeerName = null)
+        string? projectingPeerName = null,
+        string? localDisplayIp = null)
     {
         var projecting = (projectingPeerName ?? "").Trim();
+        var localIp = (localDisplayIp ?? "").Trim();
         var list = new List<DeviceInventoryItem>();
         var peerByName = peers
             .Where(p => !string.IsNullOrWhiteSpace(p.MachineName))
@@ -49,7 +51,8 @@ public static class DeviceInventoryBuilder
             }
 
             if (MatchesRemoteEndpoint(name, peer, endpoints)
-                || peer.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service)
+                || peer.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service
+                || IsCrossNetworkPeer(peer))
                 continue;
 
             if (peer.Origin == DiscoveryOrigin.Lan)
@@ -67,7 +70,8 @@ public static class DeviceInventoryBuilder
             if (peerByName.TryGetValue(name, out var p))
             {
                 if (p.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service
-                    || MatchesRemoteEndpoint(name, p, endpoints))
+                    || MatchesRemoteEndpoint(name, p, endpoints)
+                    || IsCrossNetworkPeer(p))
                     continue;
             }
 
@@ -85,7 +89,12 @@ public static class DeviceInventoryBuilder
             if (isLocal) online = true;
 
             var address = "—";
-            if (peer != null && !string.IsNullOrWhiteSpace(peer.Ip))
+            if (isLocal && !string.IsNullOrWhiteSpace(localIp) && localIp != "0.0.0.0")
+            {
+                var port = peer is { TcpPort: > 0 } ? peer.TcpPort : 15155;
+                address = $"{localIp}:{port}";
+            }
+            else if (peer != null && !string.IsNullOrWhiteSpace(peer.Ip))
                 address = peer.TcpPort > 0 ? $"{peer.Ip}:{peer.TcpPort}" : peer.Ip;
             else if (inLayout && !string.IsNullOrWhiteSpace(slot!.ResolvedIp))
                 address = slot.ResolvedIp;
@@ -119,11 +128,13 @@ public static class DeviceInventoryBuilder
         {
             if (listedNames.Contains(name)) continue;
             var isRemote = peer.Origin == DiscoveryOrigin.Remote
-                           || MatchesRemoteEndpoint(name, peer, endpoints);
+                           || MatchesRemoteEndpoint(name, peer, endpoints)
+                           || IsCrossNetworkPeer(peer);
             if (!isRemote) continue;
             // Origin=Service 走中转段；此处只收远程
             if (peer.Origin == DiscoveryOrigin.Service
-                && !MatchesRemoteEndpoint(name, peer, endpoints))
+                && !MatchesRemoteEndpoint(name, peer, endpoints)
+                && !IsCrossNetworkPeer(peer))
                 continue;
 
             var item = BuildNonLocalFromPeer(
@@ -353,6 +364,20 @@ public static class DeviceInventoryBuilder
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Tailscale CGNAT 或对端 IP 不在本机物理网卡同网段 → 远程
+    /// （经 overlay/跨网互通时，双方设备管理应互标远程）。
+    /// </summary>
+    private static bool IsCrossNetworkPeer(DiscoveredPeer peer)
+    {
+        if (NicService.IsTailscaleCgNat(peer.Ip) || NicService.IsTailscaleCgNat(peer.ObservedIp))
+            return true;
+        var hasIp = !string.IsNullOrWhiteSpace(peer.Ip) || !string.IsNullOrWhiteSpace(peer.ObservedIp);
+        if (!hasIp) return false;
+        return !NicService.IsOnLocalPhysicalSubnet(peer.Ip)
+               && !NicService.IsOnLocalPhysicalSubnet(peer.ObservedIp);
     }
 
     private static bool AddressMentionsHost(string? address, string? host)

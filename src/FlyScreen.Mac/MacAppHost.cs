@@ -407,6 +407,14 @@ public sealed class MacAppHost : IAsyncDisposable
         var sink = string.IsNullOrWhiteSpace(req.SinkPeer) ? fromPeer : req.SinkPeer.Trim();
         if (string.IsNullOrWhiteSpace(sink))
             return (false, "未指定接收端");
+        var sinkIsLocal = string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
+        if (!sinkIsLocal && !Connections.IsPeerReachable(sink))
+        {
+            try { await Connections.EnsureAdHocPeerAsync(sink, ct).ConfigureAwait(false); }
+            catch { /* ignore */ }
+        }
+        if (!sinkIsLocal && !Connections.IsPeerReachable(sink))
+            return (false, $"接收端「{sink}」未连接");
 
         var d = DisplayInfo.GetLocalDisplayInfo?.Invoke();
         var choice = new ProjectionDisplayChoice
