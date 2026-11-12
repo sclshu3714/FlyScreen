@@ -17,6 +17,13 @@ public static class NicService
         "Microsoft Wi-Fi Direct", "Kernel Debug", "Loopback", "Virtual Adapter"
     ];
 
+    /// <summary>可参与发现突发宣告的 overlay 网卡关键字（含 Tunnel 类型）。</summary>
+    private static readonly string[] OverlayKeywords =
+    [
+        "Tailscale", "WireGuard", "ZeroTier", "Hamachi", "OpenVPN", "TUN",
+        "TAP-Windows", "TAP Adapter"
+    ];
+
     /// <summary>平台注入的优先 IPv4（如 Android WifiManager），在枚举网卡之前采用。</summary>
     public static Func<string?>? PreferredIpv4Hint { get; set; }
 
@@ -54,6 +61,71 @@ public static class NicService
         return EnumerateIpv4Nics(usableOnly: false)
             .Where(n => n.IsUp && !IsApipa(n.IPv4))
             .ToList();
+    }
+
+    /// <summary>
+    /// 发现宣告用网卡列表：物理口；<paramref name="includeOverlay"/> 时含 Tailscale/WireGuard 等（含 Tunnel）。
+    /// 周期宣告与刷新突发均用此列表做逐口发送。
+    /// </summary>
+    public static IReadOnlyList<NicInfo> ListAnnounceIpv4Nics(bool includeOverlay)
+    {
+        if (!includeOverlay)
+            return ListUsableIpv4Nics();
+
+        var list = new List<NicInfo>();
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                continue;
+            if (nic.OperationalStatus != OperationalStatus.Up
+                && nic.OperationalStatus != OperationalStatus.Unknown)
+                continue;
+
+            // Tunnel 仅保留已知 overlay，避免收进无关隧道
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel
+                && !IsOverlayAdapter(nic))
+                continue;
+
+            var props = nic.GetIPProperties();
+            foreach (var uni in props.UnicastAddresses)
+            {
+                if (uni.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
+                if (!IsUsableUnicast(uni.Address))
+                    continue;
+
+                list.Add(new NicInfo
+                {
+                    Id = nic.Id,
+                    Name = nic.Name,
+                    Description = nic.Description,
+                    IPv4 = uni.Address.ToString(),
+                    SubnetMask = uni.IPv4Mask?.ToString() ?? "255.255.255.0",
+                    IsUp = nic.OperationalStatus == OperationalStatus.Up
+                });
+            }
+        }
+
+        return list
+            .GroupBy(n => n.IPv4, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderByDescending(n => n.IsUp)
+            .ThenBy(n => NicPreferenceRank(n))
+            .ThenBy(n => n.Name)
+            .ToList();
+    }
+
+    /// <summary>Tailscale / WireGuard / ZeroTier 等 overlay 适配器。</summary>
+    public static bool IsOverlayAdapter(NetworkInterface nic)
+    {
+        var text = nic.Name + " " + nic.Description;
+        foreach (var key in OverlayKeywords)
+        {
+            if (text.Contains(key, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>设置页下拉：自动 + 可用物理/无线网卡（不含 Tailscale 等虚拟适配器）。</summary>
@@ -226,7 +298,14 @@ public static class NicService
             if (byId != null) return byId;
         }
 
-        // 优先以太网/Wi‑Fi，避开蜂窝与虚拟网卡
+        return PickBestUsableNic(all);
+    }
+
+    /// <summary>选一块适合局域网宣告/发现的物理网卡（以太网/Wi‑Fi 优先，排除虚拟与蜂窝）。</summary>
+    public static NicInfo? PickBestUsableNic(IReadOnlyList<NicInfo>? all = null)
+    {
+        all ??= ListUsableIpv4Nics();
+        if (all.Count == 0) all = ListIpv4Nics();
         return all.FirstOrDefault(n => PreferWifiOrEthernet(n) && !IsCellularAdapter(n))
                ?? all.FirstOrDefault(n => !IsCellularAdapter(n)
                    && !n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
@@ -235,6 +314,15 @@ public static class NicService
                    && !n.Description.Contains("WSL", StringComparison.OrdinalIgnoreCase)
                    && !n.Name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase))
                ?? all.FirstOrDefault();
+    }
+
+    public static NicInfo? FindByIpv4(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip) || ip == "0.0.0.0") return null;
+        return ListUsableIpv4Nics().FirstOrDefault(n =>
+                   string.Equals(n.IPv4, ip, StringComparison.OrdinalIgnoreCase))
+               ?? ListIpv4Nics().FirstOrDefault(n =>
+                   string.Equals(n.IPv4, ip, StringComparison.OrdinalIgnoreCase));
     }
 
     public static bool SameSubnet(string ipA, string maskA, string ipB)

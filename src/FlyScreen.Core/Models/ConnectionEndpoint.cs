@@ -6,8 +6,9 @@ namespace FlyScreen.Models;
 
 /// <summary>
 /// 连接配置表中的可添加行。
-/// 远程=一对一（Tailscale/VPN/公网 IP 等直连对端）；中转服务=一对多（公网中继上注册的设备）。
-/// 未测试通过的不进入设备管理清单。
+/// 远程=一对一探测地址（Tailscale/VPN 等）；「测试」仅测连通，不进设备管理。
+/// 刷新发现时把远程地址当作 UDP/握手探测目标，对端以「本地」出现在设备管理。
+/// 中转服务=一对多；仅扫描到的真实设备可进设备管理。
 /// </summary>
 public sealed class ConnectionEndpoint : INotifyPropertyChanged
 {
@@ -118,12 +119,12 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         _ => "○ 未测试"
     };
 
-    /// <summary>是否已具备进入设备管理的资格（远程已解析名；中转已扫到真实设备）。</summary>
+    /// <summary>中转是否已扫到可进设备管理的设备。远程配置永不直接进清单。</summary>
     [JsonIgnore]
     public bool HasInventoryDevices =>
-        State == StateConnected && (
-            (Kind == KindRemote && !string.IsNullOrWhiteSpace(VerifiedPeerName))
-            || (Kind == KindRelay && DiscoveredDevices is { Count: > 0 }));
+        Kind == KindRelay
+        && State == StateConnected
+        && DiscoveredDevices is { Count: > 0 };
 
     public const int KindRemote = 0;
     public const int KindRelay = 1;

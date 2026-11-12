@@ -1,0 +1,15 @@
+{
+  "profiles": {
+    "FlyScreen.Relay": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "http://localhost:9080/",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Relay__AdminToken": "dev-token",
+        "Relay__AllowAnonymousAdminRead": "true"
+      }
+    }
+  }
+}

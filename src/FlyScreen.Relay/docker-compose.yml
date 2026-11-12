@@ -1,0 +1,23 @@
+services:
+  flyscreen-relay:
+    build: .
+    container_name: flyscreen-relay
+    restart: unless-stopped
+    ports:
+      - "8443:8443"       # 边缘：HTTP + WebSocket（注册/信令/中继）
+      - "9080:9080"       # 管理：网页 + REST
+      - "15155:15155"     # 兼容客户端默认 TCP（测试 / ProbeOnly）
+      - "8443:8443/udp"   # STUN
+      - "15156:15156/udp" # 兼容客户端 UDP 发现
+    environment:
+      Relay__ServerName: flyscreen-relay
+      Relay__EdgeListen: 0.0.0.0:8443
+      Relay__AdminListen: 0.0.0.0:9080
+      Relay__PeerTcpPort: "15155"
+      Relay__StunUdpPort: "8443"
+      Relay__DiscoveryUdpPort: "15156"
+      Relay__DiscoveryBroadcastAnnounce: "true"
+      Relay__AdminToken: change-me
+      # Relay__PublicEdgeUrl: wss://relay.example.com:8443
+    volumes:
+      - ./data:/app/data

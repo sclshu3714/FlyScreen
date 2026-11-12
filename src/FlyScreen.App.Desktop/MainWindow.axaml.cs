@@ -539,6 +539,13 @@ public partial class MainWindow : Window
             ApplyBehaviorFromSettings();
             StatusText.Text = $"已同步功能与行为 ← {from}";
         });
+        _host.RemoteBindingSyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
+        {
+            ReloadEndpointListFromSettings();
+            RefreshSlotBoundRemotes();
+            RefreshDiscovery();
+            StatusText.Text = $"已同步远程配置 ← {from}（须本机重新测试）";
+        });
         _host.SecurityKeySyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
         {
             SetSecurityKey(_host.Settings.SecurityKey ?? "");
@@ -2941,8 +2948,19 @@ public partial class MainWindow : Window
 
     private async void RefreshDiscovery_Click(object? sender, RoutedEventArgs e)
     {
-        await RevalidateEndpointsAsync().ConfigureAwait(true);
+        StatusText.Text = Loc.T("Net.RefreshDiscovery");
+        try
+        {
+            await RevalidateEndpointsAsync().ConfigureAwait(true);
+            await _host.Connections.RefreshDiscoveryProbeAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            // 探测失败仍刷新清单
+        }
+
         RefreshDiscovery();
+        StatusText.Text = Loc.T("Net.DeviceMgmtTitle") + " · " + Loc.T("Net.RefreshDiscovery");
     }
 
     private void RefreshDiscovery()
@@ -3034,6 +3052,10 @@ public partial class MainWindow : Window
     {
         var s = _host.Settings;
         s.EnsureCollections();
+        var before = s.ConnectionEndpoints.Count;
+        RemoteBindingSyncHelper.DeduplicateEndpoints(s);
+        if (s.ConnectionEndpoints.Count != before)
+            s.Save();
         _endpoints.Clear();
         foreach (var ep in s.ConnectionEndpoints)
             _endpoints.Add(ep);
@@ -3046,8 +3068,13 @@ public partial class MainWindow : Window
         var s = _host.Settings;
         s.EnsureCollections();
         s.ConnectionEndpoints = _endpoints.ToList();
+        RemoteBindingSyncHelper.DeduplicateEndpoints(s);
+        _endpoints.Clear();
+        foreach (var ep in s.ConnectionEndpoints)
+            _endpoints.Add(ep);
         if (saveFile)
             s.Save();
+        try { _host.Connections.RefreshDiscoveryProbeHosts(); } catch { /* ignore */ }
     }
 
     private void AddEndpoint_Click(object? sender, RoutedEventArgs e)
@@ -3122,6 +3149,8 @@ public partial class MainWindow : Window
         }
 
         PersistEndpoints();
+        if (result.Ok)
+            _ = _host.BroadcastRemoteBindingSyncAsync("远程连接配置已同步到布局内电脑");
         if (updateStatusBar)
             StatusText.Text = result.Ok ? $"{Loc.T("Net.TestOk")}: {result.Message}" : $"{Loc.T("Net.TestFail")}: {result.Message}";
         RefreshDiscovery();
@@ -3152,6 +3181,7 @@ public partial class MainWindow : Window
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
         RefreshDiscovery();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
     }
 
     private void DevicePrimaryAction_Click(object? sender, RoutedEventArgs e)
@@ -3210,6 +3240,7 @@ public partial class MainWindow : Window
         RefreshSlotBoundRemotes();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程绑定已同步到布局内电脑");
         var pos = targets.FirstOrDefault(t =>
             string.Equals(t.DeviceId, bound.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase)).Label;
         if (string.IsNullOrEmpty(pos)) pos = bound.BoundLocalDeviceId;
@@ -3229,6 +3260,7 @@ public partial class MainWindow : Window
         RefreshSlotBoundRemotes();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程解绑已同步到布局内电脑");
         StatusText.Text = string.Format(Loc.T("Net.UnbindDone"), item.Name);
     }
 
@@ -3302,6 +3334,7 @@ public partial class MainWindow : Window
 
         _host.Settings.Save();
         RefreshSlotBoundRemotes();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
         StatusText.Text = string.Format(Loc.T("Remote.Switched"), pick.RemoteName);
     }
 
@@ -3332,6 +3365,7 @@ public partial class MainWindow : Window
         RefreshSlotBoundRemotes();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程改绑已同步到布局内电脑");
         var pos = targets.FirstOrDefault(t =>
             string.Equals(t.DeviceId, selected, StringComparison.OrdinalIgnoreCase)).Label;
         if (string.IsNullOrEmpty(pos)) pos = selected;
@@ -3354,25 +3388,22 @@ public partial class MainWindow : Window
         }
 
         var sink = binding.BoundLocalDeviceId.Trim();
-        var localName = LocalPeerIdentity.MachineName;
         try
         {
-            if (!string.Equals(sink, localName, StringComparison.OrdinalIgnoreCase))
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                sink,
+                remoteControl: true).ConfigureAwait(true);
+            if (!ok)
             {
-                var (ok, msg) = await _host.StartProjectionAsync(
-                    ProjectionTarget.Peer(sink),
-                    DisplayProjectionMode.Clone,
-                    remoteControl: true).ConfigureAwait(true);
-                if (!ok)
-                {
-                    StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), msg ?? "");
-                    return;
-                }
+                StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+                return;
             }
 
             RemoteBindingHelper.SetProjecting(_host.Settings, binding, true);
             _host.Settings.Save();
             RefreshSlotBoundRemotes();
+            _ = _host.BroadcastRemoteBindingSyncAsync();
             StatusText.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
         }
         catch (Exception ex)
@@ -3387,9 +3418,14 @@ public partial class MainWindow : Window
                       ?? RemoteBindingHelper.GetActive(_host.Settings, slot.Name);
         if (binding == null) return;
 
+        var remote = binding.RemoteName.Trim();
+        var sink = binding.BoundLocalDeviceId.Trim();
         try
         {
-            await _host.StopProjectionAsync().ConfigureAwait(true);
+            if (_host.ScreenExtend.IsActive)
+                await _host.StopProjectionAsync().ConfigureAwait(true);
+            else
+                await _host.ScreenExtend.RequestPeerEndHostAsync(remote, sink).ConfigureAwait(true);
         }
         catch
         {
@@ -3399,6 +3435,7 @@ public partial class MainWindow : Window
         RemoteBindingHelper.SetProjecting(_host.Settings, binding, false);
         _host.Settings.Save();
         RefreshSlotBoundRemotes();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
         StatusText.Text = string.Format(Loc.T("Remote.ProjectStopped"), binding.RemoteName);
     }
 

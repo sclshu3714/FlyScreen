@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.Services.ScreenExtend;
@@ -17,6 +18,8 @@ public sealed class ScreenExtendService : IDisposable
 {
     private readonly ConnectionManager _connections;
     private readonly object _gate = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<ScreenExtendHostRequestResultPayload>>
+        _hostRequestWait = new(StringComparer.OrdinalIgnoreCase);
     private int _frameSeq;
     private int _audioSeq;
     private int _audioPending;
@@ -77,6 +80,13 @@ public sealed class ScreenExtendService : IDisposable
     /// <summary>需要弹窗/打断用户的投影提示（冲突、对端拒绝等）。</summary>
     public event Action<string>? UserNotice;
 
+    /// <summary>
+    /// 收到「请本机作为 Host 向 Sink 推流」时由宿主实现（启动采集 / 停 Host）。
+    /// 未设置则回执「对端不支持远程投影」。
+    /// </summary>
+    public Func<string, ScreenExtendHostRequestPayload, CancellationToken,
+        Task<(bool Ok, string? Error)>>? OnHostRequestAsync { get; set; }
+
     /// <summary>穿边拓扑：该对端名是否应被排除（主机排除从机；从机排除所有穿边目标）。</summary>
     public bool IsExcludedFromEdgeCross(string? peerName)
     {
@@ -136,6 +146,129 @@ public sealed class ScreenExtendService : IDisposable
             peer = Peer!;
             sid = SessionId;
             return true;
+        }
+    }
+
+    /// <summary>
+    /// 请 <paramref name="remotePeer"/> 作为 Host，把画面推到 <paramref name="sinkPeer"/>（空=本机）。
+    /// 用于远程影子投影：绑定电脑侧发起，远程侧采集。
+    /// </summary>
+    public async Task<(bool Ok, string? Error)> RequestPeerBecomeHostAsync(
+        string remotePeer,
+        string? sinkPeer = null,
+        int preferredWidth = 1920,
+        int preferredHeight = 1080,
+        int fps = 12,
+        bool audioSync = false,
+        bool remoteControl = true,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePeer))
+            return (false, "未指定远程电脑");
+        if (!_connections.IsPeerReachable(remotePeer))
+            return (false, "远程电脑未连接");
+
+        var sink = string.IsNullOrWhiteSpace(sinkPeer)
+            ? LocalPeerIdentity.MachineName
+            : sinkPeer.Trim();
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<ScreenExtendHostRequestResultPayload>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _hostRequestWait[requestId] = tcs;
+
+        // 本机即 Sink：额外等 Offer→Accept，避免对端只回执却未真正建会话
+        TaskCompletionSource<bool>? sinkReady = null;
+        Action? onSinkReady = null;
+        var localIsSink = string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
+        if (localIsSink)
+        {
+            sinkReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            onSinkReady = () =>
+            {
+                if (Role == ScreenExtendRole.Sink
+                    && string.Equals(Peer, remotePeer, StringComparison.OrdinalIgnoreCase))
+                    sinkReady.TrySetResult(true);
+            };
+            SinkSessionReady += onSinkReady;
+        }
+
+        try
+        {
+            var req = new ScreenExtendHostRequestPayload
+            {
+                RequestId = requestId,
+                SinkPeer = sink,
+                PreferredWidth = preferredWidth,
+                PreferredHeight = preferredHeight,
+                Fps = fps,
+                AudioSync = audioSync,
+                RemoteControl = remoteControl,
+                Stop = false
+            };
+            await _connections.SendToAsync(remotePeer, MessageType.ScreenExtendHostRequest,
+                MessageCodec.JsonBytes(req)).ConfigureAwait(false);
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linked.CancelAfter(timeout ?? TimeSpan.FromSeconds(20));
+            try
+            {
+                var result = await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+                if (!result.Ok)
+                    return (false, string.IsNullOrWhiteSpace(result.Error) ? "远程拒绝投影" : result.Error);
+
+                if (sinkReady != null)
+                {
+                    // 回执成功后仍等本机进入 Sink（Offer 可能略晚于 Result）
+                    using var sinkCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    sinkCts.CancelAfter(TimeSpan.FromSeconds(15));
+                    try
+                    {
+                        await sinkReady.Task.WaitAsync(sinkCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return (false, "远程已应答，但本机未收到投影画面会话");
+                    }
+                }
+
+                return (true, null);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return (false, "等待远程开始投影超时（请确认对端已更新并支持远程投影）");
+            }
+        }
+        finally
+        {
+            _hostRequestWait.TryRemove(requestId, out _);
+            if (onSinkReady != null)
+                SinkSessionReady -= onSinkReady;
+        }
+    }
+
+    /// <summary>请远程结束其 Host 推流（绑定电脑侧「退出投影」且本机未必在会话中时用）。</summary>
+    public async Task RequestPeerEndHostAsync(string remotePeer, string? sinkPeer = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePeer) || !_connections.IsPeerReachable(remotePeer))
+            return;
+        var req = new ScreenExtendHostRequestPayload
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            SinkPeer = string.IsNullOrWhiteSpace(sinkPeer)
+                ? LocalPeerIdentity.MachineName
+                : sinkPeer.Trim(),
+            Stop = true
+        };
+        try
+        {
+            await _connections.SendToAsync(remotePeer, MessageType.ScreenExtendHostRequest,
+                MessageCodec.JsonBytes(req)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
         }
     }
 
@@ -323,7 +456,79 @@ public sealed class ScreenExtendService : IDisposable
             case MessageType.ScreenExtendInput:
                 HandleReverseInput(peer, msg.Payload);
                 break;
+            case MessageType.ScreenExtendHostRequest:
+                _ = HandleHostRequestAsync(peer, msg.Payload);
+                break;
+            case MessageType.ScreenExtendHostRequestResult:
+                HandleHostRequestResult(msg.Payload);
+                break;
         }
+    }
+
+    private async Task HandleHostRequestAsync(string fromPeer, byte[] payload)
+    {
+        var req = MessageCodec.DecodeJson<ScreenExtendHostRequestPayload>(payload);
+        if (req == null) return;
+
+        var requestId = string.IsNullOrWhiteSpace(req.RequestId)
+            ? Guid.NewGuid().ToString("N")
+            : req.RequestId;
+        bool ok;
+        string? error;
+        try
+        {
+            if (req.Stop)
+            {
+                if (IsActive && Role == ScreenExtendRole.Host)
+                    await StopAsync("remote-project-stop").ConfigureAwait(false);
+                ok = true;
+                error = null;
+            }
+            else if (OnHostRequestAsync == null)
+            {
+                ok = false;
+                error = "对端不支持远程投影（请升级玄鸟）";
+            }
+            else
+            {
+                (ok, error) = await OnHostRequestAsync(fromPeer, req, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            ok = false;
+            error = ex.Message;
+        }
+
+        try
+        {
+            var result = new ScreenExtendHostRequestResultPayload
+            {
+                RequestId = requestId,
+                Ok = ok,
+                Error = error
+            };
+            await _connections.SendToAsync(fromPeer, MessageType.ScreenExtendHostRequestResult,
+                MessageCodec.JsonBytes(result)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (ok && !req.Stop)
+            Publish($"远程投影：已按 {fromPeer} 请求向 {(string.IsNullOrWhiteSpace(req.SinkPeer) ? fromPeer : req.SinkPeer)} 推流");
+        else if (!ok)
+            Publish($"远程投影请求失败：{error}");
+    }
+
+    private void HandleHostRequestResult(byte[] payload)
+    {
+        var result = MessageCodec.DecodeJson<ScreenExtendHostRequestResultPayload>(payload);
+        if (result == null || string.IsNullOrWhiteSpace(result.RequestId)) return;
+        if (_hostRequestWait.TryRemove(result.RequestId, out var tcs))
+            tcs.TrySetResult(result);
     }
 
     private async Task HandleOfferAsync(string peer, byte[] payload)

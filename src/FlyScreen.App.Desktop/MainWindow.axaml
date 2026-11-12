@@ -815,7 +815,8 @@
                           BorderThickness="1" CornerRadius="8" Padding="0" Margin="0,0,0,8">
                     <Grid Margin="12,8" ColumnDefinitions="140,*,Auto">
                       <TextBlock x:Name="ConnColType" Text="类型" FontSize="12" FontWeight="SemiBold"
-                                 Foreground="{DynamicResource Muted}"/>
+                                 Foreground="{DynamicResource Muted}"
+                                 HorizontalAlignment="Stretch" TextAlignment="Center"/>
                       <TextBlock x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" FontWeight="SemiBold"
                                  Foreground="{DynamicResource Muted}"/>
                       <TextBlock x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" FontWeight="SemiBold"
@@ -827,7 +828,8 @@
                       <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                               BorderThickness="0,0,0,1" Padding="12,10">
                         <Grid ColumnDefinitions="140,*,96">
-                          <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                          <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center" FontWeight="SemiBold"
+                                     HorizontalAlignment="Center" TextAlignment="Center"/>
                           <ComboBox x:Name="NicCombo" Grid.Column="1" HorizontalAlignment="Stretch"
                                     VerticalAlignment="Center" Margin="0,0,8,0">
                             <ComboBox.ItemTemplate>
@@ -846,8 +848,9 @@
                             <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                                     BorderThickness="0,0,0,1" Padding="12,10">
                               <Grid ColumnDefinitions="140,*,96" RowDefinitions="Auto,Auto">
-                                <Button Content="{Binding KindLabel}" HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Left" FontWeight="SemiBold"
+                                <Button Content="{Binding KindLabel}" HorizontalAlignment="Center"
+                                        HorizontalContentAlignment="Center" FontWeight="SemiBold"
+                                        Margin="0" MinWidth="0" Padding="10,0"
                                         Click="EndpointKind_Click" Tag="{Binding}"
                                         ToolTip.Tip="点击切换：远程=一对一；中转服务=一对多"/>
                                 <TextBox Grid.Column="1" Text="{Binding Address}" Margin="0,0,8,0"
@@ -888,7 +891,7 @@
                     <StackPanel>
                       <TextBlock x:Name="DiscoveryTitleText" Text="设备管理" FontWeight="SemiBold" FontSize="15"/>
                       <TextBlock x:Name="DiscoveryHintText"
-                                 Text="刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。"
+                                 Text="刷新：全网卡（含 Tailscale）广播并探测连接配置中的远程地址；发现到的以「本地」列出。设备管理无上限，布局最多 4 台。"
                                  Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                   </DockPanel>

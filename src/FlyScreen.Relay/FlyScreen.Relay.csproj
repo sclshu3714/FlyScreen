@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Relay</RootNamespace>
+    <AssemblyName>FlyScreen.Relay</AssemblyName>
+    <Description>玄鸟自托管信令 + STUN + 中继服务（管理端与边缘端双端口）</Description>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

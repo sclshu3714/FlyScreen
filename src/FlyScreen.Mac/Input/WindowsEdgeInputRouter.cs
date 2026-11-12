@@ -694,16 +694,28 @@ public sealed class WindowsEdgeInputRouter : IDisposable
                 continue;
             }
 
-            slots[i] = RemoteBindingHelper.ResolveEdgePeerName(_settings, name.Trim());
+            slots[i] = ResolveEdgePeerNameForInput(name.Trim());
         }
 
         return slots;
     }
 
+    private string ResolveEdgePeerNameForInput(string localSlotName)
+    {
+        var resolved = RemoteBindingHelper.ResolveEdgePeerName(_settings, localSlotName);
+        if (string.IsNullOrWhiteSpace(resolved)
+            || string.Equals(resolved, localSlotName, StringComparison.OrdinalIgnoreCase))
+            return localSlotName;
+        if (_connections.IsPeerEdgeMouseCapable(resolved))
+            return resolved;
+        return localSlotName;
+    }
+
     private string? FindOccupiedNeighborOf(string?[] slots, int fromIndex, bool horizontal, int dir)
     {
         _ = slots;
-        return LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
+        var physical = LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
+        return physical == null ? null : ResolveEdgePeerNameForInput(physical);
     }
 
     private int FindLocalSlotIndex(string?[] slots)

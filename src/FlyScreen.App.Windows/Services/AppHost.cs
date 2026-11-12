@@ -32,10 +32,13 @@ public sealed class AppHost : IAsyncDisposable
     public event Action<string>? LayoutSyncedFromPeer;
     /// <summary>收到对端功能/行为并已写入设置（UI 需刷新选项）。</summary>
     public event Action<string>? BehaviorSyncedFromPeer;
+    /// <summary>收到对端远程绑定/连接配置并已写入设置（UI 需刷新子卡与设备管理）。</summary>
+    public event Action<string>? RemoteBindingSyncedFromPeer;
     /// <summary>收到对端安全密钥并已写入设置（UI 需刷新密钥框）。</summary>
     public event Action<string>? SecurityKeySyncedFromPeer;
 
     private BehaviorSyncHelper? _behaviorSync;
+    private RemoteBindingSyncHelper? _remoteBindingSync;
     private LayoutSyncHelper? _layoutSync;
     private SecurityKeySyncHelper? _securityKeySync;
     private FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
@@ -66,16 +69,25 @@ public sealed class AppHost : IAsyncDisposable
         ScreenExtendUi = new ScreenExtendController(ScreenExtend, Dispatcher.CurrentDispatcher);
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.UserNotice += OnProjectionUserNotice;
+        ScreenExtend.OnHostRequestAsync = HandleRemoteHostRequestAsync;
         Input.IsEdgeCrossExcluded = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         Input.ShouldPauseEasyMouseForExtend = () => ScreenExtend.ShouldPauseLocalEasyMouse;
         ScreenExtend.SessionEnded += () =>
         {
             try { Input.EasyMouseEnabled = Settings.EasyMouse; } catch { /* ignore */ }
+            // 投影会话结束后清掉「投影中」标记，避免穿边仍指向远程
+            try
+            {
+                if (RemoteBindingHelper.ClearAllProjecting(Settings))
+                {
+                    Settings.Save();
+                    _ = BroadcastRemoteBindingSyncAsync();
+                }
+            }
+            catch { /* ignore */ }
         };
-        ScreenExtend.SinkSessionReady += () =>
-        {
-            try { Input.EasyMouseEnabled = false; } catch { /* ignore */ }
-        };
+        // 从机期间穿边由 ShouldPauseEasyMouseForExtend 暂停，勿永久关掉 EasyMouseEnabled
+        // （否则会话异常结束时穿边会一直失效）
         Input.TryHandleLocalFilePasteHotkey = () => Clipboard.TryHandlePasteHotkey();
         Input.PrefetchRemoteFilesForLikelyPaste = () => Clipboard.PrefetchForLikelyPaste();
         _behaviorSync = new BehaviorSyncHelper(Settings, Connections);
@@ -85,6 +97,12 @@ public sealed class AppHost : IAsyncDisposable
             Input.EasyMouseEnabled = Settings.EasyMouse;
             Input.RefreshEdgeCrossFromSettings();
             try { BehaviorSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+        };
+        _remoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
+        _remoteBindingSync.StatusMessage += PublishStatus;
+        _remoteBindingSync.RemoteBindingSyncedFromPeer += from =>
+        {
+            try { RemoteBindingSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
         };
         _layoutSync = new LayoutSyncHelper(Settings, Connections);
         _layoutSync.StatusMessage += PublishStatus;
@@ -469,6 +487,58 @@ public sealed class AppHost : IAsyncDisposable
         PublishStatus("投影：已停止（已切回仅电脑屏幕）");
     }
 
+    /// <summary>
+    /// 远程影子投影：对端请本机作为 Host 向 Sink 推流。
+    /// 仅采集主屏 JPEG，不改本机 DisplaySwitch（避免把「远程电脑」桌面切成复制模式）。
+    /// </summary>
+    private async Task<(bool Ok, string? Error)> HandleRemoteHostRequestAsync(
+        string fromPeer,
+        ScreenExtendHostRequestPayload req,
+        CancellationToken ct)
+    {
+        var sink = string.IsNullOrWhiteSpace(req.SinkPeer) ? fromPeer : req.SinkPeer.Trim();
+        if (string.IsNullOrWhiteSpace(sink))
+            return (false, "未指定接收端");
+        if (!Connections.IsPeerReachable(sink)
+            && !string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+            return (false, $"接收端「{sink}」未连接");
+
+        var local = GetLocalDisplayInfo();
+        var choice = new ProjectionDisplayChoice
+        {
+            Source = ProjectionDisplaySource.HostPrimary,
+            Width = req.PreferredWidth > 0 ? req.PreferredWidth : local.Width,
+            Height = req.PreferredHeight > 0 ? req.PreferredHeight : local.Height,
+            ScalePercent = local.ScalePercent > 0 ? local.ScalePercent : 100,
+            RefreshHz = local.RefreshHz > 0 ? local.RefreshHz : 60,
+            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps
+        };
+        ScreenExtendUi.SetProjectionMode(DisplayProjectionMode.Clone);
+        ScreenExtendUi.SetDisplayChoice(choice);
+
+        if (ScreenExtend.IsActive)
+        {
+            var same = ScreenExtend.Role == ScreenExtendRole.Host
+                       && string.Equals(ScreenExtend.Peer, sink, StringComparison.OrdinalIgnoreCase);
+            if (!same)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            return (true, null);
+        }
+
+        var (ok, err) = await ScreenExtend.StartHostAsync(
+                sink,
+                choice.Width,
+                choice.Height,
+                fps: choice.Fps > 0 ? choice.Fps : 12,
+                audioSync: req.AudioSync,
+                remoteControl: req.RemoteControl,
+                ct: ct)
+            .ConfigureAwait(false);
+        if (ok)
+            PublishStatus($"远程投影：本机画面 → {sink}（应 {fromPeer} 请求）");
+        return (ok, err);
+    }
+
     public async Task<(bool Ok, string Message)> RepairProjectionEnvironmentAsync(
         IProgress<string>? progress = null,
         CancellationToken ct = default)
@@ -620,7 +690,10 @@ public sealed class AppHost : IAsyncDisposable
     public Task BroadcastBehaviorSyncAsync()
         => _behaviorSync?.BroadcastAsync() ?? Task.CompletedTask;
 
-    /// <summary>把当前安全密钥同步到布局内设备（TCP 已连接 + UDP 密钥不同未连上）。</summary>
+    public Task BroadcastRemoteBindingSyncAsync(string? statusHint = null)
+        => _remoteBindingSync?.BroadcastAsync(statusHint) ?? Task.CompletedTask;
+
+    /// <summary>把当前安全密钥同步到布局内设备（TCP 仅布局已连接；UDP 全网卡广播 + 布局内地址单播）。</summary>
     public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
         => _securityKeySync?.SyncCurrentKeyAsync(ct)
            ?? Task.FromResult((false, "安全密钥同步未初始化"));
@@ -660,6 +733,8 @@ public sealed class AppHost : IAsyncDisposable
         _layoutSync = null;
         _behaviorSync?.Detach();
         _behaviorSync = null;
+        _remoteBindingSync?.Detach();
+        _remoteBindingSync = null;
         _securityKeySync?.Dispose();
         _securityKeySync = null;
         _displayInfo?.Dispose();

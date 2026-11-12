@@ -2,7 +2,7 @@ namespace FlyScreen.Models;
 
 /// <summary>
 /// 远程设备绑定：挂在某台本地设备（LocalDeviceId）的远程池中。
-/// 只存本机 settings.json，不写入 LayoutSync，旧端忽略未知字段即可互通。
+/// 本机 settings 持久化；布局电脑之间经 <c>RemoteBindingSync</c> 权威同步（不进 LayoutSync 槽位报文）。
 /// </summary>
 public sealed class RemoteBinding
 {

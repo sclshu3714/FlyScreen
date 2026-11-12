@@ -2,7 +2,7 @@ using FlyScreen.Models;
 
 namespace FlyScreen.Services.Network;
 
-/// <summary>连接配置行与远程绑定的本机持久化辅助（不进 LayoutSync）。</summary>
+/// <summary>连接配置行与远程绑定的本机持久化辅助（跨机见 RemoteBindingSync）。</summary>
 public static class ConnectionEndpointStore
 {
     /// <summary>
@@ -37,11 +37,15 @@ public static class ConnectionEndpointStore
                     : ConnectionEndpoint.KindRemote,
                 Address = addr,
                 VerifiedPeerName = b.RemoteName?.Trim() ?? "",
-                State = ConnectionEndpoint.StateConnected,
-                LastRttMs = b.RttMs
+                // 补回的行未在本机测试，不能标成「测试通过」
+                State = ConnectionEndpoint.StateDisconnected,
+                LastRttMs = null
             });
             added++;
         }
+
+        if (added > 0)
+            RemoteBindingSyncHelper.DeduplicateEndpoints(settings);
 
         return added;
     }

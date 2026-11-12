@@ -38,6 +38,7 @@ public sealed class MauiAppHost : IAsyncDisposable
     public ConnectionManager Connections { get; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
+    public RemoteBindingSyncHelper RemoteBindingSync { get; }
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public FileTransferService Transfers { get; }
@@ -51,6 +52,7 @@ public sealed class MauiAppHost : IAsyncDisposable
     public event Action<string>? ProjectionUserNotice;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
+    public event Action<string>? RemoteBindingSyncedFromPeer;
     public event Action<string>? SecurityKeySyncedFromPeer;
 
     public string PlatformBanner { get; }
@@ -92,6 +94,19 @@ public sealed class MauiAppHost : IAsyncDisposable
         EdgeDrag.RejectPeer = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.UserNotice += OnProjectionUserNotice;
+        ScreenExtend.OnHostRequestAsync = HandleRemoteHostRequestAsync;
+        ScreenExtend.SessionEnded += () =>
+        {
+            try
+            {
+                if (RemoteBindingHelper.ClearAllProjecting(Settings))
+                {
+                    Settings.Save();
+                    _ = BroadcastRemoteBindingSyncAsync();
+                }
+            }
+            catch { /* ignore */ }
+        };
 #if !WINDOWS
         ScreenExtend.ShouldAcceptOffer = (_, _) => false;
 #endif
@@ -115,6 +130,12 @@ public sealed class MauiAppHost : IAsyncDisposable
             _platform.SetEasyMouse(Settings.EasyMouse);
             BehaviorSyncedFromPeer?.Invoke(peer);
             // 行为同步不重启网络，避免打断已有连接与扩展屏等会话
+        };
+        RemoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
+        RemoteBindingSync.StatusMessage += PublishStatus;
+        RemoteBindingSync.RemoteBindingSyncedFromPeer += peer =>
+        {
+            try { RemoteBindingSyncedFromPeer?.Invoke(peer); } catch { /* ignore */ }
         };
         SecurityKeySync = new SecurityKeySyncHelper(Settings, Connections, Connections.Discovery);
         SecurityKeySync.StatusMessage += PublishStatus;
@@ -642,6 +663,69 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
     }
 
+    /// <summary>远程影子投影：对端请本机 Host 推流（不改 DisplaySwitch）。</summary>
+    private async Task<(bool Ok, string? Error)> HandleRemoteHostRequestAsync(
+        string fromPeer,
+        ScreenExtendHostRequestPayload req,
+        CancellationToken ct)
+    {
+#if !WINDOWS && !ANDROID
+        await Task.CompletedTask;
+        return (false, "当前平台不支持作为远程投影主机");
+#else
+        var sink = string.IsNullOrWhiteSpace(req.SinkPeer) ? fromPeer : req.SinkPeer.Trim();
+        if (string.IsNullOrWhiteSpace(sink))
+            return (false, "未指定接收端");
+
+#if ANDROID
+        var (capOk, capErr) = await Platform.PrepareScreenExtendCaptureAsync(ct).ConfigureAwait(false);
+        if (!capOk)
+            return (false, capErr ?? "屏幕录制授权失败");
+#endif
+
+        var local = TryGetLocalDisplayInfo();
+        var choice = new ProjectionDisplayChoice
+        {
+            Source = ProjectionDisplaySource.HostPrimary,
+            Width = req.PreferredWidth > 0 ? req.PreferredWidth : (local?.Width ?? 1920),
+            Height = req.PreferredHeight > 0 ? req.PreferredHeight : (local?.Height ?? 1080),
+            ScalePercent = local?.ScalePercent > 0 ? local.ScalePercent : 100,
+            RefreshHz = local?.RefreshHz > 0 ? local.RefreshHz : 60,
+            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps
+        };
+        Platform.SetScreenExtendProjectionMode(DisplayProjectionMode.Clone);
+        Platform.SetScreenExtendDisplayChoice(choice);
+
+        if (ScreenExtend.IsActive)
+        {
+            var same = ScreenExtend.Role == ScreenExtendRole.Host
+                       && string.Equals(ScreenExtend.Peer, sink, StringComparison.OrdinalIgnoreCase);
+            if (!same)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            return (true, null);
+        }
+
+        var (ok, err) = await ScreenExtend.StartHostAsync(
+                sink,
+                choice.Width,
+                choice.Height,
+                fps: choice.Fps > 0 ? choice.Fps : 12,
+                audioSync: req.AudioSync,
+                remoteControl: req.RemoteControl,
+                ct: ct)
+            .ConfigureAwait(false);
+        if (!ok)
+        {
+#if ANDROID
+            await Platform.ReleaseScreenExtendHostDisplayAsync().ConfigureAwait(false);
+#endif
+        }
+        else
+            PublishStatus($"远程投影：本机画面 → {sink}（应 {fromPeer} 请求）");
+        return (ok, err);
+#endif
+    }
+
     public async Task<(bool Ok, string Message)> RepairProjectionEnvironmentAsync(
         IProgress<string>? progress = null,
         CancellationToken ct = default)
@@ -717,6 +801,9 @@ public sealed class MauiAppHost : IAsyncDisposable
     public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
 
     public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    public Task BroadcastRemoteBindingSyncAsync(string? statusHint = null)
+        => RemoteBindingSync.BroadcastAsync(statusHint);
 
     public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
         => SecurityKeySync.SyncCurrentKeyAsync(ct);
@@ -940,6 +1027,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         EdgeDrag.Dispose();
         LayoutSync.Detach();
         BehaviorSync.Detach();
+        RemoteBindingSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

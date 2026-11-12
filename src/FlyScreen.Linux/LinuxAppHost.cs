@@ -34,6 +34,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public ILinuxInputInjector Injector { get; private set; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
+    public RemoteBindingSyncHelper RemoteBindingSync { get; }
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
@@ -64,6 +65,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
+    public event Action<string>? RemoteBindingSyncedFromPeer;
     public event Action<string>? SecurityKeySyncedFromPeer;
     /// <summary>被远程控制时指针归一化坐标更新（供 GUI 软件光标）。</summary>
     public event Action<double, double>? RemotePointerMoved;
@@ -115,6 +117,12 @@ public sealed class LinuxAppHost : IAsyncDisposable
         {
             BehaviorSyncedFromPeer?.Invoke(peer);
         };
+        RemoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
+        RemoteBindingSync.StatusMessage += PublishStatus;
+        RemoteBindingSync.RemoteBindingSyncedFromPeer += peer =>
+        {
+            try { RemoteBindingSyncedFromPeer?.Invoke(peer); } catch { /* ignore */ }
+        };
         SecurityKeySync = new SecurityKeySyncHelper(Settings, Connections, Connections.Discovery);
         SecurityKeySync.StatusMessage += PublishStatus;
         SecurityKeySync.SecurityKeyAppliedFromPeer += (from, _key) =>
@@ -142,6 +150,20 @@ public sealed class LinuxAppHost : IAsyncDisposable
         };
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
+        ScreenExtend.OnHostRequestAsync = (_, _, _) =>
+            Task.FromResult<(bool Ok, string? Error)>((false, "Linux 暂不支持作为远程投影主机"));
+        ScreenExtend.SessionEnded += () =>
+        {
+            try
+            {
+                if (RemoteBindingHelper.ClearAllProjecting(Settings))
+                {
+                    Settings.Save();
+                    _ = BroadcastRemoteBindingSyncAsync();
+                }
+            }
+            catch { /* ignore */ }
+        };
         Connections.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
     }
@@ -217,6 +239,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
 
     public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    public Task BroadcastRemoteBindingSyncAsync(string? statusHint = null)
+        => RemoteBindingSync.BroadcastAsync(statusHint);
 
     public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
         => SecurityKeySync.SyncCurrentKeyAsync(ct);
@@ -358,6 +383,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         catch { /* ignore */ }
         LayoutSync.Detach();
         BehaviorSync.Detach();
+        RemoteBindingSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         _projectionAudio.Dispose();

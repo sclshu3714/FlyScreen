@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>玄鸟中继 · 管理</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>玄鸟中继</h1>
+      <p class="sub" id="serverMeta">加载中…</p>
+    </div>
+    <div class="auth">
+      <label>管理令牌 <input id="token" type="password" placeholder="X-Admin-Token" autocomplete="off" /></label>
+      <button id="btnRefresh" type="button">刷新</button>
+    </div>
+  </header>
+
+  <section class="cards" id="stats"></section>
+
+  <section class="panel">
+    <div class="panel-h">
+      <h2>在线设备</h2>
+      <span class="hint">按房间分组；踢出需写权限令牌</span>
+    </div>
+    <div id="devices" class="table-wrap">加载中…</div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
+      <h2>中继会话</h2>
+      <span class="hint">P2P 失败后的密文转发会话</span>
+    </div>
+    <div id="sessions" class="table-wrap">加载中…</div>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>

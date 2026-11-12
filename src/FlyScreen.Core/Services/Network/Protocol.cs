@@ -62,6 +62,8 @@ public enum MessageType : byte
     DisplayInfoQuery = 66,
     /// <summary>对端主屏分辨率/缩放应答。</summary>
     DisplayInfoReply = 67,
+    /// <summary>远程连接配置 + 绑定池同步（布局内电脑；旧端忽略）。</summary>
+    RemoteBindingSync = 68,
     /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
     CompositionUpdate = 70,
     /// <summary>电脑→手机：取消组字浮层。</summary>
@@ -95,6 +97,14 @@ public enum MessageType : byte
 
     /// <summary>投影回控：从机播放器 → 主机采集区键鼠（勿与普通 MouseMove/KeyEvent 混用）。</summary>
     ScreenExtendInput = 89,
+
+    /// <summary>
+    /// 远程影子投影：请对端作为 Host，向 SinkPeer 发起 ScreenExtendOffer。
+    /// 旧端忽略未知类型即可。
+    /// </summary>
+    ScreenExtendHostRequest = 90,
+    /// <summary>对 ScreenExtendHostRequest 的结果回执。</summary>
+    ScreenExtendHostRequestResult = 91,
 
     /// <summary>通用工具信令（JSON 信封，见 docs/tools.md §8）。</summary>
     ToolSignal = 100,
@@ -151,6 +161,11 @@ public sealed class HandshakePayload
     public bool IsReply { get; set; }
     /// <summary>发起方刚刚把对端加入布局，请对端在密钥一致且有空位时把本机加进布局。</summary>
     public bool RequestLayoutJoin { get; set; }
+    /// <summary>
+    /// 仅身份探测：密钥正确则回 Ack 后断开，不要求已在布局、不建链路。
+    /// 旧端忽略未知字段时仍走原「未授权」拒绝（探测方视为失败）。
+    /// </summary>
+    public bool ProbeOnly { get; set; }
     /// <summary>拒绝原因：key=安全密钥不一致，full=对端布局已满。空表示接受。</summary>
     public string? RejectReason { get; set; }
 
@@ -554,6 +569,46 @@ public sealed class LayoutSyncPayload
     public int Mode { get; set; }
 }
 
+/// <summary>
+/// 远程连接配置（地址/类型）+ 绑定池 + 当前远程，在布局电脑之间权威同步。
+/// 不含本机「测试通过」态：A 可达不代表 B 可达。
+/// </summary>
+public sealed class RemoteBindingSyncPayload
+{
+    public string SourceMachine { get; set; } = "";
+    /// <summary>UTC 毫秒；更大者覆盖。</summary>
+    public long Revision { get; set; }
+    public List<RemoteEndpointSyncItem> Endpoints { get; set; } = [];
+    public List<RemoteBindingSyncItem> Bindings { get; set; } = [];
+    public Dictionary<string, string> ActiveRemoteByLocalDevice { get; set; } = new();
+}
+
+public sealed class RemoteEndpointSyncItem
+{
+    public string Id { get; set; } = "";
+    public int Kind { get; set; }
+    public string Address { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    /// <summary>期望对端名（建连提示）；接收方不得据此显示「测试通过」。</summary>
+    public string VerifiedPeerName { get; set; } = "";
+    /// <summary>已废弃同步：接收方忽略，发送方应置 0。</summary>
+    public int State { get; set; }
+    /// <summary>已废弃同步：接收方忽略。</summary>
+    public int? LastRttMs { get; set; }
+}
+
+public sealed class RemoteBindingSyncItem
+{
+    public string RemoteId { get; set; } = "";
+    public string RemoteName { get; set; } = "";
+    public string BoundLocalDeviceId { get; set; } = "";
+    public string EndpointId { get; set; } = "";
+    public string Endpoint { get; set; } = "";
+    public int Mode { get; set; }
+    public int State { get; set; }
+    public int? RttMs { get; set; }
+}
+
 /// <summary>高级页「功能 / 行为」跨机同步（不含开机自启、本机快捷键字母、主题语言等）。</summary>
 public sealed class BehaviorSyncPayload
 {
@@ -718,6 +773,31 @@ public sealed class ScreenExtendStopPayload
 {
     public string SessionId { get; set; } = "";
     public string Reason { get; set; } = "";
+}
+
+/// <summary>
+/// 请对端成为投影 Host：把对端画面推到 <see cref="SinkPeer"/>（空=回推请求方）。
+/// <see cref="Stop"/> 为 true 时表示请对端结束当前 Host 会话。
+/// </summary>
+public sealed class ScreenExtendHostRequestPayload
+{
+    public string RequestId { get; set; } = "";
+    /// <summary>画面接收端机器名；空则回推给请求方。</summary>
+    public string SinkPeer { get; set; } = "";
+    public int PreferredWidth { get; set; } = 1920;
+    public int PreferredHeight { get; set; } = 1080;
+    public int Fps { get; set; } = 12;
+    public bool AudioSync { get; set; }
+    public bool RemoteControl { get; set; } = true;
+    /// <summary>true：结束 Host；false：开始向 Sink 推流。</summary>
+    public bool Stop { get; set; }
+}
+
+public sealed class ScreenExtendHostRequestResultPayload
+{
+    public string RequestId { get; set; } = "";
+    public bool Ok { get; set; }
+    public string? Error { get; set; }
 }
 
 /// <summary>

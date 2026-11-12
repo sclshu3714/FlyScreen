@@ -3,7 +3,7 @@ using FlyScreen.Models;
 namespace FlyScreen.Services.Network;
 
 /// <summary>
-/// 远程/中转设备 ↔ 电脑布局槽位绑定。仅本机 settings，不进 LayoutSync。
+/// 远程/中转设备 ↔ 电脑布局槽位绑定。本机 settings + RemoteBindingSync 跨布局电脑同步。
 /// </summary>
 public static class RemoteBindingHelper
 {
@@ -110,6 +110,32 @@ public static class RemoteBindingHelper
             settings.ActiveRemoteByLocalDevice[local] = binding.RemoteId;
     }
 
+    /// <summary>
+    /// 投影会话结束后清除「投影中」标记，避免穿边目标残留为远程名。
+    /// 仅清 <paramref name="localDeviceId"/> 绑定的项；勿清同步来的其它电脑投影态。
+    /// </summary>
+    public static bool ClearProjectingForLocal(AppSettings settings, string? localDeviceId)
+    {
+        if (string.IsNullOrWhiteSpace(localDeviceId)) return false;
+        settings.EnsureCollections();
+        var key = localDeviceId.Trim();
+        var changed = false;
+        foreach (var b in settings.RemoteBindings)
+        {
+            if (b.State != RemoteBinding.StateProjecting) continue;
+            if (!string.Equals(b.BoundLocalDeviceId, key, StringComparison.OrdinalIgnoreCase))
+                continue;
+            b.State = RemoteBinding.StateBound;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>清除本机全部槽位上的「投影中」（本机多绑定场景）。</summary>
+    public static bool ClearAllProjecting(AppSettings settings)
+        => ClearProjectingForLocal(settings, LocalPeerIdentity.MachineName);
+
     public static bool MatchesInventoryItem(RemoteBinding b, DeviceInventoryItem item)
     {
         if (string.Equals("remote:" + b.RemoteId, item.Id, StringComparison.OrdinalIgnoreCase))
@@ -117,6 +143,14 @@ public static class RemoteBindingHelper
 
         if (item.Kind == DeviceInventoryItem.KindService)
         {
+            if (!string.IsNullOrWhiteSpace(item.Name)
+                && string.Equals(b.RemoteName, item.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(item.EndpointId) || string.IsNullOrWhiteSpace(b.EndpointId))
+                    return true;
+                return string.Equals(b.EndpointId, item.EndpointId, StringComparison.OrdinalIgnoreCase);
+            }
+
             return !string.IsNullOrWhiteSpace(item.EndpointId)
                    && string.Equals(b.EndpointId, item.EndpointId, StringComparison.OrdinalIgnoreCase)
                    && string.Equals(b.RemoteName, item.Name, StringComparison.OrdinalIgnoreCase);

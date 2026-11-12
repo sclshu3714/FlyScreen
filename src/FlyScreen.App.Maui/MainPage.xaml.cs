@@ -75,6 +75,7 @@ public partial class MainPage : ContentPage
     private Action? _onAppLogChanged;
     private Action<string>? _onLayoutSynced;
     private Action<string>? _onBehaviorSynced;
+    private Action<string>? _onRemoteBindingSynced;
     private Action<string>? _onSecurityKeySynced;
     private Action<IReadOnlyList<DiscoveredPeer>>? _onPeersUpdated;
     private Action<string, bool, bool>? _onPeerLinkChanged;
@@ -187,6 +188,14 @@ public partial class MainPage : ContentPage
             LoadUi();
             ApplyLocalizedUi();
         });
+        _onRemoteBindingSynced = from => RunOnUi(() =>
+        {
+            ReloadEndpointListFromSettings();
+            RefreshSlotBoundRemotes();
+            RebuildMatrix();
+            RefreshDiscovery();
+            StatusLabel.Text = $"已同步远程配置 ← {from}（须本机重新测试）";
+        });
         _onSecurityKeySynced = from => RunOnUi(() =>
         {
             KeyEntry.Text = _host.Settings.SecurityKey ?? "";
@@ -201,6 +210,7 @@ public partial class MainPage : ContentPage
         AppLog.Changed += _onAppLogChanged;
         _host.LayoutSyncedFromPeer += _onLayoutSynced;
         _host.BehaviorSyncedFromPeer += _onBehaviorSynced;
+        _host.RemoteBindingSyncedFromPeer += _onRemoteBindingSynced;
         _host.SecurityKeySyncedFromPeer += _onSecurityKeySynced;
         _host.Connections.Discovery.PeersUpdated += _onPeersUpdated;
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
@@ -246,6 +256,8 @@ public partial class MainPage : ContentPage
             _host.LayoutSyncedFromPeer -= _onLayoutSynced;
         if (_onBehaviorSynced != null)
             _host.BehaviorSyncedFromPeer -= _onBehaviorSynced;
+        if (_onRemoteBindingSynced != null)
+            _host.RemoteBindingSyncedFromPeer -= _onRemoteBindingSynced;
         if (_onSecurityKeySynced != null)
             _host.SecurityKeySyncedFromPeer -= _onSecurityKeySynced;
         if (_onPeersUpdated != null)
@@ -270,6 +282,7 @@ public partial class MainPage : ContentPage
         _onAppLogChanged = null;
         _onLayoutSynced = null;
         _onBehaviorSynced = null;
+        _onRemoteBindingSynced = null;
         _onSecurityKeySynced = null;
         _onPeersUpdated = null;
         _onPeerLinkChanged = null;
@@ -5017,8 +5030,19 @@ public partial class MainPage : ContentPage
 
     private async void RefreshDiscovery_Clicked(object? sender, EventArgs e)
     {
-        await RevalidateEndpointsAsync().ConfigureAwait(true);
+        StatusLabel.Text = Loc.T("Net.RefreshDiscovery");
+        try
+        {
+            await RevalidateEndpointsAsync().ConfigureAwait(true);
+            await _host.Connections.RefreshDiscoveryProbeAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            // 探测失败仍刷新清单
+        }
+
         RefreshDiscovery();
+        StatusLabel.Text = Loc.T("Net.DeviceMgmtTitle") + " · " + Loc.T("Net.RefreshDiscovery");
     }
 
     private void RefreshDiscovery()
@@ -5115,6 +5139,10 @@ public partial class MainPage : ContentPage
     {
         var s = _host.Settings;
         s.EnsureCollections();
+        var before = s.ConnectionEndpoints.Count;
+        RemoteBindingSyncHelper.DeduplicateEndpoints(s);
+        if (s.ConnectionEndpoints.Count != before)
+            s.Save();
         _endpoints.Clear();
         foreach (var ep in s.ConnectionEndpoints)
             _endpoints.Add(ep);
@@ -5127,8 +5155,13 @@ public partial class MainPage : ContentPage
         var s = _host.Settings;
         s.EnsureCollections();
         s.ConnectionEndpoints = _endpoints.ToList();
+        RemoteBindingSyncHelper.DeduplicateEndpoints(s);
+        _endpoints.Clear();
+        foreach (var ep in s.ConnectionEndpoints)
+            _endpoints.Add(ep);
         if (saveFile)
             s.Save();
+        try { _host.Connections.RefreshDiscoveryProbeHosts(); } catch { /* ignore */ }
     }
 
     private void AddEndpoint_Clicked(object? sender, EventArgs e)
@@ -5202,6 +5235,8 @@ public partial class MainPage : ContentPage
         }
 
         PersistEndpoints();
+        if (result.Ok)
+            _ = _host.BroadcastRemoteBindingSyncAsync("远程连接配置已同步到布局内电脑");
         if (updateStatusBar)
             StatusLabel.Text = result.Ok ? $"{Loc.T("Net.TestOk")}: {result.Message}" : $"{Loc.T("Net.TestFail")}: {result.Message}";
         EndpointList.ItemsSource = null;
@@ -5216,6 +5251,7 @@ public partial class MainPage : ContentPage
         if (ep == null) return;
         _endpoints.Remove(ep);
         PersistEndpoints();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
         RefreshDiscovery();
@@ -5291,6 +5327,7 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程绑定已同步到布局内电脑");
         StatusLabel.Text = string.Format(Loc.T("Net.BindDone"), item.Name, selected.Label);
     }
 
@@ -5309,6 +5346,7 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程解绑已同步到布局内电脑");
         StatusLabel.Text = string.Format(Loc.T("Net.UnbindDone"), item.Name);
     }
 
@@ -5381,6 +5419,7 @@ public partial class MainPage : ContentPage
         _host.Settings.Save();
         RefreshSlotBoundRemotes();
         RebuildMatrix();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
         StatusLabel.Text = string.Format(Loc.T("Remote.Switched"), pick.RemoteName);
     }
 
@@ -5420,6 +5459,7 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程改绑已同步到布局内电脑");
         StatusLabel.Text = string.Format(Loc.T("Remote.Rebound"), binding.RemoteName, selected.Label);
     }
 
@@ -5439,26 +5479,23 @@ public partial class MainPage : ContentPage
         }
 
         var sink = binding.BoundLocalDeviceId.Trim();
-        var localName = LocalPeerIdentity.MachineName;
         try
         {
-            if (!string.Equals(sink, localName, StringComparison.OrdinalIgnoreCase))
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                sink,
+                remoteControl: true).ConfigureAwait(true);
+            if (!ok)
             {
-                var result = await _host.StartProjectionAsync(
-                    ProjectionTarget.Peer(sink),
-                    DisplayProjectionMode.Clone,
-                    remoteControl: true).ConfigureAwait(true);
-                if (!result.Ok)
-                {
-                    StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), result.Message ?? "");
-                    return;
-                }
+                StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+                return;
             }
 
             RemoteBindingHelper.SetProjecting(_host.Settings, binding, true);
             _host.Settings.Save();
             RefreshSlotBoundRemotes();
             RebuildMatrix();
+            _ = _host.BroadcastRemoteBindingSyncAsync();
             StatusLabel.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
         }
         catch (Exception ex)
@@ -5473,10 +5510,14 @@ public partial class MainPage : ContentPage
                       ?? RemoteBindingHelper.GetActive(_host.Settings, slot.Name);
         if (binding == null) return;
 
+        var remote = binding.RemoteName.Trim();
+        var sink = binding.BoundLocalDeviceId.Trim();
         try
         {
             if (_host.ScreenExtend.IsActive)
                 await _host.StopProjectionAsync().ConfigureAwait(true);
+            else
+                await _host.ScreenExtend.RequestPeerEndHostAsync(remote, sink).ConfigureAwait(true);
         }
         catch
         {
@@ -5487,6 +5528,7 @@ public partial class MainPage : ContentPage
         _host.Settings.Save();
         RefreshSlotBoundRemotes();
         RebuildMatrix();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
         StatusLabel.Text = string.Format(Loc.T("Remote.ProjectStopped"), binding.RemoteName);
     }
 

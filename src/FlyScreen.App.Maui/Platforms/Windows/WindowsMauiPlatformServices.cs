@@ -35,13 +35,15 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _transfers = transfers;
         _screenExtend = screenExtend;
         _screenExtendUi = new MauiScreenExtendController(screenExtend);
-        _screenExtend.SinkSessionReady += () =>
-        {
-            try { _router?.SetEasyMousePaused(true); } catch { /* ignore */ }
-        };
+        // 从机期间穿边由 ShouldPauseEasyMouseForExtend 暂停，勿永久关掉 EasyMouseEnabled
         _screenExtend.SessionEnded += () =>
         {
-            try { _router?.SetEasyMousePaused(false); } catch { /* ignore */ }
+            try
+            {
+                if (_router != null)
+                    _router.EasyMouseEnabled = _settings.EasyMouse;
+            }
+            catch { /* ignore */ }
         };
     }
 
