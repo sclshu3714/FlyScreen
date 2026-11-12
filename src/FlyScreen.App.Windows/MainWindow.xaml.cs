@@ -2258,35 +2258,36 @@ public partial class MainWindow : Window
         LogHintText.Text = baseHint + " " + Loc.T("Log.SelectTip");
     }
 
+    private sealed class LogLevelOption
+    {
+        public string Name { get; init; } = "";
+        public AppLogLevelFilter Filter { get; init; }
+        public override string ToString() => Name;
+    }
+
     private AppLogLevelFilter CurrentLogLevelFilter()
     {
-        if (LogLevelFilter.SelectedItem is ComboBoxItem { Tag: AppLogLevelFilter f })
-            return f;
+        if (LogLevelFilter.SelectedItem is LogLevelOption opt)
+            return opt.Filter;
         return AppLogLevelFilter.All;
     }
 
     private void EnsureLogLevelFilterItems()
     {
+        // 勿 new ComboBoxItem：未入视觉树时主题 Style 会 RelativeSource 找 ItemsControl，刷一串 Data Error 4
         var selected = CurrentLogLevelFilter();
         _logFilterReady = false;
-        LogLevelFilter.Items.Clear();
-        void Add(AppLogLevelFilter f, string key)
-            => LogLevelFilter.Items.Add(new ComboBoxItem { Content = Loc.T(key), Tag = f });
-        Add(AppLogLevelFilter.All, "Log.LevelAll");
-        Add(AppLogLevelFilter.Debug, "Log.LevelDebug");
-        Add(AppLogLevelFilter.Info, "Log.LevelInfo");
-        Add(AppLogLevelFilter.Warn, "Log.LevelWarn");
-        Add(AppLogLevelFilter.Error, "Log.LevelError");
-        foreach (ComboBoxItem it in LogLevelFilter.Items)
+        var options = new LogLevelOption[]
         {
-            if (it.Tag is AppLogLevelFilter f && f == selected)
-            {
-                LogLevelFilter.SelectedItem = it;
-                break;
-            }
-        }
-        if (LogLevelFilter.SelectedIndex < 0)
-            LogLevelFilter.SelectedIndex = 0;
+            new() { Filter = AppLogLevelFilter.All, Name = Loc.T("Log.LevelAll") },
+            new() { Filter = AppLogLevelFilter.Debug, Name = Loc.T("Log.LevelDebug") },
+            new() { Filter = AppLogLevelFilter.Info, Name = Loc.T("Log.LevelInfo") },
+            new() { Filter = AppLogLevelFilter.Warn, Name = Loc.T("Log.LevelWarn") },
+            new() { Filter = AppLogLevelFilter.Error, Name = Loc.T("Log.LevelError") },
+        };
+        LogLevelFilter.DisplayMemberPath = nameof(LogLevelOption.Name);
+        LogLevelFilter.ItemsSource = options;
+        LogLevelFilter.SelectedItem = options.FirstOrDefault(o => o.Filter == selected) ?? options[0];
         _logFilterReady = true;
     }
 

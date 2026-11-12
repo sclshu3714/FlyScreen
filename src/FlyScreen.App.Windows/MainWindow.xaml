@@ -4,6 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:FlyScreen"
         xmlns:helpers="clr-namespace:FlyScreen.Helpers"
+        xmlns:system="clr-namespace:System;assembly=System.Runtime"
         Title="玄鸟"
         Height="640" Width="960"
         MinHeight="600" MinWidth="900"
@@ -743,6 +744,7 @@
             </Setter>
         </Style>
         <Style TargetType="ComboBoxItem">
+            <!-- 覆盖主题默认 RelativeSource→ItemsControl；Popup 未打开/项未入树时否则会刷 Data Error 4 -->
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Height" Value="32"/>
             <Setter Property="Padding" Value="10,0"/>
@@ -1562,8 +1564,9 @@
                                                         <ComboBox SelectedIndex="{Binding Kind, Mode=TwoWay}"
                                                                   VerticalContentAlignment="Center" FontWeight="SemiBold"
                                                                   ToolTip="远程=一对一 IP；中转服务=一对多注册发现">
-                                                            <ComboBoxItem Content="远程"/>
-                                                            <ComboBoxItem Content="中转服务"/>
+                                                            <!-- 用字符串项，避免显式 ComboBoxItem 在 Popup/模板未入树时触发 ItemsControl 绑定错误 -->
+                                                            <system:String>远程</system:String>
+                                                            <system:String>中转服务</system:String>
                                                         </ComboBox>
                                                         <TextBox Grid.Column="1" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
                                                                  Margin="0,0,8,0" VerticalContentAlignment="Center"
