@@ -1006,7 +1006,14 @@ public sealed class InputRouter : IDisposable
         for (var i = 0; i < 4; i++)
         {
             var name = i < _settings.MachineSlots.Count ? _settings.MachineSlots[i] : null;
-            slots[i] = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                slots[i] = null;
+                continue;
+            }
+
+            // 投影中：该槽位穿边目标改为当前远程（布局网格不变）
+            slots[i] = RemoteBindingHelper.ResolveEdgePeerName(_settings, name.Trim());
         }
 
         return slots;
@@ -1048,11 +1055,16 @@ public sealed class InputRouter : IDisposable
 
     private int FindLocalSlotIndex(string?[] slots)
     {
-        var idx = FindSlotIndex(slots, LocalPeerIdentity.MachineName);
-        if (idx >= 0) return idx;
-        var env = Environment.MachineName;
-        if (!LocalPeerIdentity.IsBogusMachineName(env))
-            return FindSlotIndex(slots, env);
+        // 用物理槽位找本机：投影改写后 slots[i] 可能是远程名
+        _ = slots;
+        _settings.EnsureLocalMachineSlot();
+        for (var i = 0; i < 4; i++)
+        {
+            var physical = i < _settings.MachineSlots.Count ? _settings.MachineSlots[i] : null;
+            if (!string.IsNullOrWhiteSpace(physical) && IsLocalMachine(physical))
+                return i;
+        }
+
         return -1;
     }
 

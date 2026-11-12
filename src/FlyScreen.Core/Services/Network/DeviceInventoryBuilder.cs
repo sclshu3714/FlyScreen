@@ -138,9 +138,22 @@ public static class DeviceInventoryBuilder
                 if (localNames.Contains(key)) continue;
                 if (!listedRemoteKeys.Add("svc:" + ep.Id + ":" + key)) continue;
 
+                var bound = (bindings ?? Array.Empty<RemoteBinding>()).FirstOrDefault(b =>
+                    string.Equals(b.EndpointId, ep.Id, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(b.RemoteName, key, StringComparison.OrdinalIgnoreCase));
+                var isBound = bound != null && !string.IsNullOrWhiteSpace(bound.BoundLocalDeviceId);
+
                 var status = d.Online ? "在线" : "离线";
                 if (d.RttMs is int ms) status += $" · {ms}ms";
                 status += " · 来自中转";
+                if (isBound)
+                {
+                    var pos = slots.FirstOrDefault(s =>
+                        string.Equals(s.Name, bound!.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))?.PositionLabel;
+                    status += string.IsNullOrEmpty(pos) ? $" · 已绑定：{bound!.BoundLocalDeviceId}" : $" · 已绑定：{pos}";
+                }
+                else
+                    status += " · 未绑定";
 
                 list.Add(new DeviceInventoryItem
                 {
@@ -150,6 +163,12 @@ public static class DeviceInventoryBuilder
                     Address = string.IsNullOrWhiteSpace(ep.Address) ? "—" : ep.Address,
                     StatusText = status,
                     IsOnline = d.Online,
+                    IsBound = isBound,
+                    BoundLocalDeviceId = bound?.BoundLocalDeviceId ?? "",
+                    BoundPositionLabel = isBound
+                        ? (slots.FirstOrDefault(s =>
+                            string.Equals(s.Name, bound!.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))?.PositionLabel ?? "")
+                        : "",
                     EndpointId = ep.Id,
                     RttMs = d.RttMs
                 });

@@ -146,10 +146,24 @@ public sealed class ConnectionManager : IAsyncDisposable
     public IEnumerable<string> ConfiguredPeers()
     {
         _settings.EnsureLocalMachineSlot();
-        return _settings.MachineSlots
+        // 布局槽位中的对端 + 已绑定的远程/中转设备名；仅「测试通过」的连接配置不在此列，不会真连
+        var names = _settings.MachineSlots
             .Where(m => !string.IsNullOrWhiteSpace(m))
             .Where(m => !string.Equals(m, LocalMachine, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+            .Select(m => m.Trim())
+            .ToList();
+
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(b.BoundLocalDeviceId) || string.IsNullOrWhiteSpace(b.RemoteName))
+                continue;
+            var n = b.RemoteName.Trim();
+            if (string.Equals(n, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                continue;
+            names.Add(n);
+        }
+
+        return names.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     public bool IsPeerReachable(string name)
@@ -681,10 +695,47 @@ public sealed class ConnectionManager : IAsyncDisposable
             }
         }
 
+        // 远程绑定 / 连接配置中的显式地址（Tailscale/VPN 等，发现包拿不到）
+        foreach (var target in EnumerateConfiguredEndpointTargets(peerName))
+            return [target];
+
         var dns = await NicService.ResolveHostAsync(peerName, ct).ConfigureAwait(false);
         if (DiscoveryService.IsUsableLanIpv4(dns))
             return [(dns!, _settings.TcpPort)];
         return [];
+    }
+
+    private IEnumerable<(string Ip, int Port)> EnumerateConfiguredEndpointTargets(string peerName)
+    {
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (!string.Equals(b.RemoteName, peerName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (TryParseConnectEndpoint(b.Endpoint, out var host, out var port))
+                yield return (host, port);
+        }
+
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote)
+                continue;
+            if (!string.Equals(ep.VerifiedPeerName, peerName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (TryParseConnectEndpoint(ep.Address, out var host, out var port))
+                yield return (host, port);
+        }
+    }
+
+    private bool TryParseConnectEndpoint(string? raw, out string host, out int port)
+    {
+        host = "";
+        port = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+        if (string.IsNullOrWhiteSpace(raw) || raw.Trim() is "—" or "-")
+            return false;
+        if (!ConnectionEndpointProbe.TryParseHostPort(raw.Trim(), out host, out port, port))
+            return false;
+        // Tailscale 100.x / 公网等：不能只用 IsUsableLanIpv4
+        return IPAddress.TryParse(host, out _) || !string.IsNullOrWhiteSpace(host);
     }
 
     private bool TryAcceptAck(string peerName, HandshakePayload? ack, out string? failStatus)

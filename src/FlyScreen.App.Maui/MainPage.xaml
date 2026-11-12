@@ -364,14 +364,14 @@
                                                     <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
                                                             StrokeThickness="0,0,0,1" Padding="12,10">
                                                         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="100,*,96" ColumnSpacing="8" RowSpacing="4">
-                                                            <Picker Title="类型" SelectedIndex="{Binding Kind}" VerticalOptions="Center">
-                                                                <Picker.Items>
-                                                                    <x:String>远程</x:String>
-                                                                    <x:String>中转服务</x:String>
-                                                                </Picker.Items>
-                                                            </Picker>
+                                                            <Button Text="{Binding KindLabel}" HeightRequest="34" Padding="8,0"
+                                                                    FontAttributes="Bold" HorizontalOptions="Fill"
+                                                                    Clicked="EndpointKind_Clicked"
+                                                                    CommandParameter="{Binding}"
+                                                                    BackgroundColor="{DynamicResource BlueSoft}"
+                                                                    TextColor="{DynamicResource Text}" />
                                                             <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
-                                                                   Placeholder="远程 host:port / 中转 wss://…" />
+                                                                   Placeholder="远程 host:port 或 IP（未写端口用下方 TCP）" />
                                                             <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                                                 <Button Text="⚡" HeightRequest="28" Padding="0" FontSize="14"
                                                                         TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"

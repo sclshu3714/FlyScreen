@@ -649,19 +649,59 @@
                                   PointerReleased="SlotCard_PointerReleased"
                                   PointerCaptureLost="SlotCard_PointerCaptureLost"
                                   DragDrop.AllowDrop="True">
-                            <StackPanel Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        IsHitTestVisible="False">
-                              <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
-                                         HorizontalAlignment="Center"/>
-                              <Border Width="36" Height="24" Background="#1F2937" CornerRadius="3" HorizontalAlignment="Center"
-                                      BorderBrush="#111827" BorderThickness="2">
-                                <Border Background="#60A5FA" Margin="3" CornerRadius="2" Opacity="0.4"/>
+                            <Grid Margin="4">
+                              <StackPanel Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Grid>
+                                  <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                                             IsHitTestVisible="False"/>
+                                  <Button Content="⋯" Width="28" Height="28" Padding="0" FontSize="16" FontWeight="Bold"
+                                          Background="Transparent" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                          IsVisible="{Binding ShowAsRemotePrimary}"
+                                          Click="RemoteShadowMenu_Click"/>
+                                </Grid>
+                                <Border Width="36" Height="24" Background="#1F2937" CornerRadius="3" HorizontalAlignment="Center"
+                                        BorderBrush="#111827" BorderThickness="2" IsHitTestVisible="False">
+                                  <Border Background="#60A5FA" Margin="3" CornerRadius="2" Opacity="0.4"/>
+                                </Border>
+                                <TextBlock Text="{Binding CardTitle}" FontSize="12" FontWeight="SemiBold"
+                                           TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           IsHitTestVisible="False"/>
+                                <TextBlock Text="{Binding CardStatus}" Foreground="{DynamicResource Success}"
+                                           FontWeight="SemiBold" FontSize="11" TextAlignment="Center"
+                                           IsHitTestVisible="False"/>
+                                <TextBlock Text="{Binding CardEdgeHint}" Foreground="{DynamicResource Blue}"
+                                           FontSize="10" TextAlignment="Center"
+                                           IsVisible="{Binding ShowHostHint}" IsHitTestVisible="False"/>
+                                <TextBlock Text="{Binding CardHostHint}" Foreground="{DynamicResource Muted}"
+                                           FontSize="10" TextAlignment="Center"
+                                           IsVisible="{Binding ShowHostHint}" IsHitTestVisible="False"/>
+                              </StackPanel>
+                              <Border VerticalAlignment="Bottom" MinHeight="78" Padding="8,10" CornerRadius="6"
+                                      Background="{DynamicResource BlueSoft}"
+                                      BorderBrush="{DynamicResource Blue}" BorderThickness="1"
+                                      IsVisible="{Binding ShowRemoteSubCard}">
+                                <Grid RowDefinitions="Auto,*,Auto">
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="{Binding ActiveRemoteStatusText}" FontSize="10"
+                                               Foreground="{DynamicResource Success}" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                               Margin="0,0,4,0" IsHitTestVisible="False"/>
+                                    <Button Grid.Column="1" Content="⋯" Width="28" Height="28" Padding="0"
+                                            FontSize="16" FontWeight="Bold" Background="Transparent"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                                            Click="RemoteShadowMenu_Click"/>
+                                  </Grid>
+                                  <TextBlock Grid.Row="1" Text="{Binding ActiveRemoteName}" FontSize="12"
+                                             FontWeight="SemiBold" Foreground="{DynamicResource Blue}"
+                                             TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                             Margin="0,4,0,0" IsHitTestVisible="False"/>
+                                  <TextBlock Grid.Row="2" Text="{Binding ActiveRemoteBindHint}" FontSize="9"
+                                             Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                             IsHitTestVisible="False"/>
+                                </Grid>
                               </Border>
-                              <TextBlock Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
-                                         TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                              <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource Success}"
-                                         FontWeight="SemiBold" FontSize="11" TextAlignment="Center"/>
-                            </StackPanel>
+                            </Grid>
                           </Border>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
@@ -806,13 +846,13 @@
                             <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                                     BorderThickness="0,0,0,1" Padding="12,10">
                               <Grid ColumnDefinitions="140,*,96" RowDefinitions="Auto,Auto">
-                                <ComboBox SelectedIndex="{Binding Kind}" VerticalAlignment="Center"
-                                          ToolTip.Tip="远程=一对一；中转服务=一对多">
-                                  <ComboBoxItem>远程</ComboBoxItem>
-                                  <ComboBoxItem>中转服务</ComboBoxItem>
-                                </ComboBox>
+                                <Button Content="{Binding KindLabel}" HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left" FontWeight="SemiBold"
+                                        Click="EndpointKind_Click" Tag="{Binding}"
+                                        ToolTip.Tip="点击切换：远程=一对一；中转服务=一对多"/>
                                 <TextBox Grid.Column="1" Text="{Binding Address}" Margin="0,0,8,0"
-                                         VerticalContentAlignment="Center" Watermark="远程 host:port / 中转 wss://…"/>
+                                         VerticalContentAlignment="Center"
+                                         Watermark="远程 host:port 或仅 IP（未写端口用下方 TCP）；中转 wss://…"/>
                                 <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                   <Button Classes="netIconOp" Content="⚡" ToolTip.Tip="测试（通过后才进入设备管理）"
                                           Click="TestEndpoint_Click" Tag="{Binding}"/>

@@ -80,6 +80,7 @@ public sealed class MachineSlot : INotifyPropertyChanged
             OnPropertyChanged(nameof(DisplayName));
             OnPropertyChanged(nameof(CanRemove));
             OnPropertyChanged(nameof(IsEmpty));
+            NotifyCardComputed();
         }
     }
 
@@ -136,7 +137,13 @@ public sealed class MachineSlot : INotifyPropertyChanged
     public string StatusText
     {
         get => _statusText;
-        set { if (_statusText != value) { _statusText = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_statusText == value) return;
+            _statusText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CardStatus));
+        }
     }
 
     public bool OutboundOk
@@ -155,6 +162,164 @@ public sealed class MachineSlot : INotifyPropertyChanged
     {
         get => _resolvedIp;
         set { if (_resolvedIp != value) { _resolvedIp = value; OnPropertyChanged(); } }
+    }
+
+    private string _boundRemotesText = "";
+    private bool _hasActiveRemote;
+    private string _activeRemoteId = "";
+    private string _activeRemoteName = "";
+    private string _activeRemoteStatusText = "";
+    private string _activeRemoteModeLabel = "";
+    private string _activeRemoteBindHint = "";
+    private bool _activeRemoteIsProjecting;
+    private bool _canSwitchRemote;
+    private int _boundRemoteCount;
+    private bool _showAsRemotePrimary;
+
+    /// <summary>挂在本槽位下的远程/中转设备摘要（仅本机展示）。</summary>
+    public string BoundRemotesText
+    {
+        get => _boundRemotesText;
+        set
+        {
+            var v = value ?? "";
+            if (_boundRemotesText == v) return;
+            _boundRemotesText = v;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasBoundRemotes));
+        }
+    }
+
+    public bool HasBoundRemotes => !string.IsNullOrWhiteSpace(_boundRemotesText);
+
+    public bool HasActiveRemote
+    {
+        get => _hasActiveRemote;
+        set
+        {
+            if (_hasActiveRemote == value) return;
+            _hasActiveRemote = value;
+            OnPropertyChanged();
+            NotifyCardComputed();
+        }
+    }
+
+    public string ActiveRemoteId
+    {
+        get => _activeRemoteId;
+        set { if (_activeRemoteId == value) return; _activeRemoteId = value ?? ""; OnPropertyChanged(); }
+    }
+
+    public string ActiveRemoteName
+    {
+        get => _activeRemoteName;
+        set
+        {
+            var v = value ?? "";
+            if (_activeRemoteName == v) return;
+            _activeRemoteName = v;
+            OnPropertyChanged();
+            NotifyCardComputed();
+        }
+    }
+
+    public string ActiveRemoteStatusText
+    {
+        get => _activeRemoteStatusText;
+        set
+        {
+            var v = value ?? "";
+            if (_activeRemoteStatusText == v) return;
+            _activeRemoteStatusText = v;
+            OnPropertyChanged();
+            NotifyCardComputed();
+        }
+    }
+
+    public string ActiveRemoteModeLabel
+    {
+        get => _activeRemoteModeLabel;
+        set { if (_activeRemoteModeLabel == value) return; _activeRemoteModeLabel = value ?? ""; OnPropertyChanged(); }
+    }
+
+    public string ActiveRemoteBindHint
+    {
+        get => _activeRemoteBindHint;
+        set { if (_activeRemoteBindHint == value) return; _activeRemoteBindHint = value ?? ""; OnPropertyChanged(); }
+    }
+
+    public bool ActiveRemoteIsProjecting
+    {
+        get => _activeRemoteIsProjecting;
+        set
+        {
+            if (_activeRemoteIsProjecting == value) return;
+            _activeRemoteIsProjecting = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowAsRemotePrimary));
+            NotifyCardComputed();
+        }
+    }
+
+    public bool CanSwitchRemote
+    {
+        get => _canSwitchRemote;
+        set { if (_canSwitchRemote == value) return; _canSwitchRemote = value; OnPropertyChanged(); }
+    }
+
+    public int BoundRemoteCount
+    {
+        get => _boundRemoteCount;
+        set { if (_boundRemoteCount == value) return; _boundRemoteCount = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>投影中：远程升为主卡内容。</summary>
+    public bool ShowAsRemotePrimary
+    {
+        get => _showAsRemotePrimary;
+        set
+        {
+            if (_showAsRemotePrimary == value) return;
+            _showAsRemotePrimary = value;
+            OnPropertyChanged();
+            NotifyCardComputed();
+        }
+    }
+
+    public bool ShowRemoteSubCard => HasActiveRemote && !ShowAsRemotePrimary;
+    public bool ShowHostHint => ShowAsRemotePrimary;
+    public string CardTitle => ShowAsRemotePrimary ? ActiveRemoteName : DisplayName;
+    public string CardStatus => ShowAsRemotePrimary
+        ? (string.IsNullOrWhiteSpace(ActiveRemoteStatusText) ? Loc.T("Remote.Projecting") : ActiveRemoteStatusText)
+        : StatusText;
+    public string CardHostHint => ShowAsRemotePrimary && !string.IsNullOrWhiteSpace(Name)
+        ? string.Format(Loc.T("Remote.BoundHost"), Name)
+        : "";
+    public string CardEdgeHint => ShowAsRemotePrimary ? Loc.T("Remote.EdgeToRemote") : "";
+
+    public void ClearRemoteCard()
+    {
+        BoundRemotesText = "";
+        HasActiveRemote = false;
+        ActiveRemoteId = "";
+        ActiveRemoteName = "";
+        ActiveRemoteStatusText = "";
+        ActiveRemoteModeLabel = "";
+        ActiveRemoteBindHint = "";
+        ActiveRemoteIsProjecting = false;
+        CanSwitchRemote = false;
+        BoundRemoteCount = 0;
+        ShowAsRemotePrimary = false;
+    }
+
+    private void NotifyCardComputed()
+    {
+        OnPropertyChanged(nameof(ShowRemoteSubCard));
+        OnPropertyChanged(nameof(ShowHostHint));
+        OnPropertyChanged(nameof(CardTitle));
+        OnPropertyChanged(nameof(CardStatus));
+        OnPropertyChanged(nameof(CardHostHint));
+        OnPropertyChanged(nameof(CardEdgeHint));
     }
 
     public string DisplaySubtitle => IsLocal ? Loc.T("Slot.Local") : StatusText;

@@ -29,14 +29,19 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         get => _kind;
         set
         {
-            if (_kind == value) return;
-            _kind = value;
+            // ComboBox SelectedIndex=-1 等非法值钳到远程，避免行“空白/不可用”
+            var v = value == KindRelay ? KindRelay : KindRemote;
+            if (_kind == v) return;
+            _kind = v;
             OnPropertyChanged();
             OnPropertyChanged(nameof(KindLabel));
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(HasInventoryDevices));
         }
     }
+
+    public void ToggleKind()
+        => Kind = Kind == KindRelay ? KindRemote : KindRelay;
 
     /// <summary>地址：远程为 host:port / IP；中转为 wss://… 或中继入口。</summary>
     public string Address
@@ -97,15 +102,18 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         set { if (_lastError == value) return; _lastError = value ?? ""; OnPropertyChanged(); OnPropertyChanged(nameof(StatusText)); }
     }
 
+    /// <summary>
+    /// 测试状态文案。● 仅表示探测通过，真正会话要等加入/绑定布局后由 ConnectionManager 建连。
+    /// </summary>
     [JsonIgnore]
     public string StatusText => State switch
     {
         StateConnected when Kind == KindRelay && (DiscoveredDevices == null || DiscoveredDevices.Count == 0)
             => LastRttMs is int ms
-                ? $"● 入口可达 {ms}ms（等待设备注册）"
-                : "● 入口可达（等待设备注册）",
-        StateConnected => LastRttMs is int ms ? $"● 已连接 {ms}ms" : "● 已连接",
-        StateDisconnected => "○ 未连接",
+                ? $"● 测试通过 {ms}ms（入口可达，等待设备注册）"
+                : "● 测试通过（入口可达，等待设备注册）",
+        StateConnected => LastRttMs is int ms ? $"● 测试通过 {ms}ms" : "● 测试通过",
+        StateDisconnected => "○ 未测试",
         StateError => string.IsNullOrWhiteSpace(LastError) ? "○ 无法连接" : $"○ {LastError}",
         _ => "○ 未测试"
     };

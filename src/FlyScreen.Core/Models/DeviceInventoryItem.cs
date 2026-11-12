@@ -48,7 +48,7 @@ public sealed class DeviceInventoryItem
                 if (IsLocalMachine) return "定位";
                 return LayoutSlotIndex >= 0 ? "定位" : "添加";
             }
-            if (Kind == KindRemote)
+            if (Kind is KindRemote or KindService)
                 return IsBound ? "切换绑定" : "绑定";
             return "测试";
         }
@@ -60,10 +60,8 @@ public sealed class DeviceInventoryItem
         {
             if (Kind == KindLocal && LayoutSlotIndex >= 0 && !IsLocalMachine)
                 return "移除";
-            if (Kind == KindRemote && IsBound)
-                return "删除";
-            if (Kind == KindService)
-                return "删除";
+            if ((Kind == KindRemote || Kind == KindService) && IsBound)
+                return "解绑";
             return "";
         }
     }
@@ -75,7 +73,7 @@ public sealed class DeviceInventoryItem
         {
             if (Kind == KindLocal)
                 return LayoutSlotIndex >= 0 || IsLocalMachine ? "⌖" : "+";
-            if (Kind == KindRemote)
+            if (Kind is KindRemote or KindService)
                 return "◎";
             return "⚡";
         }

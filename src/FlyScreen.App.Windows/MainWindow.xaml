@@ -62,41 +62,129 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- 1×4 卡片内容（双击移除对端；单击选中） -->
+        <!-- 影子子卡：叠在底部（不占主卡布局高度，主卡文字相对整卡居中） -->
+        <DataTemplate x:Key="RemoteShadowSubCard">
+            <Border MinHeight="78" Padding="8,10" CornerRadius="6"
+                    Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
+                    BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding ActiveRemoteStatusText}" FontSize="10"
+                                   Foreground="{DynamicResource Success}" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                   Margin="0,0,4,0"/>
+                        <Button Grid.Column="1" Content="⋯"
+                                Width="28" Height="28" MinWidth="28" Padding="0" Margin="0"
+                                FontSize="16" FontWeight="Bold"
+                                Foreground="{DynamicResource Muted}"
+                                Background="Transparent" BorderThickness="0"
+                                Cursor="Hand" Focusable="False"
+                                VerticalAlignment="Top" HorizontalAlignment="Right"
+                                Tag="{Binding}"
+                                PreviewMouseLeftButtonDown="RemoteShadowMenu_PreviewMouseLeftButtonDown"
+                                Click="RemoteShadowMenu_Click"/>
+                    </Grid>
+                    <TextBlock Grid.Row="1" Text="{Binding ActiveRemoteName}" FontSize="12"
+                               FontWeight="SemiBold" Foreground="{DynamicResource Blue}"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               Margin="0,4,0,0"/>
+                    <TextBlock Grid.Row="2" Text="{Binding ActiveRemoteBindHint}" FontSize="9"
+                               Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
         <DataTemplate x:Key="MachineCard1x4">
+            <!-- 叠层：主卡相对整卡居中；子卡贴底不挤占主卡高度 -->
             <Grid Margin="4">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280"
-                   HorizontalAlignment="Center" Margin="0,0,0,4"/>
-                <Control Grid.Row="1" Template="{StaticResource PcIconTemplate}"
-                 HorizontalAlignment="Center" Margin="0,0,0,6"/>
-                <TextBlock Grid.Row="2" Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
-                   TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
-                <TextBlock Grid.Row="3" Text="{Binding StatusText}" Foreground="{DynamicResource Success}"
-                   FontWeight="SemiBold" FontSize="11" TextAlignment="Center" Margin="0,4,0,0"/>
+                <Grid VerticalAlignment="Center">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                        <Button Content="⋯" Width="28" Height="28" MinWidth="28" Padding="0" Margin="0,-2,-2,0"
+                                FontSize="16" FontWeight="Bold" Foreground="{DynamicResource Muted}"
+                                Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="False"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Tag="{Binding}"
+                                Visibility="{Binding ShowAsRemotePrimary, Converter={StaticResource BoolToVis}}"
+                                PreviewMouseLeftButtonDown="RemoteShadowMenu_PreviewMouseLeftButtonDown"
+                                Click="RemoteShadowMenu_Click"/>
+                    </Grid>
+                    <Control Grid.Row="1" Template="{StaticResource PcIconTemplate}"
+                     HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock Grid.Row="2" Text="{Binding CardTitle}" FontSize="12" FontWeight="SemiBold"
+                       TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                       ToolTip="{Binding CardTitle}"/>
+                    <TextBlock Grid.Row="3" Text="{Binding CardStatus}" Foreground="{DynamicResource Success}"
+                       FontWeight="SemiBold" FontSize="11" TextAlignment="Center" Margin="0,4,0,0"/>
+                    <TextBlock Grid.Row="4" Text="{Binding CardEdgeHint}" Foreground="{DynamicResource Blue}"
+                       FontSize="10" TextAlignment="Center" Margin="0,2,0,0"
+                       Visibility="{Binding ShowHostHint, Converter={StaticResource BoolToVis}}"/>
+                    <TextBlock Grid.Row="5" Text="{Binding CardHostHint}" Foreground="{DynamicResource Muted}"
+                       FontSize="10" TextAlignment="Center" Margin="0,2,0,0"
+                       Visibility="{Binding ShowHostHint, Converter={StaticResource BoolToVis}}"/>
+                </Grid>
+                <ContentControl VerticalAlignment="Bottom"
+                                Content="{Binding}" ContentTemplate="{StaticResource RemoteShadowSubCard}"
+                                Visibility="{Binding ShowRemoteSubCard, Converter={StaticResource BoolToVis}}"/>
             </Grid>
         </DataTemplate>
 
         <!-- 2×2 卡片内容 -->
         <DataTemplate x:Key="MachineCard2x2">
             <Grid Margin="6,4">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Control Template="{StaticResource PcIconTemplate}"
-                 VerticalAlignment="Center" Margin="0,0,10,0"/>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Stretch">
-                    <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="#6B7280" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold"
-                     TextAlignment="Left" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
-                    <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource Success}"
-                     FontWeight="SemiBold" FontSize="11" TextAlignment="Left" Margin="0,3,0,0"/>
-                </StackPanel>
+                <Grid VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Control Template="{StaticResource PcIconTemplate}"
+                     VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                        <Grid Margin="0,0,0,4">
+                            <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
+                                       VerticalAlignment="Center"/>
+                            <Button Content="⋯" Width="28" Height="28" MinWidth="28" Padding="0"
+                                    FontSize="16" FontWeight="Bold" Foreground="{DynamicResource Muted}"
+                                    Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="False"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Tag="{Binding}"
+                                    Visibility="{Binding ShowAsRemotePrimary, Converter={StaticResource BoolToVis}}"
+                                    PreviewMouseLeftButtonDown="RemoteShadowMenu_PreviewMouseLeftButtonDown"
+                                    Click="RemoteShadowMenu_Click"/>
+                        </Grid>
+                        <TextBlock Text="{Binding CardTitle}" FontSize="13" FontWeight="SemiBold"
+                         TextAlignment="Left" TextTrimming="CharacterEllipsis" ToolTip="{Binding CardTitle}"/>
+                        <TextBlock Text="{Binding CardStatus}" Foreground="{DynamicResource Success}"
+                         FontWeight="SemiBold" FontSize="11" TextAlignment="Left" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding CardEdgeHint}" Foreground="{DynamicResource Blue}"
+                         FontSize="10" TextAlignment="Left" Margin="0,2,0,0"
+                         Visibility="{Binding ShowHostHint, Converter={StaticResource BoolToVis}}"/>
+                        <TextBlock Text="{Binding CardHostHint}" Foreground="{DynamicResource Muted}"
+                         FontSize="10" TextAlignment="Left" Margin="0,2,0,0"
+                         Visibility="{Binding ShowHostHint, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+                </Grid>
+                <ContentControl VerticalAlignment="Bottom"
+                                Content="{Binding}" ContentTemplate="{StaticResource RemoteShadowSubCard}"
+                                Visibility="{Binding ShowRemoteSubCard, Converter={StaticResource BoolToVis}}"/>
             </Grid>
         </DataTemplate>
 
@@ -1312,7 +1400,7 @@
                                                             </Style>
                                                         </Border.Style>
                                                         <ContentControl Content="{Binding}" HorizontalAlignment="Stretch"
-                                            VerticalAlignment="Center">
+                                            VerticalAlignment="Stretch">
                                                             <ContentControl.Style>
                                                                 <Style TargetType="ContentControl">
                                                                     <Setter Property="ContentTemplate" Value="{StaticResource MachineCard1x4}"/>
@@ -1561,16 +1649,17 @@
                                                             <RowDefinition Height="Auto"/>
                                                             <RowDefinition Height="Auto"/>
                                                         </Grid.RowDefinitions>
-                                                        <ComboBox SelectedIndex="{Binding Kind, Mode=TwoWay}"
-                                                                  VerticalContentAlignment="Center" FontWeight="SemiBold"
-                                                                  ToolTip="远程=一对一 IP；中转服务=一对多注册发现">
-                                                            <!-- 用字符串项，避免显式 ComboBoxItem 在 Popup/模板未入树时触发 ItemsControl 绑定错误 -->
-                                                            <system:String>远程</system:String>
-                                                            <system:String>中转服务</system:String>
-                                                        </ComboBox>
+                                                        <!-- 不用 ComboBox：嵌在 ItemsControl 内时 SelectedIndex 易写回 -1，行看起来像没加上 -->
+                                                        <Button Content="{Binding KindLabel}"
+                                                                Tag="{Binding}"
+                                                                Click="EndpointKind_Click"
+                                                                FontWeight="SemiBold"
+                                                                HorizontalAlignment="Stretch"
+                                                                HorizontalContentAlignment="Left"
+                                                                ToolTip="点击切换：远程=一对一 IP；中转服务=一对多"/>
                                                         <TextBox Grid.Column="1" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
                                                                  Margin="0,0,8,0" VerticalContentAlignment="Center"
-                                                                 ToolTip="远程：host:port / IP；中转：wss://…"/>
+                                                                 ToolTip="远程：host:port 或仅 IP/主机（未写端口则用下方 TCP 端口）；中转：wss://…"/>
                                                         <Grid Grid.Column="2">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*"/>

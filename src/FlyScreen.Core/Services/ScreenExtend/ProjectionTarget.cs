@@ -20,6 +20,17 @@ public sealed class ProjectionTarget
     /// <summary>副屏时为监视器描述；Peer 时为机器名。</summary>
     public string? PeerName => Kind == ProjectionTargetKind.Peer ? Id : null;
 
+    public static ProjectionTarget Peer(string peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        return new ProjectionTarget
+        {
+            Kind = ProjectionTargetKind.Peer,
+            Id = name,
+            DisplayName = name
+        };
+    }
+
     public override string ToString() => DisplayName;
 }
 

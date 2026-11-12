@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.RemoteBindDialog"
+        Title="绑定到电脑布局"
+        Width="440"
+        MinWidth="380"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13">
+  <Border Padding="20" Background="{DynamicResource WinBg}">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+      <TextBlock x:Name="TitleText" Text="绑定到电脑布局" FontSize="15" FontWeight="SemiBold"
+                 TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <TextBlock x:Name="HintText" Grid.Row="1" TextWrapping="Wrap"
+                 Foreground="{DynamicResource Muted}" LineHeight="20" Margin="0,0,0,14"/>
+      <TextBlock x:Name="TargetLabel" Grid.Row="2" Text="布局电脑" FontWeight="SemiBold" Margin="0,0,0,6"/>
+      <!-- ToString()=Label；主题色走 DynamicResource，避免系统浅底深字错位 -->
+      <ComboBox x:Name="TargetCombo" Grid.Row="3" Margin="0,0,0,18" MinHeight="36"
+                HorizontalAlignment="Stretch"
+                Background="{DynamicResource ControlBg}"
+                Foreground="{DynamicResource Text}"
+                BorderBrush="{DynamicResource ControlBorder}"/>
+      <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="CancelBtn" Classes="normal" Content="取消" MinWidth="88" Margin="0"
+                Click="Cancel_Click"/>
+        <Button x:Name="OkBtn" Classes="primary" Content="绑定" MinWidth="96" Margin="0"
+                Click="Ok_Click"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

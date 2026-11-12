@@ -688,7 +688,13 @@ public sealed class WindowsEdgeInputRouter : IDisposable
         for (var i = 0; i < 4; i++)
         {
             var name = i < _settings.MachineSlots.Count ? _settings.MachineSlots[i] : null;
-            slots[i] = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                slots[i] = null;
+                continue;
+            }
+
+            slots[i] = RemoteBindingHelper.ResolveEdgePeerName(_settings, name.Trim());
         }
 
         return slots;
@@ -702,11 +708,15 @@ public sealed class WindowsEdgeInputRouter : IDisposable
 
     private int FindLocalSlotIndex(string?[] slots)
     {
-        var idx = FindSlotIndex(slots, LocalPeerIdentity.MachineName);
-        if (idx >= 0) return idx;
-        var env = Environment.MachineName;
-        if (!LocalPeerIdentity.IsBogusMachineName(env))
-            return FindSlotIndex(slots, env);
+        _ = slots;
+        _settings.EnsureLocalMachineSlot();
+        for (var i = 0; i < 4; i++)
+        {
+            var physical = i < _settings.MachineSlots.Count ? _settings.MachineSlots[i] : null;
+            if (!string.IsNullOrWhiteSpace(physical) && IsLocalMachine(physical))
+                return i;
+        }
+
         return -1;
     }
 
