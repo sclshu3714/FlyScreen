@@ -162,6 +162,11 @@ public sealed class HandshakePayload
     /// <summary>发起方刚刚把对端加入布局，请对端在密钥一致且有空位时把本机加进布局。</summary>
     public bool RequestLayoutJoin { get; set; }
     /// <summary>
+    /// 临时会话（设备管理远程投影等）：密钥正确即可建链，不要求双方同在电脑布局，也不请求加布局。
+    /// 旧端忽略未知字段时仍按「未授权」拒绝。
+    /// </summary>
+    public bool AdHocConnect { get; set; }
+    /// <summary>
     /// 仅身份探测：密钥正确则回 Ack 后断开，不要求已在布局、不建链路。
     /// 旧端忽略未知字段时仍走原「未授权」拒绝（探测方视为失败）。
     /// </summary>

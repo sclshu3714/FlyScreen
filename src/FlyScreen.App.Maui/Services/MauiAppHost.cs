@@ -702,6 +702,9 @@ public sealed class MauiAppHost : IAsyncDisposable
                        && string.Equals(ScreenExtend.Peer, sink, StringComparison.OrdinalIgnoreCase);
             if (!same)
                 return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            Platform.SetScreenExtendProjectionMode(DisplayProjectionMode.Clone);
+            Platform.SetScreenExtendDisplayChoice(choice);
+            try { ScreenExtend.NotifyHostSessionReady(); } catch { /* ignore */ }
             return (true, null);
         }
 

@@ -522,9 +522,14 @@ public sealed class AppHost : IAsyncDisposable
                        && string.Equals(ScreenExtend.Peer, sink, StringComparison.OrdinalIgnoreCase);
             if (!same)
                 return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            // 已在推同一 Sink：重新拉起采集，避免卡在无画面
+            ScreenExtendUi.SetProjectionMode(DisplayProjectionMode.Clone);
+            ScreenExtendUi.SetDisplayChoice(choice);
+            try { ScreenExtend.NotifyHostSessionReady(); } catch { /* ignore */ }
             return (true, null);
         }
 
+        // 勿 waitForAccept：回执需尽快返回；Accept/推流在消息循环异步完成，否则易超时
         var (ok, err) = await ScreenExtend.StartHostAsync(
                 sink,
                 choice.Width,

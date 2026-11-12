@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="FlyScreen.DesktopUi.RemoteBindDialog"
-        Title="绑定到电脑布局"
+        Title="投影到电脑"
         Width="440"
         MinWidth="380"
         SizeToContent="Height"
@@ -13,7 +13,7 @@
         FontSize="13">
   <Border Padding="20" Background="{DynamicResource WinBg}">
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-      <TextBlock x:Name="TitleText" Text="绑定到电脑布局" FontSize="15" FontWeight="SemiBold"
+      <TextBlock x:Name="TitleText" Text="投影到电脑" FontSize="15" FontWeight="SemiBold"
                  TextWrapping="Wrap" Margin="0,0,0,8"/>
       <TextBlock x:Name="HintText" Grid.Row="1" TextWrapping="Wrap"
                  Foreground="{DynamicResource Muted}" LineHeight="20" Margin="0,0,0,14"/>
@@ -27,7 +27,7 @@
       <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
         <Button x:Name="CancelBtn" Classes="normal" Content="取消" MinWidth="88" Margin="0"
                 Click="Cancel_Click"/>
-        <Button x:Name="OkBtn" Classes="primary" Content="绑定" MinWidth="96" Margin="0"
+        <Button x:Name="OkBtn" Classes="primary" Content="投影" MinWidth="96" Margin="0"
                 Click="Ok_Click"/>
       </StackPanel>
     </Grid>

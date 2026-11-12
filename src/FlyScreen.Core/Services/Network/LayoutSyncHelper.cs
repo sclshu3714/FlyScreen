@@ -95,6 +95,12 @@ public sealed class LayoutSyncHelper
     {
         if (string.IsNullOrWhiteSpace(peerName) || IsLocalName(peerName))
             return false;
+        // 远程/中转不可进入电脑布局（投影走临时连接）
+        if (_connections.IsLayoutIneligiblePeer(peerName))
+        {
+            StatusMessage?.Invoke($"无法添加 {peerName}：远程设备不能加入电脑布局，请使用投影");
+            return false;
+        }
         if (LayoutSlotMerge.ContainsName(_settings.MachineSlots, peerName))
             return true;
         if (!LayoutSlotMerge.TryMerge(_settings.MachineSlots, [peerName], out var merged))

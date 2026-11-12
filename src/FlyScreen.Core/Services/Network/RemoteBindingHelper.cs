@@ -318,7 +318,7 @@ public static class RemoteBindingHelper
                 : online
                     ? (active.RttMs is int ms ? $"● 已连接 · [{mode}] {ms}ms" : $"● 已连接 · [{mode}]")
                     : $"○ 离线 · [{mode}]";
-            slot.ActiveRemoteBindHint = $"绑定：{slot.PositionLabel} / {slot.Name}";
+            slot.ActiveRemoteBindHint = $"投影：{slot.PositionLabel} / {slot.Name}";
             slot.HasActiveRemote = true;
             slot.ShowAsRemotePrimary = projecting;
             slot.BoundRemotesText = pool.Count <= 1
@@ -353,7 +353,7 @@ public static class RemoteBindingHelper
             {
                 slot.ActiveRemoteName = names[0];
                 slot.ActiveRemoteStatusText = "● 已连接";
-                slot.ActiveRemoteBindHint = $"绑定：{slot.PositionLabel} / {slot.Name}";
+                slot.ActiveRemoteBindHint = $"投影：{slot.PositionLabel} / {slot.Name}";
                 slot.CanSwitchRemote = names.Count > 1;
             }
             else

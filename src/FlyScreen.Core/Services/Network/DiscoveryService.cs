@@ -49,12 +49,35 @@ public static class DiscoveryOrigin
         return Lan;
     }
 
-    /// <summary>合并来源：局域网优先于远程，远程优先于服务（避免同机被中继包降级）。</summary>
+    /// <summary>
+    /// 合并来源：
+    /// 远程探测可纠正误标的局域网；已是远程则不被普通局域网包降级；
+    /// 局域网仍优先于中转（同机双路径时避免被中继标成服务）。
+    /// </summary>
     public static int Prefer(int existing, int incoming)
     {
         if (existing is not (Lan or Remote or Service)) existing = Lan;
         if (incoming is not (Lan or Remote or Service)) incoming = Lan;
-        return Math.Min(existing, incoming);
+
+        // 远程配置探测 ↔ 误标 Lan：以远程为准
+        if (existing == Remote || incoming == Remote)
+        {
+            if (existing == Lan || incoming == Lan)
+                return Remote;
+            if (existing == Service || incoming == Service)
+                return Remote;
+            return Remote;
+        }
+
+        // 中转 ↔ 局域网：局域网优先（同机在局域网出现）
+        if (existing == Service || incoming == Service)
+        {
+            if (existing == Lan || incoming == Lan)
+                return Lan;
+            return Service;
+        }
+
+        return Lan;
     }
 }
 
@@ -194,16 +217,8 @@ public sealed class DiscoveryService : IAsyncDisposable
             {
                 var primaryPayload = BuildAnnouncePayload(BoundIp);
 
-                // 限播 + 全播：WSL 桥接上 255.255.255.255 常不可达，子网广播更稳
-                if (_subnetBroadcast != null)
-                {
-                    await udp.SendAsync(primaryPayload, primaryPayload.Length,
-                            new IPEndPoint(_subnetBroadcast, UdpPort))
-                        .ConfigureAwait(false);
-                }
-
-                await udp.SendAsync(primaryPayload, primaryPayload.Length,
-                        new IPEndPoint(IPAddress.Broadcast, UdpPort))
+                // 子网限播优先；全播仅作回退（WSL/VPN 上 255.255.255.255 常 HostUnreachable）
+                await TryAnnounceBroadcastAsync(udp, primaryPayload, UdpPort, _subnetBroadcast, BoundIp)
                     .ConfigureAwait(false);
 
                 // 全网卡逐口宣告（物理 + Tailscale 等 overlay），避免只走默认路由口
@@ -317,13 +332,7 @@ public sealed class DiscoveryService : IAsyncDisposable
             try
             {
                 var primary = BuildAnnouncePayload(BoundIp);
-                if (_subnetBroadcast != null)
-                {
-                    await udp.SendAsync(primary, primary.Length, new IPEndPoint(_subnetBroadcast, UdpPort))
-                        .ConfigureAwait(false);
-                }
-
-                await udp.SendAsync(primary, primary.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
+                await TryAnnounceBroadcastAsync(udp, primary, UdpPort, _subnetBroadcast, BoundIp)
                     .ConfigureAwait(false);
             }
             catch
@@ -420,13 +429,7 @@ public sealed class DiscoveryService : IAsyncDisposable
 
                 var payload = BuildAnnouncePayload(nic.IPv4);
                 var subnet = TryComputeBroadcast(nic.IPv4, nic.SubnetMask);
-                if (subnet != null)
-                {
-                    await sock.SendAsync(payload, payload.Length, new IPEndPoint(subnet, UdpPort))
-                        .ConfigureAwait(false);
-                }
-
-                await sock.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
+                await TryAnnounceBroadcastAsync(sock, payload, UdpPort, subnet, nic.IPv4)
                     .ConfigureAwait(false);
             }
             catch
@@ -500,8 +503,8 @@ public sealed class DiscoveryService : IAsyncDisposable
             // 正常情况下 WSL 已使用带后缀的 MachineName，不会走到此分支
 
             var origin = ResolvePacketOrigin(pkt.Origin, senderIp);
+            // 仅 IP/端口/来源等实质变化时通知，避免心跳刷 LastSeen 导致设备列表整表重绑闪烁
             UpsertPeer(pkt.MachineName, ip, pkt.TcpPort <= 0 ? 15155 : pkt.TcpPort, observedIp, origin, stickySeconds: 0);
-            PeersUpdated?.Invoke(GetPeers());
         }
         catch
         {
@@ -553,16 +556,9 @@ public sealed class DiscoveryService : IAsyncDisposable
         {
             try
             {
-                if (_subnetBroadcast != null)
-                {
-                    await udp.SendAsync(payload, payload.Length, new IPEndPoint(_subnetBroadcast, UdpPort))
-                        .ConfigureAwait(false);
+                if (await TryAnnounceBroadcastAsync(udp, payload, UdpPort, _subnetBroadcast, BoundIp)
+                        .ConfigureAwait(false))
                     any = true;
-                }
-
-                await udp.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
-                    .ConfigureAwait(false);
-                any = true;
             }
             catch (ObjectDisposedException)
             {
@@ -618,16 +614,9 @@ public sealed class DiscoveryService : IAsyncDisposable
                 catch { /* ignore */ }
 
                 var subnet = TryComputeBroadcast(nic.IPv4, nic.SubnetMask);
-                if (subnet != null)
-                {
-                    await sock.SendAsync(payload, payload.Length, new IPEndPoint(subnet, UdpPort))
-                        .ConfigureAwait(false);
+                if (await TryAnnounceBroadcastAsync(sock, payload, UdpPort, subnet, nic.IPv4)
+                        .ConfigureAwait(false))
                     any = true;
-                }
-
-                await sock.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Broadcast, UdpPort))
-                    .ConfigureAwait(false);
-                any = true;
             }
             catch
             {
@@ -686,6 +675,7 @@ public sealed class DiscoveryService : IAsyncDisposable
 
     private void Prune()
     {
+        var removed = false;
         lock (_gate)
         {
             var now = DateTime.UtcNow;
@@ -697,8 +687,14 @@ public sealed class DiscoveryService : IAsyncDisposable
                 })
                 .Select(kv => kv.Key).ToList();
             foreach (var k in stale)
+            {
                 _peers.Remove(k);
+                removed = true;
+            }
         }
+
+        if (removed)
+            RaisePeersUpdated();
     }
 
     public IReadOnlyList<DiscoveredPeer> GetPeers()
@@ -761,6 +757,7 @@ public sealed class DiscoveryService : IAsyncDisposable
         int origin,
         int stickySeconds)
     {
+        var changed = false;
         lock (_gate)
         {
             var now = DateTime.UtcNow;
@@ -779,19 +776,38 @@ public sealed class DiscoveryService : IAsyncDisposable
                         ? origin
                         : DiscoveryOrigin.Lan
                 };
-                return;
+                changed = true;
             }
+            else
+            {
+                var nextPort = tcpPort > 0 ? tcpPort : existing.TcpPort;
+                var nextObserved = IsUsableLanIpv4(observedIp) ? observedIp! : existing.ObservedIp;
+                var nextOrigin = DiscoveryOrigin.Prefer(existing.Origin, origin);
+                changed = !string.Equals(existing.Ip, ip, StringComparison.OrdinalIgnoreCase)
+                          || existing.TcpPort != nextPort
+                          || !string.Equals(existing.ObservedIp, nextObserved, StringComparison.OrdinalIgnoreCase)
+                          || existing.Origin != nextOrigin;
 
-            existing.Ip = ip;
-            existing.LastSeenUtc = now;
-            if (tcpPort > 0)
-                existing.TcpPort = tcpPort;
-            if (IsUsableLanIpv4(observedIp))
-                existing.ObservedIp = observedIp!;
-            if (stickyUntil > existing.StickyUntilUtc)
-                existing.StickyUntilUtc = stickyUntil;
-            existing.Origin = DiscoveryOrigin.Prefer(existing.Origin, origin);
+                existing.Ip = ip;
+                existing.LastSeenUtc = now;
+                if (tcpPort > 0)
+                    existing.TcpPort = tcpPort;
+                if (IsUsableLanIpv4(observedIp))
+                    existing.ObservedIp = observedIp!;
+                if (stickyUntil > existing.StickyUntilUtc)
+                    existing.StickyUntilUtc = stickyUntil;
+                existing.Origin = nextOrigin;
+            }
         }
+
+        if (changed)
+            RaisePeersUpdated();
+    }
+
+    private void RaisePeersUpdated()
+    {
+        try { PeersUpdated?.Invoke(GetPeers()); }
+        catch { /* ignore */ }
     }
 
     /// <summary>请名为 <paramref name="targetMachine"/> 的对端主动连回本机。未在布局中的实例会忽略。</summary>
@@ -881,6 +897,50 @@ public sealed class DiscoveryService : IAsyncDisposable
         Stop();
         return ValueTask.CompletedTask;
     }
+
+    /// <summary>
+    /// 子网限播优先；成功则不再发 255.255.255.255（虚拟/VPN/WSL 口上全播常 HostUnreachable，调试器会刷屏）。
+    /// /32 点对点（广播地址=本机）无广播面，直接跳过（依赖探测单播）。
+    /// </summary>
+    private static async Task<bool> TryAnnounceBroadcastAsync(
+        UdpClient sock, byte[] payload, int udpPort, IPAddress? subnetBroadcast, string? localIpv4)
+    {
+        if (subnetBroadcast != null && IsHostOnlyBroadcast(subnetBroadcast, localIpv4))
+            return false;
+
+        var sent = false;
+        if (subnetBroadcast != null)
+        {
+            sent = await TrySendUdpAsync(sock, payload, new IPEndPoint(subnetBroadcast, udpPort))
+                .ConfigureAwait(false);
+        }
+
+        if (!sent)
+        {
+            sent = await TrySendUdpAsync(sock, payload, new IPEndPoint(IPAddress.Broadcast, udpPort))
+                .ConfigureAwait(false);
+        }
+
+        return sent;
+    }
+
+    private static async Task<bool> TrySendUdpAsync(UdpClient sock, byte[] payload, IPEndPoint ep)
+    {
+        try
+        {
+            await sock.SendAsync(payload, payload.Length, ep).ConfigureAwait(false);
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsHostOnlyBroadcast(IPAddress broadcast, string? localIpv4)
+        => !string.IsNullOrWhiteSpace(localIpv4)
+           && IPAddress.TryParse(localIpv4, out var local)
+           && broadcast.Equals(local);
 
     private static IPAddress? TryComputeBroadcast(string ip, string? mask)
     {

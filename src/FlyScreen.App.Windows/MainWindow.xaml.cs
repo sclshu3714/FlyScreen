@@ -306,8 +306,21 @@ public partial class MainWindow : Window
         _host.StatusMessage += msg => Dispatcher.Invoke(() => StatusText.Text = msg);
         _host.ProjectionUserNotice += msg => Dispatcher.Invoke(() =>
             MessageBox.Show(this, msg, "投影", MessageBoxButton.OK, MessageBoxImage.Warning));
-        _host.ScreenExtend.HostSessionReady += () => Dispatcher.Invoke(RefreshTitleProjectButton);
-        _host.ScreenExtend.SessionEnded += () => Dispatcher.Invoke(RefreshTitleProjectButton);
+        _host.ScreenExtend.HostSessionReady += () => Dispatcher.Invoke(() =>
+        {
+            RefreshTitleProjectButton();
+            RefreshDiscovery();
+        });
+        _host.ScreenExtend.SinkSessionReady += () => Dispatcher.Invoke(() =>
+        {
+            RefreshTitleProjectButton();
+            RefreshDiscovery();
+        });
+        _host.ScreenExtend.SessionEnded += () => Dispatcher.Invoke(() =>
+        {
+            RefreshTitleProjectButton();
+            OnDeviceProjectSessionEnded();
+        });
         RefreshTitleProjectButton();
         AppLog.Changed += () => Dispatcher.Invoke(() =>
         {
@@ -691,7 +704,7 @@ public partial class MainWindow : Window
         RefreshSlotBoundRemotes();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
-        SyncRemoteBindingsToPeers("远程改绑已同步到布局内电脑");
+        SyncRemoteBindingsToPeers("远程投影关联已同步到布局内电脑");
         var pos = targets.FirstOrDefault(t =>
             string.Equals(t.DeviceId, selected, StringComparison.OrdinalIgnoreCase)).Label;
         if (string.IsNullOrEmpty(pos)) pos = selected;
@@ -713,7 +726,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 投影到本机槽位时统一用握手本机名，避免 Offer/首帧等待对不上
         var sink = binding.BoundLocalDeviceId.Trim();
+        var localSlot = _slots.FirstOrDefault(s =>
+            string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase));
+        if (localSlot?.IsLocal == true
+            || string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+            sink = LocalPeerIdentity.MachineName;
         try
         {
             // 请远程作为 Host，把画面推到绑定电脑（本机=绑定端时打开 Sink 播放器）
@@ -732,6 +751,10 @@ public partial class MainWindow : Window
             RefreshSlotBoundRemotes();
             SyncRemoteBindingsToPeers();
             StatusText.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
+        {
+            StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), "操作超时或已取消");
         }
         catch (Exception ex)
         {
@@ -1526,23 +1549,42 @@ public partial class MainWindow : Window
             _slots.ToList(),
             _endpoints.ToList(),
             _host.Settings.RemoteBindings,
-            LocalPeerIdentity.MachineName);
+            LocalPeerIdentity.MachineName,
+            CurrentDeviceProjectingPeer());
 
         var filter = DevFilterRemote?.IsChecked == true ? DeviceInventoryItem.KindRemote
             : DevFilterService?.IsChecked == true ? DeviceInventoryItem.KindService
             : DevFilterLocal?.IsChecked == true ? DeviceInventoryItem.KindLocal
             : (int?)null;
 
-        _deviceInventory.Clear();
-        foreach (var item in items)
-        {
-            if (filter is int kind && item.Kind != kind) continue;
-            _deviceInventory.Add(item);
-        }
+        var filtered = filter is int kind
+            ? items.Where(i => i.Kind == kind).ToList()
+            : items;
+        DeviceInventoryItem.ReplaceIfChanged(_deviceInventory, filtered);
 
         // 兼容：旧 DiscoveryList 仍可被其它路径引用（已折叠）
         if (DiscoveryList != null)
             DiscoveryList.ItemsSource = UnusedDiscoveredPeers();
+    }
+
+    /// <summary>设备管理直接投影：本机作 Sink 时对端即为投影源。</summary>
+    private string? CurrentDeviceProjectingPeer()
+    {
+        var se = _host.ScreenExtend;
+        if (!se.IsActive || se.Role != ScreenExtendRole.Sink)
+            return null;
+        return string.IsNullOrWhiteSpace(se.Peer) ? null : se.Peer;
+    }
+
+    private void OnDeviceProjectSessionEnded()
+    {
+        var peer = CurrentDeviceProjectingPeer();
+        // SessionEnded 时 Role 可能已清，用清单里仍标为投影中的项兜底清 ad-hoc
+        foreach (var item in _deviceInventory.Where(i => i.IsProjecting).ToList())
+            _host.Connections.RemoveAdHocPeer(item.Name);
+        if (!string.IsNullOrWhiteSpace(peer))
+            _host.Connections.RemoveAdHocPeer(peer);
+        RefreshDiscovery();
     }
 
     private List<DiscoveredPeer> UnusedDiscoveredPeers()
@@ -1762,7 +1804,7 @@ public partial class MainWindow : Window
                 break;
             case DeviceInventoryItem.KindRemote:
             case DeviceInventoryItem.KindService:
-                PromptBindDevice(item);
+                _ = ToggleDeviceProjectAsync(item);
                 break;
         }
     }
@@ -1785,28 +1827,66 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PromptBindDevice(DeviceInventoryItem item)
+    /// <summary>设备管理：直接投影到本机 / 停止投影（不绑布局）。</summary>
+    private async Task ToggleDeviceProjectAsync(DeviceInventoryItem item)
     {
-        var targets = RemoteBindingHelper.ListLayoutTargets(_slots);
-        if (targets.Count == 0)
+        var remote = (item.Name ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(remote)) return;
+
+        if (item.IsProjecting
+            || string.Equals(CurrentDeviceProjectingPeer(), remote, StringComparison.OrdinalIgnoreCase))
         {
-            StatusText.Text = Loc.T("Net.BindNoLayout");
+            try
+            {
+                await _host.ScreenExtend.StopAsync("device-mgmt-stop").ConfigureAwait(true);
+            }
+            catch { /* ignore */ }
+            _host.Connections.RemoveAdHocPeer(remote);
+            RefreshDiscovery();
+            StatusText.Text = string.Format(Loc.T("Remote.ProjectStopped"), remote);
             return;
         }
 
-        var selected = RemoteBindDialog.Show(this, item.Name, targets, item.BoundLocalDeviceId);
-        if (string.IsNullOrWhiteSpace(selected)) return;
+        try
+        {
+            StatusText.Text = Loc.T("Remote.Projecting") + " · " + remote;
+            await _host.Connections.EnsureAdHocPeerAsync(remote).ConfigureAwait(true);
+            var st = _host.Connections.GetPeerStatus(remote);
+            if (!st.AnyAlive && !st.Bidirectional)
+            {
+                _host.Connections.RemoveAdHocPeer(remote);
+                StatusText.Text = string.Format(Loc.T("Remote.ProjectNeedPeer"), remote);
+                return;
+            }
 
-        var bound = RemoteBindingHelper.Bind(_host.Settings, item, selected);
-        _host.Settings.Save();
-        RefreshSlotBoundRemotes();
-        RefreshDiscovery();
-        _ = _host.Connections.RefreshConfiguredPeersAsync();
-        SyncRemoteBindingsToPeers("远程绑定已同步到布局内电脑");
-        var pos = targets.FirstOrDefault(t =>
-            string.Equals(t.DeviceId, bound.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase)).Label;
-        if (string.IsNullOrEmpty(pos)) pos = bound.BoundLocalDeviceId;
-        StatusText.Text = string.Format(Loc.T("Net.BindDone"), item.Name, pos);
+            var sink = LocalPeerIdentity.MachineName;
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                sink,
+                remoteControl: true).ConfigureAwait(true);
+            if (!ok)
+            {
+                _host.Connections.RemoveAdHocPeer(remote);
+                StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+                RefreshDiscovery();
+                return;
+            }
+
+            RefreshDiscovery();
+            StatusText.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
+        {
+            _host.Connections.RemoveAdHocPeer(remote);
+            StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), "操作超时或已取消");
+            RefreshDiscovery();
+        }
+        catch (Exception ex)
+        {
+            _host.Connections.RemoveAdHocPeer(remote);
+            StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), ex.Message);
+            RefreshDiscovery();
+        }
     }
 
     private void PromptUnbindDevice(DeviceInventoryItem item)
@@ -1823,7 +1903,7 @@ public partial class MainWindow : Window
         RefreshSlotBoundRemotes();
         RefreshDiscovery();
         _ = _host.Connections.RefreshConfiguredPeersAsync();
-        SyncRemoteBindingsToPeers("远程解绑已同步到布局内电脑");
+        SyncRemoteBindingsToPeers("远程投影关联已同步到布局内电脑");
         StatusText.Text = string.Format(Loc.T("Net.UnbindDone"), item.Name);
     }
 
@@ -1933,6 +2013,13 @@ public partial class MainWindow : Window
         if (string.Equals(peer.MachineName, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
         {
             StatusText.Text = "不能添加本机";
+            return;
+        }
+
+        if (_host.Connections.IsLayoutIneligiblePeer(peer.MachineName)
+            || peer.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service)
+        {
+            StatusText.Text = $"{peer.MachineName} 是远程设备，不能加入电脑布局；请在设备管理中投影";
             return;
         }
 

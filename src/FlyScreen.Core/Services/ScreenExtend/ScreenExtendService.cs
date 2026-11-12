@@ -63,6 +63,13 @@ public sealed class ScreenExtendService : IDisposable
     /// <summary>从机侧：会话已建立，应打开全屏窗。</summary>
     public event Action? SinkSessionReady;
 
+    /// <summary>已在 Host 会话时重新触发采集（远程重复投影请求）。</summary>
+    public void NotifyHostSessionReady()
+    {
+        if (Role != ScreenExtendRole.Host) return;
+        try { HostSessionReady?.Invoke(); } catch { /* ignore */ }
+    }
+
     /// <summary>会话结束（任一方 / 断连）。</summary>
     public event Action? SessionEnded;
 
@@ -177,12 +184,18 @@ public sealed class ScreenExtendService : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         _hostRequestWait[requestId] = tcs;
 
-        // 本机即 Sink：额外等 Offer→Accept，避免对端只回执却未真正建会话
+        // 本机即 Sink：清掉卡住的旧会话，并等 Offer→Accept（首帧在播放器侧继续等，避免 WaitAsync 取消异常冒泡）
         TaskCompletionSource<bool>? sinkReady = null;
         Action? onSinkReady = null;
         var localIsSink = string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
         if (localIsSink)
         {
+            if (IsActive)
+            {
+                try { await StopAsync("reproject").ConfigureAwait(false); }
+                catch { /* ignore */ }
+            }
+
             sinkReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             onSinkReady = () =>
             {
@@ -206,38 +219,40 @@ public sealed class ScreenExtendService : IDisposable
                 RemoteControl = remoteControl,
                 Stop = false
             };
-            await _connections.SendToAsync(remotePeer, MessageType.ScreenExtendHostRequest,
-                MessageCodec.JsonBytes(req)).ConfigureAwait(false);
+            if (!await _connections.SendToAsync(remotePeer, MessageType.ScreenExtendHostRequest,
+                    MessageCodec.JsonBytes(req)).ConfigureAwait(false))
+                return (false, "无法向远程发送投影请求（控制连接不可用）");
 
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            linked.CancelAfter(timeout ?? TimeSpan.FromSeconds(20));
-            try
-            {
-                var result = await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);
-                if (!result.Ok)
-                    return (false, string.IsNullOrWhiteSpace(result.Error) ? "远程拒绝投影" : result.Error);
-
-                if (sinkReady != null)
-                {
-                    // 回执成功后仍等本机进入 Sink（Offer 可能略晚于 Result）
-                    using var sinkCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    sinkCts.CancelAfter(TimeSpan.FromSeconds(15));
-                    try
-                    {
-                        await sinkReady.Task.WaitAsync(sinkCts.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return (false, "远程已应答，但本机未收到投影画面会话");
-                    }
-                }
-
-                return (true, null);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
+            // 不用 WaitAsync(token)：CancelAfter 会在调试器刷 TaskCanceledException
+            var resultTask = tcs.Task;
+            var delayTask = Task.Delay(timeout ?? TimeSpan.FromSeconds(25), CancellationToken.None);
+            var completed = await Task.WhenAny(resultTask, delayTask).ConfigureAwait(false);
+            if (completed != resultTask)
                 return (false, "等待远程开始投影超时（请确认对端已更新并支持远程投影）");
+
+            var result = await resultTask.ConfigureAwait(false);
+            if (!result.Ok)
+                return (false, string.IsNullOrWhiteSpace(result.Error) ? "远程拒绝投影" : result.Error);
+
+            if (sinkReady != null)
+            {
+                // 回执成功后仍等本机进入 Sink（Offer 可能略晚于 Result）
+                if (sinkReady.Task.IsCompletedSuccessfully
+                    || await WaitTaskNoCancelAsync(sinkReady.Task, TimeSpan.FromSeconds(15)).ConfigureAwait(false))
+                    return (true, null);
+
+                return (false, "远程已应答，但本机未收到投影画面会话");
             }
+
+            return (true, null);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
+        {
+            return (false, "等待远程开始投影超时（请确认对端已更新并支持远程投影）");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
         }
         finally
         {
@@ -245,6 +260,16 @@ public sealed class ScreenExtendService : IDisposable
             if (onSinkReady != null)
                 SinkSessionReady -= onSinkReady;
         }
+    }
+
+    /// <summary>用 WhenAny+Delay 等待，避免 CancelAfter/WaitAsync 在调试器刷 TaskCanceledException。</summary>
+    private static async Task<bool> WaitTaskNoCancelAsync(Task task, TimeSpan timeout)
+    {
+        if (task.IsCompletedSuccessfully) return true;
+        if (task.IsCompleted) return task.IsCompletedSuccessfully;
+        var delay = Task.Delay(timeout, CancellationToken.None);
+        var done = await Task.WhenAny(task, delay).ConfigureAwait(false);
+        return done == task && task.IsCompletedSuccessfully;
     }
 
     /// <summary>请远程结束其 Host 推流（绑定电脑侧「退出投影」且本机未必在会话中时用）。</summary>
@@ -276,7 +301,8 @@ public sealed class ScreenExtendService : IDisposable
         int preferredWidth = 1920, int preferredHeight = 1080, int fps = 12,
         bool audioSync = false,
         bool remoteControl = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool waitForAccept = false)
     {
         if (string.IsNullOrWhiteSpace(peer))
             return (false, "未指定对端");
@@ -317,17 +343,47 @@ public sealed class ScreenExtendService : IDisposable
             RemoteControl = remoteControl
         };
 
+        TaskCompletionSource<bool>? acceptTcs = null;
+        Action? onHostReady = null;
+        if (waitForAccept)
+        {
+            acceptTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            onHostReady = () => acceptTcs.TrySetResult(true);
+            HostSessionReady += onHostReady;
+        }
+
         try
         {
             await _connections.SendToAsync(peer, MessageType.ScreenExtendOffer,
                 MessageCodec.JsonBytes(offer)).ConfigureAwait(false);
             Publish($"扩展屏：已向 {peer} 发起");
+
+            if (acceptTcs != null)
+            {
+                // WhenAny+Delay：避免 WaitAsync(CancelAfter) 刷 TaskCanceledException
+                if (!await WaitTaskNoCancelAsync(acceptTcs.Task, TimeSpan.FromSeconds(15)).ConfigureAwait(false))
+                {
+                    ClearSession();
+                    return (false, "对端未接受投影会话");
+                }
+            }
+
             return (true, null);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
+        {
+            ClearSession();
+            return (false, "对端未接受投影会话");
         }
         catch (Exception ex)
         {
             ClearSession();
             return (false, ex.Message);
+        }
+        finally
+        {
+            if (onHostReady != null)
+                HostSessionReady -= onHostReady;
         }
     }
 
@@ -378,7 +434,9 @@ public sealed class ScreenExtendService : IDisposable
         var payload = ScreenExtendFrameCodec.Encode(sid, width, height, seq, jpeg.Span);
         try
         {
-            _connections.SendLatest(peer!, MessageType.ScreenExtendFrame, payload);
+            if (!_connections.SendLatest(peer!, MessageType.ScreenExtendFrame, payload)
+                && seq <= 3)
+                Publish($"投影：向 {peer} 发送画面失败（链路不可用）");
         }
         catch
         {
@@ -547,12 +605,22 @@ public sealed class ScreenExtendService : IDisposable
 
         if (busyRole != ScreenExtendRole.None)
         {
-            var reason = ScreenExtendConflict.ReasonForRole(busyRole);
-            var notice = ScreenExtendConflict.DescribeLocalRejectOffer(peer, busyRole, busyPeer);
-            Publish(notice);
-            NotifyUser(notice);
-            await RejectAsync(peer, offer.SessionId, reason).ConfigureAwait(false);
-            return;
+            // 同对端重复 Offer：清掉卡在「等待投影画面」的旧 Sink，接受新会话
+            var sameSink = busyRole == ScreenExtendRole.Sink
+                           && string.Equals(busyPeer, peer, StringComparison.OrdinalIgnoreCase);
+            if (sameSink)
+            {
+                ClearSession();
+            }
+            else
+            {
+                var reason = ScreenExtendConflict.ReasonForRole(busyRole);
+                var notice = ScreenExtendConflict.DescribeLocalRejectOffer(peer, busyRole, busyPeer);
+                Publish(notice);
+                NotifyUser(notice);
+                await RejectAsync(peer, offer.SessionId, reason).ConfigureAwait(false);
+                return;
+            }
         }
 
         var accept = ShouldAcceptOffer?.Invoke(peer, offer) ?? true;

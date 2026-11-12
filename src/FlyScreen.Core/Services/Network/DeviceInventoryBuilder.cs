@@ -13,8 +13,10 @@ public static class DeviceInventoryBuilder
         IReadOnlyList<MachineSlot> slots,
         IReadOnlyList<ConnectionEndpoint>? endpoints,
         IReadOnlyList<RemoteBinding>? bindings,
-        string localMachineName)
+        string localMachineName,
+        string? projectingPeerName = null)
     {
+        var projecting = (projectingPeerName ?? "").Trim();
         var list = new List<DeviceInventoryItem>();
         var peerByName = peers
             .Where(p => !string.IsNullOrWhiteSpace(p.MachineName))
@@ -34,22 +36,41 @@ public static class DeviceInventoryBuilder
             listedNames.Add(localMachineName);
 
         // —— 本机 + 局域网发现 + 仅在布局中的槽位 → 本地 ——
+        // 匹配「连接配置·远程」的对端即使 Origin 曾被误标 Lan，也不进本地行
         var localNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(localMachineName))
             localNames.Add(localMachineName);
         foreach (var (name, peer) in peerByName)
         {
-            if (peer.Origin == DiscoveryOrigin.Lan
-                || string.Equals(name, localMachineName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(name, localMachineName, StringComparison.OrdinalIgnoreCase))
+            {
+                localNames.Add(name);
+                continue;
+            }
+
+            if (MatchesRemoteEndpoint(name, peer, endpoints)
+                || peer.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service)
+                continue;
+
+            if (peer.Origin == DiscoveryOrigin.Lan)
                 localNames.Add(name);
         }
         foreach (var name in slotByName.Keys)
         {
-            // 布局里的机器若已被标为远程/服务，不再当本地行（避免重复）
-            if (peerByName.TryGetValue(name, out var p)
-                && p.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service
-                && !string.Equals(name, localMachineName, StringComparison.OrdinalIgnoreCase))
+            // 布局里的机器若已被标为远程/服务，或命中远程连接配置，不再当本地行
+            if (string.Equals(name, localMachineName, StringComparison.OrdinalIgnoreCase))
+            {
+                localNames.Add(name);
                 continue;
+            }
+
+            if (peerByName.TryGetValue(name, out var p))
+            {
+                if (p.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service
+                    || MatchesRemoteEndpoint(name, p, endpoints))
+                    continue;
+            }
+
             localNames.Add(name);
         }
 
@@ -93,14 +114,20 @@ public static class DeviceInventoryBuilder
             listedNames.Add(name);
         }
 
-        // —— 远程配置探测到的对端 ——
+        // —— 远程配置探测到的对端（含 Origin 误标 Lan 但地址命中远程连接配置）——
         foreach (var (name, peer) in peerByName.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
         {
-            if (peer.Origin != DiscoveryOrigin.Remote) continue;
             if (listedNames.Contains(name)) continue;
+            var isRemote = peer.Origin == DiscoveryOrigin.Remote
+                           || MatchesRemoteEndpoint(name, peer, endpoints);
+            if (!isRemote) continue;
+            // Origin=Service 走中转段；此处只收远程
+            if (peer.Origin == DiscoveryOrigin.Service
+                && !MatchesRemoteEndpoint(name, peer, endpoints))
+                continue;
 
             var item = BuildNonLocalFromPeer(
-                peer, DeviceInventoryItem.KindRemote, "来自远程配置", slots, bindings, endpoints);
+                peer, DeviceInventoryItem.KindRemote, "来自远程配置", slots, bindings, endpoints, projecting);
             list.Add(item);
             listedNames.Add(name);
         }
@@ -112,7 +139,7 @@ public static class DeviceInventoryBuilder
             if (listedNames.Contains(name)) continue;
 
             var item = BuildNonLocalFromPeer(
-                peer, DeviceInventoryItem.KindService, "来自中转服务", slots, bindings, endpoints);
+                peer, DeviceInventoryItem.KindService, "来自中转服务", slots, bindings, endpoints, projecting);
             list.Add(item);
             listedNames.Add(name);
         }
@@ -137,18 +164,13 @@ public static class DeviceInventoryBuilder
                     string.Equals(b.EndpointId, ep.Id, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(b.RemoteName, key, StringComparison.OrdinalIgnoreCase));
                 var isBound = bound != null && !string.IsNullOrWhiteSpace(bound.BoundLocalDeviceId);
+                var isProjecting = !string.IsNullOrEmpty(projecting)
+                    && string.Equals(key, projecting, StringComparison.OrdinalIgnoreCase);
 
                 var status = d.Online ? "在线" : "离线";
                 if (d.RttMs is int ms) status += $" · {ms}ms";
                 status += " · 来自中转";
-                if (isBound)
-                {
-                    var pos = slots.FirstOrDefault(s =>
-                        string.Equals(s.Name, bound!.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))?.PositionLabel;
-                    status += string.IsNullOrEmpty(pos) ? $" · 已绑定：{bound!.BoundLocalDeviceId}" : $" · 已绑定：{pos}";
-                }
-                else
-                    status += " · 未绑定";
+                status += FormatProjectStatus(isProjecting, isBound, bound, slots);
 
                 list.Add(new DeviceInventoryItem
                 {
@@ -159,6 +181,7 @@ public static class DeviceInventoryBuilder
                     StatusText = status,
                     IsOnline = d.Online,
                     IsBound = isBound,
+                    IsProjecting = isProjecting,
                     BoundLocalDeviceId = bound?.BoundLocalDeviceId ?? "",
                     BoundPositionLabel = isBound
                         ? (slots.FirstOrDefault(s =>
@@ -184,15 +207,10 @@ public static class DeviceInventoryBuilder
 
             var bound = !string.IsNullOrWhiteSpace(b.BoundLocalDeviceId);
             var online = b.State is RemoteBinding.StateBound or RemoteBinding.StateProjecting;
+            var isProjecting = !string.IsNullOrEmpty(projecting)
+                && string.Equals(name, projecting, StringComparison.OrdinalIgnoreCase);
             var status = online ? "在线" : "离线";
-            if (bound)
-            {
-                var pos = slots.FirstOrDefault(s =>
-                    string.Equals(s.Name, b.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))?.PositionLabel;
-                status += string.IsNullOrEmpty(pos) ? $" · 已绑定：{b.BoundLocalDeviceId}" : $" · 已绑定：{pos}";
-            }
-            else
-                status += " · 未绑定";
+            status += FormatProjectStatus(isProjecting, bound, bound ? b : null, slots);
 
             list.Add(new DeviceInventoryItem
             {
@@ -205,6 +223,7 @@ public static class DeviceInventoryBuilder
                 StatusText = status,
                 IsOnline = online,
                 IsBound = bound,
+                IsProjecting = isProjecting,
                 BoundLocalDeviceId = b.BoundLocalDeviceId,
                 BoundPositionLabel = bound
                     ? (slots.FirstOrDefault(s =>
@@ -218,13 +237,34 @@ public static class DeviceInventoryBuilder
         return list;
     }
 
+    private static string FormatProjectStatus(
+        bool isProjecting,
+        bool isBound,
+        RemoteBinding? bound,
+        IReadOnlyList<MachineSlot> slots)
+    {
+        if (isProjecting)
+            return " · 投影中";
+        if (isBound && bound != null)
+        {
+            var pos = slots.FirstOrDefault(s =>
+                string.Equals(s.Name, bound.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))?.PositionLabel;
+            return string.IsNullOrEmpty(pos)
+                ? $" · 已投影到：{bound.BoundLocalDeviceId}"
+                : $" · 已投影到：{pos}";
+        }
+
+        return " · 未投影";
+    }
+
     private static DeviceInventoryItem BuildNonLocalFromPeer(
         DiscoveredPeer peer,
         int kind,
         string sourceHint,
         IReadOnlyList<MachineSlot> slots,
         IReadOnlyList<RemoteBinding>? bindings,
-        IReadOnlyList<ConnectionEndpoint>? endpoints)
+        IReadOnlyList<ConnectionEndpoint>? endpoints,
+        string projectingPeerName)
     {
         var name = peer.MachineName.Trim();
         var address = peer.TcpPort > 0 ? $"{peer.Ip}:{peer.TcpPort}" : peer.Ip;
@@ -237,17 +277,12 @@ public static class DeviceInventoryBuilder
                 || string.IsNullOrWhiteSpace(b.EndpointId)
                 || string.Equals(b.EndpointId, epId, StringComparison.OrdinalIgnoreCase)));
         var isBound = bound != null && !string.IsNullOrWhiteSpace(bound.BoundLocalDeviceId);
+        var isProjecting = !string.IsNullOrEmpty(projectingPeerName)
+            && string.Equals(name, projectingPeerName, StringComparison.OrdinalIgnoreCase);
 
         var status = "在线";
         status += $" · {sourceHint}";
-        if (isBound)
-        {
-            var pos = slots.FirstOrDefault(s =>
-                string.Equals(s.Name, bound!.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))?.PositionLabel;
-            status += string.IsNullOrEmpty(pos) ? $" · 已绑定：{bound!.BoundLocalDeviceId}" : $" · 已绑定：{pos}";
-        }
-        else
-            status += " · 未绑定";
+        status += FormatProjectStatus(isProjecting, isBound, bound, slots);
 
         return new DeviceInventoryItem
         {
@@ -258,6 +293,7 @@ public static class DeviceInventoryBuilder
             StatusText = status,
             IsOnline = true,
             IsBound = isBound,
+            IsProjecting = isProjecting,
             BoundLocalDeviceId = bound?.BoundLocalDeviceId ?? "",
             BoundPositionLabel = isBound
                 ? (slots.FirstOrDefault(s =>
@@ -296,6 +332,27 @@ public static class DeviceInventoryBuilder
         }
 
         return "";
+    }
+
+    /// <summary>是否命中「连接配置」里的远程行（按验证名或地址）。</summary>
+    private static bool MatchesRemoteEndpoint(
+        string name,
+        DiscoveredPeer peer,
+        IReadOnlyList<ConnectionEndpoint>? endpoints)
+    {
+        foreach (var ep in endpoints ?? Array.Empty<ConnectionEndpoint>())
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote)
+                continue;
+            if (!string.IsNullOrWhiteSpace(ep.VerifiedPeerName)
+                && string.Equals(ep.VerifiedPeerName, name, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (AddressMentionsHost(ep.Address, peer.Ip)
+                || AddressMentionsHost(ep.Address, peer.ObservedIp))
+                return true;
+        }
+
+        return false;
     }
 
     private static bool AddressMentionsHost(string? address, string? host)

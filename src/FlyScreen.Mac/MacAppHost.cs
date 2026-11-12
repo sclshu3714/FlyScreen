@@ -426,6 +426,8 @@ public sealed class MacAppHost : IAsyncDisposable
                        && string.Equals(ScreenExtend.Peer, sink, StringComparison.OrdinalIgnoreCase);
             if (!same)
                 return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            Projection.Configure(DisplayProjectionMode.Clone, choice, LayoutEdgeSide.Unknown);
+            try { ScreenExtend.NotifyHostSessionReady(); } catch { /* ignore */ }
             return (true, null);
         }
 

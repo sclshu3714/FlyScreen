@@ -5,7 +5,7 @@ using FlyScreen.Services.Network;
 
 namespace FlyScreen;
 
-/// <summary>将远程/中转设备绑定到电脑布局中的某台电脑。</summary>
+/// <summary>将远程/中转设备投影到电脑布局中的某台电脑。</summary>
 public partial class RemoteBindDialog : Window
 {
     public string? SelectedDeviceId { get; private set; }

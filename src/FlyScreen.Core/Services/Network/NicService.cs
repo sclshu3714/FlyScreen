@@ -348,14 +348,28 @@ public static class NicService
 
     public static async Task<string?> ResolveHostAsync(string hostOrIp, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(hostOrIp))
+            return null;
         if (IPAddress.TryParse(hostOrIp, out _))
             return hostOrIp;
 
+        // Windows 计算机名（无点）通常不在 DNS 里，免去 GetAddrInfo「不知道这样的主机」
+        if (!hostOrIp.Contains('.', StringComparison.Ordinal))
+            return null;
+
         try
         {
-            var entry = await Dns.GetHostEntryAsync(hostOrIp, ct).ConfigureAwait(false);
-            var v4 = entry.AddressList.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+            var addrs = await Dns.GetHostAddressesAsync(hostOrIp, ct).ConfigureAwait(false);
+            var v4 = addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
             return v4?.ToString();
+        }
+        catch (SocketException)
+        {
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {

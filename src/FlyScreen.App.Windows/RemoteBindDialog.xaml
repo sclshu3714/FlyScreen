@@ -1,7 +1,7 @@
 <Window x:Class="FlyScreen.RemoteBindDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="绑定到电脑布局"
+        Title="投影到电脑"
         Width="440"
         MinWidth="380"
         SizeToContent="Height"
@@ -184,7 +184,7 @@
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
-      <TextBlock x:Name="TitleText" Text="绑定到电脑布局" FontSize="15" FontWeight="SemiBold"
+      <TextBlock x:Name="TitleText" Text="投影到电脑" FontSize="15" FontWeight="SemiBold"
                  TextWrapping="Wrap" Margin="0,0,0,8"/>
       <TextBlock x:Name="HintText" Grid.Row="1" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"
                  LineHeight="20" Margin="0,0,0,14"/>
@@ -193,7 +193,7 @@
       <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
         <Button x:Name="CancelBtn" Style="{StaticResource DlgNormalBtn}" Content="取消"
                 IsCancel="True" Click="Cancel_Click"/>
-        <Button x:Name="OkBtn" Style="{StaticResource DlgPrimaryBtn}" Content="绑定"
+        <Button x:Name="OkBtn" Style="{StaticResource DlgPrimaryBtn}" Content="投影"
                 IsDefault="True" Click="Ok_Click"/>
       </StackPanel>
     </Grid>

@@ -43,7 +43,7 @@ public sealed class RemoteBindingSyncHelper
         await _connections.BroadcastAsync(MessageType.RemoteBindingSync, payload, PeerCaps.LayoutSync)
             .ConfigureAwait(false);
         StatusMessage?.Invoke(string.IsNullOrWhiteSpace(statusHint)
-            ? "远程绑定已同步到布局内电脑"
+            ? "远程投影关联已同步到布局内电脑"
             : statusHint);
     }
 

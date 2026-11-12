@@ -23,6 +23,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     private readonly ConcurrentDictionary<string, long> _layoutJoinUntil = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, long> _keyMismatchNotice = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, long> _connectFailNotice = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>设备管理直接投影等临时保活对端（不进布局/绑定）。</summary>
+    private readonly ConcurrentDictionary<string, byte> _adHocPeers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _outboundBusy = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _bulkBusy = new(StringComparer.OrdinalIgnoreCase);
     private long _lastDialTick;
@@ -145,6 +147,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         _discovery.Stop();
 
         await DropAllPeerLinksAsync().ConfigureAwait(false);
+        _adHocPeers.Clear();
 
         _cts = null;
     }
@@ -164,7 +167,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     public IEnumerable<string> ConfiguredPeers()
     {
         _settings.EnsureLocalMachineSlot();
-        // 布局槽位中的对端 + 已绑定的远程/中转设备名；仅「测试通过」的连接配置不在此列，不会真连
+        // 布局槽位 + 远程绑定 + 临时投影保活对端
         var names = _settings.MachineSlots
             .Where(m => !string.IsNullOrWhiteSpace(m))
             .Where(m => !string.Equals(m, LocalMachine, StringComparison.OrdinalIgnoreCase))
@@ -181,7 +184,106 @@ public sealed class ConnectionManager : IAsyncDisposable
             names.Add(n);
         }
 
+        foreach (var n in _adHocPeers.Keys)
+        {
+            if (string.Equals(n, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                continue;
+            names.Add(n);
+        }
+
         return names.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>设备管理直接投影：把对端纳入保活并尝试建连（不写布局/绑定）。</summary>
+    public async Task EnsureAdHocPeerAsync(string peerName, CancellationToken ct = default)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)
+            || string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _adHocPeers[name] = 0;
+        if (!IsRunning)
+            await StartAsync().ConfigureAwait(false);
+        var token = ct;
+        if (_cts != null)
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+            token = linked.Token;
+            await EnsureOutboundAsync(name, token).ConfigureAwait(false);
+            await EnsureOutboundBulkAsync(name, token).ConfigureAwait(false);
+            return;
+        }
+
+        await EnsureOutboundAsync(name, token).ConfigureAwait(false);
+        await EnsureOutboundBulkAsync(name, token).ConfigureAwait(false);
+    }
+
+    public void RemoveAdHocPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _adHocPeers.TryRemove(name, out _);
+    }
+
+    public bool IsAdHocPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        return !string.IsNullOrWhiteSpace(name) && _adHocPeers.ContainsKey(name);
+    }
+
+    /// <summary>
+    /// 远程/中转来源不可进电脑布局（布局仅局域网；远程用设备管理投影）。
+    /// </summary>
+    public bool IsLayoutIneligiblePeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return true;
+        if (string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        foreach (var p in _discovery.GetPeers())
+        {
+            if (!string.Equals(p.MachineName, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (p.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service)
+                return true;
+            if (MatchesRemoteConfiguredEndpoint(name, p.Ip, p.ObservedIp))
+                return true;
+        }
+
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote && ep.Kind != ConnectionEndpoint.KindRelay)
+                continue;
+            if (!string.IsNullOrWhiteSpace(ep.VerifiedPeerName)
+                && string.Equals(ep.VerifiedPeerName, name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool MatchesRemoteConfiguredEndpoint(string name, string? ip, string? observedIp)
+    {
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote)
+                continue;
+            if (!string.IsNullOrWhiteSpace(ep.VerifiedPeerName)
+                && string.Equals(ep.VerifiedPeerName, name, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrWhiteSpace(ip)
+                && !string.IsNullOrWhiteSpace(ep.Address)
+                && ep.Address.Contains(ip, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrWhiteSpace(observedIp)
+                && !string.IsNullOrWhiteSpace(ep.Address)
+                && ep.Address.Contains(observedIp, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public bool IsPeerReachable(string name)
@@ -703,13 +805,17 @@ public sealed class ConnectionManager : IAsyncDisposable
             client = null;
             WireSession(session);
 
+            var layoutJoin = !bulk && IsLayoutJoinArmed(peerName);
+            // 控制面与 bulk 均可带 AdHoc：对端不在布局时靠此建临时链（投影）
+            var adHoc = !layoutJoin && IsAdHocPeer(peerName);
             var hs = MessageCodec.EncodeJson(MessageType.Handshake, LocalPeerIdentity.Enrich(new HandshakePayload
             {
                 MachineName = LocalMachine,
                 SecurityKey = _settings.SecurityKey,
                 LocalIp = AdvertisedLocalIp,
                 Channel = bulk ? PeerChannel.Bulk : PeerChannel.Control,
-                RequestLayoutJoin = !bulk && IsLayoutJoinArmed(peerName)
+                RequestLayoutJoin = layoutJoin,
+                AdHocConnect = adHoc
             }));
             // Tailscale/VPN 握手回包也可能慢于局域网的 3s
             var ackTimeout = connectTimeout > TimeSpan.FromSeconds(5)
@@ -819,6 +925,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         var list = new List<(string Ip, int Port)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var defaultPort = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
 
         void Add(string? ip, int port)
         {
@@ -828,15 +935,35 @@ public sealed class ConnectionManager : IAsyncDisposable
             list.Add((ip, port));
         }
 
+        async Task AddHostAsync(string? hostOrIp, int port)
+        {
+            if (string.IsNullOrWhiteSpace(hostOrIp) || port <= 0) return;
+            if (IPAddress.TryParse(hostOrIp, out _))
+            {
+                Add(hostOrIp, port);
+                return;
+            }
+
+            // 配置里写的是主机名时才解析；解析失败不阻塞其它候选
+            var resolved = await NicService.ResolveHostAsync(hostOrIp, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(resolved))
+                Add(resolved, port);
+        }
+
         // 用户验证过的远程地址优先（Tailscale 等）；发现到的局域网 IP 可能 SYN 通不了仍要回退
         foreach (var t in EnumerateConfiguredEndpointTargets(peerName))
-            Add(t.Ip, t.Port);
+            await AddHostAsync(t.Host, t.Port).ConfigureAwait(false);
 
-        if (_discovery.TryGetConnectTargets(peerName, _settings.TcpPort, out var found))
+        if (_discovery.TryGetConnectTargets(peerName, defaultPort, out var found))
         {
             foreach (var t in found)
                 Add(t.Ip, t.Port);
         }
+
+        // 发现表 FindIp 兜底（与 TryGetConnectTargets 同源，防止漏收）
+        var discIp = _discovery.FindIp(peerName);
+        if (!string.IsNullOrWhiteSpace(discIp))
+            Add(discIp, defaultPort);
 
         if (_links.TryGetValue(peerName, out var link))
         {
@@ -847,27 +974,42 @@ public sealed class ConnectionManager : IAsyncDisposable
                      })
             {
                 if (DiscoveryService.IsUsableLanIpv4(known))
-                    Add(known, _settings.TcpPort);
+                    Add(known, defaultPort);
             }
         }
 
-        if (list.Count == 0)
+        // 切勿把 Windows 计算机名拿去 DNS（会「不知道这样的主机」刷屏）；仅 FQDN 才回退解析
+        if (list.Count == 0 && LooksLikeDnsHost(peerName))
         {
             var dns = await NicService.ResolveHostAsync(peerName, ct).ConfigureAwait(false);
-            if (DiscoveryService.IsUsableLanIpv4(dns))
-                Add(dns, _settings.TcpPort);
+            if (!string.IsNullOrWhiteSpace(dns))
+                Add(dns, defaultPort);
         }
 
         return list;
     }
 
-    private IEnumerable<(string Ip, int Port)> EnumerateConfiguredEndpointTargets(string peerName)
+    /// <summary>含点且非纯 IP → 才可能是 DNS 主机名；NetBIOS 计算机名不含点。</summary>
+    private static bool LooksLikeDnsHost(string? host)
+        => !string.IsNullOrWhiteSpace(host)
+           && host.Contains('.')
+           && !IPAddress.TryParse(host, out _);
+
+    private IEnumerable<(string Host, int Port)> EnumerateConfiguredEndpointTargets(string peerName)
     {
         foreach (var b in _settings.RemoteBindings ?? [])
         {
             if (!string.Equals(b.RemoteName, peerName, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (TryParseConnectEndpoint(b.Endpoint, out var host, out var port))
+                yield return (host, port);
+
+            // 绑定 Endpoint 为空时，仍用 EndpointId 找回已测通的连接配置地址
+            if (string.IsNullOrWhiteSpace(b.EndpointId))
+                continue;
+            var byId = (_settings.ConnectionEndpoints ?? [])
+                .FirstOrDefault(e => string.Equals(e.Id, b.EndpointId, StringComparison.OrdinalIgnoreCase));
+            if (byId != null && TryParseConnectEndpoint(byId.Address, out host, out port))
                 yield return (host, port);
         }
 
@@ -975,9 +1117,10 @@ public sealed class ConnectionManager : IAsyncDisposable
 
             if (completed != connectTask)
             {
-                // 超时或外部取消：关掉 socket，让 ConnectAsync 尽快结束
+                // 超时或外部取消：关掉 socket，让 ConnectAsync 尽快结束。
+                // 不 await 失败任务，避免 HostUnreachable 等在调试器里刷一阶异常栈。
                 try { client.Close(); } catch { /* ignore */ }
-                try { await connectTask.ConfigureAwait(false); } catch { /* ignore */ }
+                ObserveConnectFault(connectTask);
                 return false;
             }
 
@@ -989,11 +1132,31 @@ public sealed class ConnectionManager : IAsyncDisposable
             try { client.Close(); } catch { /* ignore */ }
             return false;
         }
+        catch (SocketException)
+        {
+            try { client.Close(); } catch { /* ignore */ }
+            return false;
+        }
         catch
         {
             try { client.Close(); } catch { /* ignore */ }
             return false;
         }
+    }
+
+    private static void ObserveConnectFault(Task connectTask)
+    {
+        if (connectTask.IsCompleted)
+        {
+            _ = connectTask.Exception;
+            return;
+        }
+
+        _ = connectTask.ContinueWith(
+            static t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private void WireSession(PeerSession session)
@@ -1124,9 +1287,16 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         var isBulk = hs.Channel == PeerChannel.Bulk;
 
-        // 仅接受已在布局槽位中的电脑；禁止入站自动占空槽（否则移除后会被对端重连加回）
-        // bulk 通道不得触发布局加入
+        // 布局成员 / 临时投影保活 / 布局加入请求；禁止无关主机入站占槽
+        // bulk 不得触发布局加入；临时投影不写布局
         var configured = ConfiguredPeers().Contains(hs.MachineName, StringComparer.OrdinalIgnoreCase);
+        if (!configured && hs.AdHocConnect)
+        {
+            _adHocPeers[hs.MachineName.Trim()] = 0;
+            configured = true;
+            if (!isBulk)
+                StatusMessage?.Invoke($"已接受临时连接 ← {hs.MachineName}（投影/直连，不进布局）");
+        }
         if (!configured && !isBulk && hs.RequestLayoutJoin && TryAcceptLayoutJoin != null)
         {
             if (TryAcceptLayoutJoin(hs.MachineName))
@@ -1433,11 +1603,8 @@ public sealed class ConnectionManager : IAsyncDisposable
         {
             var a = outbound is { IsAlive: true } ? outbound : null;
             var b = inbound is { IsAlive: true } ? inbound : null;
-            PeerSession? primary;
-            if (a != null && b != null)
-                primary = a.LastRecvUtc >= b.LastRecvUtc ? a : b;
-            else
-                primary = a ?? b;
+            // 优先入站回写：远程影子投影常见「仅对端连入本机」，出站 bulk 虽 Alive 但大帧发不出
+            var primary = b ?? a;
             primary?.SendLatest(type, payload);
         }
 
