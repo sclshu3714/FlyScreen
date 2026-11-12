@@ -75,6 +75,16 @@ public sealed class AppSettings
     public string PreferredNicId { get; set; } = "";
     /// <summary>对本机发现/握手名的覆盖；空则自动（WSL 会加发行版后缀避免与宿主机撞名）。</summary>
     public string MachineNameOverride { get; set; } = "";
+    /// <summary>
+    /// 连接配置附加行（远程设备 / 中转服务）。缺省空列表；旧端忽略即可，不进 LayoutSync。
+    /// </summary>
+    public List<ConnectionEndpoint> ConnectionEndpoints { get; set; } = [];
+    /// <summary>
+    /// 远程设备绑定池（按 BoundLocalDeviceId 归属本地电脑）。仅本机 UI/后台状态，不进 LayoutSync。
+    /// </summary>
+    public List<RemoteBinding> RemoteBindings { get; set; } = [];
+    /// <summary>各本地设备当前展示的远程 Id（LocalDeviceId → RemoteId）。</summary>
+    public Dictionary<string, string> ActiveRemoteByLocalDevice { get; set; } = new();
     public int SwitchHotkeyMode { get; set; } // 0=F1-F4, 1=1-4, 2=禁用
     /// <summary>禁用前的切换热键模式（0/1），取消禁用时恢复。</summary>
     public int SwitchHotkeyModeBeforeOff { get; set; }
@@ -99,7 +109,9 @@ public sealed class AppSettings
             if (File.Exists(path))
             {
                 var json = File.ReadAllText(path);
-                return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+                var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+                loaded.EnsureCollections();
+                return loaded;
             }
         }
         catch
@@ -108,8 +120,18 @@ public sealed class AppSettings
         }
 
         var s = new AppSettings();
+        s.EnsureCollections();
         s.EnsureLocalMachineSlot();
         return s;
+    }
+
+    /// <summary>反序列化后补齐新增集合，避免旧 JSON 缺字段导致 null。</summary>
+    public void EnsureCollections()
+    {
+        ConnectionEndpoints ??= [];
+        RemoteBindings ??= [];
+        ActiveRemoteByLocalDevice ??= new Dictionary<string, string>();
+        MachineSlots ??= ["", "", "", ""];
     }
 
     public void Save()

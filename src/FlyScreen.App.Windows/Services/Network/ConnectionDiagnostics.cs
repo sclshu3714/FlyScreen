@@ -34,6 +34,8 @@ public sealed class ConnectionDiagnostics
         var nic = NicService.ResolvePreferred(s.PreferredNicId, s.PreferredLocalIp);
         if (nic == null)
             report.Add("网卡", "未解析到可用网卡，请在网络设置中选择", DiagnosticLevel.Error);
+        else if (NicService.IsAutomatic(nic))
+            report.Add("网卡", $"{nic.Name}（0.0.0.0）", DiagnosticLevel.Ok);
         else
             report.Add("网卡", $"{nic.Name} ({nic.IPv4})", DiagnosticLevel.Ok);
 

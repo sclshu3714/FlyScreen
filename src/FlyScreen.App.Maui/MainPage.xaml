@@ -317,70 +317,155 @@
                     </Grid>
                 </ScrollView>
 
-                <!-- ===== 网络设置（Auto + *，底部按钮独立在外） ===== -->
-                <Grid x:Name="PageNetwork" RowDefinitions="Auto,*" RowSpacing="12" IsVisible="False">
-                    <Border Style="{StaticResource Card}" VerticalOptions="Start">
-                        <VerticalStackLayout Spacing="10">
-                            <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" />
-                            <Label x:Name="NicHintText" Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。" TextColor="{DynamicResource Muted}" FontSize="12" />
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" HeightRequest="40">
-                                <Picker x:Name="NicPicker" HeightRequest="40" VerticalOptions="Center"
-                          Title="" ItemDisplayBinding="{Binding ShortDisplay}" />
-                                <Button x:Name="RefreshNicsBtn" Grid.Column="1" Text="刷新网卡" Style="{StaticResource NormalBtn}"
-                          VerticalOptions="Center" Clicked="RefreshNics_Clicked" />
+                <!-- ===== 网络设置：连接配置 / 设备管理 ===== -->
+                <Grid x:Name="PageNetwork" RowDefinitions="Auto,*" RowSpacing="10" IsVisible="False">
+                    <HorizontalStackLayout x:Name="NetworkBreadcrumbHost" />
+                    <Grid Grid.Row="1">
+                        <Border x:Name="PanelConnConfig" Style="{StaticResource Card}">
+                            <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label x:Name="ConnConfigTitleText" Text="连接配置" FontSize="15" FontAttributes="Bold" />
+                                        <Label x:Name="ConnConfigHintText"
+                                               Text="本机网卡用于局域网；可添加远程/中转（旧端忽略未知配置）。"
+                                               TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                                    </VerticalStackLayout>
+                                    <Button x:Name="AddEndpointBtn" Grid.Column="1" Text="+" WidthRequest="32" HeightRequest="28"
+                                            Padding="0" FontSize="16" FontAttributes="Bold"
+                                            TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
+                                            Clicked="AddEndpoint_Clicked" />
+                                </Grid>
+                                <Border Grid.Row="1" BackgroundColor="{DynamicResource ListBg}" Stroke="{DynamicResource Line}"
+                                        StrokeThickness="1" StrokeShape="RoundRectangle 8" Padding="12,8">
+                                    <Grid ColumnDefinitions="120,*,Auto">
+                                        <Label x:Name="ConnColType" Text="类型" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
+                                        <Label x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
+                                        <Label x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
+                                    </Grid>
+                                </Border>
+                                <ScrollView Grid.Row="2">
+                                    <VerticalStackLayout Spacing="0">
+                                        <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
+                                                StrokeThickness="0,0,0,1" Padding="12,10">
+                                            <Grid ColumnDefinitions="100,*,96" ColumnSpacing="8">
+                                                <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" VerticalOptions="Center" />
+                                                <Picker x:Name="NicPicker" Grid.Column="1" HeightRequest="36"
+                                                        ItemDisplayBinding="{Binding ShortDisplay}" />
+                                                <Button x:Name="RefreshNicsBtn" Grid.Column="2" Text="↻" HeightRequest="28"
+                                                        Padding="0" FontSize="14" FontAttributes="Bold"
+                                                        TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
+                                                        BorderColor="{DynamicResource Blue}" BorderWidth="1" CornerRadius="6"
+                                                        Clicked="RefreshNics_Clicked" />
+                                            </Grid>
+                                        </Border>
+                                        <CollectionView x:Name="EndpointList" HeightRequest="160">
+                                            <CollectionView.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
+                                                            StrokeThickness="0,0,0,1" Padding="12,10">
+                                                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="100,*,96" ColumnSpacing="8" RowSpacing="4">
+                                                            <Picker Title="类型" SelectedIndex="{Binding Kind}" VerticalOptions="Center">
+                                                                <Picker.Items>
+                                                                    <x:String>远程</x:String>
+                                                                    <x:String>中转服务</x:String>
+                                                                </Picker.Items>
+                                                            </Picker>
+                                                            <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
+                                                                   Placeholder="远程 host:port / 中转 wss://…" />
+                                                            <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
+                                                                <Button Text="⚡" HeightRequest="28" Padding="0" FontSize="14"
+                                                                        TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
+                                                                        BorderColor="{DynamicResource Blue}" BorderWidth="1" CornerRadius="6"
+                                                                        CommandParameter="{Binding}" Clicked="TestEndpoint_Clicked" />
+                                                                <Button Grid.Column="2" Text="−" HeightRequest="28" Padding="0" FontSize="14"
+                                                                        TextColor="{DynamicResource Warn}" BackgroundColor="{DynamicResource WarnSoft}"
+                                                                        BorderColor="{DynamicResource Warn}" BorderWidth="1" CornerRadius="6"
+                                                                        CommandParameter="{Binding}" Clicked="DeleteEndpoint_Clicked" />
+                                                            </Grid>
+                                                            <Label Grid.Row="1" Grid.Column="1" Text="{Binding StatusText}"
+                                                                   FontSize="11" TextColor="{DynamicResource Muted}" />
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </CollectionView.ItemTemplate>
+                                        </CollectionView>
+                                        <CollectionView x:Name="DiscoveryList" IsVisible="False" HeightRequest="0" />
+                                    </VerticalStackLayout>
+                                </ScrollView>
+                                <Grid Grid.Row="3" ColumnDefinitions="Auto,100,Auto,100" ColumnSpacing="8">
+                                    <Label x:Name="TcpPortLabel" Text="TCP" VerticalOptions="Center" TextColor="{DynamicResource Muted}" />
+                                    <Entry x:Name="TcpPortEntry" Grid.Column="1" Keyboard="Numeric" Text="15155" HeightRequest="34" />
+                                    <Label x:Name="UdpPortLabel" Grid.Column="2" Text="发现" VerticalOptions="Center" TextColor="{DynamicResource Muted}" />
+                                    <Entry x:Name="UdpPortEntry" Grid.Column="3" Keyboard="Numeric" Text="15156" HeightRequest="34" />
+                                </Grid>
                             </Grid>
-                            <Grid ColumnDefinitions="Auto,100,Auto,100" ColumnSpacing="8">
-                                <Label x:Name="TcpPortLabel" Text="TCP 端口" VerticalOptions="Center" Margin="0,0,8,0" />
-                                <Entry x:Name="TcpPortEntry" Grid.Column="1" Keyboard="Numeric" Text="15155" HeightRequest="34" />
-                                <Label x:Name="UdpPortLabel" Grid.Column="2" Text="发现端口" VerticalOptions="Center" Margin="12,0,8,0" />
-                                <Entry x:Name="UdpPortEntry" Grid.Column="3" Keyboard="Numeric" Text="15156" HeightRequest="34" />
+                        </Border>
+                        <Border x:Name="PanelDeviceMgmt" Style="{StaticResource Card}" IsVisible="False">
+                            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label x:Name="DiscoveryTitleText" Text="设备管理" FontSize="15" FontAttributes="Bold" />
+                                        <Label x:Name="DiscoveryHintText"
+                                               Text="刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。"
+                                               TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
+                                    </VerticalStackLayout>
+                                    <Button x:Name="RefreshDiscoveryBtn" Grid.Column="1" Text="↻" WidthRequest="32" HeightRequest="28"
+                                            Padding="0" TextColor="{DynamicResource Blue}" Style="{StaticResource NormalBtn}"
+                                            Clicked="RefreshDiscovery_Clicked" />
+                                </Grid>
+                                <HorizontalStackLayout Grid.Row="1" Spacing="12">
+                                    <RadioButton x:Name="DevFilterAll" Content="全部" IsChecked="True" CheckedChanged="DevFilter_Changed" />
+                                    <RadioButton x:Name="DevFilterLocal" Content="本地" CheckedChanged="DevFilter_Changed" />
+                                    <RadioButton x:Name="DevFilterRemote" Content="远程" CheckedChanged="DevFilter_Changed" />
+                                    <RadioButton x:Name="DevFilterService" Content="服务" CheckedChanged="DevFilter_Changed" />
+                                </HorizontalStackLayout>
+                                <CollectionView x:Name="DeviceInventoryList" Grid.Row="2" BackgroundColor="{DynamicResource ListBg}">
+                                    <CollectionView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Stroke="{DynamicResource Line}" StrokeThickness="0,0,0,1" Padding="10,8"
+                                                    BackgroundColor="{DynamicResource CardBg}">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                    <VerticalStackLayout Spacing="2">
+                                                        <Label Text="{Binding Name}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                                                        <Label FontSize="12" TextColor="{DynamicResource Muted}" LineBreakMode="TailTruncation">
+                                                            <Label.FormattedText>
+                                                                <FormattedString>
+                                                                    <Span Text="{Binding KindLabel}" />
+                                                                    <Span Text="  " />
+                                                                    <Span Text="{Binding Address}" />
+                                                                    <Span Text="  " />
+                                                                    <Span Text="{Binding StatusText}" />
+                                                                </FormattedString>
+                                                            </Label.FormattedText>
+                                                        </Label>
+                                                    </VerticalStackLayout>
+                                                    <Grid Grid.Column="1" ColumnDefinitions="*,6,*" WidthRequest="96" VerticalOptions="Center">
+                                                        <Button Text="{Binding PrimaryActionIcon}" HeightRequest="28" Padding="0" FontSize="14"
+                                                                TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
+                                                                BorderColor="{DynamicResource Blue}" BorderWidth="1" CornerRadius="6"
+                                                                IsVisible="{Binding PrimaryActionVisible}"
+                                                                CommandParameter="{Binding}" Clicked="DevicePrimaryAction_Clicked">
+                                                            <Button.Triggers>
+                                                                <DataTrigger TargetType="Button" Binding="{Binding PrimaryActionStretch}" Value="True">
+                                                                    <Setter Property="Grid.ColumnSpan" Value="3" />
+                                                                </DataTrigger>
+                                                            </Button.Triggers>
+                                                        </Button>
+                                                        <Button Grid.Column="2" Text="{Binding SecondaryActionIcon}" HeightRequest="28" Padding="0" FontSize="14"
+                                                                TextColor="{DynamicResource Warn}" BackgroundColor="{DynamicResource WarnSoft}"
+                                                                BorderColor="{DynamicResource Warn}" BorderWidth="1" CornerRadius="6"
+                                                                IsVisible="{Binding SecondaryActionVisible}"
+                                                                CommandParameter="{Binding}" Clicked="DeviceSecondaryAction_Clicked" />
+                                                    </Grid>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </CollectionView.ItemTemplate>
+                                </CollectionView>
                             </Grid>
-                        </VerticalStackLayout>
-                    </Border>
-                    <Border Grid.Row="1" Style="{StaticResource Card}">
-                        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
-                            <VerticalStackLayout Spacing="4">
-                                <Label x:Name="DiscoveryTitleText" Text="局域网自动发现" FontAttributes="Bold" />
-                                <Label x:Name="DiscoveryHintText" Text="单击「添加」填入电脑布局空位；已在布局中的不会列出"
-                         TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
-                            </VerticalStackLayout>
-                            <Border Grid.Row="1" BackgroundColor="{DynamicResource ListBg}" Stroke="{DynamicResource Line}"
-                        StrokeThickness="1" StrokeShape="RoundRectangle 6" Padding="8,6">
-                                <Button x:Name="RefreshDiscoveryBtn" Text="刷新发现" Style="{StaticResource NormalBtn}" HorizontalOptions="Start"
-                          Margin="0" Clicked="RefreshDiscovery_Clicked" />
-                            </Border>
-                            <CollectionView x:Name="DiscoveryList" Grid.Row="2" BackgroundColor="{DynamicResource ListBg}">
-                                <CollectionView.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Padding="6,8" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                            <Grid.GestureRecognizers>
-                                                <TapGestureRecognizer NumberOfTapsRequired="2"
-                                                                      Tapped="DiscoveryItem_DoubleTapped"
-                                                                      CommandParameter="{Binding}" />
-                                            </Grid.GestureRecognizers>
-                                            <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
-                                                <BoxView WidthRequest="8" HeightRequest="8" Color="{DynamicResource Success}"
-                                   CornerRadius="4" VerticalOptions="Center" />
-                                                <Label VerticalOptions="Center" LineBreakMode="TailTruncation">
-                                                    <Label.FormattedText>
-                                                        <FormattedString>
-                                                            <Span Text="{Binding MachineName}" FontAttributes="Bold" />
-                                                            <Span Text="  " />
-                                                            <Span Text="{Binding Ip}" TextColor="{DynamicResource Muted}" />
-                                                        </FormattedString>
-                                                    </Label.FormattedText>
-                                                </Label>
-                                            </HorizontalStackLayout>
-                                            <Button Grid.Column="1" Text="{DynamicResource Str.Add}"
-                                Style="{StaticResource NormalBtn}"
-                                HeightRequest="28" MinimumWidthRequest="56" Padding="10,0"
-                                CommandParameter="{Binding}" Clicked="AddDiscovered_Clicked" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </CollectionView.ItemTemplate>
-                            </CollectionView>
-                        </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
+                    <Label x:Name="NicHintText" IsVisible="False" />
                 </Grid>
 
                 <!-- ===== 文件传输：表头固定，仅内容区滚动并填满高度 ===== -->
