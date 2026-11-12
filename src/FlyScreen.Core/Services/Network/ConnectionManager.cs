@@ -335,7 +335,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             return false;
 
         // 大块消息优先走独立 bulk 连接，避免堵死键鼠控制面；无 bulk 时回退控制通道（兼容旧端）
-        var useBulk = BulkMessageTypes.IsBulk(type) && link.BulkAlive;
+        var useBulk = PreferBulkChannel(link, type);
         if (!useBulk && !link.ControlAlive)
             return false;
 
@@ -367,7 +367,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (!_links.TryGetValue(peerName, out var link))
             return false;
 
-        var useBulk = BulkMessageTypes.IsBulk(type) && link.BulkAlive;
+        var useBulk = PreferBulkChannel(link, type);
         if (!useBulk && !link.ControlAlive)
             return false;
 
@@ -412,6 +412,19 @@ public sealed class ConnectionManager : IAsyncDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 大帧是否走 bulk。仅有出站 bulk、无入站 bulk 时，远程投影大帧常「发得出收不到」，
+    /// 此时若有控制面（尤其对端连入的入站控制）则回退控制面回写。
+    /// </summary>
+    private static bool PreferBulkChannel(PeerLink link, MessageType type)
+    {
+        if (!BulkMessageTypes.IsBulk(type) || !link.BulkAlive)
+            return false;
+        if (link.InboundBulk is { IsAlive: true })
+            return true;
+        return !link.ControlAlive;
     }
 
     /// <summary>
