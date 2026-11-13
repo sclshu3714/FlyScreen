@@ -247,7 +247,7 @@ function homeShell(data) {
       ${kpi("e", "注册设备", data.registeredDevices ?? 0, "含离线记录", IcoNet, "#7DD3FC", "", "registered")}
       ${kpi("b", "在线设备", data.onlineDevices ?? 0, "当前在线", IcoNet, "#93C5FD", "", "online")}
       ${kpi("g", "运行时间", fmtDur(data.uptimeSec), data.server || "", IcoHome, "#FDE68A", "data-uptime", "uptime")}
-      ${kpi("f", "信令次数", data.signals || 0, "累计转发", IcoShare, "#C4B5FD", "", "signals")}
+      ${kpi("f", "信令次数", data.signals || 0, "与列表条数一致", IcoShare, "#C4B5FD", "", "signals")}
       ${kpi("c", "中继会话", data.sessions ?? 0, "进行中", IcoShare, "#6EE7B7", "", "sessions")}
       ${kpi("d", "转发字节", fmtBytes(data.relayBytes), "累计转发", IcoDown, "#FDBA74", "", "bytes")}
       ${kpi("h", "延迟统计", "—", "暂无样本", IcoNet, "#94A3B8")}

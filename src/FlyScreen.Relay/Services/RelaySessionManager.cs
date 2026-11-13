@@ -266,7 +266,6 @@ public sealed class RelaySessionManager
             SessionId = sessionId,
             Payload = payload
         }), ct).ConfigureAwait(false);
-        _stats.SignalsForwarded++;
         _signals.RecordServerSignal(
             peer.RoomId, fromDeviceId, peerId, "relay-request", sessionId, payload, ok: true);
     }

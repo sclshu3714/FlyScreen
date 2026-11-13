@@ -11,7 +11,6 @@ public sealed class EdgeWebSocketHandler
 {
     private readonly DeviceRegistry _devices;
     private readonly RelaySessionManager _sessions;
-    private readonly RelayStats _stats;
     private readonly SignalLog _signals;
     private readonly IOptionsMonitor<RelayOptions> _options;
     private readonly ILogger<EdgeWebSocketHandler> _log;
@@ -19,14 +18,12 @@ public sealed class EdgeWebSocketHandler
     public EdgeWebSocketHandler(
         DeviceRegistry devices,
         RelaySessionManager sessions,
-        RelayStats stats,
         SignalLog signals,
         IOptionsMonitor<RelayOptions> options,
         ILogger<EdgeWebSocketHandler> log)
     {
         _devices = devices;
         _sessions = sessions;
-        _stats = stats;
         _signals = signals;
         _options = options;
         _log = log;
@@ -130,8 +127,8 @@ public sealed class EdgeWebSocketHandler
                         }),
                         exceptDeviceId: device.DeviceId,
                         ct: ctx.RequestAborted).ConfigureAwait(false);
-                    if (device.Candidates is { Count: > 0 })
-                        _stats.SignalsForwarded += announced;
+                    if (announced > 0)
+                        _signals.RecordRoomBroadcast(device, MessageTypes.DeviceUpdated, announced);
                     continue;
                 }
 
@@ -201,7 +198,8 @@ public sealed class EdgeWebSocketHandler
                     }),
                     exceptDeviceId: device.DeviceId,
                     ct: ct).ConfigureAwait(false);
-                _stats.SignalsForwarded += forwarded;
+                if (forwarded > 0)
+                    _signals.RecordRoomBroadcast(device, MessageTypes.DeviceUpdated, forwarded);
                 break;
 
             case MessageTypes.DevicesQuery:
@@ -304,7 +302,6 @@ public sealed class EdgeWebSocketHandler
             Payload = msg.Payload,
             SessionId = msg.SessionId
         }), ct).ConfigureAwait(false);
-        _stats.SignalsForwarded++;
         _signals.RecordForward(from, to, msg.MsgType, msg.SessionId, msg.Payload, ok: true);
     }
 
@@ -351,10 +348,7 @@ public sealed class EdgeWebSocketHandler
             Type = MessageTypes.Devices,
             Devices = list
         })).ConfigureAwait(false);
-        if (list.Any(d =>
-                !string.Equals(d.Id, device.DeviceId, StringComparison.OrdinalIgnoreCase)
-                && d.Candidates is { Count: > 0 }))
-            _stats.SignalsForwarded++;
+        // devices 列表推送不算点对点信令，不计入信令 KPI/列表
     }
 
     private static async Task SendAsync(WebSocket socket, WireMessage msg)
