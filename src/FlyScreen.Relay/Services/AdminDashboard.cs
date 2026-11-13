@@ -12,7 +12,8 @@ public static class AdminDashboard
         RelaySessionManager sessions,
         RelayStats stats,
         bool includeRoomDevices = false,
-        long revision = 0)
+        long revision = 0,
+        SignalLog? signals = null)
     {
         var rooms = catalog.ListRooms(includeDevices: true);
         var names = rooms.SelectMany(r => r.Devices).ToDictionary(d => d.Id, d => d.Name, StringComparer.OrdinalIgnoreCase);
@@ -33,6 +34,8 @@ public static class AdminDashboard
             s.BytesAtoB,
             s.BytesBtoA
         });
+
+        var signalList = signals?.ListSummaries(100) ?? [];
 
         var head = new
         {
@@ -85,7 +88,8 @@ public static class AdminDashboard
                         lastSeen = d.LastSeen
                     })
                 }),
-                sessionList
+                sessionList,
+                signalList
             };
         }
 
@@ -110,7 +114,8 @@ public static class AdminDashboard
                 onlineCount = r.OnlineCount,
                 lastSeen = r.LastSeen
             }),
-            sessionList
+            sessionList,
+            signalList
         };
     }
 }

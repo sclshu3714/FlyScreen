@@ -409,7 +409,9 @@ S→A  原样转发
 |------|------|------|
 | GET | `/api/health` | 健康与计数 |
 | GET | `/api/dashboard` | 首页看板（一次性 JSON） |
-| GET | `/api/dashboard/stream` | SSE：`event: dashboard` 完整快照（KPI + 房间节点/连接数 + 设备在线离线 + 会话）。设备注册/离线、会话开闭**立即推送**；流量等计数最多 1s 一帧 |
+| GET | `/api/dashboard/stream` | SSE：`event: dashboard` 完整快照（KPI + 房间 + 设备 + 会话 + 最近信令摘要）。设备注册/离线、会话开闭、信令记录**立即推送**；流量等计数最多 1s 一帧 |
+| GET | `/api/signals` | 最近信令摘要（`?limit=`，默认 100，最多 500） |
+| GET | `/api/signals/{id}` | 单条信令详情（含 payload 内容） |
 | GET | `/api/rooms` | 已注册房间（房间号为第一台电脑名称） |
 | GET | `/api/rooms/{roomId}` | 房间内设备 |
 | DELETE | `/api/devices/{id}` | 踢出在线设备（注册记录保留） |

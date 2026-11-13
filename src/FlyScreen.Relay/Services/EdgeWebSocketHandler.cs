@@ -12,6 +12,7 @@ public sealed class EdgeWebSocketHandler
     private readonly DeviceRegistry _devices;
     private readonly RelaySessionManager _sessions;
     private readonly RelayStats _stats;
+    private readonly SignalLog _signals;
     private readonly IOptionsMonitor<RelayOptions> _options;
     private readonly ILogger<EdgeWebSocketHandler> _log;
 
@@ -19,12 +20,14 @@ public sealed class EdgeWebSocketHandler
         DeviceRegistry devices,
         RelaySessionManager sessions,
         RelayStats stats,
+        SignalLog signals,
         IOptionsMonitor<RelayOptions> options,
         ILogger<EdgeWebSocketHandler> log)
     {
         _devices = devices;
         _sessions = sessions;
         _stats = stats;
+        _signals = signals;
         _options = options;
         _log = log;
     }
@@ -258,6 +261,7 @@ public sealed class EdgeWebSocketHandler
         var to = (msg.To ?? "").Trim();
         if (string.IsNullOrWhiteSpace(to))
         {
+            _signals.RecordForward(from, "", msg.MsgType, msg.SessionId, msg.Payload, ok: false, error: "缺少 to");
             await from.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
             {
                 Type = MessageTypes.Error,
@@ -269,6 +273,7 @@ public sealed class EdgeWebSocketHandler
 
         if (!_devices.TryGetByDeviceId(to, out var peer) || peer is null)
         {
+            _signals.RecordForward(from, to, msg.MsgType, msg.SessionId, msg.Payload, ok: false, error: "对端不在线");
             await from.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
             {
                 Type = MessageTypes.Error,
@@ -280,6 +285,7 @@ public sealed class EdgeWebSocketHandler
 
         if (!string.Equals(peer.RoomId, from.RoomId, StringComparison.Ordinal))
         {
+            _signals.RecordForward(from, to, msg.MsgType, msg.SessionId, msg.Payload, ok: false, error: "对端不在同一房间");
             await from.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
             {
                 Type = MessageTypes.Error,
@@ -299,6 +305,7 @@ public sealed class EdgeWebSocketHandler
             SessionId = msg.SessionId
         }), ct).ConfigureAwait(false);
         _stats.SignalsForwarded++;
+        _signals.RecordForward(from, to, msg.MsgType, msg.SessionId, msg.Payload, ok: true);
     }
 
     private async Task HandleBinaryAsync(DeviceConnection device, Memory<byte> data, CancellationToken ct)

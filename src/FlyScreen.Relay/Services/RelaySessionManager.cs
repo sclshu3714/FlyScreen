@@ -38,6 +38,7 @@ public sealed class RelaySessionManager
     private readonly ILogger<RelaySessionManager> _log;
     private readonly RelayStats _stats;
     private readonly AdminChangeNotifier _adminNotify;
+    private readonly SignalLog _signals;
 
     private sealed record PendingOpen(string SessionId, string RoomId, string DeviceId, string PeerId, DateTimeOffset CreatedAt);
 
@@ -46,12 +47,14 @@ public sealed class RelaySessionManager
         IOptionsMonitor<RelayOptions> options,
         RelayStats stats,
         AdminChangeNotifier adminNotify,
+        SignalLog signals,
         ILogger<RelaySessionManager> log)
     {
         _devices = devices;
         _options = options;
         _stats = stats;
         _adminNotify = adminNotify;
+        _signals = signals;
         _log = log;
     }
 
@@ -248,6 +251,12 @@ public sealed class RelaySessionManager
     private async Task NotifyRelayRequestAsync(
         DeviceConnection peer, string fromDeviceId, string peerId, string sessionId, CancellationToken ct)
     {
+        var payload = System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            sessionId,
+            from = fromDeviceId,
+            reason = "p2p-failed-or-preferred-relay"
+        }, Wire.JsonOptions);
         await peer.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
         {
             Type = MessageTypes.Signal,
@@ -255,14 +264,11 @@ public sealed class RelaySessionManager
             To = peerId,
             MsgType = "relay-request",
             SessionId = sessionId,
-            Payload = System.Text.Json.JsonSerializer.SerializeToElement(new
-            {
-                sessionId,
-                from = fromDeviceId,
-                reason = "p2p-failed-or-preferred-relay"
-            }, Wire.JsonOptions)
+            Payload = payload
         }), ct).ConfigureAwait(false);
         _stats.SignalsForwarded++;
+        _signals.RecordServerSignal(
+            peer.RoomId, fromDeviceId, peerId, "relay-request", sessionId, payload, ok: true);
     }
 
     private void NotifyPeerLeft(RelaySession session, string deviceId, string sessionId)

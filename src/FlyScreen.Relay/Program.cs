@@ -31,6 +31,7 @@ builder.Services.AddSingleton<RelayStats>();
 builder.Services.AddSingleton<AdminChangeNotifier>();
 builder.Services.AddSingleton<DeviceRegistry>();
 builder.Services.AddSingleton<AdminCatalog>();
+builder.Services.AddSingleton<SignalLog>();
 builder.Services.AddSingleton<RelaySessionManager>();
 builder.Services.AddSingleton<EdgeWebSocketHandler>();
 builder.Services.AddHostedService<StunServer>();
@@ -77,10 +78,27 @@ app.MapGet("/api/health", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, D
     });
 });
 
-app.MapGet("/api/dashboard", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, AdminCatalog catalog, RelaySessionManager sessions, RelayStats stats) =>
+app.MapGet("/api/dashboard", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, AdminCatalog catalog, RelaySessionManager sessions, RelayStats stats, SignalLog signals) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
-    return Results.Json(AdminDashboard.Build(opt, catalog, sessions, stats));
+    return Results.Json(AdminDashboard.Build(opt, catalog, sessions, stats, signals: signals));
+});
+
+app.MapGet("/api/signals", (HttpContext ctx, SignalLog signals) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var limit = 100;
+    if (int.TryParse(ctx.Request.Query["limit"], out var n)) limit = n;
+    return Results.Json(new { signals = signals.ListSummaries(limit) });
+});
+
+app.MapGet("/api/signals/{id}", (string id, HttpContext ctx, SignalLog signals) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var row = signals.Find(id);
+    return row is null
+        ? Results.Json(new { error = "not_found", message = "信令记录不存在或已过期" }, statusCode: StatusCodes.Status404NotFound)
+        : Results.Json(row);
 });
 
 // SSE：设备注册/离线、会话开闭立即推送完整看板（含房间设备在线状态）；流量等指标最多 1s 兜底一帧。
@@ -90,6 +108,7 @@ app.MapGet("/api/dashboard/stream", async (
     AdminCatalog catalog,
     RelaySessionManager sessions,
     RelayStats stats,
+    SignalLog signals,
     AdminChangeNotifier changes) =>
 {
     if (!IsAdmin(ctx))
@@ -111,7 +130,7 @@ app.MapGet("/api/dashboard/stream", async (
             var seen = changes.Version;
             try
             {
-                var snapshot = AdminDashboard.Build(opt, catalog, sessions, stats, includeRoomDevices: true, revision: seen);
+                var snapshot = AdminDashboard.Build(opt, catalog, sessions, stats, includeRoomDevices: true, revision: seen, signals: signals);
                 var json = JsonSerializer.Serialize(snapshot, adminJson);
                 await ctx.Response.WriteAsync("event: dashboard\ndata: ", ct).ConfigureAwait(false);
                 await ctx.Response.WriteAsync(json, ct).ConfigureAwait(false);

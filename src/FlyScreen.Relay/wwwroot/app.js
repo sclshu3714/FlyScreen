@@ -1,9 +1,11 @@
 const view = document.getElementById("view");
+const modal = document.getElementById("modal");
 
 function route() {
   const parts = (location.hash || "#/").replace(/^#/, "").split("/").filter(Boolean);
   if (parts[0] === "rooms" && parts[1]) return { name: "room", id: decodeURIComponent(parts[1]) };
   if (parts[0] === "rooms") return { name: "rooms" };
+  if (parts[0] === "signals") return { name: "signals" };
   return { name: "home" };
 }
 
@@ -115,6 +117,27 @@ function sessionSig(sessions) {
   return (sessions || []).map((s) =>
     [s.sessionId, s.roomNo, s.deviceAName, s.deviceBName, s.bytesAtoB, s.bytesBtoA, s.lastActivity].join("\t")
   ).join("\n");
+}
+
+function signalSig(rows) {
+  return (rows || []).map((s) =>
+    [s.id, s.at, s.ok ? 1 : 0, s.fromId, s.toId, s.msgType, s.payloadBytes || 0].join("\t")
+  ).join("\n");
+}
+
+function signalRows(rows) {
+  return (rows || []).map((s) => `<tr data-signal="${esc(s.id)}">
+    <td>${esc(fmtTime(s.at))}</td>
+    <td>${esc(s.roomNo || "—")}</td>
+    <td>${esc(s.fromName || s.fromId)}<div class="subid mono">${esc(s.fromId)}</div></td>
+    <td>${esc(s.toName || s.toId || "—")}<div class="subid mono">${esc(s.toId || "")}</div></td>
+    <td><span class="pill soft">${esc(s.msgType || "—")}</span></td>
+    <td>${s.ok ? `<span class="pill ok">成功</span>` : `<span class="pill bad">${esc(s.error || "失败")}</span>`}</td>
+    <td class="actions">
+      <button type="button" class="ghost" data-signal-detail="${esc(s.id)}">详情</button>
+      <button type="button" class="ghost" data-signal-content="${esc(s.id)}" ${s.hasPayload ? "" : "disabled"}>内容</button>
+    </td>
+  </tr>`).join("");
 }
 
 function roomRows(rooms) {
@@ -321,6 +344,84 @@ function patchRoom(room) {
   );
 }
 
+function signalsShell() {
+  return `
+    <div class="page-h">
+      <h1>信令</h1>
+      <p>边缘口转发的信令（内存环形缓冲，最多 500 条）。展示谁到谁，可查看详情与内容。</p>
+    </div>
+    <div class="table-wrap" data-signals-list></div>`;
+}
+
+function patchSignals(data) {
+  const rows = data.signalList || [];
+  replaceBody(
+    "[data-signals-list]",
+    rows.length
+      ? `<table><thead><tr>
+          <th>时间</th><th>房间</th><th>发送方</th><th>接收方</th><th>类型</th><th>结果</th><th>操作</th>
+        </tr></thead><tbody>${signalRows(rows)}</tbody></table>`
+      : "",
+    `<div class="empty">暂无信令记录。设备互发 signal / 中继请求后会出现在这里。</div>`,
+    signalSig(rows)
+  );
+}
+
+function prettyJson(raw) {
+  if (!raw) return "（无内容）";
+  try { return JSON.stringify(JSON.parse(raw), null, 2); }
+  catch { return String(raw); }
+}
+
+function closeModal() {
+  if (!modal) return;
+  modal.hidden = true;
+  modal.innerHTML = "";
+}
+
+async function openSignalModal(id, focusContent) {
+  if (!modal) return;
+  modal.hidden = false;
+  modal.innerHTML = `<div class="modal-card"><div class="modal-h"><div><h2>信令</h2><p>加载中…</p></div>
+    <button type="button" class="ghost" data-modal-close>关闭</button></div></div>`;
+  try {
+    const row = await api(`/api/signals/${encodeURIComponent(id)}`);
+    const title = focusContent ? "信令内容" : "信令详情";
+    modal.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-h">
+          <div>
+            <h2>${esc(title)}</h2>
+            <p>${esc(row.msgType || "signal")} · ${esc(fmtTime(row.at))}</p>
+          </div>
+          <button type="button" class="ghost" data-modal-close>关闭</button>
+        </div>
+        <div class="modal-b">
+          <dl class="kv">
+            <dt>结果</dt><dd>${row.ok ? `<span class="pill ok">成功</span>` : `<span class="pill bad">${esc(row.error || "失败")}</span>`}</dd>
+            <dt>房间</dt><dd>${esc(row.roomNo || "—")}<div class="subid mono">${esc(row.roomId || "")}</div></dd>
+            <dt>发送方</dt><dd>${esc(row.fromName || row.fromId)}<div class="subid mono">${esc(row.fromId || "")}</div></dd>
+            <dt>接收方</dt><dd>${esc(row.toName || row.toId || "—")}<div class="subid mono">${esc(row.toId || "")}</div></dd>
+            <dt>类型</dt><dd>${esc(row.msgType || "—")}</dd>
+            <dt>会话</dt><dd class="mono">${esc(row.sessionId || "—")}</dd>
+            <dt>载荷大小</dt><dd>${esc(row.payloadBytes || 0)} B</dd>
+            <dt>记录 ID</dt><dd class="mono">${esc(row.id)}</dd>
+          </dl>
+          <h3 style="margin:0 0 0.45rem;font-size:0.92rem;">内容</h3>
+          <pre class="payload">${esc(prettyJson(row.payloadJson))}</pre>
+        </div>
+      </div>`;
+    if (focusContent) {
+      const pre = modal.querySelector(".payload");
+      if (pre) pre.scrollIntoView({ block: "nearest" });
+    }
+  } catch (e) {
+    modal.innerHTML = `<div class="modal-card"><div class="modal-h"><div><h2>信令</h2>
+      <p class="err" style="margin-top:0.5rem">${esc(e.message)}</p></div>
+      <button type="button" class="ghost" data-modal-close>关闭</button></div></div>`;
+  }
+}
+
 function applySnap(data) {
   const r = route();
   setNav(r.name);
@@ -342,6 +443,16 @@ function applySnap(data) {
       view.innerHTML = roomsShell();
     }
     patchRooms(data);
+    return;
+  }
+
+  if (r.name === "signals") {
+    stopUptime();
+    if (mountedKey !== key) {
+      mountedKey = key;
+      view.innerHTML = signalsShell();
+    }
+    patchSignals(data);
     return;
   }
 
@@ -369,7 +480,8 @@ function showLoading() {
   setNav(r.name);
   mountedKey = "";
   stopUptime();
-  view.innerHTML = `<div class="page-h"><h1>${r.name === "rooms" || r.name === "room" ? "房间" : "首页"}</h1><p>加载中…</p></div>`;
+  const title = r.name === "signals" ? "信令" : (r.name === "rooms" || r.name === "room" ? "房间" : "首页");
+  view.innerHTML = `<div class="page-h"><h1>${title}</h1><p>加载中…</p></div>`;
 }
 
 function onRoute() {
@@ -382,6 +494,20 @@ view.addEventListener("click", async (ev) => {
   const room = ev.target.closest("[data-room]");
   if (room && view.contains(room)) {
     location.hash = `#/rooms/${encodeURIComponent(room.dataset.room)}`;
+    return;
+  }
+
+  const detail = ev.target.closest("[data-signal-detail]");
+  if (detail && view.contains(detail)) {
+    ev.preventDefault();
+    await openSignalModal(detail.dataset.signalDetail, false);
+    return;
+  }
+
+  const content = ev.target.closest("[data-signal-content]");
+  if (content && view.contains(content) && !content.disabled) {
+    ev.preventDefault();
+    await openSignalModal(content.dataset.signalContent, true);
     return;
   }
 
@@ -406,6 +532,15 @@ view.addEventListener("click", async (ev) => {
       alert(e.message);
     }
   }
+});
+
+if (modal) {
+  modal.addEventListener("click", (ev) => {
+    if (ev.target === modal || ev.target.closest("[data-modal-close]")) closeModal();
+  });
+}
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeModal();
 });
 
 document.addEventListener("visibilitychange", syncStream);
