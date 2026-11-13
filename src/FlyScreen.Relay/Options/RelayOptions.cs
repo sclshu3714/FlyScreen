@@ -37,7 +37,10 @@ public sealed class RelayOptions
     /// <summary>是否周期性向 IPv4 广播宣告在线设备（同局域网/VPN 时无需单播也能扫到）。</summary>
     public bool DiscoveryBroadcastAnnounce { get; set; } = true;
 
-    /// <summary>管理 API / 页面鉴权令牌。生产环境务必修改。</summary>
+    /// <summary>
+    /// 管理 API / 页面鉴权令牌。建议与客户端「安全密钥」设为同一字符串，便于同钥同房与管理面统一。
+    /// 设备 WebSocket 注册仍用 roomKey（=客户端安全密钥），不校验本令牌。
+    /// </summary>
     public string AdminToken { get; set; } = "change-me";
 
     public int DeviceOfflineAfterSeconds { get; set; } = 90;

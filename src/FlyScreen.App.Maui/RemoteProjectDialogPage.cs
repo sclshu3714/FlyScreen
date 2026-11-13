@@ -5,7 +5,7 @@ using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen;
 
-/// <summary>设备管理「投影到电脑」：目标电脑 + 分辨率/码率/质量。</summary>
+/// <summary>设备管理「投影到电脑」：居中卡片（对齐 Win RemoteBindDialog）。</summary>
 public sealed class RemoteProjectDialogPage : ContentPage
 {
     private readonly TaskCompletionSource<RemoteProjectChoice?> _tcs = new();
@@ -26,6 +26,7 @@ public sealed class RemoteProjectDialogPage : ContentPage
     {
         _targets = targets;
         Title = Loc.T("Net.BindTitle");
+        BackgroundColor = Color.FromArgb("#80000000");
 
         foreach (var t in targets)
             _targetPicker.Items.Add(t.Label);
@@ -72,51 +73,102 @@ public sealed class RemoteProjectDialogPage : ContentPage
         }
         _qualityPicker.SelectedIndex = IndexOf(_qualities, ProjectionDisplayPresets.RememberedJpegQuality(settings));
 
-        var cancel = new Button { Text = Loc.T("Dlg.Cancel") };
+        StyleField(_targetPicker);
+        StyleField(_resolutionPicker);
+        StyleField(_bitratePicker);
+        StyleField(_qualityPicker);
+
+        var cancel = new Button
+        {
+            Text = Loc.T("Dlg.Cancel"),
+            BackgroundColor = Color.FromArgb("#2A2A2E"),
+            TextColor = Colors.White,
+            CornerRadius = 8,
+            Padding = new Thickness(18, 10),
+            MinimumWidthRequest = 88
+        };
         cancel.Clicked += async (_, _) =>
         {
             _tcs.TrySetResult(null);
             await Navigation.PopModalAsync();
         };
-        var ok = new Button { Text = Loc.T("Net.BindOk") };
+        var ok = new Button
+        {
+            Text = Loc.T("Net.BindOk"),
+            BackgroundColor = Color.FromArgb("#2A2A2E"),
+            TextColor = Colors.White,
+            CornerRadius = 8,
+            Padding = new Thickness(18, 10),
+            MinimumWidthRequest = 88
+        };
         ok.Clicked += async (_, _) =>
         {
             _tcs.TrySetResult(BuildChoice());
             await Navigation.PopModalAsync();
         };
 
-        Content = new ScrollView
+        var card = new Border
         {
+            Stroke = Color.FromArgb("#3F3F46"),
+            StrokeThickness = 1,
+            BackgroundColor = Color.FromArgb("#1A1A1D"),
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
+            Padding = new Thickness(22, 20),
+            MaximumWidthRequest = 440,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
             Content = new VerticalStackLayout
             {
-                Padding = 20,
                 Spacing = 10,
                 Children =
                 {
                     new Label
                     {
                         Text = Loc.T("Net.BindTitle"),
-                        FontSize = 18,
-                        FontAttributes = FontAttributes.Bold
+                        FontSize = 20,
+                        FontAttributes = FontAttributes.Bold,
+                        TextColor = Colors.White
                     },
                     new Label
                     {
                         Text = string.Format(Loc.T("Net.BindHint"), remoteName),
-                        LineBreakMode = LineBreakMode.WordWrap
+                        LineBreakMode = LineBreakMode.WordWrap,
+                        TextColor = Color.FromArgb("#9CA3AF"),
+                        FontSize = 13,
+                        Margin = new Thickness(0, 0, 0, 6)
                     },
-                    new Label { Text = Loc.T("Net.BindTarget"), FontAttributes = FontAttributes.Bold },
+                    FieldLabel(Loc.T("Net.BindTarget")),
                     _targetPicker,
-                    new Label { Text = Loc.T("Net.BindResolution"), FontAttributes = FontAttributes.Bold },
+                    FieldLabel(Loc.T("Net.BindResolution")),
                     _resolutionPicker,
-                    new Label { Text = Loc.T("Net.BindBitrate"), FontAttributes = FontAttributes.Bold },
+                    FieldLabel(Loc.T("Net.BindBitrate")),
                     _bitratePicker,
-                    new Label { Text = Loc.T("Net.BindQuality"), FontAttributes = FontAttributes.Bold },
+                    FieldLabel(Loc.T("Net.BindQuality")),
                     _qualityPicker,
                     new HorizontalStackLayout
                     {
                         Spacing = 12,
                         HorizontalOptions = LayoutOptions.End,
+                        Margin = new Thickness(0, 12, 0, 0),
                         Children = { cancel, ok }
+                    }
+                }
+            }
+        };
+
+        // 点击遮罩空白处不关闭（避免误触）；内容居中卡片
+        Content = new Grid
+        {
+            Children =
+            {
+                new BoxView { Color = Color.FromArgb("#99000000") },
+                new ScrollView
+                {
+                    VerticalOptions = LayoutOptions.Fill,
+                    Content = new Grid
+                    {
+                        Padding = new Thickness(24),
+                        Children = { card }
                     }
                 }
             }
@@ -124,6 +176,23 @@ public sealed class RemoteProjectDialogPage : ContentPage
     }
 
     public Task<RemoteProjectChoice?> WaitAsync() => _tcs.Task;
+
+    private static Label FieldLabel(string text) => new()
+    {
+        Text = text,
+        FontAttributes = FontAttributes.Bold,
+        TextColor = Colors.White,
+        FontSize = 13,
+        Margin = new Thickness(0, 4, 0, 0)
+    };
+
+    private static void StyleField(Picker picker)
+    {
+        picker.BackgroundColor = Color.FromArgb("#25252B");
+        picker.TextColor = Colors.White;
+        picker.TitleColor = Color.FromArgb("#9CA3AF");
+        picker.HeightRequest = 40;
+    }
 
     private RemoteProjectChoice BuildChoice()
     {

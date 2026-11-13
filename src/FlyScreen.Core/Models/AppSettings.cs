@@ -7,6 +7,8 @@ namespace FlyScreen.Models;
 public sealed class AppSettings
 {
     public string SecurityKey { get; set; } = GenerateKey();
+    /// <summary>中转边缘 WebSocket 注册用的稳定设备 Id（首次连接时生成并持久化）。</summary>
+    public string RelayDeviceId { get; set; } = "";
     public List<string> MachineSlots { get; set; } = ["", "", "", ""];
     public bool TwoRow { get; set; }
     /// <summary>最近一次布局修订（UTC 毫秒），用于跨机同步去重。</summary>
@@ -175,6 +177,19 @@ public sealed class AppSettings
             MachineSlots[empty] = local;
         else
             MachineSlots[0] = local;
+    }
+
+    /// <summary>确保 <see cref="RelayDeviceId"/> 为 N 格式 GUID 并已写入设置。</summary>
+    public string EnsureRelayDeviceId()
+    {
+        var id = (RelayDeviceId ?? "").Trim();
+        if (id.Length == 32 && Guid.TryParseExact(id, "N", out _))
+            return id;
+
+        id = Guid.NewGuid().ToString("N");
+        RelayDeviceId = id;
+        try { Save(); } catch { /* ignore */ }
+        return id;
     }
 
     public static string GenerateKey()

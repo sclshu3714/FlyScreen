@@ -5222,35 +5222,41 @@ public partial class MainPage : ContentPage
     {
         if (updateStatusBar)
             StatusLabel.Text = Loc.T("Net.TestingEndpoint");
-        var result = await ConnectionEndpointProbe.TestAsync(ep, ReadUiTcpPort()).ConfigureAwait(true);
-        if (result.Ok)
+
+        bool ok;
+        string message;
+        if (ep.Kind == ConnectionEndpoint.KindRelay)
         {
-            ep.LastError = "";
-            ep.LastRttMs = result.RttMs;
-            if (ep.Kind == ConnectionEndpoint.KindRemote)
-            {
-                ep.DiscoveredDevices = [];
-                ep.VerifiedPeerName = result.VerifiedPeerName?.Trim() ?? "";
-            }
-            else
-            {
-                ep.VerifiedPeerName = "";
-                ep.DiscoveredDevices = result.DiscoveredDevices?.ToList() ?? [];
-            }
-            ep.State = ConnectionEndpoint.StateConnected;
+            var relay = await _host.Connections.ConnectRelayEndpointAsync(ep).ConfigureAwait(true);
+            ok = relay.Ok;
+            message = relay.Message;
         }
         else
         {
-            ep.ClearVerification();
-            ep.LastError = result.Message;
-            ep.State = ConnectionEndpoint.StateError;
+            var result = await ConnectionEndpointProbe.TestAsync(ep, ReadUiTcpPort()).ConfigureAwait(true);
+            ok = result.Ok;
+            message = result.Message;
+            if (result.Ok)
+            {
+                ep.LastError = "";
+                ep.LastRttMs = result.RttMs;
+                ep.DiscoveredDevices = [];
+                ep.VerifiedPeerName = result.VerifiedPeerName?.Trim() ?? "";
+                ep.State = ConnectionEndpoint.StateConnected;
+            }
+            else
+            {
+                ep.ClearVerification();
+                ep.LastError = result.Message;
+                ep.State = ConnectionEndpoint.StateError;
+            }
         }
 
         PersistEndpoints();
-        if (result.Ok)
+        if (ok)
             _ = _host.BroadcastRemoteBindingSyncAsync("远程连接配置已同步到布局内电脑");
         if (updateStatusBar)
-            StatusLabel.Text = result.Ok ? $"{Loc.T("Net.TestOk")}: {result.Message}" : $"{Loc.T("Net.TestFail")}: {result.Message}";
+            StatusLabel.Text = ok ? $"{Loc.T("Net.TestOk")}: {message}" : $"{Loc.T("Net.TestFail")}: {message}";
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
         RefreshDiscovery();

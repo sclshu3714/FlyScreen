@@ -58,7 +58,81 @@ public sealed class VideoWallLocalization : IToolLocalization
         ["Tool.VideoWall.ErrorHardwareFallback"] = "硬解不可用，已回退软解。",
         ["Tool.VideoWall.ErrorOverBudget"] = "当前布局超出本机解码预算，建议降低布局或分辨率。",
 
-        ["Tool.VideoWall.NotWired"] = "视频墙骨架：播放后端尚未接线。"
+        ["Tool.VideoWall.NotWired"] = "视频墙骨架：播放后端尚未接线。",
+
+        // 源类型（SourceFormSchema.LabelKey）
+        ["Tool.VideoWall.Type.Camera"] = "摄像头",
+        ["Tool.VideoWall.Type.Nvr"] = "NVR 通道",
+        ["Tool.VideoWall.Type.Network"] = "网络地址",
+        ["Tool.VideoWall.Type.LocalFile"] = "本机文件",
+
+        // 字段标签
+        ["Tool.VideoWall.Field.Name"] = "名称",
+        ["Tool.VideoWall.Field.NamePlaceholder"] = "例如：前台-01",
+        ["Tool.VideoWall.Field.VendorPreset"] = "厂商预设",
+        ["Tool.VideoWall.Field.Address"] = "地址",
+        ["Tool.VideoWall.Field.Transport"] = "传输方式",
+        ["Tool.VideoWall.Field.Auth"] = "认证",
+        ["Tool.VideoWall.Field.Username"] = "用户名",
+        ["Tool.VideoWall.Field.Password"] = "密码",
+        ["Tool.VideoWall.Field.Buffer"] = "缓冲（毫秒）",
+        ["Tool.VideoWall.Field.Decode"] = "解码",
+        ["Tool.VideoWall.Field.Group"] = "分组",
+        ["Tool.VideoWall.Field.Note"] = "备注",
+        ["Tool.VideoWall.Field.Host"] = "主机",
+        ["Tool.VideoWall.Field.Port"] = "端口",
+        ["Tool.VideoWall.Field.StreamType"] = "码流",
+        ["Tool.VideoWall.Field.ChannelFrom"] = "起始通道",
+        ["Tool.VideoWall.Field.ChannelTo"] = "结束通道",
+        ["Tool.VideoWall.Field.NameTemplate"] = "命名模板",
+        ["Tool.VideoWall.Field.AddressTemplate"] = "地址模板",
+        ["Tool.VideoWall.Field.Protocol"] = "协议",
+        ["Tool.VideoWall.Field.Headers"] = "自定义 Header",
+        ["Tool.VideoWall.Field.FilePath"] = "文件",
+        ["Tool.VideoWall.Field.Loop"] = "循环播放",
+
+        // 字段提示
+        ["Tool.VideoWall.Hint.NameTemplate"] = "可用 {ch} 通道号、{ch2} 两位通道号。",
+        ["Tool.VideoWall.Hint.AddressTemplate"] = "可用 {host} {port} {user} {pass} {ch} {ch2}。",
+        ["Tool.VideoWall.Hint.Headers"] = "最多 8 条，例如 Referer / User-Agent；不要在 Header 里写密码。",
+        ["Tool.VideoWall.Hint.BufferRtspOnly"] = "仅 RTSP 生效；网络差时调大。",
+        ["Tool.VideoWall.Hint.TransportRtspOnly"] = "TCP 更稳，UDP 延迟更低；仅 RTSP 生效。",
+
+        // 选项
+        ["Tool.VideoWall.Auth.None"] = "无",
+        ["Tool.VideoWall.Auth.Basic"] = "Basic",
+        ["Tool.VideoWall.Auth.Digest"] = "Digest",
+        ["Tool.VideoWall.Decode.Auto"] = "自动",
+        ["Tool.VideoWall.Decode.Hardware"] = "优先硬解",
+        ["Tool.VideoWall.Decode.Software"] = "强制软解",
+        ["Tool.VideoWall.Vendor.Generic"] = "通用（手填地址）",
+        ["Tool.VideoWall.Vendor.Hikvision"] = "海康",
+        ["Tool.VideoWall.Vendor.Dahua"] = "大华",
+        ["Tool.VideoWall.Vendor.Uniview"] = "宇视",
+        ["Tool.VideoWall.Vendor.Axis"] = "Axis",
+        ["Tool.VideoWall.Transport.Tcp"] = "TCP",
+        ["Tool.VideoWall.Transport.Udp"] = "UDP",
+        ["Tool.VideoWall.Stream.Main"] = "主码流",
+        ["Tool.VideoWall.Stream.Sub"] = "子码流",
+        ["Tool.VideoWall.Protocol.Auto"] = "自动识别",
+        ["Tool.VideoWall.Protocol.Hls"] = "HLS",
+        ["Tool.VideoWall.Protocol.Dash"] = "DASH",
+        ["Tool.VideoWall.Protocol.Rtmp"] = "RTMP",
+        ["Tool.VideoWall.Protocol.Srt"] = "SRT",
+        ["Tool.VideoWall.Protocol.Http"] = "HTTP 直链",
+
+        // 源管理页
+        ["Tool.VideoWall.ViewList"] = "列表",
+        ["Tool.VideoWall.ViewCard"] = "卡片",
+        ["Tool.VideoWall.Search"] = "搜索名称或地址",
+        ["Tool.VideoWall.Save"] = "保存",
+        ["Tool.VideoWall.Cancel"] = "取消",
+        ["Tool.VideoWall.Delete"] = "删除",
+        ["Tool.VideoWall.Back"] = "返回",
+        ["Tool.VideoWall.Play"] = "播放",
+        ["Tool.VideoWall.SelectType"] = "选择源类型",
+        ["Tool.VideoWall.Capturing"] = "正在抓取首帧…",
+        ["Tool.VideoWall.CaptureFailed"] = "抓帧失败：已保存为「未验证」，可稍后重试。"
     };
 
     private static Dictionary<string, string> En() => new(StringComparer.OrdinalIgnoreCase)
@@ -98,6 +172,80 @@ public sealed class VideoWallLocalization : IToolLocalization
         ["Tool.VideoWall.ErrorHardwareFallback"] = "Hardware decode unavailable; fell back to software.",
         ["Tool.VideoWall.ErrorOverBudget"] = "This layout exceeds the local decode budget; reduce tiles or resolution.",
 
-        ["Tool.VideoWall.NotWired"] = "Video wall skeleton: playback backend is not wired yet."
+        ["Tool.VideoWall.NotWired"] = "Video wall skeleton: playback backend is not wired yet.",
+
+        // Source types
+        ["Tool.VideoWall.Type.Camera"] = "Camera",
+        ["Tool.VideoWall.Type.Nvr"] = "NVR channels",
+        ["Tool.VideoWall.Type.Network"] = "Network address",
+        ["Tool.VideoWall.Type.LocalFile"] = "Local file",
+
+        // Field labels
+        ["Tool.VideoWall.Field.Name"] = "Name",
+        ["Tool.VideoWall.Field.NamePlaceholder"] = "e.g. Front desk 01",
+        ["Tool.VideoWall.Field.VendorPreset"] = "Vendor preset",
+        ["Tool.VideoWall.Field.Address"] = "Address",
+        ["Tool.VideoWall.Field.Transport"] = "Transport",
+        ["Tool.VideoWall.Field.Auth"] = "Authentication",
+        ["Tool.VideoWall.Field.Username"] = "Username",
+        ["Tool.VideoWall.Field.Password"] = "Password",
+        ["Tool.VideoWall.Field.Buffer"] = "Buffer (ms)",
+        ["Tool.VideoWall.Field.Decode"] = "Decode",
+        ["Tool.VideoWall.Field.Group"] = "Group",
+        ["Tool.VideoWall.Field.Note"] = "Note",
+        ["Tool.VideoWall.Field.Host"] = "Host",
+        ["Tool.VideoWall.Field.Port"] = "Port",
+        ["Tool.VideoWall.Field.StreamType"] = "Stream",
+        ["Tool.VideoWall.Field.ChannelFrom"] = "First channel",
+        ["Tool.VideoWall.Field.ChannelTo"] = "Last channel",
+        ["Tool.VideoWall.Field.NameTemplate"] = "Name template",
+        ["Tool.VideoWall.Field.AddressTemplate"] = "Address template",
+        ["Tool.VideoWall.Field.Protocol"] = "Protocol",
+        ["Tool.VideoWall.Field.Headers"] = "Custom headers",
+        ["Tool.VideoWall.Field.FilePath"] = "File",
+        ["Tool.VideoWall.Field.Loop"] = "Loop",
+
+        // Field hints
+        ["Tool.VideoWall.Hint.NameTemplate"] = "{ch} = channel number, {ch2} = zero-padded channel.",
+        ["Tool.VideoWall.Hint.AddressTemplate"] = "Available: {host} {port} {user} {pass} {ch} {ch2}.",
+        ["Tool.VideoWall.Hint.Headers"] = "Up to 8 entries, e.g. Referer / User-Agent; never put a password in a header.",
+        ["Tool.VideoWall.Hint.BufferRtspOnly"] = "RTSP only; increase it on a flaky network.",
+        ["Tool.VideoWall.Hint.TransportRtspOnly"] = "TCP is steadier, UDP has lower latency; RTSP only.",
+
+        // Options
+        ["Tool.VideoWall.Auth.None"] = "None",
+        ["Tool.VideoWall.Auth.Basic"] = "Basic",
+        ["Tool.VideoWall.Auth.Digest"] = "Digest",
+        ["Tool.VideoWall.Decode.Auto"] = "Auto",
+        ["Tool.VideoWall.Decode.Hardware"] = "Prefer hardware",
+        ["Tool.VideoWall.Decode.Software"] = "Force software",
+        ["Tool.VideoWall.Vendor.Generic"] = "Generic (enter address)",
+        ["Tool.VideoWall.Vendor.Hikvision"] = "Hikvision",
+        ["Tool.VideoWall.Vendor.Dahua"] = "Dahua",
+        ["Tool.VideoWall.Vendor.Uniview"] = "Uniview",
+        ["Tool.VideoWall.Vendor.Axis"] = "Axis",
+        ["Tool.VideoWall.Transport.Tcp"] = "TCP",
+        ["Tool.VideoWall.Transport.Udp"] = "UDP",
+        ["Tool.VideoWall.Stream.Main"] = "Main stream",
+        ["Tool.VideoWall.Stream.Sub"] = "Sub stream",
+        ["Tool.VideoWall.Protocol.Auto"] = "Auto detect",
+        ["Tool.VideoWall.Protocol.Hls"] = "HLS",
+        ["Tool.VideoWall.Protocol.Dash"] = "DASH",
+        ["Tool.VideoWall.Protocol.Rtmp"] = "RTMP",
+        ["Tool.VideoWall.Protocol.Srt"] = "SRT",
+        ["Tool.VideoWall.Protocol.Http"] = "HTTP direct",
+
+        // Source management page
+        ["Tool.VideoWall.ViewList"] = "List",
+        ["Tool.VideoWall.ViewCard"] = "Cards",
+        ["Tool.VideoWall.Search"] = "Search name or address",
+        ["Tool.VideoWall.Save"] = "Save",
+        ["Tool.VideoWall.Cancel"] = "Cancel",
+        ["Tool.VideoWall.Delete"] = "Delete",
+        ["Tool.VideoWall.Back"] = "Back",
+        ["Tool.VideoWall.Play"] = "Play",
+        ["Tool.VideoWall.SelectType"] = "Choose a source type",
+        ["Tool.VideoWall.Capturing"] = "Capturing the first frame…",
+        ["Tool.VideoWall.CaptureFailed"] = "Capture failed: saved as unverified; you can retry later."
     };
 }

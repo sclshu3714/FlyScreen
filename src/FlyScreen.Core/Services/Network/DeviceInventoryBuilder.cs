@@ -150,7 +150,7 @@ public static class DeviceInventoryBuilder
             if (listedNames.Contains(name)) continue;
 
             var item = BuildNonLocalFromPeer(
-                peer, DeviceInventoryItem.KindService, "来自中转服务", slots, bindings, endpoints, projecting);
+                peer, DeviceInventoryItem.KindService, "来自服务", slots, bindings, endpoints, projecting);
             list.Add(item);
             listedNames.Add(name);
         }

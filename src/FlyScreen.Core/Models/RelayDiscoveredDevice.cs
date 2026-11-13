@@ -1,7 +1,7 @@
 namespace FlyScreen.Models;
 
 /// <summary>
-/// 中转服务上注册/扫描到的设备（一对多）。仅本机配置缓存，不进 LayoutSync。
+/// 服务（FlyScreen.Relay）上注册/扫描到的设备（一对多）。仅本机配置缓存，不进 LayoutSync。
 /// </summary>
 public sealed class RelayDiscoveredDevice
 {

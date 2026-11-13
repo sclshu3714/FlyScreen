@@ -351,7 +351,7 @@ public sealed class FileTransferService
         var payload = MessageCodec.JsonBytes(new ClipboardFilesPullPayload
         {
             Sequence = remote.Sequence,
-            RequesterMachine = Environment.MachineName
+            RequesterMachine = LocalPeerIdentity.MachineName
         });
 
         NotifyStatus($"正在从 {remote.SourceMachine} 接收 {remote.Files.Count} 个文件…");
@@ -448,7 +448,8 @@ public sealed class FileTransferService
         var announce = MessageCodec.JsonBytes(new ClipboardInlineAnnouncePayload
         {
             Sequence = seq,
-            SourceMachine = Environment.MachineName,
+            // 必须与握手机名一致，否则对端 Pull 时 IsPeerReachable 失败
+            SourceMachine = LocalPeerIdentity.MachineName,
             TotalBytes = blob.Length,
             HasText = !string.IsNullOrEmpty(data.Text),
             HasHtml = !string.IsNullOrEmpty(data.Html),
@@ -488,6 +489,9 @@ public sealed class FileTransferService
                 var existingBlob = await existing.Task.ConfigureAwait(false);
                 return existingBlob is { Length: > 0 } ? SafeUnpackInline(existingBlob, remote.LegacyPngOnly) : null;
             }
+
+            // 已有拉取但无 waiter：避免并发二次拉取把 TCS 冲掉
+            return null;
         }
 
         var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -504,12 +508,12 @@ public sealed class FileTransferService
             ? MessageCodec.JsonBytes(new ClipboardImagePullPayload
             {
                 Sequence = remote.Sequence,
-                RequesterMachine = Environment.MachineName
+                RequesterMachine = LocalPeerIdentity.MachineName
             })
             : MessageCodec.JsonBytes(new ClipboardInlinePullPayload
             {
                 Sequence = remote.Sequence,
-                RequesterMachine = Environment.MachineName
+                RequesterMachine = LocalPeerIdentity.MachineName
             });
 
         NotifyStatus($"正在从 {remote.SourceMachine} 拉取{remote.Summary}…");
@@ -1321,10 +1325,11 @@ public sealed class FileTransferService
         var list = announce.Files;
         if (list == null || list.Count == 0) return;
 
-        var source = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine;
+        // 拉取必须走会话名 peer；SourceMachine 仅展示（旧端/改名覆盖可能不一致）
+        var display = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine.Trim();
         lock (_gate)
         {
-            _remotePending = new RemotePendingOffer(announce.Sequence, source, list.ToList());
+            _remotePending = new RemotePendingOffer(announce.Sequence, peer, list.ToList());
             _remoteInlinePending = null; // 文件宣告覆盖未粘贴的内联内容
         }
 
@@ -1333,7 +1338,7 @@ public sealed class FileTransferService
         var summary = dirs == 0 ? $"{filesOnly} 个文件"
             : filesOnly == 0 ? $"{dirs} 个文件夹"
             : $"{filesOnly} 文件+{dirs} 文件夹";
-        NotifyStatus($"对端 {source} 已复制 {summary}，粘贴时传输");
+        NotifyStatus($"对端 {display} 已复制 {summary}，粘贴时传输");
         try { RemoteFilesAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
@@ -1343,10 +1348,10 @@ public sealed class FileTransferService
         if (announce == null || !_settings.ShareClipboard) return;
         if (announce.TotalBytes <= 0) return;
 
-        var source = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine;
+        var display = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine.Trim();
         RegisterRemoteInline(new RemoteInlinePending(
-            announce.Sequence, source, announce.TotalBytes, "图片", legacyPngOnly: true));
-        NotifyStatus($"对端 {source} 已复制图片 {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
+            announce.Sequence, peer, announce.TotalBytes, "图片", legacyPngOnly: true));
+        NotifyStatus($"对端 {display} 已复制图片 {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
         try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
@@ -1356,11 +1361,12 @@ public sealed class FileTransferService
         if (announce == null || !_settings.ShareClipboard) return;
         if (announce.TotalBytes <= 0) return;
 
-        var source = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine;
+        var display = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine.Trim();
         var summary = string.IsNullOrWhiteSpace(announce.Summary) ? "剪贴板" : announce.Summary;
+        // 拉取目标用会话 peer，避免 SourceMachine 与握手机名不一致导致「宣告了但粘贴空」
         RegisterRemoteInline(new RemoteInlinePending(
-            announce.Sequence, source, announce.TotalBytes, summary, legacyPngOnly));
-        NotifyStatus($"对端 {source} 已复制{summary} {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
+            announce.Sequence, peer, announce.TotalBytes, summary, legacyPngOnly));
+        NotifyStatus($"对端 {display} 已复制{summary} {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
         try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 

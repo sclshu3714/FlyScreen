@@ -807,7 +807,7 @@
                     <StackPanel>
                       <TextBlock x:Name="ConnConfigTitleText" Text="连接配置" FontWeight="SemiBold" FontSize="15"/>
                       <TextBlock x:Name="ConnConfigHintText"
-                                 Text="本机网卡用于局域网；可添加远程设备或中转服务地址。"
+                                 Text="本机网卡用于局域网；可添加远程设备或服务地址。"
                                  Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                   </DockPanel>
@@ -852,7 +852,7 @@
                                         HorizontalContentAlignment="Center" FontWeight="SemiBold"
                                         Margin="0" MinWidth="0" Padding="10,0"
                                         Click="EndpointKind_Click" Tag="{Binding}"
-                                        ToolTip.Tip="点击切换：远程=一对一；中转服务=一对多"/>
+                                        ToolTip.Tip="点击切换：远程=一对一；服务=一对多（注册到 FlyScreen.Relay）"/>
                                 <TextBox Grid.Column="1" Text="{Binding Address}" Margin="0,0,8,0"
                                          VerticalContentAlignment="Center"
                                          Watermark="远程 host:port 或仅 IP（未写端口用下方 TCP）；中转 wss://…"/>

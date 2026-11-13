@@ -62,7 +62,7 @@
 
 | 端 | 内联粘贴 | 文件粘贴 |
 |----|----------|----------|
-| Win / Maui-Win | 焦点回本机 `ArmRemoteClipboardForPaste` → Pull → 写入 | 挂虚拟剪贴板；真正粘贴时再拉 |
+| Win / Maui-Win | 焦点回本机 `ArmRemoteClipboardForPaste` → Pull → 写入（Maui-Win 优先 Win32，避免后台 WinRT 写失败） | 挂虚拟剪贴板；真正粘贴时再拉 |
 | Android | 焦点回本机 Arm → Pull → `ClipboardManager` | 不 Arm；需产品侧接收路径 |
 | Mac/Linux Desktop | 对端宣告后立即 Pull + Apply | 按钮「接收剪贴板文件」显式拉取 |
 

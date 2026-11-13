@@ -8,7 +8,8 @@ namespace FlyScreen.Services.Network;
 /// <summary>
 /// 连接配置「测试 / 刷新验证」：仅探测可达性与延迟，不把远程配置写入设备管理。
 /// 远程一对一：TCP 可达即可；对端进设备管理靠「刷新发现」的 UDP/ProbeOnly 握手。
-/// 中转一对多：需扫到真实注册设备才进设备管理（中继协议未接入前不造假名）。
+/// 中转一对多：设备列表经 <see cref="ConnectionManager.ConnectRelayEndpointAsync"/> WebSocket 注册获取；
+/// 本类 <see cref="TestAsync"/> 对 KindRelay 仅做 TCP/地址形态探测（不含 WS hello）。
 /// </summary>
 public static class ConnectionEndpointProbe
 {

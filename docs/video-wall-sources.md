@@ -216,6 +216,29 @@ libVLC 一期能覆盖绝大多数 ①②③ 的组合，但**国标 GB28181、O
 
 探测 MUST NOT 建播放会话、MUST NOT 落盘、MUST NOT 触发设备侧录像/云台动作。
 
+### 7.1 首帧抓取路径（封面 + 可用性判定）
+
+「测试」只验协议可达；**封面要走真正的解码路径**，因为用户要的是「这条配置到底能不能出画面」。两者分开实现，避免把「端口通」当成「能播」。
+
+| 协议 | 抓首帧做法 | 超时 | 拿到即停 | 常见失败 |
+|------|-----------|------|----------|----------|
+| RTSP | `DESCRIBE` 取 SDP → `SETUP`（TCP 交织优先）→ `PLAY` → 解到第一个 IDR 帧 | 5s | 关 `TEARDOWN` 并释放解码器 | 401/403/404、只发 P 帧（无 IDR，等超时）、H.265 硬解不支持 |
+| HLS | 取 `m3u8` → 选最低码率变体 → 拉第一个完整分片 → 解首帧 | 6s | 拉完一个分片即停 | 403 签名过期、分片 404、AES-128 缺 key |
+| DASH | 取 `mpd` → 首个 `SegmentTemplate` 初始化段 + 首媒体段 | 6s | 同上 | `SegmentBase` 异常、无 init 段 |
+| RTMP | 握手 + `connect` + `createStream` + `play` → 首帧 | 5s | 收到首帧即断开 | 流名错误、需要 `tcUrl` 鉴权 |
+| SRT | `mode=caller` 建连 → 收首包 → 组帧解首帧 | 6s | 解出即断 | listener 未开、latency 设置过小导致丢包 |
+| UDP/组播 | 加入组播组 → 收 RTP → 解首帧 | 5s | 解出即离开组播 | IGMP 未开、SSRC 不匹配 |
+| 本机文件 | 打开 → seek 到首个关键帧（或直接解码前若干帧） | 2s | 解出即关 | 路径失效、无权限、容器损坏 |
+| GB28181（P1） | INVITE → 200/ACK → RTP(PS) → 解首帧 → BYE | 8s | 解出即 BYE | 488 协商失败、SSRC 不匹配、PS 头异常 |
+
+**实现约束**：
+
+1. 抓帧 MUST 复用与播放相同的后端（同一 `IMediaBackend`），只是「取一帧就停」，MUST NOT 另建第二套解码器——否则「封面成功但播放失败」会变成常态。
+2. 抓帧 MUST NOT 影响正在播放的同一源（若该源正在播放，可直接从现有会话取最近一帧，成功则跳过临时会话）。
+3. 抓帧失败 MUST 映射到 [video-wall.md](video-wall.md) §8 的错误码（`net.timeout` / `auth.required` / `src.unsupported` / `decode.failed`），并在 UI 显示具体原因，不允许只显示「失败」。
+4. 抓帧结果 MUST 写入记录（`validationState` / `coverKey` / `coverCapturedAt`），供列表/卡片状态点使用。
+5. 并发 MUST ≤ 4（`docs/video-wall.md` §3.1.1），批量 NVR 抓帧同样受限。
+
 ---
 
 ## 8. 不支持清单（对外必须能答）

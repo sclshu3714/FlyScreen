@@ -8,7 +8,7 @@ namespace FlyScreen.Models;
 /// 连接配置表中的可添加行。
 /// 远程=一对一探测地址（Tailscale/VPN 等）；「测试」仅测连通，不进设备管理。
 /// 刷新发现时把远程地址当作 UDP/握手探测目标，对端以「本地」出现在设备管理。
-/// 中转服务=一对多；仅扫描到的真实设备可进设备管理。
+/// 服务=一对多；仅扫描到的真实设备可进设备管理。
 /// </summary>
 public sealed class ConnectionEndpoint : INotifyPropertyChanged
 {
@@ -24,7 +24,7 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     /// <summary>稳定 Id（本机生成，不参与跨机协议）。</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
-    /// <summary>0=远程（一对一） 1=中转服务（一对多）。</summary>
+    /// <summary>0=远程（一对一） 1=服务（一对多中转）。</summary>
     public int Kind
     {
         get => _kind;
@@ -94,7 +94,7 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     }
 
     [JsonIgnore]
-    public string KindLabel => Kind == KindRelay ? "中转服务" : "远程";
+    public string KindLabel => Kind == KindRelay ? "服务" : "远程";
 
     /// <summary>最近一次失败原因（仅 UI）。</summary>
     public string LastError
@@ -109,10 +109,8 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     [JsonIgnore]
     public string StatusText => State switch
     {
-        StateConnected when Kind == KindRelay && (DiscoveredDevices == null || DiscoveredDevices.Count == 0)
-            => LastRttMs is int ms
-                ? $"● 测试通过 {ms}ms（入口可达，等待设备注册）"
-                : "● 测试通过（入口可达，等待设备注册）",
+        StateConnected when Kind == KindRelay
+            => FormatRelayConnectedStatus(),
         StateConnected => LastRttMs is int ms ? $"● 测试通过 {ms}ms" : "● 测试通过",
         StateDisconnected => "○ 未测试",
         StateError => string.IsNullOrWhiteSpace(LastError) ? "○ 无法连接" : $"○ {LastError}",
@@ -139,6 +137,21 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         VerifiedPeerName = "";
         DiscoveredDevices = [];
         LastRttMs = null;
+    }
+
+    private string FormatRelayConnectedStatus()
+    {
+        var n = DiscoveredDevices?.Count ?? 0;
+        if (n > 0)
+        {
+            return LastRttMs is int ms
+                ? $"● 已注册 · {n} 台设备 · {ms}ms"
+                : $"● 已注册 · {n} 台设备";
+        }
+
+        return LastRttMs is int rtt
+            ? $"● 已注册 · {rtt}ms（等待其它设备）"
+            : "● 已注册（等待其它设备）";
     }
 
     public void TryInferKindFromAddress()

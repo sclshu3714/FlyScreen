@@ -250,10 +250,16 @@ public sealed class MacAppHost : IAsyncDisposable
             || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal)
             || Connections.NeedsListenRebind();
 
+        var keyChanged = !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+
         if (needRestart || !Connections.IsRunning)
             await Connections.StartAsync().ConfigureAwait(false);
         else
+        {
             await Connections.RefreshConfiguredPeersAsync().ConfigureAwait(false);
+            if (keyChanged)
+                await Connections.RelayHub.RebindRoomKeyAsync(Settings, default).ConfigureAwait(false);
+        }
     }
 
     public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();

@@ -61,6 +61,19 @@ public enum VideoErrorCode
     IoDisk
 }
 
+/// <summary>源的可用性判定结果（由首帧抓取或最近一次播放写入）。</summary>
+public enum SourceValidationState
+{
+    /// <summary>从未验证（新建但未抓帧 / 未播放）。</summary>
+    Unknown,
+
+    /// <summary>最近一次抓帧或播放成功。</summary>
+    Ok,
+
+    /// <summary>最近一次抓帧或播放失败。</summary>
+    Failed
+}
+
 /// <summary>合流/整墙音频策略。</summary>
 public enum AudioPolicy
 {

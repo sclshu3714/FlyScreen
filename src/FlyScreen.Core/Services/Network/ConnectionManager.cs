@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using FlyScreen.Models;
+using FlyScreen.Services.Network.Relay;
 
 namespace FlyScreen.Services.Network;
 
@@ -43,9 +44,12 @@ public sealed class ConnectionManager : IAsyncDisposable
     /// <summary>入站握手密钥正确，且对端请求加入布局。返回 false 则拒绝连接。</summary>
     public Func<string, bool>? TryAcceptLayoutJoin;
 
+    public RelaySessionHub RelayHub { get; } = new();
+
     public ConnectionManager(AppSettings settings)
     {
         _settings = settings;
+        RelayHub.AttachSettings(settings);
         _discovery.PeerDialRequested += OnPeerDialRequested;
     }
 
@@ -134,6 +138,23 @@ public sealed class ConnectionManager : IAsyncDisposable
         StatusMessage?.Invoke(listenAny
             ? $"已在 0.0.0.0:{_settings.TcpPort} 监听（全部网卡）"
             : $"已在 {_bindIp}:{_settings.TcpPort} 监听");
+
+        RelayHub.AttachSettings(_settings);
+        var relayCt = _cts.Token;
+        _ = RelayHub.StartAllConfiguredAsync(_settings, relayCt);
+    }
+
+    /// <summary>服务类型连接配置：WebSocket hello 注册并拉取房间设备（⚡ 测试）。</summary>
+    public async Task<RelayConnectResult> ConnectRelayEndpointAsync(ConnectionEndpoint ep, CancellationToken ct = default)
+    {
+        _settings.EnsureCollections();
+        using var linked = _cts != null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token)
+            : null;
+        var token = linked?.Token ?? ct;
+        var result = await RelayHub.EnsureAsync(ep, _settings, token).ConfigureAwait(false);
+        try { _settings.Save(); } catch { /* ignore */ }
+        return result;
     }
 
     private string AdvertisedLocalIp
@@ -147,6 +168,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         try { listener?.Stop(); } catch { /* ignore */ }
         try { _cts?.Cancel(); } catch { /* ignore */ }
         _discovery.Stop();
+        RelayHub.StopAll();
 
         await DropAllPeerLinksAsync().ConfigureAwait(false);
         _adHocPeers.Clear();

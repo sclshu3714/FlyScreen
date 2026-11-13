@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using FlyScreen.Services.Clipboard;
+using FlyScreen.Win32Clipboard;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 using WinClipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
@@ -88,52 +89,38 @@ internal static class MauiWinClipboardInline
     {
         if (data.IsEmpty) return;
 
-        var package = new WinDataPackage();
-        var any = false;
+        // 被控/后台时 WinRT SetContent 常失败 → 对端粘贴为空；优先 Win32（无需前台）
+        if (Win32InlineClipboard.TryApply(data))
+            return;
 
-        if (data.Png is { Length: > 0 })
+        try
         {
-            var stream = new InMemoryRandomAccessStream();
-            await stream.WriteAsync(data.Png.AsBuffer());
-            stream.Seek(0);
-            package.SetBitmap(RandomAccessStreamReference.CreateFromStream(stream));
-            any = true;
-        }
+            var package = new WinDataPackage();
+            var any = false;
 
-        if (!string.IsNullOrEmpty(data.Text))
-        {
-            package.SetText(data.Text);
-            any = true;
-        }
-
-        if (!string.IsNullOrEmpty(data.Html))
-        {
-            try
+            if (data.Png is { Length: > 0 })
             {
-                var html = data.Html.Contains("Version:", StringComparison.OrdinalIgnoreCase)
-                    ? data.Html
-                    : WinHtmlFormatHelper.CreateHtmlFormat(data.Html);
-                package.SetHtmlFormat(html);
+                var stream = new InMemoryRandomAccessStream();
+                await stream.WriteAsync(data.Png.AsBuffer());
+                stream.Seek(0);
+                package.SetBitmap(RandomAccessStreamReference.CreateFromStream(stream));
                 any = true;
             }
-            catch
-            {
-                // ignore
-            }
-        }
 
-        if (!string.IsNullOrEmpty(data.Rtf))
-        {
-            try
+            if (!string.IsNullOrEmpty(data.Text))
             {
-                package.SetRtf(data.Rtf);
+                package.SetText(data.Text);
                 any = true;
             }
-            catch
+
+            if (!string.IsNullOrEmpty(data.Html))
             {
                 try
                 {
-                    package.SetData(FormatRtfLegacy, data.Rtf);
+                    var html = data.Html.Contains("Version:", StringComparison.OrdinalIgnoreCase)
+                        ? data.Html
+                        : WinHtmlFormatHelper.CreateHtmlFormat(data.Html);
+                    package.SetHtmlFormat(html);
                     any = true;
                 }
                 catch
@@ -141,33 +128,59 @@ internal static class MauiWinClipboardInline
                     // ignore
                 }
             }
-        }
 
-        if (!string.IsNullOrEmpty(data.Csv))
-        {
-            try
+            if (!string.IsNullOrEmpty(data.Rtf))
             {
-                package.SetData(FormatCsv, data.Csv);
-                any = true;
+                try
+                {
+                    package.SetRtf(data.Rtf);
+                    any = true;
+                }
+                catch
+                {
+                    try
+                    {
+                        package.SetData(FormatRtfLegacy, data.Rtf);
+                        any = true;
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
             }
-            catch
+
+            if (!string.IsNullOrEmpty(data.Csv))
             {
-                // ignore
+                try
+                {
+                    package.SetData(FormatCsv, data.Csv);
+                    any = true;
+                }
+                catch
+                {
+                    // ignore
+                }
             }
-        }
 
-        if (!any)
+            if (!any)
+            {
+                var fallback = PreferText(data);
+                if (string.IsNullOrEmpty(fallback)) return;
+                await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default
+                    .SetTextAsync(fallback)
+                    .ConfigureAwait(true);
+                return;
+            }
+
+            WinClipboard.SetContent(package);
+            WinClipboard.Flush();
+        }
+        catch
         {
-            var fallback = PreferText(data);
-            if (string.IsNullOrEmpty(fallback)) return;
-            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default
-                .SetTextAsync(fallback)
-                .ConfigureAwait(true);
-            return;
+            // WinRT 仍失败则再试一次 Win32（争用后）
+            Win32InlineClipboard.TryApply(data);
         }
-
-        WinClipboard.SetContent(package);
-        WinClipboard.Flush();
     }
 
     private static string? PreferText(ClipboardInlineData data)

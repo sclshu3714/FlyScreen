@@ -327,7 +327,7 @@
                                     <VerticalStackLayout Spacing="4">
                                         <Label x:Name="ConnConfigTitleText" Text="连接配置" FontSize="15" FontAttributes="Bold" />
                                         <Label x:Name="ConnConfigHintText"
-                                               Text="本机网卡用于局域网；可添加远程/中转（旧端忽略未知配置）。"
+                                               Text="本机网卡用于局域网；可添加远程/服务（旧端忽略未知配置）。"
                                                TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                                     </VerticalStackLayout>
                                     <Button x:Name="AddEndpointBtn" Grid.Column="1" Text="+" WidthRequest="32" HeightRequest="28"

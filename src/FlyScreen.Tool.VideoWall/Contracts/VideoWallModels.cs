@@ -24,6 +24,13 @@ public sealed record VideoEndpoint
     public string? CredentialRef { get; init; }
 }
 
+/// <summary>源分组（工具页左栏/筛选用）。</summary>
+public sealed record VideoSourceGroup
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+}
+
 /// <summary>固定/临时源条目。</summary>
 public sealed record VideoSourceDescriptor
 {
@@ -41,6 +48,21 @@ public sealed record VideoSourceDescriptor
 
     /// <summary>备注。</summary>
     public string? Note { get; init; }
+
+    /// <summary>最近一次抓帧/播放的判定结果（UI 状态点依据）。</summary>
+    public SourceValidationState ValidationState { get; init; } = SourceValidationState.Unknown;
+
+    /// <summary>连续失败次数；成功即归零。</summary>
+    public int FailureCount { get; init; }
+
+    /// <summary>封面缓存键（对应 <c>covers/&lt;key&gt;.jpg</c>）；无封面为 null。</summary>
+    public string? CoverKey { get; init; }
+
+    public DateTimeOffset? CoverCapturedAt { get; init; }
+
+    public DateTimeOffset? LastPlayedAt { get; init; }
+
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
 }
 
 /// <summary>墙布局。仅允许 1×1 / 2×2 / 3×3 / 4×4；比例布局（主画面+侧栏）属 P1。</summary>
