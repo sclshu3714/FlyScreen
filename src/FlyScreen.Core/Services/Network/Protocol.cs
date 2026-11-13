@@ -792,6 +792,8 @@ public sealed class ScreenExtendHostRequestPayload
     public int PreferredWidth { get; set; } = 1920;
     public int PreferredHeight { get; set; } = 1080;
     public int Fps { get; set; } = 12;
+    /// <summary>JPEG 画质 0=原画 / 1–100；旧端缺省 0 按采集端默认。</summary>
+    public int JpegQuality { get; set; }
     public bool AudioSync { get; set; }
     public bool RemoteControl { get; set; } = true;
     /// <summary>true：结束 Host；false：开始向 Sink 推流。</summary>
@@ -806,34 +808,59 @@ public sealed class ScreenExtendHostRequestResultPayload
 }
 
 /// <summary>
-/// ScreenExtendFrame 二进制：16 字节 SessionId（Guid）+ int32 W + int32 H + int32 Seq + JPEG。
+/// ScreenExtendFrame 二进制：
+/// v2：16 字节 SessionId + int32 W + int32 H + int32 Seq + int64 CapturedUnixMs + JPEG；
+/// v1（旧）：无 CapturedUnixMs，头 28 字节。
 /// </summary>
 public static class ScreenExtendFrameCodec
 {
-    public const int HeaderSize = 28;
+    public const int HeaderSize = 36;
+    public const int LegacyHeaderSize = 28;
 
-    public static byte[] Encode(Guid sessionId, int width, int height, int seq, ReadOnlySpan<byte> jpeg)
+    public static byte[] Encode(Guid sessionId, int width, int height, int seq, ReadOnlySpan<byte> jpeg,
+        long capturedUnixMs = 0)
     {
+        if (capturedUnixMs <= 0)
+            capturedUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var buf = new byte[HeaderSize + jpeg.Length];
         sessionId.TryWriteBytes(buf.AsSpan(0, 16));
         BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(16, 4), width);
         BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(20, 4), height);
         BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(24, 4), seq);
+        BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(28, 8), capturedUnixMs);
         jpeg.CopyTo(buf.AsSpan(HeaderSize));
         return buf;
     }
 
     public static bool TryDecode(ReadOnlySpan<byte> payload,
         out Guid sessionId, out int width, out int height, out int seq, out ReadOnlySpan<byte> jpeg)
+        => TryDecode(payload, out sessionId, out width, out height, out seq, out _, out jpeg);
+
+    public static bool TryDecode(ReadOnlySpan<byte> payload,
+        out Guid sessionId, out int width, out int height, out int seq, out long capturedUnixMs,
+        out ReadOnlySpan<byte> jpeg)
     {
         sessionId = default;
         width = height = seq = 0;
+        capturedUnixMs = 0;
         jpeg = default;
-        if (payload.Length < HeaderSize) return false;
+        if (payload.Length < LegacyHeaderSize) return false;
         sessionId = new Guid(payload[..16]);
         width = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
         height = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(20, 4));
         seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
+        // 旧头：offset 28 起即 JPEG（SOI=FF D8）。新头：28..36 为 CapturedUnixMs。
+        if (payload.Length >= LegacyHeaderSize + 2
+            && payload[LegacyHeaderSize] == 0xFF
+            && payload[LegacyHeaderSize + 1] == 0xD8)
+        {
+            jpeg = payload[LegacyHeaderSize..];
+            return true;
+        }
+
+        if (payload.Length < HeaderSize) return false;
+        capturedUnixMs = BinaryPrimitives.ReadInt64LittleEndian(payload.Slice(28, 8));
+        if (capturedUnixMs < 0) capturedUnixMs = 0;
         jpeg = payload[HeaderSize..];
         return true;
     }

@@ -77,6 +77,23 @@ public static class ProjectionDisplayPresets
     public static string FpsLabel(int fps)
         => fps == DefaultFps ? $"{fps} 帧（推荐）" : $"{fps} 帧";
 
+    /// <summary>设备管理投影对话框「码率」：帧率主导带宽，文案偏流量档。</summary>
+    public static string BitrateLabel(int fps) => ClampFps(fps) switch
+    {
+        12 => "低（省流）",
+        15 => "较低",
+        20 => "中低",
+        24 => "中",
+        DefaultFps => "标准（推荐）",
+        40 => "较高",
+        50 => "高",
+        60 => "很高",
+        75 => "极高",
+        90 => "满速",
+        120 => "极限",
+        _ => FpsLabel(fps)
+    };
+
     public static string JpegQualityLabel(int quality) => ClampJpegQuality(quality) switch
     {
         100 => "高画质",
@@ -86,6 +103,9 @@ public static class ProjectionDisplayPresets
         45 => "流畅",
         _ => quality.ToString()
     };
+
+    public static string ResolutionLabel(int width, int height)
+        => width <= 0 || height <= 0 ? "自动（采集端）" : $"{width}×{height}";
 
     /// <summary>
     /// 原画不缩放、不降质，采集画面按 JPEG 100 原样送出。

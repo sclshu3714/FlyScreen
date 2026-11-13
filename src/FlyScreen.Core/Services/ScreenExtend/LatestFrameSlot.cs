@@ -9,11 +9,12 @@ public sealed class LatestFrameSlot
     private byte[]? _jpeg;
     private int _width;
     private int _height;
+    private long _capturedUnixMs;
     private int _gen;
     private bool _posted;
 
     /// <summary>写入最新帧。返回 true 时调用方需要安排一次 UI 呈现。</summary>
-    public bool Offer(ReadOnlyMemory<byte> jpeg, int width, int height)
+    public bool Offer(ReadOnlyMemory<byte> jpeg, int width, int height, long capturedUnixMs = 0)
     {
         if (jpeg.Length == 0 || width <= 0 || height <= 0) return false;
         lock (_gate)
@@ -21,6 +22,7 @@ public sealed class LatestFrameSlot
             _jpeg = jpeg.ToArray();
             _width = width;
             _height = height;
+            _capturedUnixMs = capturedUnixMs;
             _gen++;
             if (_posted) return false;
             _posted = true;
@@ -30,6 +32,9 @@ public sealed class LatestFrameSlot
 
     /// <summary>取出当前最新帧。没有待显示的帧时返回 false。</summary>
     public bool TryTake(out byte[] jpeg, out int width, out int height, out int generation)
+        => TryTake(out jpeg, out width, out height, out _, out generation);
+
+    public bool TryTake(out byte[] jpeg, out int width, out int height, out long capturedUnixMs, out int generation)
     {
         lock (_gate)
         {
@@ -39,6 +44,7 @@ public sealed class LatestFrameSlot
                 jpeg = [];
                 width = 0;
                 height = 0;
+                capturedUnixMs = 0;
                 generation = 0;
                 return false;
             }
@@ -46,6 +52,7 @@ public sealed class LatestFrameSlot
             jpeg = _jpeg;
             width = _width;
             height = _height;
+            capturedUnixMs = _capturedUnixMs;
             generation = _gen;
             _jpeg = null;
             return true;

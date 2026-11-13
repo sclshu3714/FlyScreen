@@ -182,6 +182,7 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
       <TextBlock x:Name="TitleText" Text="投影到电脑" FontSize="15" FontWeight="SemiBold"
@@ -189,8 +190,33 @@
       <TextBlock x:Name="HintText" Grid.Row="1" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"
                  LineHeight="20" Margin="0,0,0,14"/>
       <TextBlock x:Name="TargetLabel" Grid.Row="2" Text="布局电脑" FontWeight="SemiBold" Margin="0,0,0,6"/>
-      <ComboBox x:Name="TargetCombo" Grid.Row="3" DisplayMemberPath="Label" Margin="0,0,0,18"/>
-      <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+      <ComboBox x:Name="TargetCombo" Grid.Row="3" DisplayMemberPath="Label" Margin="0,0,0,14"/>
+
+      <Grid Grid.Row="4" Margin="0,0,0,18">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="10"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="10"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="ResolutionLabel" Text="投影分辨率" FontSize="11"
+                   Foreground="{DynamicResource Muted}" Grid.Row="0" Grid.Column="0" Margin="0,0,0,3"/>
+        <TextBlock x:Name="BitrateLabel" Text="码率" FontSize="11"
+                   Foreground="{DynamicResource Muted}" Grid.Row="0" Grid.Column="2" Margin="0,0,0,3"/>
+        <ComboBox x:Name="ResolutionCombo" Grid.Row="1" Grid.Column="0"/>
+        <ComboBox x:Name="BitrateCombo" Grid.Row="1" Grid.Column="2"/>
+        <TextBlock x:Name="QualityLabel" Text="质量" FontSize="11"
+                   Foreground="{DynamicResource Muted}" Grid.Row="3" Grid.Column="0" Margin="0,0,0,3"/>
+        <ComboBox x:Name="QualityCombo" Grid.Row="4" Grid.Column="0"/>
+      </Grid>
+
+      <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
         <Button x:Name="CancelBtn" Style="{StaticResource DlgNormalBtn}" Content="取消"
                 IsCancel="True" Click="Cancel_Click"/>
         <Button x:Name="OkBtn" Style="{StaticResource DlgPrimaryBtn}" Content="投影"

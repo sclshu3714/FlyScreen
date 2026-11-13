@@ -699,7 +699,10 @@ public sealed class MauiAppHost : IAsyncDisposable
             Height = req.PreferredHeight > 0 ? req.PreferredHeight : (local?.Height ?? 1080),
             ScalePercent = local?.ScalePercent > 0 ? local.ScalePercent : 100,
             RefreshHz = local?.RefreshHz > 0 ? local.RefreshHz : 60,
-            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps
+            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps,
+            JpegQuality = req.JpegQuality > 0
+                ? ProjectionDisplayPresets.ClampJpegQuality(req.JpegQuality)
+                : ProjectionDisplayPresets.DefaultJpegQuality
         };
         Platform.SetScreenExtendProjectionMode(DisplayProjectionMode.Clone);
         Platform.SetScreenExtendDisplayChoice(choice);

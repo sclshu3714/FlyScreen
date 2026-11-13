@@ -164,6 +164,7 @@ public sealed class MauiScreenExtendController : IDisposable
                 var started = Environment.TickCount64;
                 try
                 {
+                    var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     var picture = ProjectionDisplayPresets.DescribeQuality(display.JpegQuality);
                     var maxEdge = picture.Passthrough ? 0 : Math.Max(display.Width, display.Height);
                     if (!picture.Passthrough && picture.ExtraLongEdgeCap > 0)
@@ -171,7 +172,8 @@ public sealed class MauiScreenExtendController : IDisposable
                     var frame = ScreenCaptureJpeg.Capture(target.Value, picture.EncodeQuality, maxEdge);
                     if (frame is { Jpeg.Length: > 0 })
                     {
-                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height, token)
+                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height,
+                                capturedAt, token)
                             .ConfigureAwait(false);
                     }
                 }
@@ -268,9 +270,9 @@ public sealed class MauiScreenExtendController : IDisposable
         });
     }
 
-    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h)
+    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs)
     {
-        if (!_frames.Offer(jpeg, w, h)) return;
+        if (!_frames.Offer(jpeg, w, h, capturedUnixMs)) return;
         KickDecode();
     }
 
@@ -285,7 +287,7 @@ public sealed class MauiScreenExtendController : IDisposable
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var gen))
+            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen))
             {
                 DecodedBgra? frame = null;
                 try
@@ -303,6 +305,7 @@ public sealed class MauiScreenExtendController : IDisposable
 
                 var shown = frame.Value;
                 var g = gen;
+                var capturedUnixMs = capturedAt;
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g))
@@ -314,7 +317,7 @@ public sealed class MauiScreenExtendController : IDisposable
                         _sink.BindSession(_service);
                         if (!_sink.IsVisible)
                             _sink.ShowFullscreen();
-                        _sink.PresentBgra(shown.Width, shown.Height, shown.Pixels);
+                        _sink.PresentBgra(shown.Width, shown.Height, shown.Pixels, capturedUnixMs);
                     }
                     catch { /* ignore */ }
                 });
@@ -440,6 +443,7 @@ public sealed class MauiScreenExtendSinkWindow
     private readonly Microsoft.UI.Xaml.Controls.Grid _root;
     private readonly Microsoft.UI.Xaml.Controls.Image _image;
     private readonly Microsoft.UI.Xaml.Controls.TextBlock _waiting;
+    private readonly Microsoft.UI.Xaml.Controls.TextBlock _latency;
     private bool _closingFromSession;
     private bool _userCloseRaised;
     private int _showCursorHideDepth;
@@ -448,6 +452,7 @@ public sealed class MauiScreenExtendSinkWindow
     private bool _windowActive;
     private int _contentW;
     private int _contentH;
+    private double _latencyEma;
 
     public MauiScreenExtendSinkWindow(Action onUserClose)
     {
@@ -466,6 +471,16 @@ public sealed class MauiScreenExtendSinkWindow
             FontSize = 18,
             HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
+        };
+        _latency = new Microsoft.UI.Xaml.Controls.TextBlock
+        {
+            Text = FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyWait"),
+            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White),
+            Opacity = 0.8,
+            FontSize = 14,
+            Margin = new Microsoft.UI.Xaml.Thickness(16),
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Right,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top
         };
         _root = new Microsoft.UI.Xaml.Controls.Grid
         {
@@ -491,6 +506,7 @@ public sealed class MauiScreenExtendSinkWindow
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top
         };
         _root.Children.Add(tip);
+        _root.Children.Add(_latency);
         _root.IsTabStop = true;
         _root.KeyDown += Root_KeyDown;
         _root.KeyUp += Root_KeyUp;
@@ -755,7 +771,7 @@ public sealed class MauiScreenExtendSinkWindow
 
     private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _bitmap;
 
-    public void PresentBgra(int width, int height, byte[] pixels)
+    public void PresentBgra(int width, int height, byte[] pixels, long capturedUnixMs = 0)
     {
         if (width <= 0 || height <= 0 || pixels.Length < width * 4 * height)
             return;
@@ -776,6 +792,20 @@ public sealed class MauiScreenExtendSinkWindow
 
         _bitmap.Invalidate();
         _waiting.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        UpdateLatency(capturedUnixMs);
+    }
+
+    private void UpdateLatency(long capturedUnixMs)
+    {
+        var sample = ProjectionLatency.ComputeMs(capturedUnixMs);
+        if (sample == null)
+        {
+            _latency.Text = FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyWait");
+            return;
+        }
+
+        var ms = ProjectionLatency.Smooth(sample, ref _latencyEma);
+        _latency.Text = string.Format(FlyScreen.Helpers.Localization.Loc.T("Proj.Latency"), ms);
     }
 
     public void CloseFromSession()

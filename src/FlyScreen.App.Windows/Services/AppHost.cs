@@ -517,7 +517,10 @@ public sealed class AppHost : IAsyncDisposable
             Height = req.PreferredHeight > 0 ? req.PreferredHeight : local.Height,
             ScalePercent = local.ScalePercent > 0 ? local.ScalePercent : 100,
             RefreshHz = local.RefreshHz > 0 ? local.RefreshHz : 60,
-            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps
+            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps,
+            JpegQuality = req.JpegQuality > 0
+                ? ProjectionDisplayPresets.ClampJpegQuality(req.JpegQuality)
+                : ProjectionDisplayPresets.DefaultJpegQuality
         };
         ScreenExtendUi.SetProjectionMode(DisplayProjectionMode.Clone);
         ScreenExtendUi.SetDisplayChoice(choice);

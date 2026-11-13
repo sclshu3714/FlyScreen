@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using FlyScreen.Helpers.Localization;
 using FlyScreen.Native;
 
 namespace FlyScreen.Services.ScreenExtend;
@@ -20,6 +21,7 @@ public partial class ScreenExtendSinkWindow : Window
     private bool _captureBound;
     private int _contentW;
     private int _contentH;
+    private double _latencyEma;
 
     public ScreenExtendSinkWindow(Action onCloseRequest)
     {
@@ -284,7 +286,7 @@ public partial class ScreenExtendSinkWindow : Window
 
     private WriteableBitmap? _frameBitmap;
 
-    public void Present(DecodedFrame frame)
+    public void Present(DecodedFrame frame, long capturedUnixMs = 0)
     {
         _contentW = frame.Width;
         _contentH = frame.Height;
@@ -299,6 +301,20 @@ public partial class ScreenExtendSinkWindow : Window
         _frameBitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Bgra, frame.Stride, 0);
         if (WaitingText.Visibility != Visibility.Collapsed)
             WaitingText.Visibility = Visibility.Collapsed;
+        UpdateLatency(capturedUnixMs);
+    }
+
+    private void UpdateLatency(long capturedUnixMs)
+    {
+        var sample = ProjectionLatency.ComputeMs(capturedUnixMs);
+        if (sample == null)
+        {
+            LatencyText.Text = Loc.T("Proj.LatencyWait");
+            return;
+        }
+
+        var ms = ProjectionLatency.Smooth(sample, ref _latencyEma);
+        LatencyText.Text = string.Format(Loc.T("Proj.Latency"), ms);
     }
 
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

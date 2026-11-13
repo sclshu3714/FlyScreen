@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.DesktopUi;
@@ -19,6 +20,7 @@ public partial class ScreenExtendSinkWindow : Window
     private bool _captureBound;
     private int _contentW;
     private int _contentH;
+    private double _latencyEma;
 
     public ScreenExtendSinkWindow() : this(() => { }) { }
 
@@ -319,7 +321,7 @@ public partial class ScreenExtendSinkWindow : Window
         }
     }
 
-    public void Present(Bitmap bmp)
+    public void Present(Bitmap bmp, long capturedUnixMs = 0)
     {
         _contentW = bmp.PixelSize.Width;
         _contentH = bmp.PixelSize.Height;
@@ -328,6 +330,20 @@ public partial class ScreenExtendSinkWindow : Window
         FrameImage.Source = bmp;
         WaitingText.IsVisible = false;
         old?.Dispose();
+        UpdateLatency(capturedUnixMs);
+    }
+
+    private void UpdateLatency(long capturedUnixMs)
+    {
+        var sample = ProjectionLatency.ComputeMs(capturedUnixMs);
+        if (sample == null)
+        {
+            LatencyText.Text = Loc.T("Proj.LatencyWait");
+            return;
+        }
+
+        var ms = ProjectionLatency.Smooth(sample, ref _latencyEma);
+        LatencyText.Text = string.Format(Loc.T("Proj.Latency"), ms);
     }
 
     public void CloseFromSession()

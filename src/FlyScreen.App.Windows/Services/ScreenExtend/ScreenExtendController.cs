@@ -165,6 +165,7 @@ public sealed class ScreenExtendController : IDisposable
                 var started = Environment.TickCount64;
                 try
                 {
+                    var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     var picture = ProjectionDisplayPresets.DescribeQuality(display.JpegQuality);
                     var maxEdge = picture.Passthrough ? 0 : Math.Max(display.Width, display.Height);
                     if (!picture.Passthrough && picture.ExtraLongEdgeCap > 0)
@@ -172,7 +173,8 @@ public sealed class ScreenExtendController : IDisposable
                     var frame = ScreenCaptureJpeg.Capture(target.Value, picture.EncodeQuality, maxEdge);
                     if (frame is { Jpeg.Length: > 0 })
                     {
-                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height, token)
+                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height,
+                                capturedAt, token)
                             .ConfigureAwait(false);
                     }
                 }
@@ -271,9 +273,9 @@ public sealed class ScreenExtendController : IDisposable
         });
     }
 
-    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h)
+    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs)
     {
-        if (!_frames.Offer(jpeg, w, h)) return;
+        if (!_frames.Offer(jpeg, w, h, capturedUnixMs)) return;
         KickDecode();
     }
 
@@ -288,12 +290,13 @@ public sealed class ScreenExtendController : IDisposable
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var gen))
+            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen))
             {
                 var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
                 if (src == null || !_frames.IsCurrent(gen)) continue;
                 var shown = src.Value;
                 var g = gen;
+                var capturedUnixMs = capturedAt;
                 _dispatcher.BeginInvoke(() =>
                 {
                     if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g)) return;
@@ -303,7 +306,7 @@ public sealed class ScreenExtendController : IDisposable
                         _sinkWindow.BindSession(_service);
                         if (!_sinkWindow.IsVisible)
                             _sinkWindow.ShowFullscreen();
-                        _sinkWindow.Present(shown);
+                        _sinkWindow.Present(shown, capturedUnixMs);
                     }
                     catch { /* ignore */ }
                 });

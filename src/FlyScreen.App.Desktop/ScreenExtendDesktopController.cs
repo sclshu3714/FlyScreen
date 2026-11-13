@@ -60,9 +60,9 @@ public sealed class ScreenExtendDesktopController : IDisposable
         });
     }
 
-    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h)
+    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs)
     {
-        if (!_frames.Offer(jpeg, w, h)) return;
+        if (!_frames.Offer(jpeg, w, h, capturedUnixMs)) return;
         KickDecode();
     }
 
@@ -77,7 +77,7 @@ public sealed class ScreenExtendDesktopController : IDisposable
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var gen))
+            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen))
             {
                 var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
                 if (src == null || !_frames.IsCurrent(gen))
@@ -88,6 +88,7 @@ public sealed class ScreenExtendDesktopController : IDisposable
 
                 var shown = src;
                 var g = gen;
+                var capturedUnixMs = capturedAt;
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g))
@@ -102,7 +103,7 @@ public sealed class ScreenExtendDesktopController : IDisposable
                         _sink.BindSession(_service);
                         if (!_sink.IsVisible)
                             _sink.ShowFullscreen();
-                        _sink.Present(shown);
+                        _sink.Present(shown, capturedUnixMs);
                     }
                     catch
                     {

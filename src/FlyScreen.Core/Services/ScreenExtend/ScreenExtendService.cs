@@ -73,8 +73,8 @@ public sealed class ScreenExtendService : IDisposable
     /// <summary>会话结束（任一方 / 断连）。</summary>
     public event Action? SessionEnded;
 
-    /// <summary>从机收到一帧 JPEG。</summary>
-    public event Action<ReadOnlyMemory<byte>, int, int>? FrameReceived;
+    /// <summary>从机收到一帧 JPEG（capturedUnixMs：采集端 UTC 毫秒，旧端为 0）。</summary>
+    public event Action<ReadOnlyMemory<byte>, int, int, long>? FrameReceived;
 
     /// <summary>从机收到一块 PCM s16le。</summary>
     public event Action<byte[], int, int>? AudioReceived;
@@ -168,6 +168,7 @@ public sealed class ScreenExtendService : IDisposable
         int fps = 12,
         bool audioSync = false,
         bool remoteControl = true,
+        int jpegQuality = 0,
         TimeSpan? timeout = null,
         CancellationToken ct = default)
     {
@@ -215,6 +216,7 @@ public sealed class ScreenExtendService : IDisposable
                 PreferredWidth = preferredWidth,
                 PreferredHeight = preferredHeight,
                 Fps = fps,
+                JpegQuality = jpegQuality,
                 AudioSync = audioSync,
                 RemoteControl = remoteControl,
                 Stop = false
@@ -418,6 +420,10 @@ public sealed class ScreenExtendService : IDisposable
     }
 
     public Task SendFrameAsync(ReadOnlyMemory<byte> jpeg, int width, int height, CancellationToken ct = default)
+        => SendFrameAsync(jpeg, width, height, capturedUnixMs: 0, ct);
+
+    public Task SendFrameAsync(ReadOnlyMemory<byte> jpeg, int width, int height, long capturedUnixMs,
+        CancellationToken ct = default)
     {
         string? peer;
         Guid sid;
@@ -431,7 +437,7 @@ public sealed class ScreenExtendService : IDisposable
             seq = ++_frameSeq;
         }
 
-        var payload = ScreenExtendFrameCodec.Encode(sid, width, height, seq, jpeg.Span);
+        var payload = ScreenExtendFrameCodec.Encode(sid, width, height, seq, jpeg.Span, capturedUnixMs);
         try
         {
             if (!_connections.SendLatest(peer!, MessageType.ScreenExtendFrame, payload)
@@ -782,7 +788,8 @@ public sealed class ScreenExtendService : IDisposable
     {
         if (Role != ScreenExtendRole.Sink) return;
         if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
-        if (!ScreenExtendFrameCodec.TryDecode(payload, out var sid, out var w, out var h, out var seq, out var jpeg))
+        if (!ScreenExtendFrameCodec.TryDecode(payload, out var sid, out var w, out var h, out var seq,
+                out var capturedUnixMs, out var jpeg))
             return;
         if (sid != SessionId || jpeg.Length == 0) return;
 
@@ -796,7 +803,7 @@ public sealed class ScreenExtendService : IDisposable
         if (first)
             Publish($"投影：正在接收 {peer} 画面 {w}x{h}");
 
-        try { FrameReceived?.Invoke(jpeg.ToArray(), w, h); } catch { /* ignore */ }
+        try { FrameReceived?.Invoke(jpeg.ToArray(), w, h, capturedUnixMs); } catch { /* ignore */ }
     }
 
     private void HandleAudio(string peer, byte[] payload)

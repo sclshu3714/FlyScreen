@@ -5358,19 +5358,16 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var labels = targets.Select(t => t.Label).ToArray();
-        var choice = await DisplayActionSheet(
-            Loc.T("Net.BindTitle"),
-            Loc.T("Dlg.Cancel"),
-            null,
-            labels).ConfigureAwait(true);
-        if (string.IsNullOrWhiteSpace(choice) || choice == Loc.T("Dlg.Cancel"))
-            return;
+        var page = new RemoteProjectDialogPage(
+            remote, targets, LocalPeerIdentity.MachineName, _host.Settings);
+        await Navigation.PushModalAsync(page).ConfigureAwait(true);
+        var choice = await page.WaitAsync().ConfigureAwait(true);
+        if (choice == null || string.IsNullOrWhiteSpace(choice.DeviceId)) return;
 
-        var selected = targets.FirstOrDefault(t => t.Label == choice);
-        if (string.IsNullOrWhiteSpace(selected.DeviceId)) return;
+        choice.WriteRemembered(_host.Settings);
+        _host.Settings.Save();
 
-        var sink = selected.DeviceId.Trim();
+        var sink = choice.DeviceId.Trim();
         if (string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
             || _slots.FirstOrDefault(s =>
                    string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase))?.IsLocal == true)
@@ -5391,7 +5388,11 @@ public partial class MainPage : ContentPage
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
-                remoteControl: true).ConfigureAwait(true);
+                preferredWidth: choice.Width,
+                preferredHeight: choice.Height,
+                fps: choice.Fps,
+                remoteControl: true,
+                jpegQuality: choice.JpegQuality).ConfigureAwait(true);
             if (!ok)
             {
                 _host.Connections.RemoveAdHocPeer(remote);
@@ -5576,10 +5577,15 @@ public partial class MainPage : ContentPage
             sink = LocalPeerIdentity.MachineName;
         try
         {
+            var remembered = RemoteProjectChoice.FromSettings(_host.Settings, sink);
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
-                remoteControl: true).ConfigureAwait(true);
+                preferredWidth: remembered.Width,
+                preferredHeight: remembered.Height,
+                fps: remembered.Fps,
+                remoteControl: true,
+                jpegQuality: remembered.JpegQuality).ConfigureAwait(true);
             if (!ok)
             {
                 StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");

@@ -3280,11 +3280,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        var selected = await RemoteBindDialog.ShowAsync(this, remote, targets, LocalPeerIdentity.MachineName)
+        var choice = await RemoteBindDialog.ShowChoiceAsync(
+                this, remote, targets, LocalPeerIdentity.MachineName, _host.Settings)
             .ConfigureAwait(true);
-        if (string.IsNullOrWhiteSpace(selected)) return;
+        if (choice == null || string.IsNullOrWhiteSpace(choice.DeviceId)) return;
 
-        var sink = selected.Trim();
+        choice.WriteRemembered(_host.Settings);
+        _host.Settings.Save();
+
+        var sink = choice.DeviceId.Trim();
         if (string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
             || _slots.FirstOrDefault(s =>
                    string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase))?.IsLocal == true)
@@ -3305,7 +3309,11 @@ public partial class MainWindow : Window
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
-                remoteControl: true).ConfigureAwait(true);
+                preferredWidth: choice.Width,
+                preferredHeight: choice.Height,
+                fps: choice.Fps,
+                remoteControl: true,
+                jpegQuality: choice.JpegQuality).ConfigureAwait(true);
             if (!ok)
             {
                 _host.Connections.RemoveAdHocPeer(remote);
@@ -3483,10 +3491,15 @@ public partial class MainWindow : Window
             sink = LocalPeerIdentity.MachineName;
         try
         {
+            var remembered = RemoteProjectChoice.FromSettings(_host.Settings, sink);
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
-                remoteControl: true).ConfigureAwait(true);
+                preferredWidth: remembered.Width,
+                preferredHeight: remembered.Height,
+                fps: remembered.Fps,
+                remoteControl: true,
+                jpegQuality: remembered.JpegQuality).ConfigureAwait(true);
             if (!ok)
             {
                 StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");

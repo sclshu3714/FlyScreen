@@ -423,7 +423,10 @@ public sealed class MacAppHost : IAsyncDisposable
             Width = req.PreferredWidth > 0 ? req.PreferredWidth : (d?.Width ?? 1920),
             Height = req.PreferredHeight > 0 ? req.PreferredHeight : (d?.Height ?? 1080),
             ScalePercent = d?.ScalePercent > 0 ? d.ScalePercent : 100,
-            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps
+            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps,
+            JpegQuality = req.JpegQuality > 0
+                ? ProjectionDisplayPresets.ClampJpegQuality(req.JpegQuality)
+                : ProjectionDisplayPresets.DefaultJpegQuality
         };
         Projection.Configure(DisplayProjectionMode.Clone, choice, LayoutEdgeSide.Unknown);
         Projection.ReleaseExtend();

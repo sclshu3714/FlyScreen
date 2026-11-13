@@ -11,5 +11,8 @@
                    HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18"/>
         <TextBlock Text="Esc 退出投影" Foreground="#88FFFFFF" Margin="16"
                    HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="14"/>
+        <TextBlock x:Name="LatencyText" Text="延迟 —" Foreground="#CCFFFFFF" Margin="16"
+                   HorizontalAlignment="Right" VerticalAlignment="Top" FontSize="14"
+                   FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI"/>
     </Grid>
 </Window>

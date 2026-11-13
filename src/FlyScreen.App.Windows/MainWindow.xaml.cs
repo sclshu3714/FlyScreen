@@ -736,10 +736,15 @@ public partial class MainWindow : Window
         try
         {
             // 请远程作为 Host，把画面推到绑定电脑（本机=绑定端时打开 Sink 播放器）
+            var remembered = RemoteProjectChoice.FromSettings(_host.Settings, sink);
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
-                remoteControl: true);
+                preferredWidth: remembered.Width,
+                preferredHeight: remembered.Height,
+                fps: remembered.Fps,
+                remoteControl: true,
+                jpegQuality: remembered.JpegQuality);
             if (!ok)
             {
                 StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
@@ -1861,10 +1866,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var selected = RemoteBindDialog.Show(this, remote, targets, LocalPeerIdentity.MachineName);
-        if (string.IsNullOrWhiteSpace(selected)) return;
+        var choice = RemoteBindDialog.ShowChoice(
+            this, remote, targets, LocalPeerIdentity.MachineName, _host.Settings);
+        if (choice == null || string.IsNullOrWhiteSpace(choice.DeviceId)) return;
 
-        var sink = selected.Trim();
+        choice.WriteRemembered(_host.Settings);
+        _host.Settings.Save();
+
+        var sink = choice.DeviceId.Trim();
         if (string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
             || _slots.FirstOrDefault(s =>
                    string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase))?.IsLocal == true)
@@ -1885,7 +1894,11 @@ public partial class MainWindow : Window
             var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
                 remote,
                 sink,
-                remoteControl: true).ConfigureAwait(true);
+                preferredWidth: choice.Width,
+                preferredHeight: choice.Height,
+                fps: choice.Fps,
+                remoteControl: true,
+                jpegQuality: choice.JpegQuality).ConfigureAwait(true);
             if (!ok)
             {
                 _host.Connections.RemoveAdHocPeer(remote);

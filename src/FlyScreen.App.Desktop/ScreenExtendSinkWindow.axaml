@@ -13,5 +13,7 @@
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
     <TextBlock Text="Esc 退出投影" Margin="16" Opacity="0.55" Foreground="White"
                HorizontalAlignment="Left" VerticalAlignment="Top"/>
+    <TextBlock x:Name="LatencyText" Text="延迟 —" Margin="16" Opacity="0.8" Foreground="White"
+               HorizontalAlignment="Right" VerticalAlignment="Top" FontSize="14"/>
   </Grid>
 </Window>
