@@ -60,7 +60,7 @@ public sealed class RelayClient : IAsyncDisposable
         if (key.Length == 0) return false;
         List<RelayDiscoveredDevice> list;
         lock (_stateGate)
-            list = _devices;
+            list = _devices.ToList();
         device = list.FirstOrDefault(d => string.Equals(d.Name, key, StringComparison.OrdinalIgnoreCase));
         return device != null;
     }
@@ -71,9 +71,11 @@ public sealed class RelayClient : IAsyncDisposable
         var list = new List<(string Ip, int Port)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         RelayDiscoveredDevice? device;
+        RelayAddressCandidate[] candidateSnap;
         lock (_stateGate)
             device = _devices.FirstOrDefault(d => string.Equals(d.Id, deviceId, StringComparison.OrdinalIgnoreCase));
         _candidates.TryGetValue(deviceId, out var candidates);
+        candidateSnap = candidates is { Count: > 0 } ? candidates.ToArray() : [];
         var fallbackPort = device?.TcpPort is int tcp && tcp is > 0 and <= 65535 ? tcp : 0;
 
         void Add(IPAddress ip, int port)
@@ -87,7 +89,7 @@ public sealed class RelayClient : IAsyncDisposable
         }
 
         var ranked = new List<(int Rank, IPAddress Ip, int Port)>();
-        foreach (var c in candidates ?? [])
+        foreach (var c in candidateSnap)
         {
             if (string.Equals(c.Kind, "relay", StringComparison.OrdinalIgnoreCase)) continue;
             if (!TryParseEndpoint(c.Address, fallbackPort, out var ip, out var port)) continue;

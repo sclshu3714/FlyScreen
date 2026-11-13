@@ -162,9 +162,10 @@ public static class DeviceInventoryBuilder
         {
             if (ep.Kind != ConnectionEndpoint.KindRelay) continue;
             if (ep.State != ConnectionEndpoint.StateConnected) continue;
-            if (ep.DiscoveredDevices is not { Count: > 0 }) continue;
+            var discovered = ep.DiscoveredDevices?.ToArray();
+            if (discovered is not { Length: > 0 }) continue;
 
-            foreach (var d in ep.DiscoveredDevices)
+            foreach (var d in discovered)
             {
                 if (string.IsNullOrWhiteSpace(d.Name)) continue;
                 var key = d.Name.Trim();

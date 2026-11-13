@@ -679,14 +679,25 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 await PruneUnconfiguredLinksAsync().ConfigureAwait(false);
 
-                foreach (var peer in ConfiguredPeers())
-                {
-                    await EnsureOutboundAsync(peer, ct).ConfigureAwait(false);
-                    await EnsureOutboundBulkAsync(peer, ct).ConfigureAwait(false);
-                }
-
+                // 心跳不能排在拨号后面：信令/中继失败要等十余秒，控制面空闲阈值也是 12 秒，
+                // 一次多余的出站会把已通的投影链路拆掉。
                 foreach (var kv in _links.ToArray())
                     await kv.Value.HeartbeatAsync(ct).ConfigureAwait(false);
+
+                foreach (var peer in ConfiguredPeers())
+                {
+                    var name = peer;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await EnsureOutboundAsync(name, ct).ConfigureAwait(false);
+                            await EnsureOutboundBulkAsync(name, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) { /* stopping */ }
+                        catch { /* ignore */ }
+                    }, ct);
+                }
             }
             catch (OperationCanceledException) { break; }
             catch { /* ignore */ }
@@ -722,7 +733,9 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (ct.IsCancellationRequested) return;
 
         var link = _links.GetOrAdd(peerName, _ => new PeerLink(peerName));
-        if (link.Outbound is { IsAlive: true, Authenticated: true })
+        // 入站已认证即可传投影。再拨一条信令/中继会和现有管道抢同一条 WebSocket。
+        if (link.Outbound is { IsAlive: true, Authenticated: true }
+            || link.Inbound is { IsAlive: true, Authenticated: true })
             return;
         if (!_outboundBusy.TryAdd(peerName, 0))
             return;
@@ -791,7 +804,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             return;
         if (!RemoteAdvertisesBulk(link.RemoteInfo))
             return;
-        if (link.OutboundBulk is { IsAlive: true, Authenticated: true })
+        if (link.OutboundBulk is { IsAlive: true, Authenticated: true }
+            || link.InboundBulk is { IsAlive: true, Authenticated: true })
             return;
         if (!_bulkBusy.TryAdd(peerName, 0))
             return;
@@ -1838,7 +1852,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 if (s is not { IsAlive: true, Authenticated: true }) continue;
 
-                // bulk 传输中心跳可能排在分块之后；用收发活动时间 + 更宽超时，避免传文件时被误拆
+                // bulk 传输中心跳可能排在分块之后；用收发活动时间 + 更宽超时，避免传文件时被误拆。
+                // 控制面仍只看收包：本机一直在发不能掩盖对端已不再回话。
                 var idleLimitSec = s.IsBulkChannel ? 90 : 12;
                 var lastActivity = s.IsBulkChannel && s.LastSendUtc > s.LastRecvUtc
                     ? s.LastSendUtc
