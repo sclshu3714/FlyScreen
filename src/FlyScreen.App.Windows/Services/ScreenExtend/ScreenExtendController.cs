@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Windows.Threading;
 using FlyScreen.ScreenExtend;
 using FlyScreen.Services.Input;
@@ -21,7 +22,8 @@ public sealed class ScreenExtendController : IDisposable
     private bool _hostSessionActive;
     private bool _disposed;
     private readonly ProjectionAudioBridge _audio;
-    private readonly LatestFrameSlot _frames = new();
+    private readonly ConcurrentDictionary<string, LatestFrameSlot> _framesByPeer =
+        new(StringComparer.OrdinalIgnoreCase);
     private int _decodePosted;
     private long _hostReadyTick;
 
@@ -287,7 +289,9 @@ public sealed class ScreenExtendController : IDisposable
 
     private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs, string peer)
     {
-        if (!_frames.Offer(jpeg, w, h, capturedUnixMs, peer)) return;
+        if (string.IsNullOrWhiteSpace(peer)) return;
+        var slot = _framesByPeer.GetOrAdd(peer.Trim(), _ => new LatestFrameSlot());
+        if (!slot.Offer(jpeg, w, h, capturedUnixMs, peer.Trim())) return;
         KickDecode();
     }
 
@@ -298,37 +302,62 @@ public sealed class ScreenExtendController : IDisposable
         Task.Run(DecodeLoop);
     }
 
+    private bool AnyFramePending()
+    {
+        foreach (var slot in _framesByPeer.Values)
+        {
+            if (slot.HasPending) return true;
+        }
+
+        return false;
+    }
+
     private void DecodeLoop()
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen, out var framePeer))
+            while (!_disposed)
             {
-                var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
-                if (src == null || !_frames.IsCurrent(gen)) continue;
-                var shown = src.Value;
-                var g = gen;
-                var capturedUnixMs = capturedAt;
-                var peer = framePeer;
-                _dispatcher.BeginInvoke(() =>
+                var progressed = false;
+                foreach (var kv in _framesByPeer.ToArray())
                 {
-                    if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g)) return;
-                    try
+                    var slot = kv.Value;
+                    var peerKey = kv.Key;
+                    while (!_disposed && slot.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen, out _))
                     {
-                        EnsureSinkWindow();
-                        _sinkWindow!.AddOrActivateTab(peer, _service);
-                        if (!_sinkWindow.IsVisible)
-                            _sinkWindow.ShowFullscreen();
-                        _sinkWindow.Present(peer, shown, capturedUnixMs);
+                        progressed = true;
+                        var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
+                        if (src == null || !slot.IsCurrent(gen)) continue;
+                        var shown = src.Value;
+                        var g = gen;
+                        var capturedUnixMs = capturedAt;
+                        var peer = peerKey;
+                        var frameSlot = slot;
+                        _dispatcher.BeginInvoke(() =>
+                        {
+                            if (_disposed || _service.Role != ScreenExtendRole.Sink || !frameSlot.IsCurrent(g))
+                                return;
+                            try
+                            {
+                                EnsureSinkWindow();
+                                // 收帧只 Ensure，禁止强制切 Tab（否则多路会互相抢激活导致闪烁/无法切换）
+                                _sinkWindow!.EnsureTab(peer, _service);
+                                if (!_sinkWindow.IsVisible)
+                                    _sinkWindow.ShowFullscreen();
+                                _sinkWindow.Present(peer, shown, capturedUnixMs);
+                            }
+                            catch { /* ignore */ }
+                        });
                     }
-                    catch { /* ignore */ }
-                });
+                }
+
+                if (!progressed) break;
             }
         }
         finally
         {
             Interlocked.Exchange(ref _decodePosted, 0);
-            if (!_disposed && _frames.HasPending)
+            if (!_disposed && AnyFramePending())
                 KickDecode();
         }
     }
@@ -337,6 +366,10 @@ public sealed class ScreenExtendController : IDisposable
     {
         _dispatcher.BeginInvoke(ProjectionHostCursor.EndSessionOnHookThread);
 
+        if (!string.IsNullOrWhiteSpace(peer)
+            && _framesByPeer.TryRemove(peer.Trim(), out var removed))
+            removed.Clear();
+
         var wasHost = _hostSessionActive;
         var hostEnded = wasHost && _service.Role != ScreenExtendRole.Host;
         if (hostEnded)
@@ -344,7 +377,8 @@ public sealed class ScreenExtendController : IDisposable
             var releaseHost = wasHost || _wantDisplay || _vdd != null;
             _hostSessionActive = false;
             _wantDisplay = false;
-            _frames.Clear();
+            foreach (var s in _framesByPeer.Values) s.Clear();
+            _framesByPeer.Clear();
             _ = FinalizeAfterSessionEndedAsync(releaseHost);
         }
 

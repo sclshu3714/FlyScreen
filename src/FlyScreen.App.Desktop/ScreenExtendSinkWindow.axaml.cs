@@ -175,20 +175,28 @@ public partial class ScreenExtendSinkWindow : Window
         return state;
     }
 
-    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    public void EnsureTab(string peer, ScreenExtendService? service = null)
     {
         if (service != null)
             _session = service;
         peer = peer.Trim();
-        var existing = FindTab(peer);
-        if (existing == null)
-        {
-            existing = CreateTabUi(peer);
-            _tabs.Add(existing);
-            TabsHost.Children.Add(existing.TabBorder);
-        }
+        if (string.IsNullOrEmpty(peer)) return;
+        if (FindTab(peer) != null) return;
 
-        SetActiveTab(peer);
+        var created = CreateTabUi(peer);
+        _tabs.Add(created);
+        TabsHost.Children.Add(created.TabBorder);
+        if (string.IsNullOrEmpty(_activePeer))
+            SetActiveTab(peer);
+        else
+            RefreshTabChrome();
+    }
+
+    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    {
+        EnsureTab(peer, service);
+        if (HasTab(peer))
+            SetActiveTab(peer);
     }
 
     public void RemoveTab(string? peer)
@@ -221,12 +229,14 @@ public partial class ScreenExtendSinkWindow : Window
     {
         peer = peer.Trim();
         if (!HasTab(peer)) return;
+        var same = string.Equals(_activePeer, peer, StringComparison.OrdinalIgnoreCase);
         _activePeer = peer;
         _session?.SetActiveSinkPeer(peer);
         RefreshTabChrome();
         RefreshTitle();
         ShowActiveTabFrame();
         ApplyActiveLatencyTip();
+        if (same) return;
         DetachCapture();
         TryAttachCapture();
     }
@@ -848,13 +858,8 @@ public partial class ScreenExtendSinkWindow : Window
     public void Present(string peer, Bitmap bmp, long capturedUnixMs = 0)
     {
         peer = peer.Trim();
+        EnsureTab(peer);
         var tab = FindTab(peer);
-        if (tab == null)
-        {
-            AddOrActivateTab(peer);
-            tab = FindTab(peer);
-        }
-
         if (tab == null)
         {
             bmp.Dispose();

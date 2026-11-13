@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FlyScreen.Native;
 using FlyScreen.ScreenExtend;
 using FlyScreen.Services.Network;
@@ -24,7 +25,8 @@ public sealed class MauiScreenExtendController : IDisposable
     private bool _hostSessionActive;
     private bool _disposed;
     private readonly ProjectionAudioBridge _audio;
-    private readonly LatestFrameSlot _frames = new();
+    private readonly ConcurrentDictionary<string, LatestFrameSlot> _framesByPeer =
+        new(StringComparer.OrdinalIgnoreCase);
     private int _decodePosted;
 
     public Func<IReadOnlyList<string>>? ListAddablePeers { get; set; }
@@ -284,7 +286,9 @@ public sealed class MauiScreenExtendController : IDisposable
 
     private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs, string peer)
     {
-        if (!_frames.Offer(jpeg, w, h, capturedUnixMs, peer)) return;
+        if (string.IsNullOrWhiteSpace(peer)) return;
+        var slot = _framesByPeer.GetOrAdd(peer.Trim(), _ => new LatestFrameSlot());
+        if (!slot.Offer(jpeg, w, h, capturedUnixMs, peer.Trim())) return;
         KickDecode();
     }
 
@@ -295,51 +299,74 @@ public sealed class MauiScreenExtendController : IDisposable
         _ = DecodeLoopAsync();
     }
 
+    private bool AnyFramePending()
+    {
+        foreach (var slot in _framesByPeer.Values)
+        {
+            if (slot.HasPending) return true;
+        }
+
+        return false;
+    }
+
     private async Task DecodeLoopAsync()
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen, out var framePeer))
+            while (!_disposed)
             {
-                DecodedBgra? frame = null;
-                try
+                var progressed = false;
+                foreach (var kv in _framesByPeer.ToArray())
                 {
-                    frame = await DecodeBgraAsync(jpeg).ConfigureAwait(false);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (frame == null) continue;
-                if (!_frames.IsCurrent(gen) || _service.Role != ScreenExtendRole.Sink)
-                    continue;
-
-                var shown = frame.Value;
-                var g = gen;
-                var capturedUnixMs = capturedAt;
-                var peer = framePeer;
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g))
-                        return;
-
-                    try
+                    var slot = kv.Value;
+                    var peerKey = kv.Key;
+                    while (!_disposed && slot.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen, out _))
                     {
-                        EnsureSinkWindow();
-                        _sink!.AddOrActivateTab(peer, _service);
-                        if (!_sink.IsVisible)
-                            _sink.ShowFullscreen();
-                        _sink.Present(peer, shown.Width, shown.Height, shown.Pixels, capturedUnixMs);
+                        progressed = true;
+                        DecodedBgra? frame = null;
+                        try
+                        {
+                            frame = await DecodeBgraAsync(jpeg).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            continue;
+                        }
+
+                        if (frame == null) continue;
+                        if (!slot.IsCurrent(gen) || _service.Role != ScreenExtendRole.Sink)
+                            continue;
+
+                        var shown = frame.Value;
+                        var g = gen;
+                        var capturedUnixMs = capturedAt;
+                        var peer = peerKey;
+                        var frameSlot = slot;
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            if (_disposed || _service.Role != ScreenExtendRole.Sink || !frameSlot.IsCurrent(g))
+                                return;
+
+                            try
+                            {
+                                EnsureSinkWindow();
+                                _sink!.EnsureTab(peer, _service);
+                                if (!_sink.IsVisible)
+                                    _sink.ShowFullscreen();
+                                _sink.Present(peer, shown.Width, shown.Height, shown.Pixels, capturedUnixMs);
+                            }
+                            catch { /* ignore */ }
+                        });
                     }
-                    catch { /* ignore */ }
-                });
+                }
+
+                if (!progressed) break;
             }
         }
         finally
         {
             Interlocked.Exchange(ref _decodePosted, 0);
-            if (!_disposed && _frames.HasPending)
+            if (!_disposed && AnyFramePending())
                 KickDecode();
         }
     }
@@ -370,6 +397,10 @@ public sealed class MauiScreenExtendController : IDisposable
     {
         MainThread.BeginInvokeOnMainThread(ProjectionHostCursor.EndSessionOnHookThread);
 
+        if (!string.IsNullOrWhiteSpace(peer)
+            && _framesByPeer.TryRemove(peer.Trim(), out var removed))
+            removed.Clear();
+
         var wasHost = _hostSessionActive;
         var hostEnded = wasHost && _service.Role != ScreenExtendRole.Host;
         if (hostEnded)
@@ -377,7 +408,8 @@ public sealed class MauiScreenExtendController : IDisposable
             var releaseHost = wasHost || _wantDisplay || _vdd != null;
             _hostSessionActive = false;
             _wantDisplay = false;
-            _frames.Clear();
+            foreach (var s in _framesByPeer.Values) s.Clear();
+            _framesByPeer.Clear();
             _ = FinalizeAfterSessionEndedAsync(releaseHost);
         }
 
@@ -815,20 +847,28 @@ public sealed class MauiScreenExtendSinkWindow
 
     public bool HasTabs => _tabs.Count > 0;
 
-    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    public void EnsureTab(string peer, ScreenExtendService? service = null)
     {
         if (service != null)
             _session = service;
         peer = peer.Trim();
-        var existing = FindTab(peer);
-        if (existing == null)
-        {
-            existing = CreateTabUi(peer);
-            _tabs.Add(existing);
-            _tabsHost.Children.Add(existing.TabBorder);
-        }
+        if (string.IsNullOrEmpty(peer)) return;
+        if (FindTab(peer) != null) return;
 
-        SetActiveTab(peer);
+        var created = CreateTabUi(peer);
+        _tabs.Add(created);
+        _tabsHost.Children.Add(created.TabBorder);
+        if (string.IsNullOrEmpty(_activePeer))
+            SetActiveTab(peer);
+        else
+            RefreshTabChrome();
+    }
+
+    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    {
+        EnsureTab(peer, service);
+        if (HasTab(peer))
+            SetActiveTab(peer);
     }
 
     public void RemoveTab(string? peer)
@@ -924,12 +964,14 @@ public sealed class MauiScreenExtendSinkWindow
     {
         peer = peer.Trim();
         if (!HasTab(peer)) return;
+        var same = string.Equals(_activePeer, peer, StringComparison.OrdinalIgnoreCase);
         _activePeer = peer;
         _session?.SetActiveSinkPeer(peer);
         RefreshTabChrome();
         RefreshTitle();
         ShowActiveTabFrame();
         ApplyActiveLatencyTip();
+        if (same) return;
         DetachCapture();
         TryAttachCapture();
     }
@@ -1369,13 +1411,8 @@ public sealed class MauiScreenExtendSinkWindow
             return;
 
         peer = peer.Trim();
+        EnsureTab(peer);
         var tab = FindTab(peer);
-        if (tab == null)
-        {
-            AddOrActivateTab(peer);
-            tab = FindTab(peer);
-        }
-
         if (tab == null) return;
 
         tab.ContentW = width;

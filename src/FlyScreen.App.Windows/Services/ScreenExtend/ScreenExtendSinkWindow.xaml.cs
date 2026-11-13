@@ -180,20 +180,30 @@ public partial class ScreenExtendSinkWindow : Window
         return state;
     }
 
-    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    /// <summary>确保 Tab 存在；已存在不改激活（供收帧路径）。</summary>
+    public void EnsureTab(string peer, ScreenExtendService? service = null)
     {
         if (service != null)
             _service = service;
         peer = peer.Trim();
-        var existing = FindTab(peer);
-        if (existing == null)
-        {
-            existing = CreateTabUi(peer);
-            _tabs.Add(existing);
-            TabsHost.Children.Add(existing.TabBorder);
-        }
+        if (string.IsNullOrEmpty(peer)) return;
+        if (FindTab(peer) != null) return;
 
-        SetActiveTab(peer);
+        var created = CreateTabUi(peer);
+        _tabs.Add(created);
+        TabsHost.Children.Add(created.TabBorder);
+        if (string.IsNullOrEmpty(_activePeer))
+            SetActiveTab(peer);
+        else
+            RefreshTabChrome();
+    }
+
+    /// <summary>新建或切到该 Tab（仅用户操作 / 新会话就绪时调用）。</summary>
+    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    {
+        EnsureTab(peer, service);
+        if (HasTab(peer))
+            SetActiveTab(peer);
     }
 
     public void RemoveTab(string? peer)
@@ -225,12 +235,14 @@ public partial class ScreenExtendSinkWindow : Window
     {
         peer = peer.Trim();
         if (!HasTab(peer)) return;
+        var same = string.Equals(_activePeer, peer, StringComparison.OrdinalIgnoreCase);
         _activePeer = peer;
         _service?.SetActiveSinkPeer(peer);
         RefreshTabChrome();
         RefreshTitle();
         ShowActiveTabFrame();
         ApplyActiveLatencyTip();
+        if (same) return;
         DetachCapture();
         TryAttachCapture();
     }
@@ -933,13 +945,8 @@ public partial class ScreenExtendSinkWindow : Window
     public void Present(string peer, DecodedFrame frame, long capturedUnixMs = 0)
     {
         peer = peer.Trim();
+        EnsureTab(peer);
         var tab = FindTab(peer);
-        if (tab == null)
-        {
-            AddOrActivateTab(peer);
-            tab = FindTab(peer);
-        }
-
         if (tab == null) return;
 
         tab.ContentW = frame.Width;
