@@ -1,20 +1,37 @@
 namespace FlyScreen.Relay.Services;
 
 /// <summary>
-/// 管理页 SSE 唤醒信号：设备注册/离线、会话开闭等结构变化时立即 Notify，
-/// 流量类指标仍靠 SSE 侧 1s 兜底刷新。
+/// 管理页 SSE 唤醒：注册/离线/会话开闭等 Notify（短防抖合并）。
+/// 流量计数靠 SSE 1s 兜底。勿在候选地址热路径上狂唤。
 /// </summary>
 public sealed class AdminChangeNotifier
 {
     private readonly object _gate = new();
     private TaskCompletionSource _tcs = NewTcs();
     private long _version;
+    private int _debounceBusy;
 
     public long Version => Interlocked.Read(ref _version);
 
     public void Notify()
     {
         Interlocked.Increment(ref _version);
+        if (Interlocked.CompareExchange(ref _debounceBusy, 1, 0) != 0)
+            return;
+        _ = FireDebouncedAsync();
+    }
+
+    private async Task FireDebouncedAsync()
+    {
+        try
+        {
+            await Task.Delay(120).ConfigureAwait(false);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _debounceBusy, 0);
+        }
+
         TaskCompletionSource prev;
         lock (_gate)
         {
@@ -24,7 +41,6 @@ public sealed class AdminChangeNotifier
         prev.TrySetResult();
     }
 
-    /// <summary>等待下一次 Notify，或直到 timeout / 取消。</summary>
     public async Task WaitAsync(TimeSpan timeout, CancellationToken ct)
     {
         Task wait;
@@ -35,7 +51,7 @@ public sealed class AdminChangeNotifier
         }
         catch (TimeoutException)
         {
-            // 周期性兜底刷新
+            // 周期性兜底
         }
     }
 

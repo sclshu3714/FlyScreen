@@ -38,6 +38,9 @@ public partial class MainWindow : Window
     private readonly Controls.FlyBreadcrumbBar _networkBreadcrumb = new();
     private readonly Controls.FlyBreadcrumbBar _toolsBreadcrumb = new();
     private bool _toolsBreadcrumbWired;
+    private int _discoveryRefreshQueued;
+    private bool _refreshDiscoveryRunning;
+    private bool _refreshDiscoveryPending;
     private WinForms.NotifyIcon? _tray;
     private System.Drawing.Icon? _trayIcon;
     private System.Windows.Point _dragStart;
@@ -319,7 +322,8 @@ public partial class MainWindow : Window
             RedrawArrows();
         }, System.Windows.Threading.DispatcherPriority.Loaded);
 
-        _host.StatusMessage += msg => Dispatcher.Invoke(() => StatusText.Text = msg);
+        // BeginInvoke：避免网络线程 Sync Invoke 卡在 UI 刷新上，拖死信令/中继建连
+        _host.StatusMessage += msg => Dispatcher.BeginInvoke(() => StatusText.Text = msg);
         _host.ProjectionUserNotice += msg => Dispatcher.Invoke(() =>
             MessageBox.Show(this, msg, "投影", MessageBoxButton.OK, MessageBoxImage.Warning));
         _host.ScreenExtend.HostSessionReady += () => Dispatcher.Invoke(() =>
@@ -353,7 +357,8 @@ public partial class MainWindow : Window
         foreach (var module in ToolService.Instance.Host.All)
             module.StateChanged += () => Dispatcher.BeginInvoke(RefreshToolsPage);
         _host.Connections.PeerLinkChanged += OnPeerLinkChanged;
-        _host.Connections.Discovery.PeersUpdated += _ => Dispatcher.Invoke(RefreshDiscovery);
+        // 发现表高频更新：合并到 UI 队列，避免 Clear/Add 与 ListBox 枚举重入抛 Collection was modified
+        _host.Connections.Discovery.PeersUpdated += _ => QueueDiscoveryRefresh();
         _host.LayoutSyncedFromPeer += OnLayoutSyncedFromPeer;
         _host.BehaviorSyncedFromPeer += OnBehaviorSyncedFromPeer;
         _host.RemoteBindingSyncedFromPeer += OnRemoteBindingSyncedFromPeer;
@@ -1106,10 +1111,10 @@ public partial class MainWindow : Window
         EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
         EdgeCrossHotkeyRadio.Content = Loc.T("Opt.EdgeCross.HotkeyOnly");
         RefreshEdgeCrossTip();
-        foreach (var item in _host.Transfers.Items)
+        foreach (var item in _host.Transfers.Items.ToList())
             item.RefreshLocalized();
 
-        foreach (var slot in _slots)
+        foreach (var slot in _slots.ToList())
             slot.RefreshStatus();
 
         // 强制刷新列表主题（避免系统默认白底）
@@ -1556,9 +1561,43 @@ public partial class MainWindow : Window
         StatusText.Text = Loc.T("Net.DeviceMgmtTitle") + " · " + Loc.T("Net.RefreshDiscovery");
     }
 
+    private void QueueDiscoveryRefresh()
+    {
+        if (Interlocked.Exchange(ref _discoveryRefreshQueued, 1) != 0)
+            return;
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            Interlocked.Exchange(ref _discoveryRefreshQueued, 0);
+            RefreshDiscovery();
+        }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
     private void RefreshDiscovery()
     {
-        foreach (var slot in _slots.Where(s => s.Enabled && !s.IsLocal))
+        if (_refreshDiscoveryRunning)
+        {
+            _refreshDiscoveryPending = true;
+            return;
+        }
+
+        _refreshDiscoveryRunning = true;
+        try
+        {
+            do
+            {
+                _refreshDiscoveryPending = false;
+                RefreshDiscoveryCore();
+            } while (_refreshDiscoveryPending);
+        }
+        finally
+        {
+            _refreshDiscoveryRunning = false;
+        }
+    }
+
+    private void RefreshDiscoveryCore()
+    {
+        foreach (var slot in _slots.Where(s => s.Enabled && !s.IsLocal).ToList())
         {
             var ip = _host.Connections.Discovery.FindIp(slot.Name);
             if (ip != null) slot.ResolvedIp = ip;
@@ -1581,6 +1620,7 @@ public partial class MainWindow : Window
         var filtered = filter is int kind
             ? items.Where(i => i.Kind == kind).ToList()
             : items;
+
         DeviceInventoryItem.ReplaceIfChanged(_deviceInventory, filtered);
 
         // 兼容：旧 DiscoveryList 仍可被其它路径引用（已折叠）

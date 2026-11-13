@@ -109,12 +109,25 @@ app.MapGet("/api/dashboard/stream", async (
         while (!ct.IsCancellationRequested)
         {
             var seen = changes.Version;
-            var snapshot = AdminDashboard.Build(opt, catalog, sessions, stats, includeRoomDevices: true, revision: seen);
-            var json = JsonSerializer.Serialize(snapshot, adminJson);
-            await ctx.Response.WriteAsync("event: dashboard\ndata: ", ct).ConfigureAwait(false);
-            await ctx.Response.WriteAsync(json, ct).ConfigureAwait(false);
-            await ctx.Response.WriteAsync("\n\n", ct).ConfigureAwait(false);
-            await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var snapshot = AdminDashboard.Build(opt, catalog, sessions, stats, includeRoomDevices: true, revision: seen);
+                var json = JsonSerializer.Serialize(snapshot, adminJson);
+                await ctx.Response.WriteAsync("event: dashboard\ndata: ", ct).ConfigureAwait(false);
+                await ctx.Response.WriteAsync(json, ct).ConfigureAwait(false);
+                await ctx.Response.WriteAsync("\n\n", ct).ConfigureAwait(false);
+                await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // 单帧组包失败不拆掉 SSE，下一拍再试
+                try { await Task.Delay(500, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            }
 
             // 发送期间又有注册/离线等变化则立刻再推；否则最多等 1s（刷新流量等计数）
             if (changes.Version == seen)

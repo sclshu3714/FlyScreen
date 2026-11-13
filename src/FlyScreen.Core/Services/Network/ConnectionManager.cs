@@ -626,7 +626,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 // 不传 CancellationToken：停止时靠 listener.Stop() 唤醒，避免 Accept 抛 OCE 刷调试器
                 var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                if (ct.IsCancellationRequested)
+                if (ct.IsCancellationRequested || !ReferenceEquals(_listener, listener))
                 {
                     try { client.Dispose(); } catch { /* ignore */ }
                     break;
@@ -650,21 +650,28 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 break;
             }
-            catch (SocketException) when (ct.IsCancellationRequested || _listener == null)
-            {
-                break;
-            }
-            catch (InvalidOperationException) when (_listener == null)
-            {
-                break;
-            }
             catch (OperationCanceledException)
             {
                 break;
             }
+            catch (SocketException)
+            {
+                // Stop()/重绑时 Accept 会抛；务必退出旧循环，勿在已替换的 listener 上空转
+                if (ct.IsCancellationRequested || _listener == null || !ReferenceEquals(_listener, listener))
+                    break;
+                try { await Task.Delay(200).ConfigureAwait(false); }
+                catch { break; }
+            }
+            catch (InvalidOperationException)
+            {
+                if (_listener == null || !ReferenceEquals(_listener, listener)) break;
+                try { await Task.Delay(200).ConfigureAwait(false); }
+                catch { break; }
+            }
             catch
             {
-                if (ct.IsCancellationRequested || _listener == null) break;
+                if (ct.IsCancellationRequested || _listener == null || !ReferenceEquals(_listener, listener))
+                    break;
                 try { await Task.Delay(200).ConfigureAwait(false); }
                 catch { break; }
             }

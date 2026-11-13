@@ -145,7 +145,6 @@ public sealed class RelaySessionManager
 
         _stats.SessionsOpened++;
         _log.LogInformation("中继就绪 session={Session} {A}<->{B}", sid, session.DeviceA, session.DeviceB);
-        _adminNotify.Notify();
 
         var ready = DeviceRegistry.JsonSerialize(new WireMessage
         {
@@ -162,9 +161,11 @@ public sealed class RelaySessionManager
             Ok = true
         });
 
+        // 先发 RelayReady，再唤醒管理页，避免 SSE 组包与就绪信令抢发送路径
         await self.SendTextAsync(ready, ct).ConfigureAwait(false);
         if (a is not null)
             await a.SendTextAsync(readyToFirst, ct).ConfigureAwait(false);
+        _adminNotify.Notify();
 
         return (true, null, session);
     }
@@ -226,7 +227,7 @@ public sealed class RelaySessionManager
     {
         var now = DateTimeOffset.UtcNow;
         var n = 0;
-        foreach (var s in _sessions.Values)
+        foreach (var s in _sessions.Values.ToArray())
         {
             if (now - s.LastActivity > idleTimeout)
             {

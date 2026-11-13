@@ -104,7 +104,8 @@ public sealed class DeviceInventoryItem
     public int PrimaryActionColumnSpan => PrimaryActionStretch ? 3 : 1;
 
     /// <summary>
-    /// 内容未变则跳过 Clear/Add，避免设备列表整表重绑闪烁、点击落空。
+    /// 内容未变则跳过。变更时用 Replace/Add/Remove 差分更新，避免 Clear（Reset）
+    /// 与 ListBox CollectionView 枚举冲突，也避免 DeferRefresh 期间改集合抛错。
     /// </summary>
     public static bool ReplaceIfChanged(
         ObservableCollection<DeviceInventoryItem> dest,
@@ -113,9 +114,21 @@ public sealed class DeviceInventoryItem
         if (RowsEqual(dest, next))
             return false;
 
-        dest.Clear();
-        foreach (var item in next)
-            dest.Add(item);
+        var i = 0;
+        for (; i < next.Count; i++)
+        {
+            if (i < dest.Count)
+            {
+                if (!RowEqual(dest[i], next[i]))
+                    dest[i] = next[i];
+            }
+            else
+                dest.Add(next[i]);
+        }
+
+        while (dest.Count > next.Count)
+            dest.RemoveAt(dest.Count - 1);
+
         return true;
     }
 
@@ -126,22 +139,23 @@ public sealed class DeviceInventoryItem
         if (a.Count != b.Count) return false;
         for (var i = 0; i < a.Count; i++)
         {
-            var x = a[i];
-            var y = b[i];
-            if (!string.Equals(x.Id, y.Id, StringComparison.Ordinal)
-                || !string.Equals(x.Name, y.Name, StringComparison.Ordinal)
-                || x.Kind != y.Kind
-                || !string.Equals(x.Address, y.Address, StringComparison.Ordinal)
-                || !string.Equals(x.StatusText, y.StatusText, StringComparison.Ordinal)
-                || x.IsOnline != y.IsOnline
-                || x.IsBound != y.IsBound
-                || x.IsProjecting != y.IsProjecting
-                || x.LayoutSlotIndex != y.LayoutSlotIndex
-                || !string.Equals(x.PrimaryActionText, y.PrimaryActionText, StringComparison.Ordinal)
-                || !string.Equals(x.SecondaryActionText, y.SecondaryActionText, StringComparison.Ordinal))
+            if (!RowEqual(a[i], b[i]))
                 return false;
         }
 
         return true;
     }
+
+    private static bool RowEqual(DeviceInventoryItem x, DeviceInventoryItem y)
+        => string.Equals(x.Id, y.Id, StringComparison.Ordinal)
+           && string.Equals(x.Name, y.Name, StringComparison.Ordinal)
+           && x.Kind == y.Kind
+           && string.Equals(x.Address, y.Address, StringComparison.Ordinal)
+           && string.Equals(x.StatusText, y.StatusText, StringComparison.Ordinal)
+           && x.IsOnline == y.IsOnline
+           && x.IsBound == y.IsBound
+           && x.IsProjecting == y.IsProjecting
+           && x.LayoutSlotIndex == y.LayoutSlotIndex
+           && string.Equals(x.PrimaryActionText, y.PrimaryActionText, StringComparison.Ordinal)
+           && string.Equals(x.SecondaryActionText, y.SecondaryActionText, StringComparison.Ordinal);
 }

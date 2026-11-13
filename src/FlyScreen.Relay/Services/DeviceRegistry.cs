@@ -189,7 +189,7 @@ public sealed class DeviceRegistry
         conn.LastSeen = DateTimeOffset.UtcNow;
         try { _store.UpsertDevice(conn); }
         catch (Exception ex) { _log.LogDebug(ex, "更新设备候选失败 {DeviceId}", conn.DeviceId); }
-        _adminNotify.Notify();
+        // 候选更新很频繁，不唤醒 SSE（1s 兜底即可），避免组包/库锁挤占边缘 WebSocket
     }
 
     public bool TryGetByDeviceId(string deviceId, out DeviceConnection? conn)

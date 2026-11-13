@@ -73,9 +73,13 @@ public sealed class RelayClient : IAsyncDisposable
         RelayDiscoveredDevice? device;
         RelayAddressCandidate[] candidateSnap;
         lock (_stateGate)
+        {
             device = _devices.FirstOrDefault(d => string.Equals(d.Id, deviceId, StringComparison.OrdinalIgnoreCase));
-        _candidates.TryGetValue(deviceId, out var candidates);
-        candidateSnap = candidates is { Count: > 0 } ? candidates.ToArray() : [];
+            // 与 MapDevice 写 _candidates 同锁，避免 ToArray 时列表被替换/改写
+            candidateSnap = _candidates.TryGetValue(deviceId, out var candidates) && candidates is { Count: > 0 }
+                ? candidates.ToArray()
+                : [];
+        }
         var fallbackPort = device?.TcpPort is int tcp && tcp is > 0 and <= 65535 ? tcp : 0;
 
         void Add(IPAddress ip, int port)
@@ -532,15 +536,16 @@ public sealed class RelayClient : IAsyncDisposable
     private void ApplyDeviceList(List<RelayDeviceDto>? dtos, string localDeviceId)
     {
         if (dtos == null) return;
-        var mapped = dtos
+        var filtered = dtos
             .Where(d => !string.IsNullOrWhiteSpace(d.Name))
             .Where(d => !string.Equals(d.Id, localDeviceId, StringComparison.OrdinalIgnoreCase))
-            .Select(MapDevice)
-            .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
         lock (_stateGate)
         {
-            _devices = mapped;
+            _devices = filtered
+                .Select(MapDevice)
+                .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         NotifyDevicesChanged();
@@ -585,8 +590,9 @@ public sealed class RelayClient : IAsyncDisposable
 
     private RelayDiscoveredDevice MapDevice(RelayDeviceDto d)
     {
+        // 调用方须已持有 _stateGate。拷贝候选列表，避免与 ListP2PTargets 共享可变实例。
         if (!string.IsNullOrWhiteSpace(d.Id))
-            _candidates[d.Id] = d.Candidates ?? [];
+            _candidates[d.Id] = d.Candidates is { Count: > 0 } ? d.Candidates.ToList() : [];
         return new RelayDiscoveredDevice
         {
             Id = d.Id,
