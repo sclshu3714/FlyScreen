@@ -35,7 +35,7 @@ public static class AdminDashboard
             s.BytesBtoA
         });
 
-        var signalList = signals?.ListSummaries(100) ?? [];
+        var signalList = signals?.ListSummaries(SignalLog.Capacity) ?? [];
 
         var head = new
         {

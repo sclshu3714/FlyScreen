@@ -184,6 +184,26 @@ public sealed class RelaySessionManager
         _adminNotify.Notify();
     }
 
+    public int CloseMany(IEnumerable<string> sessionIds)
+    {
+        var n = 0;
+        foreach (var id in sessionIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!_sessions.ContainsKey(id)) continue;
+            Close(id, "admin");
+            n++;
+        }
+        return n;
+    }
+
+    public int CloseAll()
+    {
+        var ids = _sessions.Keys.ToList();
+        foreach (var id in ids)
+            Close(id, "admin");
+        return ids.Count;
+    }
+
     public void OnDeviceGone(string deviceId)
     {
         foreach (var kv in _pending.ToArray())

@@ -1,5 +1,6 @@
 const view = document.getElementById("view");
 const modal = document.getElementById("modal");
+const PAGE_SIZE = 20;
 
 function route() {
   const parts = (location.hash || "#/").replace(/^#/, "").split("/").filter(Boolean);
@@ -43,7 +44,10 @@ function fmtTime(s) {
 }
 
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(opts && opts.headers) },
+    ...opts,
+  });
   const text = await res.text();
   let body = null;
   if (text) {
@@ -101,53 +105,177 @@ function startUptime(startedAt) {
   uptimeTimer = setInterval(paint, 1000);
 }
 
-function roomSig(rooms) {
-  return (rooms || []).map((r) =>
-    [r.roomId, r.roomNo, r.deviceCount, r.onlineCount, r.lastSeen, r.createdAt].join("\t")
-  ).join("\n");
+// ---- 表格：筛选 / 分页 / 多选 ----
+const tableUi = Object.create(null);
+
+function tableState(key) {
+  if (!tableUi[key]) {
+    tableUi[key] = { q: "", page: 1, size: PAGE_SIZE, selected: new Set() };
+  }
+  return tableUi[key];
 }
 
-function deviceSig(devices) {
-  return (devices || []).map((d) =>
-    [d.id, d.name, d.online ? 1 : 0, d.platform, d.remoteAddress, d.lastSeen, (d.candidates || []).length].join("\t")
-  ).join("\n");
+function matchText(q, ...parts) {
+  const needle = String(q || "").trim().toLowerCase();
+  if (!needle) return true;
+  return parts.some((p) => String(p ?? "").toLowerCase().includes(needle));
 }
 
-function sessionSig(sessions) {
-  return (sessions || []).map((s) =>
-    [s.sessionId, s.roomNo, s.deviceAName, s.deviceBName, s.bytesAtoB, s.bytesBtoA, s.lastActivity].join("\t")
-  ).join("\n");
+function pageSlice(items, st) {
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / st.size) || 1);
+  if (st.page > pages) st.page = pages;
+  if (st.page < 1) st.page = 1;
+  const start = (st.page - 1) * st.size;
+  return {
+    total,
+    pages,
+    start,
+    end: Math.min(start + st.size, total),
+    rows: items.slice(start, start + st.size),
+  };
 }
 
-function signalSig(rows) {
-  return (rows || []).map((s) =>
-    [s.id, s.at, s.ok ? 1 : 0, s.fromId, s.toId, s.msgType, s.payloadBytes || 0].join("\t")
-  ).join("\n");
+function pruneSelected(st, ids) {
+  const keep = new Set(ids);
+  for (const id of [...st.selected]) {
+    if (!keep.has(id)) st.selected.delete(id);
+  }
 }
 
-function signalRows(rows) {
-  return (rows || []).map((s) => `<tr data-signal="${esc(s.id)}">
-    <td>${esc(fmtTime(s.at))}</td>
-    <td>${esc(s.roomNo || "—")}</td>
-    <td>${esc(s.fromName || s.fromId)}<div class="subid mono">${esc(s.fromId)}</div></td>
-    <td>${esc(s.toName || s.toId || "—")}<div class="subid mono">${esc(s.toId || "")}</div></td>
-    <td><span class="pill soft">${esc(s.msgType || "—")}</span></td>
-    <td>${s.ok ? `<span class="pill ok">成功</span>` : `<span class="pill bad">${esc(s.error || "失败")}</span>`}</td>
-    <td class="actions">
-      <button type="button" class="ghost" data-signal-detail="${esc(s.id)}">详情</button>
-      <button type="button" class="ghost" data-signal-content="${esc(s.id)}" ${s.hasPayload ? "" : "disabled"}>内容</button>
-    </td>
-  </tr>`).join("");
+function toolbarHtml(key, placeholder, opts = {}) {
+  const st = tableState(key);
+  const selected = st.selected.size;
+  const batchLabel = opts.batchLabel || "批量删除";
+  const clearLabel = opts.clearLabel || "清除数据";
+  return `<div class="table-bar" data-table-bar="${esc(key)}">
+    <div class="table-bar-l">
+      <input type="search" data-filter="${esc(key)}" value="${esc(st.q)}" placeholder="${esc(placeholder)}" />
+      <span class="table-meta" data-table-meta="${esc(key)}"></span>
+    </div>
+    <div class="table-bar-r">
+      <button type="button" class="ghost" data-batch="${esc(key)}" ${selected ? "" : "disabled"}>${esc(batchLabel)}${selected ? ` (${selected})` : ""}</button>
+      <button type="button" data-clear="${esc(key)}">${esc(clearLabel)}</button>
+    </div>
+  </div>`;
 }
 
-function roomRows(rooms) {
-  return rooms.map((r) => `<tr class="link" data-room="${esc(r.roomId)}">
+function pagerHtml(key, pageInfo) {
+  const { total, pages, start, end, page } = pageInfo;
+  return `<div class="pager" data-pager="${esc(key)}">
+    <span>共 ${total} 条 · 每页 ${PAGE_SIZE} 条 · 第 ${page}/${pages} 页${total ? ` · ${start + 1}-${end}` : ""}</span>
+    <div class="pager-btns">
+      <button type="button" class="ghost" data-page="${esc(key)}" data-to="1" ${page <= 1 ? "disabled" : ""}>首页</button>
+      <button type="button" class="ghost" data-page="${esc(key)}" data-to="prev" ${page <= 1 ? "disabled" : ""}>上一页</button>
+      <button type="button" class="ghost" data-page="${esc(key)}" data-to="next" ${page >= pages ? "disabled" : ""}>下一页</button>
+      <button type="button" class="ghost" data-page="${esc(key)}" data-to="last" ${page >= pages ? "disabled" : ""}>末页</button>
+    </div>
+  </div>`;
+}
+
+function checkCell(key, id) {
+  const on = tableState(key).selected.has(id);
+  return `<td class="check"><input type="checkbox" data-check="${esc(key)}" value="${esc(id)}" ${on ? "checked" : ""}></td>`;
+}
+
+function checkAllHead(key, pageIds) {
+  const st = tableState(key);
+  const all = pageIds.length > 0 && pageIds.every((id) => st.selected.has(id));
+  return `<th class="check"><input type="checkbox" data-check-all="${esc(key)}" ${all ? "checked" : ""} ${pageIds.length ? "" : "disabled"}></th>`;
+}
+
+function renderPanel(sel, {
+  key,
+  items,
+  idOf,
+  filter,
+  headHtml,
+  rowHtml,
+  emptyHtml,
+  placeholder,
+  batchLabel,
+  clearLabel,
+}) {
+  const wrap = view.querySelector(sel);
+  if (!wrap) return;
+  const st = tableState(key);
+  const filtered = (items || []).filter(filter);
+  const ids = filtered.map(idOf);
+  pruneSelected(st, ids);
+  const page = pageSlice(filtered, st);
+  const pageIds = page.rows.map(idOf);
+  const thead = `<tr>${checkAllHead(key, pageIds)}${headHtml}</tr>`;
+  const tbody = page.rows.map((row) => rowHtml(row, key)).join("");
+  const table = filtered.length
+    ? `<div class="table-scroll"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`
+    : emptyHtml;
+  const html = `${toolbarHtml(key, placeholder, { batchLabel, clearLabel })}${table}${pagerHtml(key, {
+    total: page.total,
+    pages: page.pages,
+    start: page.start,
+    end: page.end,
+    page: st.page,
+  })}`;
+  const sig = [
+    key,
+    st.q,
+    st.page,
+    st.size,
+    [...st.selected].sort().join(","),
+    filtered.map((x) => idOf(x)).join("\n"),
+    page.rows.map((x) => rowHtml(x, key)).join(""),
+  ].join("||");
+  if (wrap._sig === sig) return;
+  const prevScroll = wrap.querySelector(".table-scroll");
+  const scrollTop = prevScroll ? prevScroll.scrollTop : 0;
+  const scrollLeft = prevScroll ? prevScroll.scrollLeft : 0;
+  wrap._sig = sig;
+  wrap.innerHTML = html;
+  const nextScroll = wrap.querySelector(".table-scroll");
+  if (nextScroll) {
+    nextScroll.scrollTop = scrollTop;
+    nextScroll.scrollLeft = scrollLeft;
+  }
+}
+
+function roomFilter(r, q) {
+  return matchText(q, r.roomNo, r.roomId, r.deviceCount, r.onlineCount);
+}
+
+function deviceFilter(d, q) {
+  const ips = (d.candidates || []).map((c) => c && c.address).filter(Boolean).join(" ");
+  return matchText(q, d.name, d.id, d.platform, d.remoteAddress, ips, d.online ? "在线" : "离线");
+}
+
+function sessionFilter(s, q) {
+  return matchText(q, s.roomNo, s.sessionId, s.deviceAName, s.deviceBName, s.deviceA, s.deviceB);
+}
+
+function signalFilter(s, q) {
+  return matchText(
+    q,
+    s.roomNo,
+    s.roomId,
+    s.fromName,
+    s.fromId,
+    s.toName,
+    s.toId,
+    s.msgType,
+    s.ok ? "成功" : s.error || "失败",
+    s.id
+  );
+}
+
+function roomRow(r, key) {
+  return `<tr class="link" data-room="${esc(r.roomId)}">
+    ${checkCell(key, r.roomId)}
     <td>${esc(r.roomNo)}</td>
     <td class="num">${esc(r.deviceCount)}</td>
     <td>${countCell(r.onlineCount, true)}</td>
     <td>${esc(fmtTime(r.lastSeen))}</td>
     <td>${esc(fmtTime(r.createdAt))}</td>
-  </tr>`).join("");
+    <td class="ops"><button type="button" data-delete-room="${esc(r.roomId)}" data-room-no="${esc(r.roomNo)}">删除</button></td>
+  </tr>`;
 }
 
 function deviceIps(d) {
@@ -165,41 +293,52 @@ function deviceIps(d) {
   return `<div class="ips">${lines.map((a) => `<span>${esc(a)}</span>`).join("")}</div>`;
 }
 
-function deviceRows(devices) {
-  return (devices || []).map((d) => `<tr data-device="${esc(d.id)}">
+function deviceRow(d, key) {
+  return `<tr data-device="${esc(d.id)}">
+    ${checkCell(key, d.id)}
     <td>${esc(d.name)}<div class="subid mono">${esc(d.id)}</div></td>
     <td>${pill(d.online)}</td>
     <td>${esc(d.platform || "-")}</td>
     <td class="mono">${esc(d.remoteAddress || "-")}</td>
     <td class="mono">${deviceIps(d)}</td>
     <td>${esc(fmtTime(d.lastSeen))}</td>
-    <td>${d.online ? `<button data-kick="${esc(d.id)}">踢出</button>` : ""}</td>
-  </tr>`).join("");
+    <td class="ops">
+      ${d.online ? `<button type="button" data-kick="${esc(d.id)}">踢出</button>` : ""}
+      <button type="button" data-delete-device="${esc(d.id)}" data-device-name="${esc(d.name)}">删除</button>
+    </td>
+  </tr>`;
 }
 
-function sessionRows(sessions) {
-  return sessions.map((s) => `<tr data-session="${esc(s.sessionId)}">
+function sessionRow(s, key) {
+  return `<tr data-session="${esc(s.sessionId)}">
+    ${checkCell(key, s.sessionId)}
     <td>${esc(s.roomNo)}</td>
     <td>${esc(s.deviceAName)} ↔ ${esc(s.deviceBName)}</td>
     <td>${esc(fmtBytes((s.bytesAtoB || 0) + (s.bytesBtoA || 0)))}</td>
     <td>${esc(fmtTime(s.lastActivity))}</td>
-    <td><button data-close="${esc(s.sessionId)}">关闭</button></td>
-  </tr>`).join("");
+    <td class="ops"><button type="button" data-close="${esc(s.sessionId)}">关闭</button></td>
+  </tr>`;
+}
+
+function signalRow(s, key) {
+  return `<tr data-signal="${esc(s.id)}">
+    ${checkCell(key, s.id)}
+    <td>${esc(fmtTime(s.at))}</td>
+    <td>${esc(s.roomNo || "—")}</td>
+    <td>${esc(s.fromName || s.fromId)}<div class="subid mono">${esc(s.fromId)}</div></td>
+    <td>${esc(s.toName || s.toId || "—")}<div class="subid mono">${esc(s.toId || "")}</div></td>
+    <td><span class="pill soft">${esc(s.msgType || "—")}</span></td>
+    <td>${s.ok ? `<span class="pill ok">成功</span>` : `<span class="pill bad">${esc(s.error || "失败")}</span>`}</td>
+    <td class="actions">
+      <button type="button" class="ghost" data-signal-detail="${esc(s.id)}">详情</button>
+      <button type="button" class="ghost" data-signal-content="${esc(s.id)}" ${s.hasPayload ? "" : "disabled"}>内容</button>
+    </td>
+  </tr>`;
 }
 
 function setText(sel, text) {
   const node = view.querySelector(sel);
   if (node && node.textContent !== text) node.textContent = text;
-}
-
-function replaceBody(sel, html, emptyHtml, sig) {
-  const wrap = view.querySelector(sel);
-  if (!wrap) return;
-  const next = html || emptyHtml;
-  const key = sig ?? next;
-  if (wrap._sig === key) return;
-  wrap._sig = key;
-  wrap.innerHTML = next;
 }
 
 // ---- SSE ----
@@ -238,28 +377,32 @@ function mountKeyOf(r) {
 
 function homeShell(data) {
   return `
-    <div class="page-h">
-      <h1>首页</h1>
-      <p><span data-server>${esc(data.server)}</span> · 已运行 <span data-uptime-line>${esc(fmtDur(data.uptimeSec))}</span> · 房间号取该房间第一台注册电脑的名称</p>
-    </div>
-    <section class="kpis">
-      ${kpi("a", "房间", data.registeredRooms ?? 0, "注册房间", IcoHome, "#F59E0B", "", "rooms")}
-      ${kpi("e", "注册设备", data.registeredDevices ?? 0, "含离线记录", IcoNet, "#7DD3FC", "", "registered")}
-      ${kpi("b", "在线设备", data.onlineDevices ?? 0, "当前在线", IcoNet, "#93C5FD", "", "online")}
-      ${kpi("g", "运行时间", fmtDur(data.uptimeSec), data.server || "", IcoHome, "#FDE68A", "data-uptime", "uptime")}
-      ${kpi("f", "信令次数", data.signals || 0, "与列表条数一致", IcoShare, "#C4B5FD", "", "signals")}
-      ${kpi("c", "中继会话", data.sessions ?? 0, "进行中", IcoShare, "#6EE7B7", "", "sessions")}
-      ${kpi("d", "转发字节", fmtBytes(data.relayBytes), "累计转发", IcoDown, "#FDBA74", "", "bytes")}
-      ${kpi("h", "延迟统计", "—", "暂无样本", IcoNet, "#94A3B8")}
-    </section>
-    <section class="block">
-      <h2>房间</h2>
-      <div class="table-wrap" data-home-rooms></div>
-    </section>
-    <section class="block">
-      <h2>中继会话</h2>
-      <div class="table-wrap" data-home-sessions></div>
-    </section>`;
+    <div class="page page-home">
+      <div class="page-h">
+        <h1>首页</h1>
+        <p><span data-server>${esc(data.server)}</span> · 已运行 <span data-uptime-line>${esc(fmtDur(data.uptimeSec))}</span> · 房间号取该房间第一台注册电脑的名称</p>
+      </div>
+      <section class="kpis">
+        ${kpi("a", "房间", data.registeredRooms ?? 0, "注册房间", IcoHome, "#F59E0B", "", "rooms")}
+        ${kpi("e", "注册设备", data.registeredDevices ?? 0, "含离线记录", IcoNet, "#7DD3FC", "", "registered")}
+        ${kpi("b", "在线设备", data.onlineDevices ?? 0, "当前在线", IcoNet, "#93C5FD", "", "online")}
+        ${kpi("g", "运行时间", fmtDur(data.uptimeSec), data.server || "", IcoHome, "#FDE68A", "data-uptime", "uptime")}
+        ${kpi("f", "信令次数", data.signals || 0, "累计转发次数", IcoShare, "#C4B5FD", "", "signals")}
+        ${kpi("c", "中继会话", data.sessions ?? 0, "进行中", IcoShare, "#6EE7B7", "", "sessions")}
+        ${kpi("d", "转发字节", fmtBytes(data.relayBytes), "累计转发", IcoDown, "#FDBA74", "", "bytes")}
+        ${kpi("h", "延迟统计", "—", "暂无样本", IcoNet, "#94A3B8")}
+      </section>
+      <div class="page-blocks">
+        <section class="block">
+          <h2>房间</h2>
+          <div class="panel" data-home-rooms></div>
+        </section>
+        <section class="block">
+          <h2>中继会话</h2>
+          <div class="panel" data-home-sessions></div>
+        </section>
+      </div>
+    </div>`;
 }
 
 function patchHome(data) {
@@ -275,54 +418,72 @@ function patchHome(data) {
   const sub = view.querySelector(".kpi.g .kpi-s");
   if (sub) sub.textContent = data.server || "";
 
-  replaceBody(
-    "[data-home-rooms]",
-    rooms.length
-      ? `<table><thead><tr><th>房间名称</th><th>节点</th><th>连接数</th><th>最后连接</th><th>注册时间</th></tr></thead><tbody>${roomRows(rooms)}</tbody></table>`
-      : "",
-    `<div class="empty">还没有注册房间。设备连上边缘口并完成 hello 后，会以第一台电脑的名称建立房间。</div>`,
-    roomSig(rooms)
-  );
-  replaceBody(
-    "[data-home-sessions]",
-    sessions.length
-      ? `<table><thead><tr><th>房间</th><th>对端</th><th>流量</th><th>最近活动</th><th></th></tr></thead><tbody>${sessionRows(sessions)}</tbody></table>`
-      : "",
-    `<div class="empty">暂无中继会话。</div>`,
-    sessionSig(sessions)
-  );
+  const stRooms = tableState("homeRooms");
+  renderPanel("[data-home-rooms]", {
+    key: "homeRooms",
+    items: rooms,
+    idOf: (r) => r.roomId,
+    filter: (r) => roomFilter(r, stRooms.q),
+    headHtml: `<th>房间名称</th><th>节点</th><th>连接数</th><th>最后连接</th><th>注册时间</th><th>操作</th>`,
+    rowHtml: roomRow,
+    emptyHtml: `<div class="empty">还没有注册房间。设备连上边缘口并完成 hello 后，会以第一台电脑的名称建立房间。</div>`,
+    placeholder: "筛选房间名称 / ID…",
+    clearLabel: "清除全部房间",
+  });
+
+  const stSessions = tableState("homeSessions");
+  renderPanel("[data-home-sessions]", {
+    key: "homeSessions",
+    items: sessions,
+    idOf: (s) => s.sessionId,
+    filter: (s) => sessionFilter(s, stSessions.q),
+    headHtml: `<th>房间</th><th>对端</th><th>流量</th><th>最近活动</th><th>操作</th>`,
+    rowHtml: sessionRow,
+    emptyHtml: `<div class="empty">暂无中继会话。</div>`,
+    placeholder: "筛选房间 / 设备…",
+    batchLabel: "批量关闭",
+    clearLabel: "清除全部会话",
+  });
   startUptime(data.startedAt);
 }
 
 function roomsShell() {
   return `
-    <div class="page-h">
-      <h1>房间</h1>
-      <p>同一安全密钥的设备在同一房间。房间号是该房间第一台注册电脑的名称，之后不再改变。</p>
-    </div>
-    <div class="table-wrap" data-rooms-list></div>`;
+    <div class="page">
+      <div class="page-h">
+        <h1>房间</h1>
+        <p>同一安全密钥的设备在同一房间。房间号是该房间第一台注册电脑的名称，之后不再改变。</p>
+      </div>
+      <div class="panel" data-rooms-list></div>
+    </div>`;
 }
 
 function patchRooms(data) {
   const rooms = data.rooms || [];
-  replaceBody(
-    "[data-rooms-list]",
-    rooms.length
-      ? `<table><thead><tr><th>房间名称</th><th>节点</th><th>连接数</th><th>最后连接</th><th>注册时间</th></tr></thead><tbody>${roomRows(rooms)}</tbody></table>`
-      : "",
-    `<div class="empty">还没有注册房间。</div>`,
-    roomSig(rooms)
-  );
+  const st = tableState("rooms");
+  renderPanel("[data-rooms-list]", {
+    key: "rooms",
+    items: rooms,
+    idOf: (r) => r.roomId,
+    filter: (r) => roomFilter(r, st.q),
+    headHtml: `<th>房间名称</th><th>节点</th><th>连接数</th><th>最后连接</th><th>注册时间</th><th>操作</th>`,
+    rowHtml: roomRow,
+    emptyHtml: `<div class="empty">还没有注册房间。</div>`,
+    placeholder: "筛选房间名称 / ID…",
+    clearLabel: "清除全部房间",
+  });
 }
 
 function roomShell(room) {
   return `
-    <div class="crumb"><a href="#/rooms">房间</a><span>/</span><span data-room-title>${esc(room.roomNo)}</span></div>
-    <div class="page-h">
-      <h1 data-room-title>${esc(room.roomNo)}</h1>
-      <p data-room-sub>在线 ${esc(room.onlineCount)} · 注册 ${esc(room.deviceCount)} · 建立于 ${esc(fmtTime(room.createdAt))}</p>
-    </div>
-    <div class="table-wrap" data-room-devices></div>`;
+    <div class="page">
+      <div class="crumb"><a href="#/rooms">房间</a><span>/</span><span data-room-title>${esc(room.roomNo)}</span></div>
+      <div class="page-h">
+        <h1 data-room-title>${esc(room.roomNo)}</h1>
+        <p data-room-sub>在线 ${esc(room.onlineCount)} · 注册 ${esc(room.deviceCount)} · 建立于 ${esc(fmtTime(room.createdAt))}</p>
+      </div>
+      <div class="panel" data-room-devices></div>
+    </div>`;
 }
 
 function patchRoom(room) {
@@ -334,37 +495,46 @@ function patchRoom(room) {
     `在线 ${room.onlineCount} · 注册 ${room.deviceCount} · 建立于 ${fmtTime(room.createdAt)}`
   );
   const devices = room.devices || [];
-  replaceBody(
-    "[data-room-devices]",
-    devices.length
-      ? `<table><thead><tr><th>设备</th><th>状态</th><th>平台</th><th>地址</th><th>设备 IP</th><th>最后连接</th><th></th></tr></thead><tbody>${deviceRows(devices)}</tbody></table>`
-      : "",
-    `<div class="empty">这个房间还没有设备记录。</div>`,
-    deviceSig(devices)
-  );
+  const key = `roomDevices:${room.roomId}`;
+  const st = tableState(key);
+  renderPanel("[data-room-devices]", {
+    key,
+    items: devices,
+    idOf: (d) => d.id,
+    filter: (d) => deviceFilter(d, st.q),
+    headHtml: `<th>设备</th><th>状态</th><th>平台</th><th>地址</th><th>设备 IP</th><th>最后连接</th><th>操作</th>`,
+    rowHtml: deviceRow,
+    emptyHtml: `<div class="empty">这个房间还没有设备记录。</div>`,
+    placeholder: "筛选设备名称 / ID / IP…",
+    clearLabel: "清除本房间设备",
+  });
 }
 
 function signalsShell() {
   return `
-    <div class="page-h">
-      <h1>信令</h1>
-      <p>边缘口转发的信令（内存环形缓冲，最多 500 条）。展示谁到谁，可查看详情与内容。</p>
-    </div>
-    <div class="table-wrap" data-signals-list></div>`;
+    <div class="page">
+      <div class="page-h">
+        <h1>信令</h1>
+        <p>边缘口转发的信令（内存环形缓冲，最多 500 条）。展示谁到谁，可查看详情与内容。</p>
+      </div>
+      <div class="panel" data-signals-list></div>
+    </div>`;
 }
 
 function patchSignals(data) {
   const rows = data.signalList || [];
-  replaceBody(
-    "[data-signals-list]",
-    rows.length
-      ? `<table><thead><tr>
-          <th>时间</th><th>房间</th><th>发送方</th><th>接收方</th><th>类型</th><th>结果</th><th>操作</th>
-        </tr></thead><tbody>${signalRows(rows)}</tbody></table>`
-      : "",
-    `<div class="empty">暂无信令记录。设备互发 signal / 中继请求后会出现在这里。</div>`,
-    signalSig(rows)
-  );
+  const st = tableState("signals");
+  renderPanel("[data-signals-list]", {
+    key: "signals",
+    items: rows,
+    idOf: (s) => s.id,
+    filter: (s) => signalFilter(s, st.q),
+    headHtml: `<th>时间</th><th>房间</th><th>发送方</th><th>接收方</th><th>类型</th><th>结果</th><th>操作</th>`,
+    rowHtml: signalRow,
+    emptyHtml: `<div class="empty">暂无信令记录。设备互发 signal / 中继请求后会出现在这里。</div>`,
+    placeholder: "筛选房间 / 设备 / 类型…",
+    clearLabel: "清除信令",
+  });
 }
 
 function prettyJson(raw) {
@@ -462,9 +632,11 @@ function applySnap(data) {
     if (!room) {
       mountedKey = key;
       view.innerHTML = `
-        <div class="crumb"><a href="#/rooms">房间</a></div>
-        <div class="page-h"><h1>房间</h1></div>
-        <div class="err">房间不存在</div>`;
+        <div class="page">
+          <div class="crumb"><a href="#/rooms">房间</a></div>
+          <div class="page-h"><h1>房间</h1></div>
+          <div class="err">房间不存在</div>
+        </div>`;
       return;
     }
     if (mountedKey !== key) {
@@ -481,7 +653,7 @@ function showLoading() {
   mountedKey = "";
   stopUptime();
   const title = r.name === "signals" ? "信令" : (r.name === "rooms" || r.name === "room" ? "房间" : "首页");
-  view.innerHTML = `<div class="page-h"><h1>${title}</h1><p>加载中…</p></div>`;
+  view.innerHTML = `<div class="page"><div class="page-h"><h1>${title}</h1><p>加载中…</p></div></div>`;
 }
 
 function onRoute() {
@@ -490,9 +662,191 @@ function onRoute() {
   syncStream();
 }
 
+function refreshUi() {
+  const active = document.activeElement;
+  const filterKey = active && active.matches && active.matches("[data-filter]") ? active.dataset.filter : null;
+  const selStart = filterKey != null ? active.selectionStart : null;
+  const selEnd = filterKey != null ? active.selectionEnd : null;
+  if (lastSnap) applySnap(lastSnap);
+  if (filterKey) {
+    const el = view.querySelector(`[data-filter="${CSS.escape(filterKey)}"]`);
+    if (el) {
+      el.focus();
+      if (selStart != null && selEnd != null) {
+        try { el.setSelectionRange(selStart, selEnd); } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
+function selectedIds(key) {
+  return [...tableState(key).selected];
+}
+
+function clearSelection(key) {
+  tableState(key).selected.clear();
+}
+
+async function runBatch(key) {
+  const ids = selectedIds(key);
+  if (!ids.length) return;
+
+  try {
+    if (key === "homeRooms" || key === "rooms") {
+      if (!confirm(`批量删除选中的 ${ids.length} 个房间？将踢出在线设备并清除注册记录。`)) return;
+      await api("/api/rooms/batch-delete", { method: "POST", body: JSON.stringify({ ids }) });
+    } else if (key.startsWith("roomDevices:")) {
+      if (!confirm(`批量删除选中的 ${ids.length} 台设备？`)) return;
+      await api("/api/devices/batch-delete", { method: "POST", body: JSON.stringify({ ids }) });
+    } else if (key === "homeSessions") {
+      if (!confirm(`批量关闭选中的 ${ids.length} 个中继会话？`)) return;
+      await api("/api/sessions/batch-close", { method: "POST", body: JSON.stringify({ ids }) });
+    } else if (key === "signals") {
+      if (!confirm(`批量删除选中的 ${ids.length} 条信令？`)) return;
+      await api("/api/signals/batch-delete", { method: "POST", body: JSON.stringify({ ids }) });
+    }
+    clearSelection(key);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function runClear(key) {
+  try {
+    if (key === "homeRooms" || key === "rooms") {
+      if (!confirm("清除全部房间与设备注册记录？在线设备将被踢出。此操作不可恢复。")) return;
+      await api("/api/rooms/clear", { method: "POST", body: "{}" });
+      clearSelection("homeRooms");
+      clearSelection("rooms");
+    } else if (key.startsWith("roomDevices:")) {
+      const roomId = key.slice("roomDevices:".length);
+      const room = (lastSnap?.rooms || []).find((x) => x.roomId === roomId);
+      const ids = (room?.devices || []).map((d) => d.id);
+      if (!ids.length) return;
+      if (!confirm(`清除房间「${room?.roomNo || roomId}」内全部 ${ids.length} 台设备？`)) return;
+      await api("/api/devices/batch-delete", { method: "POST", body: JSON.stringify({ ids }) });
+      clearSelection(key);
+    } else if (key === "homeSessions") {
+      if (!confirm("关闭并清除全部中继会话？")) return;
+      await api("/api/sessions/clear", { method: "POST", body: "{}" });
+      clearSelection(key);
+    } else if (key === "signals") {
+      if (!confirm("清除全部信令记录？")) return;
+      await api("/api/signals/clear", { method: "POST", body: "{}" });
+      clearSelection(key);
+    }
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+view.addEventListener("input", (ev) => {
+  const input = ev.target.closest("[data-filter]");
+  if (!input || !view.contains(input)) return;
+  const key = input.dataset.filter;
+  const st = tableState(key);
+  st.q = input.value;
+  st.page = 1;
+  refreshUi();
+});
+
+view.addEventListener("change", (ev) => {
+  const all = ev.target.closest("[data-check-all]");
+  if (all && view.contains(all)) {
+    const key = all.dataset.checkAll;
+    const st = tableState(key);
+    view.querySelectorAll(`[data-check="${key}"]`).forEach((box) => {
+      box.checked = all.checked;
+      if (all.checked) st.selected.add(box.value);
+      else st.selected.delete(box.value);
+    });
+    refreshUi();
+    return;
+  }
+
+  const one = ev.target.closest("[data-check]");
+  if (one && view.contains(one)) {
+    const key = one.dataset.check;
+    const st = tableState(key);
+    if (one.checked) st.selected.add(one.value);
+    else st.selected.delete(one.value);
+    refreshUi();
+  }
+});
+
 view.addEventListener("click", async (ev) => {
+  const pageBtn = ev.target.closest("[data-page]");
+  if (pageBtn && view.contains(pageBtn) && !pageBtn.disabled) {
+    ev.preventDefault();
+    const key = pageBtn.dataset.page;
+    const st = tableState(key);
+    const to = pageBtn.dataset.to;
+    if (to === "1") st.page = 1;
+    else if (to === "prev") st.page = Math.max(1, st.page - 1);
+    else if (to === "next") st.page += 1;
+    else if (to === "last") st.page = 1e9;
+    refreshUi();
+    return;
+  }
+
+  const batch = ev.target.closest("[data-batch]");
+  if (batch && view.contains(batch) && !batch.disabled) {
+    ev.preventDefault();
+    await runBatch(batch.dataset.batch);
+    return;
+  }
+
+  const clear = ev.target.closest("[data-clear]");
+  if (clear && view.contains(clear)) {
+    ev.preventDefault();
+    await runClear(clear.dataset.clear);
+    return;
+  }
+
+  const delRoom = ev.target.closest("[data-delete-room]");
+  if (delRoom && view.contains(delRoom)) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const name = delRoom.dataset.roomNo || delRoom.dataset.deleteRoom;
+    if (!confirm(`删除房间「${name}」？将踢出在线设备并清除该房间全部注册记录。`)) return;
+    try {
+      await api(`/api/rooms/${encodeURIComponent(delRoom.dataset.deleteRoom)}`, { method: "DELETE" });
+      if (route().name === "room") location.hash = "#/rooms";
+    } catch (e) {
+      alert(e.message);
+    }
+    return;
+  }
+
+  const delDev = ev.target.closest("[data-delete-device]");
+  if (delDev && view.contains(delDev)) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const name = delDev.dataset.deviceName || delDev.dataset.deleteDevice;
+    if (!confirm(`删除设备「${name}」？将踢出（若在线）并清除注册记录。`)) return;
+    try {
+      await api(`/api/devices/${encodeURIComponent(delDev.dataset.deleteDevice)}`, { method: "DELETE" });
+    } catch (e) {
+      alert(e.message);
+    }
+    return;
+  }
+
+  const kick = ev.target.closest("[data-kick]");
+  if (kick && view.contains(kick)) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!confirm(`踢出设备 ${kick.dataset.kick}？注册记录仍会保留。`)) return;
+    try {
+      await api(`/api/devices/${encodeURIComponent(kick.dataset.kick)}/kick`, { method: "POST" });
+    } catch (e) {
+      alert(e.message);
+    }
+    return;
+  }
+
   const room = ev.target.closest("[data-room]");
-  if (room && view.contains(room)) {
+  if (room && view.contains(room) && !ev.target.closest("button,input")) {
     location.hash = `#/rooms/${encodeURIComponent(room.dataset.room)}`;
     return;
   }
@@ -508,18 +862,6 @@ view.addEventListener("click", async (ev) => {
   if (content && view.contains(content) && !content.disabled) {
     ev.preventDefault();
     await openSignalModal(content.dataset.signalContent, true);
-    return;
-  }
-
-  const kick = ev.target.closest("[data-kick]");
-  if (kick && view.contains(kick)) {
-    ev.preventDefault();
-    if (!confirm(`踢出设备 ${kick.dataset.kick}？注册记录仍会保留。`)) return;
-    try {
-      await api(`/api/devices/${encodeURIComponent(kick.dataset.kick)}`, { method: "DELETE" });
-    } catch (e) {
-      alert(e.message);
-    }
     return;
   }
 

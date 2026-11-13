@@ -169,6 +169,48 @@ public sealed class SignalLog
         return _byId.TryGetValue(id.Trim(), out var e) ? e : null;
     }
 
+    public int DeleteMany(IEnumerable<string> ids)
+    {
+        var set = ids
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .ToHashSet(StringComparer.Ordinal);
+        if (set.Count == 0) return 0;
+
+        var removed = 0;
+        lock (_gate)
+        {
+            for (var node = _entries.First; node != null;)
+            {
+                var next = node.Next;
+                if (set.Contains(node.Value.Id))
+                {
+                    _entries.Remove(node);
+                    _byId.TryRemove(node.Value.Id, out _);
+                    removed++;
+                }
+                node = next;
+            }
+        }
+
+        if (removed > 0) _notify.Notify();
+        return removed;
+    }
+
+    public int Clear()
+    {
+        int n;
+        lock (_gate)
+        {
+            n = _entries.Count;
+            _entries.Clear();
+            _byId.Clear();
+        }
+
+        if (n > 0) _notify.Notify();
+        return n;
+    }
+
     private void Add(SignalLogEntry entry)
     {
         lock (_gate)

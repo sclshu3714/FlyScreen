@@ -209,6 +209,38 @@ public sealed class RelayStore : IDisposable
         }
     }
 
+    public bool DeleteDevice(string deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return false;
+        lock (_gate)
+        {
+            return ExecCount("DELETE FROM devices WHERE device_id = @deviceId", cmd => P(cmd, "@deviceId", deviceId)) > 0;
+        }
+    }
+
+    /// <summary>删除房间及其下全部设备注册记录。</summary>
+    public bool DeleteRoom(string roomId)
+    {
+        if (string.IsNullOrWhiteSpace(roomId)) return false;
+        lock (_gate)
+        {
+            var nDev = ExecCount("DELETE FROM devices WHERE room_id = @roomId", cmd => P(cmd, "@roomId", roomId));
+            var nRoom = ExecCount("DELETE FROM rooms WHERE room_id = @roomId", cmd => P(cmd, "@roomId", roomId));
+            return nDev > 0 || nRoom > 0;
+        }
+    }
+
+    /// <summary>清空全部房间与设备注册记录。</summary>
+    public int ClearAll()
+    {
+        lock (_gate)
+        {
+            var nDev = ExecCount("DELETE FROM devices");
+            var nRoom = ExecCount("DELETE FROM rooms");
+            return nDev + nRoom;
+        }
+    }
+
     public void Dispose() => _conn.Dispose();
 
     private void EnsureSchema()
@@ -344,6 +376,14 @@ public sealed class RelayStore : IDisposable
         cmd.CommandText = sql;
         bind?.Invoke(cmd);
         cmd.ExecuteNonQuery();
+    }
+
+    private int ExecCount(string sql, Action<DbCommand>? bind = null)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = sql;
+        bind?.Invoke(cmd);
+        return cmd.ExecuteNonQuery();
     }
 
     private string? ScalarString(string sql, Action<DbCommand>? bind = null)

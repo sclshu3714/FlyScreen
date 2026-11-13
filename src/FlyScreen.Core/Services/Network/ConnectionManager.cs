@@ -805,18 +805,27 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (ct.IsCancellationRequested) return;
 
         var link = _links.GetOrAdd(peerName, _ => new PeerLink(peerName));
-        // 入站已认证即可传投影。再拨一条信令/中继会和现有管道抢同一条 WebSocket。
-        if (link.Outbound is { IsAlive: true, Authenticated: true }
-            || link.Inbound is { IsAlive: true, Authenticated: true })
+        // 已有本端出站则不必再拨。
+        // 信令/中继回环入站：复用管道，勿再开第二条抢 WebSocket。
+        // 局域网入站：即使对端也在中继房间，仍必须 TCP 回拨，否则布局卡在「仅入站/仅出站」。
+        if (link.Outbound is { IsAlive: true, Authenticated: true })
             return;
+        var signalingOnly = IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice);
+        if (signalingOnly
+            && link.Inbound is { IsAlive: true, Authenticated: true } inboundCtl
+            && IsRelayStylePeerIp(inboundCtl.PeerIp))
+            return;
+        // 有局域网入站时优先回拨，勿走信令开第二管
+        if (signalingOnly && HasUsableLanInbound(link))
+            signalingOnly = false;
         if (!_outboundBusy.TryAdd(peerName, 0))
             return;
 
         try
         {
-            if (IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice))
+            if (signalingOnly)
             {
-                var ok = await ConnectViaSignalingAsync(link, peerName, relayClient, relayDevice, bulk: false, ct)
+                var ok = await ConnectViaSignalingAsync(link, peerName, relayClient!, relayDevice!, bulk: false, ct)
                     .ConfigureAwait(false);
                 if (!ok)
                     ReportConnectFailed(peerName, SignalingFailDetail(relayDevice));
@@ -843,11 +852,15 @@ public sealed class ConnectionManager : IAsyncDisposable
             var nic = _settings.SameSubnetOnly
                 ? NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp)
                 : null;
+            var inboundPeerIp = link.Inbound is { IsAlive: true, PeerIp: var pip } ? pip : null;
             var tried = new List<string>();
             foreach (var (ip, port) in targets)
             {
                 if (ct.IsCancellationRequested) return;
-                if (nic != null && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
+                // 已有入站证明可达的对端 IP：不受 SameSubnetOnly 误拦
+                var knownReachable = !string.IsNullOrWhiteSpace(inboundPeerIp)
+                    && string.Equals(inboundPeerIp, ip, StringComparison.OrdinalIgnoreCase);
+                if (nic != null && !knownReachable && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
                     continue;
                 tried.Add($"{ip}:{port}");
                 if (await TryOutboundHandshakeAsync(link, peerName, ip, port, bulk: false, ct).ConfigureAwait(false))
@@ -855,7 +868,10 @@ public sealed class ConnectionManager : IAsyncDisposable
             }
 
             if (tried.Count == 0)
+            {
+                await AskPeerToDialAsync().ConfigureAwait(false);
                 return;
+            }
             ReportConnectFailed(peerName, string.Join("、", tried));
             await AskPeerToDialAsync().ConfigureAwait(false);
         }
@@ -876,17 +892,24 @@ public sealed class ConnectionManager : IAsyncDisposable
             return;
         if (!RemoteAdvertisesBulk(link.RemoteInfo))
             return;
-        if (link.OutboundBulk is { IsAlive: true, Authenticated: true }
-            || link.InboundBulk is { IsAlive: true, Authenticated: true })
+        // 与控制面相同：局域网入站仍回拨；仅中继回环入站可跳过
+        if (link.OutboundBulk is { IsAlive: true, Authenticated: true })
             return;
+        var signalingOnly = IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice);
+        if (signalingOnly
+            && link.InboundBulk is { IsAlive: true, Authenticated: true } inboundBulk
+            && IsRelayStylePeerIp(inboundBulk.PeerIp))
+            return;
+        if (signalingOnly && HasUsableLanInboundBulk(link))
+            signalingOnly = false;
         if (!_bulkBusy.TryAdd(peerName, 0))
             return;
 
         try
         {
-            if (IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice))
+            if (signalingOnly)
             {
-                await ConnectViaSignalingAsync(link, peerName, relayClient, relayDevice, bulk: true, ct)
+                await ConnectViaSignalingAsync(link, peerName, relayClient!, relayDevice!, bulk: true, ct)
                     .ConfigureAwait(false);
                 return;
             }
@@ -904,10 +927,14 @@ public sealed class ConnectionManager : IAsyncDisposable
             var nic = _settings.SameSubnetOnly
                 ? NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp)
                 : null;
+            var inboundPeerIp = link.InboundBulk is { IsAlive: true, PeerIp: var bip } ? bip
+                : link.Inbound is { IsAlive: true, PeerIp: var cip } ? cip : null;
             foreach (var (ip, port) in targets)
             {
                 if (ct.IsCancellationRequested) return;
-                if (nic != null && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
+                var knownReachable = !string.IsNullOrWhiteSpace(inboundPeerIp)
+                    && string.Equals(inboundPeerIp, ip, StringComparison.OrdinalIgnoreCase);
+                if (nic != null && !knownReachable && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
                     continue;
                 if (await TryOutboundHandshakeAsync(link, peerName, ip, port, bulk: true, ct).ConfigureAwait(false))
                     return;
@@ -1074,6 +1101,20 @@ public sealed class ConnectionManager : IAsyncDisposable
                && _bindIp != "0.0.0.0"
                && string.Equals(_bindIp, addr.ToString(), StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>中继管道入站常见回环/本机地址；局域网入站则为对端真实 IPv4。</summary>
+    private bool IsRelayStylePeerIp(string? ip)
+        => string.IsNullOrWhiteSpace(ip)
+           || IsLocalSocket(ip)
+           || !DiscoveryService.IsUsableLanIpv4(ip);
+
+    private static bool HasUsableLanInbound(PeerLink link)
+        => link.Inbound is { IsAlive: true, Authenticated: true, PeerIp: var ip }
+           && DiscoveryService.IsUsableLanIpv4(ip);
+
+    private static bool HasUsableLanInboundBulk(PeerLink link)
+        => link.InboundBulk is { IsAlive: true, Authenticated: true, PeerIp: var ip }
+           && DiscoveryService.IsUsableLanIpv4(ip);
 
     /// <summary>
     /// 连到一个候选地址并完成握手。先挂上应答等待再发送，避免局域网回包快于订阅而丢掉 HandshakeAck。
@@ -1257,7 +1298,21 @@ public sealed class ConnectionManager : IAsyncDisposable
                 Add(resolved, port);
         }
 
-        // 用户验证过的远程地址优先（Tailscale 等）；发现到的局域网 IP 可能 SYN 通不了仍要回退
+        // 已有会话对端 IP 优先（回拨时最准，避免发现表旧地址抢先失败）
+        if (_links.TryGetValue(peerName, out var link))
+        {
+            foreach (var known in new[]
+                     {
+                         link.Inbound?.PeerIp, link.Outbound?.PeerIp,
+                         link.InboundBulk?.PeerIp, link.OutboundBulk?.PeerIp
+                     })
+            {
+                if (DiscoveryService.IsUsableLanIpv4(known))
+                    Add(known, defaultPort);
+            }
+        }
+
+        // 用户验证过的远程地址（Tailscale 等）；发现到的局域网 IP 可能 SYN 通不了仍要回退
         foreach (var t in EnumerateConfiguredEndpointTargets(peerName))
             await AddHostAsync(t.Host, t.Port).ConfigureAwait(false);
 
@@ -1271,19 +1326,6 @@ public sealed class ConnectionManager : IAsyncDisposable
         var discIp = _discovery.FindIp(peerName);
         if (!string.IsNullOrWhiteSpace(discIp))
             Add(discIp, defaultPort);
-
-        if (_links.TryGetValue(peerName, out var link))
-        {
-            foreach (var known in new[]
-                     {
-                         link.Outbound?.PeerIp, link.Inbound?.PeerIp,
-                         link.OutboundBulk?.PeerIp, link.InboundBulk?.PeerIp
-                     })
-            {
-                if (DiscoveryService.IsUsableLanIpv4(known))
-                    Add(known, defaultPort);
-            }
-        }
 
         // 切勿把 Windows 计算机名拿去 DNS（会「不知道这样的主机」刷屏）；仅 FQDN 才回退解析
         if (list.Count == 0 && LooksLikeDnsHost(peerName))
@@ -1660,8 +1702,11 @@ public sealed class ConnectionManager : IAsyncDisposable
             StatusMessage?.Invoke(string.Format(
                 Helpers.Localization.Loc.T("Status.Inbound"), hs.MachineName) + $" · {remote}");
 
+            // 立刻尝试回拨，缩短「仅入站」窗口（MaintainLoop 最多再等 ~2s）
+            var reverseCt = _cts?.Token ?? CancellationToken.None;
+            _ = EnsureOutboundAsync(hs.MachineName, reverseCt);
             if (RemoteAdvertisesBulk(remote))
-                _ = EnsureOutboundBulkAsync(hs.MachineName, _cts?.Token ?? CancellationToken.None);
+                _ = EnsureOutboundBulkAsync(hs.MachineName, reverseCt);
         }
     }
 

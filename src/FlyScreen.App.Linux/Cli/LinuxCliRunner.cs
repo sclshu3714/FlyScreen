@@ -285,7 +285,9 @@ public static class LinuxCliRunner
             : string.Join(", ", discovered.Select(p => $"{p.MachineName}@{p.Ip}"))));
         foreach (var st in host.Connections.GetConfiguredPeerStatuses())
         {
-            var state = st.Bidirectional ? "双向" : st.AnyAlive ? "单向" : "未连接";
+            var state = st.Bidirectional
+                ? (st.DualLinked ? "双向" : "已连接")
+                : "未连接";
             Console.WriteLine($"  配置 {st.Name}: {state}");
         }
     }

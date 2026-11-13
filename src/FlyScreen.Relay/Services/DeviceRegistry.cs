@@ -280,6 +280,69 @@ public sealed class DeviceRegistry
         }
     }
 
+    /// <summary>踢出在线连接（若有）并删除注册库中的设备记录。</summary>
+    public async Task<bool> DeleteDeviceAsync(string deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return false;
+        var wasOnline = TryGetByDeviceId(deviceId, out _);
+        await KickAsync(deviceId).ConfigureAwait(false);
+        var removed = false;
+        try { removed = _store.DeleteDevice(deviceId); }
+        catch (Exception ex) { _log.LogWarning(ex, "删除设备注册失败 {DeviceId}", deviceId); }
+        if (removed || wasOnline) _adminNotify.Notify();
+        return removed || wasOnline;
+    }
+
+    /// <summary>踢出房间内在线设备并删除房间及全部设备注册记录。</summary>
+    public async Task<bool> DeleteRoomAsync(string roomId)
+    {
+        if (string.IsNullOrWhiteSpace(roomId)) return false;
+        var online = ListRoom(roomId);
+        foreach (var d in online)
+            await KickAsync(d.Id).ConfigureAwait(false);
+
+        var removed = false;
+        try { removed = _store.DeleteRoom(roomId); }
+        catch (Exception ex) { _log.LogWarning(ex, "删除房间失败 {RoomId}", roomId); }
+        if (removed || online.Count > 0) _adminNotify.Notify();
+        return removed || online.Count > 0;
+    }
+
+    public async Task<int> DeleteRoomsAsync(IEnumerable<string> roomIds)
+    {
+        var n = 0;
+        foreach (var id in roomIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (await DeleteRoomAsync(id).ConfigureAwait(false))
+                n++;
+        }
+        return n;
+    }
+
+    public async Task<int> DeleteDevicesAsync(IEnumerable<string> deviceIds)
+    {
+        var n = 0;
+        foreach (var id in deviceIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (await DeleteDeviceAsync(id).ConfigureAwait(false))
+                n++;
+        }
+        return n;
+    }
+
+    /// <summary>踢出全部在线设备并清空注册库。</summary>
+    public async Task<int> ClearAllAsync()
+    {
+        foreach (var d in ListAll())
+            await KickAsync(d.Id).ConfigureAwait(false);
+
+        var cleared = 0;
+        try { cleared = _store.ClearAll(); }
+        catch (Exception ex) { _log.LogWarning(ex, "清空注册库失败"); }
+        _adminNotify.Notify();
+        return cleared;
+    }
+
     private void RemoveFromRoom(string roomId, string deviceId)
     {
         if (!_rooms.TryGetValue(roomId, out var set)) return;

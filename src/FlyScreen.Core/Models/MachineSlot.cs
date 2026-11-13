@@ -333,12 +333,9 @@ public sealed class MachineSlot : INotifyPropertyChanged
             return;
         }
 
-        if (OutboundOk && InboundOk)
+        // 单 TCP 全双工：任一方向已连通即视为布局「双向」
+        if (OutboundOk || InboundOk)
             StatusText = Loc.T("Slot.Both");
-        else if (OutboundOk)
-            StatusText = Loc.T("Slot.OutOnly");
-        else if (InboundOk)
-            StatusText = Loc.T("Slot.InOnly");
         else
             StatusText = Loc.T("Slot.Disconnected");
 

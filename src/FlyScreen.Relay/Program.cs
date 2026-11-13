@@ -174,13 +174,60 @@ app.MapGet("/api/rooms/{roomId}", (string roomId, HttpContext ctx, AdminCatalog 
         : Results.Json(room);
 });
 
-app.MapDelete("/api/devices/{deviceId}", async (string deviceId, HttpContext ctx, DeviceRegistry devices) =>
+app.MapDelete("/api/rooms/{roomId}", async (string roomId, HttpContext ctx, DeviceRegistry devices, AdminCatalog catalog) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    if (catalog.FindRoom(roomId) is null)
+        return Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
+    var ok = await devices.DeleteRoomAsync(roomId).ConfigureAwait(false);
+    return ok
+        ? Results.Json(new { ok = true, deleted = roomId })
+        : Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
+});
+
+app.MapPost("/api/rooms/batch-delete", async (BatchIdsBody body, HttpContext ctx, DeviceRegistry devices) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var ids = body.Ids ?? [];
+    var n = await devices.DeleteRoomsAsync(ids).ConfigureAwait(false);
+    return Results.Json(new { ok = true, deleted = n });
+});
+
+app.MapPost("/api/rooms/clear", async (HttpContext ctx, DeviceRegistry devices) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var n = await devices.ClearAllAsync().ConfigureAwait(false);
+    return Results.Json(new { ok = true, cleared = n });
+});
+
+app.MapPost("/api/devices/{deviceId}/kick", async (string deviceId, HttpContext ctx, DeviceRegistry devices) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
     if (!devices.TryGetByDeviceId(deviceId, out var conn) || conn is null)
         return Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
     await devices.KickAsync(deviceId).ConfigureAwait(false);
     return Results.Json(new { ok = true, kicked = deviceId });
+});
+
+app.MapDelete("/api/devices/{deviceId}", async (string deviceId, HttpContext ctx, DeviceRegistry devices, AdminCatalog catalog) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var exists = catalog.ListRooms(includeDevices: true)
+        .SelectMany(r => r.Devices)
+        .Any(d => string.Equals(d.Id, deviceId, StringComparison.OrdinalIgnoreCase));
+    if (!exists && !devices.TryGetByDeviceId(deviceId, out _))
+        return Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
+    var ok = await devices.DeleteDeviceAsync(deviceId).ConfigureAwait(false);
+    return ok
+        ? Results.Json(new { ok = true, deleted = deviceId })
+        : Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
+});
+
+app.MapPost("/api/devices/batch-delete", async (BatchIdsBody body, HttpContext ctx, DeviceRegistry devices) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var n = await devices.DeleteDevicesAsync(body.Ids ?? []).ConfigureAwait(false);
+    return Results.Json(new { ok = true, deleted = n });
 });
 
 app.MapPost("/api/sessions/{sessionId}/close", (string sessionId, HttpContext ctx, RelaySessionManager sessions) =>
@@ -190,6 +237,34 @@ app.MapPost("/api/sessions/{sessionId}/close", (string sessionId, HttpContext ct
         return Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
     sessions.Close(sessionId, "admin");
     return Results.Json(new { ok = true, closed = sessionId });
+});
+
+app.MapPost("/api/sessions/batch-close", (BatchIdsBody body, HttpContext ctx, RelaySessionManager sessions) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var n = sessions.CloseMany(body.Ids ?? []);
+    return Results.Json(new { ok = true, closed = n });
+});
+
+app.MapPost("/api/sessions/clear", (HttpContext ctx, RelaySessionManager sessions) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var n = sessions.CloseAll();
+    return Results.Json(new { ok = true, closed = n });
+});
+
+app.MapPost("/api/signals/batch-delete", (BatchIdsBody body, HttpContext ctx, SignalLog signals) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var n = signals.DeleteMany(body.Ids ?? []);
+    return Results.Json(new { ok = true, deleted = n });
+});
+
+app.MapPost("/api/signals/clear", (HttpContext ctx, SignalLog signals) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    var n = signals.Clear();
+    return Results.Json(new { ok = true, cleared = n });
 });
 
 // ---- Edge（注册 / HTTP 发现 / 信令 / 中继）----
@@ -286,3 +361,5 @@ static IPEndPoint ParseListen(string? raw, int defaultPort)
 
     return new IPEndPoint(IPAddress.Any, defaultPort);
 }
+
+sealed record BatchIdsBody(string[]? Ids);
