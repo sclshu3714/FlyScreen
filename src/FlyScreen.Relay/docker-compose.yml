@@ -1,6 +1,12 @@
 services:
   flyscreen-relay:
-    build: .
+    build:
+      context: .
+      args:
+        # 国内可改为 mcr.m.daocloud.io/dotnet/sdk:10.0 与 aspnet:10.0
+        SDK_IMAGE: ${SDK_IMAGE:-mcr.microsoft.com/dotnet/sdk:10.0}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-mcr.microsoft.com/dotnet/aspnet:10.0}
+    image: flyscreen-relay:latest
     container_name: flyscreen-relay
     restart: unless-stopped
     ports:

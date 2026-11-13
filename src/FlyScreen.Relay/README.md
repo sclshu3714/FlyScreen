@@ -27,6 +27,43 @@ docker compose up -d --build
 - 边缘信息：http://服务器:8443/v1/info
 - 冒烟脚本：`tools/smoke-test.ps1`（需服务已启动）
 
+---
+
+## Docker 打包镜像
+
+工程内脚本会构建镜像并打上 `latest` + 版本标签（默认取 git describe，否则用时间戳）。
+
+```powershell
+cd src/FlyScreen.Relay
+
+# 仅构建（国内建议加 -Mirror，走 DaoCloud 代理 mcr）
+.\tools\pack-docker.ps1 -Mirror
+
+# 指定版本并导出 tar（便于拷到服务器 docker load）
+.\tools\pack-docker.ps1 -Mirror -Tag 1.0.0 -Save
+
+# 推送到私有仓库
+.\tools\pack-docker.ps1 -Tag 1.0.0 -Registry registry.example.com/flyscreen -Push
+
+# 从 tar 加载
+.\tools\pack-docker.ps1 -LoadPath .\out\flyscreen-relay-1.0.0.tar
+```
+
+Linux / macOS：
+
+```bash
+chmod +x tools/pack-docker.sh
+./tools/pack-docker.sh --mirror --tag 1.0.0 --save
+```
+
+导出文件默认在 `out/flyscreen-relay-<tag>.tar`。服务器上：
+
+```bash
+docker load -i flyscreen-relay-1.0.0.tar
+docker compose up -d
+# 或 docker run … 见脚本输出提示
+```
+
 下文示例默认服务器地址为 `relay.example.com`，请换成你的 IP 或域名。
 
 ---
@@ -362,7 +399,7 @@ S→A  原样转发
 | 连接配置「测试」`IP` / `IP:15155` | TCP `15155` ProbeOnly | 可达 + 服务名 |
 | 设备管理「刷新发现」 | UDP `IP:15156` 单播 | N 条在线设备宣告 |
 | 同网广播 | UDP `15156` | 周期/应答宣告 |
-| 未来：中转 `wss://…` | WS `/ws` + HTTP `/v1/*` | 注册 + 房间设备列表（客户端待接） |
+| 连接配置「服务」`ws://IP:8443` 或 `IP:8443` | WS `/ws` + hello | 注册进房间；默认可省略写成 `IP`（客户端默认边缘口 8443） |
 
 ---
 

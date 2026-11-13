@@ -141,17 +141,14 @@ public sealed class AppHost : IAsyncDisposable
                 Clipboard.ArmRemoteClipboardForPaste();
         };
 
-        // 焦点已在本机时对端才复制：立即挂占位 / 拉内联
+        // 文件：仅焦点在本机时挂虚拟占位（避免抢对端操作时的剪贴板）
         Transfers.RemoteFilesAnnounced += () =>
         {
             if (Input.IsFocusOnLocalMachine)
                 Clipboard.ArmRemoteClipboardForPaste();
         };
-        Transfers.RemoteInlineAnnounced += () =>
-        {
-            if (Input.IsFocusOnLocalMachine)
-                Clipboard.ArmRemoteClipboardForPaste();
-        };
+        // 内联（文本/截图）：宣告后立即拉取写入，避免穿边后再拉与粘贴竞态
+        Transfers.RemoteInlineAnnounced += () => Clipboard.PrefetchRemoteInline();
     }
 
     /// <summary>共享设备可为未安装；安装/卸载后经 ModulesChanged 再挂接硬件。</summary>

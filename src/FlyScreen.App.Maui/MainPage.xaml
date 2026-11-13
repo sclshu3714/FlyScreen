@@ -374,7 +374,7 @@
                                                                     BackgroundColor="{DynamicResource BlueSoft}"
                                                                     TextColor="{DynamicResource Text}" />
                                                             <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
-                                                                   Placeholder="远程 host:port 或 IP（未写端口用下方 TCP）" />
+                                                                   Placeholder="远程 host:port；服务 ws://host:8443 或 host:8443" />
                                                             <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                                                 <Button Text="⚡" HeightRequest="28" Padding="0" FontSize="14"
                                                                         TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"

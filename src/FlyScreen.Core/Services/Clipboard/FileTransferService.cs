@@ -1514,11 +1514,7 @@ public sealed class FileTransferService
 
         InlineReceiveBuffer? buf;
         lock (_gate)
-        {
             _inlineReceiving.Remove(sequence, out buf);
-            if (_remoteInlinePending?.Sequence == sequence)
-                _remoteInlinePending = null;
-        }
 
         _ = totalBytes;
         if (buf == null || buf.Received < buf.Data.Length)
@@ -1530,7 +1526,23 @@ public sealed class FileTransferService
         if (sequence > _lastAppliedRemoteSequence)
             _lastAppliedRemoteSequence = sequence;
 
+        // 不在此处清 _remoteInlinePending：写入系统剪贴板失败时仍可再 Arm 拉取
         CompleteInlinePullWaiter(buf.Data);
+    }
+
+    /// <summary>内联内容已成功写入本机剪贴板后调用，避免重复拉取。</summary>
+    public void MarkRemoteInlineConsumed(long sequence)
+    {
+        lock (_gate)
+        {
+            if (_remoteInlinePending?.Sequence == sequence)
+                _remoteInlinePending = null;
+        }
+    }
+
+    public long GetRemotePendingInlineSequence()
+    {
+        lock (_gate) return _remoteInlinePending?.Sequence ?? 0;
     }
 
     private async Task HandlePullAsync(string peer, byte[] payload)

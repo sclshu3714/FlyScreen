@@ -248,6 +248,7 @@ public static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern uint RegisterClipboardFormat(string lpszFormat);
 
+    public const uint CF_DIB = 8;
     public const uint CF_UNICODETEXT = 13;
     public const uint CF_HDROP = 15;
     public const uint GMEM_MOVEABLE = 0x0002;

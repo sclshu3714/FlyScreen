@@ -57,10 +57,17 @@ public sealed class MauiTextClipboardMonitor : IDisposable
     public void ArmRemoteClipboardForPaste()
     {
         if (!_settings.ShareClipboard) return;
-        if (_transfers.HasRemotePendingInline)
-            _ = ArmInlineAsync();
+        PrefetchRemoteInline();
         if (_settings.TransferFile && _transfers.HasRemotePendingFiles)
             ArmVirtualPaste();
+    }
+
+    /// <summary>收到内联宣告即拉取写入（不必等鼠标进入，避免截图粘贴竞态）。</summary>
+    public void PrefetchRemoteInline()
+    {
+        if (!_settings.ShareClipboard) return;
+        if (_transfers.HasRemotePendingInline)
+            _ = ArmInlineAsync();
     }
 
     /// <summary>虚拟剪贴板自行处理粘贴，无需拦截热键。</summary>
@@ -246,9 +253,12 @@ public sealed class MauiTextClipboardMonitor : IDisposable
         if (Interlocked.CompareExchange(ref _armingInline, 1, 0) != 0) return;
         try
         {
+            var seq = _transfers.GetRemotePendingInlineSequence();
             var data = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
             if (data == null || data.IsEmpty) return;
-            MainThread.BeginInvokeOnMainThread(() => _sink.ApplyInline(data));
+            var ok = await _sink.ApplyInlineAsync(data).ConfigureAwait(false);
+            if (ok && seq != 0)
+                _transfers.MarkRemoteInlineConsumed(seq);
         }
         catch { /* ignore */ }
         finally { Interlocked.Exchange(ref _armingInline, 0); }

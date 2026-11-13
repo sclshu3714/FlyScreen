@@ -23,16 +23,17 @@ public sealed class RelaySessionHub
         if (string.IsNullOrWhiteSpace(raw))
             return RelayConnectResult.Fail("地址为空");
 
-        var tcpPort = settings.TcpPort > 0 ? settings.TcpPort : 15155;
-        var wsUrl = RelayClient.NormalizeWebSocketUrl(raw, tcpPort);
+        // hello.tcpPort 用本机 Peer 口；WS URL 默认边缘口 8443（与设置里 TCP 15155 无关）
+        var peerTcpPort = settings.TcpPort > 0 ? settings.TcpPort : 15155;
+        var wsUrl = RelayClient.NormalizeWebSocketUrl(raw, RelayClient.DefaultEdgePort);
         if (string.IsNullOrWhiteSpace(wsUrl))
-            return RelayConnectResult.Fail("无法解析中转 WebSocket 地址（请用 wss://… 或 host:port）");
+            return RelayConnectResult.Fail("无法解析中转 WebSocket 地址（请用 ws://host:8443 或 host:8443）");
 
         var roomKey = string.IsNullOrWhiteSpace(settings.SecurityKey) ? "default" : settings.SecurityKey.Trim();
         var deviceId = settings.EnsureRelayDeviceId();
 
         var client = GetOrCreateClient(ep.Id);
-        client.Configure(wsUrl, roomKey, deviceId, tcpPort, deviceId);
+        client.Configure(wsUrl, roomKey, deviceId, peerTcpPort, deviceId);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _hubCt);
         var result = await client.EnsureAsync(linked.Token).ConfigureAwait(false);

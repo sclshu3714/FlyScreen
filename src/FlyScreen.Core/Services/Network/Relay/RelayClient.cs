@@ -66,11 +66,11 @@ public sealed class RelayClient : IAsyncDisposable
         try
         {
             if (_registered)
-            {
                 return SnapshotResult(true, "已连接");
-            }
 
-            StartRunnerIfNeeded();
+            // 用户点 ⚡ / 改地址后必须清掉上次失败，并重启会话；否则 WaitForReady 会立刻返回陈旧错误。
+            _lastError = "";
+            await RestartRunnerAsync().ConfigureAwait(false);
             return await WaitForReadyAsync(ct).ConfigureAwait(false);
         }
         finally
@@ -123,12 +123,23 @@ public sealed class RelayClient : IAsyncDisposable
     private void StartRunnerIfNeeded()
     {
         if (_runTask is { IsCompleted: false }) return;
+        StartRunner();
+    }
 
+    private void StartRunner()
+    {
         _runCts?.Cancel();
         _runCts?.Dispose();
         _runCts = new CancellationTokenSource();
         var token = _runCts.Token;
         _runTask = Task.Run(() => RunLoopAsync(token), token);
+    }
+
+    private async Task RestartRunnerAsync()
+    {
+        await StopSessionAsync().ConfigureAwait(false);
+        _lastError = "";
+        StartRunner();
     }
 
     private async Task StopSessionAsync()
@@ -160,7 +171,8 @@ public sealed class RelayClient : IAsyncDisposable
             ct.ThrowIfCancellationRequested();
             if (_registered)
                 return SnapshotResult(true, "已注册");
-            if (!string.IsNullOrWhiteSpace(_lastError))
+            // 仅在 Runner 已跑过一轮并留下错误时返回；启动瞬间的空窗继续等
+            if (!string.IsNullOrWhiteSpace(_lastError) && _runTask != null)
                 return SnapshotResult(false, _lastError);
             await Task.Delay(100, ct).ConfigureAwait(false);
         }
@@ -439,15 +451,27 @@ public sealed class RelayClient : IAsyncDisposable
         return JsonSerializer.Deserialize<RelayWireMessage>(json, RelayWire.JsonOptions);
     }
 
-    public static string NormalizeWebSocketUrl(string raw, int defaultTcpPort)
+    /// <summary>中继边缘 WebSocket 默认端口（与 FlyScreen.Relay EdgeListen 一致；勿与 Peer TCP 15155 混淆）。</summary>
+    public const int DefaultEdgePort = 8443;
+
+    public static string NormalizeWebSocketUrl(string raw, int defaultEdgePort = DefaultEdgePort)
     {
         raw = (raw ?? "").Trim();
         if (string.IsNullOrWhiteSpace(raw))
             return "";
 
+        var edgePort = defaultEdgePort > 0 ? defaultEdgePort : DefaultEdgePort;
         var trimmed = raw.TrimEnd('/');
         if (trimmed.EndsWith("/ws", StringComparison.OrdinalIgnoreCase))
+        {
+            // 已是完整 ws(s) URL
+            if (trimmed.Contains("://", StringComparison.Ordinal))
+                return trimmed;
+            // 形如 host:8443/ws
+            if (ConnectionEndpointProbe.TryParseHostPort(trimmed[..^3].TrimEnd('/'), out var h0, out var p0, edgePort))
+                return $"ws://{h0}:{p0}/ws";
             return trimmed;
+        }
 
         if (Uri.TryCreate(raw, UriKind.Absolute, out var uri)
             && (uri.Scheme == "ws" || uri.Scheme == "wss" || uri.Scheme == "http" || uri.Scheme == "https"))
@@ -457,10 +481,13 @@ public sealed class RelayClient : IAsyncDisposable
                 ? "/ws"
                 : uri.AbsolutePath.TrimEnd('/') + "/ws";
             var builder = new UriBuilder(uri) { Scheme = scheme, Path = path };
+            // 无显式端口时 UriBuilder 可能落到 80/443；边缘默认 8443
+            if (uri.IsDefaultPort)
+                builder.Port = edgePort;
             return builder.Uri.ToString().TrimEnd('/');
         }
 
-        if (ConnectionEndpointProbe.TryParseHostPort(raw, out var host, out var port, defaultTcpPort))
+        if (ConnectionEndpointProbe.TryParseHostPort(raw, out var host, out var port, edgePort))
             return $"ws://{host}:{port}/ws";
 
         return "";

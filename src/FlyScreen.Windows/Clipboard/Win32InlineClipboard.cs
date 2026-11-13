@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
 using FlyScreen.Native;
@@ -7,7 +9,7 @@ namespace FlyScreen.Win32Clipboard;
 
 /// <summary>
 /// Win32 写入内联剪贴板（不依赖前台窗口）。
-/// WinRT <c>Clipboard.SetContent</c> 在被控/后台常失败，导致「已宣告但对端粘贴为空」。
+/// WinRT <c>Clipboard.SetContent</c> 在被控/后台常失败；仅写 PNG 私有格式时多数应用无法粘贴截图。
 /// </summary>
 public static class Win32InlineClipboard
 {
@@ -32,6 +34,7 @@ public static class Win32InlineClipboard
             {
                 NativeMethods.EmptyClipboard();
                 var any = false;
+                var imageOk = false;
 
                 if (!string.IsNullOrEmpty(data.Text)
                     && SetUnicodeText(data.Text))
@@ -52,12 +55,19 @@ public static class Win32InlineClipboard
                     && SetUtf8Format(FmtCsv, data.Csv))
                     any = true;
 
-                if (data.Png is { Length: > 0 }
-                    && FmtPng != 0
-                    && SetBytes(FmtPng, data.Png))
-                    any = true;
+                if (data.Png is { Length: > 0 })
+                {
+                    // 粘贴截图靠 CF_DIB；仅 PNG 私有格式时记事本/画图/Office 常粘不出
+                    imageOk = SetDibFromPng(data.Png);
+                    if (FmtPng != 0)
+                        SetBytes(FmtPng, data.Png);
+                }
 
-                return any;
+                // 纯图且 DIB 失败：返回 false，让上层走 WinRT SetBitmap
+                if (!any && data.Png is { Length: > 0 } && !imageOk)
+                    return false;
+
+                return any || imageOk;
             }
             finally
             {
@@ -66,6 +76,35 @@ public static class Win32InlineClipboard
         }
 
         return false;
+    }
+
+    private static bool SetDibFromPng(byte[] png)
+    {
+        try
+        {
+            using var inMs = new MemoryStream(png, writable: false);
+            using var src = new Bitmap(inMs);
+            using var dibBmp = new Bitmap(src.Width, src.Height, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(dibBmp))
+            {
+                g.Clear(Color.Transparent);
+                g.DrawImage(src, 0, 0, src.Width, src.Height);
+            }
+
+            using var outMs = new MemoryStream();
+            dibBmp.Save(outMs, ImageFormat.Bmp);
+            var file = outMs.ToArray();
+            if (file.Length <= 14) return false;
+
+            // BMP 文件头 14 字节，CF_DIB 只要 BITMAPINFOHEADER 起
+            var dib = new byte[file.Length - 14];
+            Buffer.BlockCopy(file, 14, dib, 0, dib.Length);
+            return SetBytes(NativeMethods.CF_DIB, dib);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool SetUnicodeText(string text)

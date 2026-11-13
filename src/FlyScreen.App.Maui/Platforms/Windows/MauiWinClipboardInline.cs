@@ -85,13 +85,14 @@ internal static class MauiWinClipboardInline
         }
     }
 
-    public static async Task ApplyAsync(ClipboardInlineData data)
+    /// <returns>是否已写入至少一种可粘贴格式。</returns>
+    public static async Task<bool> ApplyAsync(ClipboardInlineData data)
     {
-        if (data.IsEmpty) return;
+        if (data.IsEmpty) return false;
 
-        // 被控/后台时 WinRT SetContent 常失败 → 对端粘贴为空；优先 Win32（无需前台）
+        // 被控/后台时 WinRT SetContent 常失败；Win32 写 CF_DIB 可粘贴截图
         if (Win32InlineClipboard.TryApply(data))
-            return;
+            return true;
 
         try
         {
@@ -166,20 +167,20 @@ internal static class MauiWinClipboardInline
             if (!any)
             {
                 var fallback = PreferText(data);
-                if (string.IsNullOrEmpty(fallback)) return;
+                if (string.IsNullOrEmpty(fallback)) return false;
                 await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default
                     .SetTextAsync(fallback)
                     .ConfigureAwait(true);
-                return;
+                return true;
             }
 
             WinClipboard.SetContent(package);
             WinClipboard.Flush();
+            return true;
         }
         catch
         {
-            // WinRT 仍失败则再试一次 Win32（争用后）
-            Win32InlineClipboard.TryApply(data);
+            return Win32InlineClipboard.TryApply(data);
         }
     }
 

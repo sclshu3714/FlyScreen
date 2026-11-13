@@ -152,11 +152,9 @@ public sealed class MauiAppHost : IAsyncDisposable
         Transfers.StatusMessage += PublishStatus;
         Connections.MessageReceived += OnPeerMessage;
 
-        Transfers.RemoteInlineAnnounced += () =>
-        {
-            if (_platform.IsFocusOnLocalMachine)
-                _platform.ArmRemoteClipboardForPaste();
-        };
+        // 内联（文本/截图）：宣告后立即拉取写入，避免穿边后再拉与粘贴竞态
+        Transfers.RemoteInlineAnnounced += () => _platform.PrefetchRemoteInline();
+        // 文件：仅焦点在本机时挂虚拟占位
         Transfers.RemoteFilesAnnounced += () =>
         {
             if (_platform.IsFocusOnLocalMachine)

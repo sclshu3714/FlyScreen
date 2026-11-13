@@ -173,6 +173,9 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     public void ArmRemoteClipboardForPaste()
         => _clipMonitor?.ArmRemoteClipboardForPaste();
 
+    public void PrefetchRemoteInline()
+        => _clipMonitor?.PrefetchRemoteInline();
+
     public bool GetAutoStartEnabled() => AutoStartHelper.IsEnabled();
 
     public bool SetAutoStartEnabled(bool enabled)

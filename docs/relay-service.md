@@ -6,6 +6,7 @@
 | 性质 | 独立可部署服务；客户端按 Origin 区分本地/远程/服务 |
 | 对标 | Tailscale 控制面式管理 + DERP 式边缘中继 |
 | 房间 / 管理令牌 | 客户端用「安全密钥」作 `hello.roomKey`（同钥同房）；管理口 `AdminToken` 建议与安全密钥设为同一值 |
+| Docker 打包 | `src/FlyScreen.Relay/tools/pack-docker.ps1`（Windows）/ `pack-docker.sh`（Linux）；详见工程 `README.md` |
 
 ## 端口
 

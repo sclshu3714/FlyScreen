@@ -41,6 +41,8 @@ public interface IMauiPlatformServices
     void StartClipboardMonitor();
     void StopClipboardMonitor();
     void ArmRemoteClipboardForPaste();
+    /// <summary>收到内联宣告后立即拉取写入（不必等焦点）。</summary>
+    void PrefetchRemoteInline();
 
     bool GetAutoStartEnabled();
     /// <summary>写入/清除开机自启；失败返回 false（调用方应回滚设置并提示）。</summary>
@@ -119,6 +121,7 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
     public void StartClipboardMonitor() { }
     public void StopClipboardMonitor() { }
     public void ArmRemoteClipboardForPaste() { }
+    public void PrefetchRemoteInline() { }
     public bool GetAutoStartEnabled() => false;
     public bool SetAutoStartEnabled(bool enabled) => !enabled;
     public void EnsureTray(
