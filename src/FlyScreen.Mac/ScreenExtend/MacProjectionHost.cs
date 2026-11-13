@@ -103,7 +103,7 @@ public sealed class MacProjectionHost : IDisposable
         StartCapture();
     }
 
-    private void OnSessionEnded()
+    private void OnSessionEnded(string? peer)
     {
         StopCapture();
         ReleaseExtend();

@@ -157,7 +157,7 @@ public sealed class MacAppHost : IAsyncDisposable
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         ScreenExtend.OnHostRequestAsync = HandleRemoteHostRequestAsync;
-        ScreenExtend.SessionEnded += () =>
+        ScreenExtend.SessionEnded += peer =>
         {
             try
             {

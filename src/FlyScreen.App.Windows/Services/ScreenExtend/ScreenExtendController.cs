@@ -47,6 +47,9 @@ public sealed class ScreenExtendController : IDisposable
     public DisplayProjectionMode Mode => _mode;
     public ProjectionDisplayChoice DisplayChoice => _display;
 
+    public Func<IReadOnlyList<string>>? ListAddablePeers { get; set; }
+    public Func<string, Task>? StartExtraProjection { get; set; }
+
     public void SetProjectionMode(DisplayProjectionMode mode) => _mode = mode;
 
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
@@ -263,19 +266,28 @@ public sealed class ScreenExtendController : IDisposable
         catch { /* ignore inject errors */ }
     }
 
-    private void OnSinkReady()
+    private void EnsureSinkWindow()
+    {
+        _sinkWindow ??= new ScreenExtendSinkWindow(
+            peer => _ = _service.StopSessionAsync(peer, "sink-close"),
+            () => _ = _service.StopAsync("sink-close"),
+            () => ListAddablePeers?.Invoke() ?? [],
+            remote => StartExtraProjection?.Invoke(remote) ?? Task.CompletedTask);
+    }
+
+    private void OnSinkReady(string peer)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            _sinkWindow ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
-            _sinkWindow.BindSession(_service);
+            EnsureSinkWindow();
+            _sinkWindow!.AddOrActivateTab(peer, _service);
             _sinkWindow.ShowFullscreen();
         });
     }
 
-    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs)
+    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs, string peer)
     {
-        if (!_frames.Offer(jpeg, w, h, capturedUnixMs)) return;
+        if (!_frames.Offer(jpeg, w, h, capturedUnixMs, peer)) return;
         KickDecode();
     }
 
@@ -290,23 +302,24 @@ public sealed class ScreenExtendController : IDisposable
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen))
+            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen, out var framePeer))
             {
                 var src = ScreenExtendSinkWindow.DecodeJpeg(jpeg);
                 if (src == null || !_frames.IsCurrent(gen)) continue;
                 var shown = src.Value;
                 var g = gen;
                 var capturedUnixMs = capturedAt;
+                var peer = framePeer;
                 _dispatcher.BeginInvoke(() =>
                 {
                     if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g)) return;
                     try
                     {
-                        _sinkWindow ??= new ScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
-                        _sinkWindow.BindSession(_service);
+                        EnsureSinkWindow();
+                        _sinkWindow!.AddOrActivateTab(peer, _service);
                         if (!_sinkWindow.IsVisible)
                             _sinkWindow.ShowFullscreen();
-                        _sinkWindow.Present(shown, capturedUnixMs);
+                        _sinkWindow.Present(peer, shown, capturedUnixMs);
                     }
                     catch { /* ignore */ }
                 });
@@ -320,19 +333,35 @@ public sealed class ScreenExtendController : IDisposable
         }
     }
 
-    private void OnSessionEnded()
+    private void OnSessionEnded(string? peer)
     {
         _dispatcher.BeginInvoke(ProjectionHostCursor.EndSessionOnHookThread);
-        // 对端 Esc/关窗/杀进程/断连：主机必须停采集、释放副屏并恢复主屏（勿看 !_wantDisplay）
-        var releaseHost = _hostSessionActive || _wantDisplay || _vdd != null;
-        _hostSessionActive = false;
-        _wantDisplay = false;
-        _frames.Clear();
-        _ = FinalizeAfterSessionEndedAsync(releaseHost);
+
+        var wasHost = _hostSessionActive;
+        var hostEnded = wasHost && _service.Role != ScreenExtendRole.Host;
+        if (hostEnded)
+        {
+            var releaseHost = wasHost || _wantDisplay || _vdd != null;
+            _hostSessionActive = false;
+            _wantDisplay = false;
+            _frames.Clear();
+            _ = FinalizeAfterSessionEndedAsync(releaseHost);
+        }
+
         _dispatcher.BeginInvoke(() =>
         {
-            try { _sinkWindow?.CloseFromSession(); } catch { /* ignore */ }
-            _sinkWindow = null;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(peer))
+                    _sinkWindow?.RemoveTab(peer);
+
+                if (_sinkWindow != null && !_sinkWindow.HasTabs)
+                {
+                    _sinkWindow.CloseFromSession();
+                    _sinkWindow = null;
+                }
+            }
+            catch { /* ignore */ }
         });
     }
 

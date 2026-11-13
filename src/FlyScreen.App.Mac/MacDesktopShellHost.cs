@@ -107,6 +107,8 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
 
     public ScreenExtendService ScreenExtend => _host.ScreenExtend;
 
+    public ScreenExtendDesktopController ScreenExtendUi => _screenExtendUi;
+
     public bool CanStartProjection => AccessibilityPermission.IsMacOS;
 
     public (bool Ready, string Message) DescribeProjectionEnvironment(DisplayProjectionMode mode)

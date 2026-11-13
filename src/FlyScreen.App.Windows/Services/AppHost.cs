@@ -72,7 +72,7 @@ public sealed class AppHost : IAsyncDisposable
         ScreenExtend.OnHostRequestAsync = HandleRemoteHostRequestAsync;
         Input.IsEdgeCrossExcluded = peer => ScreenExtend.IsExcludedFromEdgeCross(peer);
         Input.ShouldPauseEasyMouseForExtend = () => ScreenExtend.ShouldPauseLocalEasyMouse;
-        ScreenExtend.SessionEnded += () =>
+        ScreenExtend.SessionEnded += peer =>
         {
             try { Input.EasyMouseEnabled = Settings.EasyMouse; } catch { /* ignore */ }
             // 投影会话结束后清掉「投影中」标记，避免穿边仍指向远程

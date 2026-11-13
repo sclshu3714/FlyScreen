@@ -152,7 +152,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
         ScreenExtend.OnHostRequestAsync = (_, _, _) =>
             Task.FromResult<(bool Ok, string? Error)>((false, "Linux 暂不支持作为远程投影主机"));
-        ScreenExtend.SessionEnded += () =>
+        ScreenExtend.SessionEnded += peer =>
         {
             try
             {

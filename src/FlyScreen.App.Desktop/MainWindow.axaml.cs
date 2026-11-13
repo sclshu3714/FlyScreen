@@ -104,6 +104,22 @@ public partial class MainWindow : Window
         Title = "玄鸟";
         TryApplyWindowIcon();
         ConfigureClientTitleBar();
+        _host.ScreenExtendUi.ListAddablePeers = () => ProjectionAddTargets.List(
+            _host.Connections,
+            _host.Connections.Discovery.GetPeers().Select(p => p.MachineName),
+            _host.ScreenExtend.GetSinkPeers());
+        _host.ScreenExtendUi.StartExtraProjection = async remote =>
+        {
+            var choice = RemoteProjectChoice.FromSettings(_host.Settings, LocalPeerIdentity.MachineName);
+            await _host.Connections.EnsureAdHocPeerAsync(remote).ConfigureAwait(true);
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote, LocalPeerIdentity.MachineName,
+                preferredWidth: choice.Width, preferredHeight: choice.Height,
+                fps: choice.Fps, remoteControl: true, jpegQuality: choice.JpegQuality)
+                .ConfigureAwait(true);
+            if (!ok)
+                StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+        };
         Opened += OnOpened;
         Closing += OnClosing;
     }
@@ -559,13 +575,13 @@ public partial class MainWindow : Window
             ApplyTrayLocalized();
             RefreshDiscovery();
         });
-        _host.ScreenExtend.SinkSessionReady += () => Dispatcher.UIThread.Post(() =>
+        _host.ScreenExtend.SinkSessionReady += _ => Dispatcher.UIThread.Post(() =>
         {
             RefreshTitleProjectButton();
             ApplyTrayLocalized();
             RefreshDiscovery();
         });
-        _host.ScreenExtend.SessionEnded += () => Dispatcher.UIThread.Post(() =>
+        _host.ScreenExtend.SessionEnded += _ => Dispatcher.UIThread.Post(() =>
         {
             RefreshTitleProjectButton();
             ApplyTrayLocalized();

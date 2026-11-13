@@ -12,14 +12,29 @@ public enum ScreenExtendRole
 
 /// <summary>
 /// 电脑扩展屏会话：Offer/Accept/Stop + 帧转发；穿边排除查询。
-/// 采集与虚拟屏由宿主层实现。
+/// Host 单路；Sink 可多路并发（播放器多 Tab）。
 /// </summary>
 public sealed class ScreenExtendService : IDisposable
 {
+    private sealed class SinkSession
+    {
+        public required string Peer;
+        public Guid SessionId;
+        public bool AudioSync;
+        public bool RemoteControl;
+        public int FrameSeq;
+    }
+
     private readonly ConnectionManager _connections;
     private readonly object _gate = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<ScreenExtendHostRequestResultPayload>>
         _hostRequestWait = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SinkSession> _sinks = new(StringComparer.OrdinalIgnoreCase);
+    private string? _activeSinkPeer;
+    private string? _hostPeer;
+    private Guid _hostSessionId;
+    private bool _hostAudioSync;
+    private bool _hostRemoteControl;
     private int _frameSeq;
     private int _audioSeq;
     private int _audioPending;
@@ -32,88 +47,119 @@ public sealed class ScreenExtendService : IDisposable
         _connections.PeerLinkChanged += OnPeerLinkChanged;
     }
 
+    /// <summary>Host 优先，否则为当前激活 Sink。</summary>
     public ScreenExtendRole Role { get; private set; }
     public string? Peer { get; private set; }
     public Guid SessionId { get; private set; }
     public bool IsActive => Role != ScreenExtendRole.None && !string.IsNullOrEmpty(Peer);
 
-    /// <summary>从机收到 Offer 时：返回 true 接受。默认自动接受（桌面 Caps）。</summary>
     public Func<string, ScreenExtendOfferPayload, bool>? ShouldAcceptOffer { get; set; }
-
-    /// <summary>从机 Accept 时上报本机主屏分辨率与缩放（可选）。</summary>
     public Func<(int Width, int Height, int ScalePercent)>? GetSinkDisplayInfo { get; set; }
-
-    /// <summary>兼容旧回调：仅宽高。</summary>
     public Func<(int Width, int Height)>? GetSinkDisplaySize { get; set; }
 
-    /// <summary>主机侧：对端 Accept 上报的主屏分辨率（用于对齐虚拟副屏）。</summary>
     public int PeerSinkWidth { get; private set; }
     public int PeerSinkHeight { get; private set; }
     public int PeerSinkScalePercent { get; private set; }
 
-    /// <summary>本会话是否把主机声音送到从机，并让主机不再本地播放。</summary>
     public bool AudioSync { get; private set; }
-
-    /// <summary>本会话是否允许从机播放器键鼠回控主机采集区。</summary>
     public bool RemoteControl { get; private set; }
 
-    /// <summary>主机侧：对端已 Accept，应创建第二输出并开始推流。</summary>
     public event Action? HostSessionReady;
+    /// <summary>从机侧：某路会话已建立（peer）。</summary>
+    public event Action<string>? SinkSessionReady;
+    /// <summary>某路结束；peer 为空表示 Host 结束或全部清空。</summary>
+    public event Action<string?>? SessionEnded;
+    /// <summary>从机收到一帧（含 peer）。</summary>
+    public event Action<ReadOnlyMemory<byte>, int, int, long, string>? FrameReceived;
+    /// <summary>从机收到一块 PCM（含 peer）。</summary>
+    public event Action<byte[], int, int, string>? AudioReceived;
+    public event Action<ScreenExtendInputPayload>? ReverseInputReceived;
+    public event Action<string>? StatusMessage;
+    public event Action<string>? UserNotice;
 
-    /// <summary>从机侧：会话已建立，应打开全屏窗。</summary>
-    public event Action? SinkSessionReady;
+    public Func<string, ScreenExtendHostRequestPayload, CancellationToken,
+        Task<(bool Ok, string? Error)>>? OnHostRequestAsync { get; set; }
 
-    /// <summary>已在 Host 会话时重新触发采集（远程重复投影请求）。</summary>
+    public IReadOnlyList<string> GetSinkPeers()
+    {
+        lock (_gate)
+            return _sinks.Keys.ToList();
+    }
+
+    public bool IsSinkPeer(string? peer)
+    {
+        if (string.IsNullOrWhiteSpace(peer)) return false;
+        lock (_gate)
+            return _sinks.ContainsKey(peer);
+    }
+
+    public bool TryGetSinkSession(string peer, out bool audioSync, out bool remoteControl)
+    {
+        lock (_gate)
+        {
+            if (_sinks.TryGetValue(peer, out var s))
+            {
+                audioSync = s.AudioSync;
+                remoteControl = s.RemoteControl;
+                return true;
+            }
+        }
+
+        audioSync = false;
+        remoteControl = false;
+        return false;
+    }
+
+    /// <summary>播放器切换激活 Tab。</summary>
+    public void SetActiveSinkPeer(string? peer)
+    {
+        lock (_gate)
+        {
+            if (string.IsNullOrWhiteSpace(peer) || !_sinks.ContainsKey(peer))
+                return;
+            _activeSinkPeer = peer;
+            SyncPublic_NoLock();
+        }
+    }
+
     public void NotifyHostSessionReady()
     {
         if (Role != ScreenExtendRole.Host) return;
         try { HostSessionReady?.Invoke(); } catch { /* ignore */ }
     }
 
-    /// <summary>会话结束（任一方 / 断连）。</summary>
-    public event Action? SessionEnded;
-
-    /// <summary>从机收到一帧 JPEG（capturedUnixMs：采集端 UTC 毫秒，旧端为 0）。</summary>
-    public event Action<ReadOnlyMemory<byte>, int, int, long>? FrameReceived;
-
-    /// <summary>从机收到一块 PCM s16le。</summary>
-    public event Action<byte[], int, int>? AudioReceived;
-
-    /// <summary>主机收到从机播放器回控输入（已校验会话）。</summary>
-    public event Action<ScreenExtendInputPayload>? ReverseInputReceived;
-
-    public event Action<string>? StatusMessage;
-
-    /// <summary>需要弹窗/打断用户的投影提示（冲突、对端拒绝等）。</summary>
-    public event Action<string>? UserNotice;
-
-    /// <summary>
-    /// 收到「请本机作为 Host 向 Sink 推流」时由宿主实现（启动采集 / 停 Host）。
-    /// 未设置则回执「对端不支持远程投影」。
-    /// </summary>
-    public Func<string, ScreenExtendHostRequestPayload, CancellationToken,
-        Task<(bool Ok, string? Error)>>? OnHostRequestAsync { get; set; }
-
-    /// <summary>穿边拓扑：该对端名是否应被排除（主机排除从机；从机排除所有穿边目标）。</summary>
     public bool IsExcludedFromEdgeCross(string? peerName)
     {
         if (!IsActive || string.IsNullOrWhiteSpace(peerName)) return false;
         if (Role == ScreenExtendRole.Sink)
-            return true; // 从机本机会结合 EasyMouse 暂停；此处对「切入 peerName」一律否
+            return true;
         return string.Equals(peerName, Peer, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// 是否应暂停本机 EasyMouse：从机收流时；主机开启回控时（避免与从机播放器键鼠打架）。
-    /// </summary>
     public bool ShouldPauseLocalEasyMouse
-        => IsActive && (Role == ScreenExtendRole.Sink
-                        || (Role == ScreenExtendRole.Host && RemoteControl));
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_sinks.Count > 0) return true;
+                return _hostPeer != null && _hostRemoteControl;
+            }
+        }
+    }
 
-    /// <summary>从机播放器是否应采集并回传键鼠。</summary>
     public bool CanSendReverseInput
-        => IsActive && Role == ScreenExtendRole.Sink && RemoteControl
-           && !string.IsNullOrEmpty(Peer);
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_hostPeer != null) return false;
+                if (string.IsNullOrEmpty(_activeSinkPeer)) return false;
+                return _sinks.TryGetValue(_activeSinkPeer, out var s) && s.RemoteControl;
+            }
+        }
+    }
 
     public Task SendReverseMoveAsync(double nx, double ny)
     {
@@ -143,23 +189,22 @@ public sealed class ScreenExtendService : IDisposable
     {
         lock (_gate)
         {
-            if (!CanSendReverseInput)
+            if (_hostPeer != null
+                || string.IsNullOrEmpty(_activeSinkPeer)
+                || !_sinks.TryGetValue(_activeSinkPeer, out var s)
+                || !s.RemoteControl)
             {
                 peer = "";
                 sid = Guid.Empty;
                 return false;
             }
 
-            peer = Peer!;
-            sid = SessionId;
+            peer = _activeSinkPeer;
+            sid = s.SessionId;
             return true;
         }
     }
 
-    /// <summary>
-    /// 请 <paramref name="remotePeer"/> 作为 Host，把画面推到 <paramref name="sinkPeer"/>（空=本机）。
-    /// 用于远程影子投影：绑定电脑侧发起，远程侧采集。
-    /// </summary>
     public async Task<(bool Ok, string? Error)> RequestPeerBecomeHostAsync(
         string remotePeer,
         string? sinkPeer = null,
@@ -177,6 +222,12 @@ public sealed class ScreenExtendService : IDisposable
         if (!_connections.IsPeerReachable(remotePeer))
             return (false, "远程电脑未连接");
 
+        lock (_gate)
+        {
+            if (_hostPeer != null)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtendRole.Host, _hostPeer));
+        }
+
         var sink = string.IsNullOrWhiteSpace(sinkPeer)
             ? LocalPeerIdentity.MachineName
             : sinkPeer.Trim();
@@ -185,23 +236,22 @@ public sealed class ScreenExtendService : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         _hostRequestWait[requestId] = tcs;
 
-        // 本机即 Sink：清掉卡住的旧会话，并等 Offer→Accept（首帧在播放器侧继续等，避免 WaitAsync 取消异常冒泡）
         TaskCompletionSource<bool>? sinkReady = null;
-        Action? onSinkReady = null;
+        Action<string>? onSinkReady = null;
         var localIsSink = string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
         if (localIsSink)
         {
-            if (IsActive)
+            // 同对端已有从机：替换该路；其它从机保留（多 Tab）
+            if (IsSinkPeer(remotePeer))
             {
-                try { await StopAsync("reproject").ConfigureAwait(false); }
+                try { await StopSessionAsync(remotePeer, "reproject").ConfigureAwait(false); }
                 catch { /* ignore */ }
             }
 
             sinkReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            onSinkReady = () =>
+            onSinkReady = peer =>
             {
-                if (Role == ScreenExtendRole.Sink
-                    && string.Equals(Peer, remotePeer, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(peer, remotePeer, StringComparison.OrdinalIgnoreCase))
                     sinkReady.TrySetResult(true);
             };
             SinkSessionReady += onSinkReady;
@@ -225,7 +275,6 @@ public sealed class ScreenExtendService : IDisposable
                     MessageCodec.JsonBytes(req)).ConfigureAwait(false))
                 return (false, "无法向远程发送投影请求（控制连接不可用）");
 
-            // 不用 WaitAsync(token)：CancelAfter 会在调试器刷 TaskCanceledException
             var resultTask = tcs.Task;
             var delayTask = Task.Delay(timeout ?? TimeSpan.FromSeconds(25), CancellationToken.None);
             var completed = await Task.WhenAny(resultTask, delayTask).ConfigureAwait(false);
@@ -238,7 +287,6 @@ public sealed class ScreenExtendService : IDisposable
 
             if (sinkReady != null)
             {
-                // 回执成功后仍等本机进入 Sink（Offer 可能略晚于 Result）
                 if (sinkReady.Task.IsCompletedSuccessfully
                     || await WaitTaskNoCancelAsync(sinkReady.Task, TimeSpan.FromSeconds(15)).ConfigureAwait(false))
                     return (true, null);
@@ -264,7 +312,6 @@ public sealed class ScreenExtendService : IDisposable
         }
     }
 
-    /// <summary>用 WhenAny+Delay 等待，避免 CancelAfter/WaitAsync 在调试器刷 TaskCanceledException。</summary>
     private static async Task<bool> WaitTaskNoCancelAsync(Task task, TimeSpan timeout)
     {
         if (task.IsCompletedSuccessfully) return true;
@@ -274,7 +321,6 @@ public sealed class ScreenExtendService : IDisposable
         return done == task && task.IsCompletedSuccessfully;
     }
 
-    /// <summary>请远程结束其 Host 推流（绑定电脑侧「退出投影」且本机未必在会话中时用）。</summary>
     public async Task RequestPeerEndHostAsync(string remotePeer, string? sinkPeer = null,
         CancellationToken ct = default)
     {
@@ -310,11 +356,12 @@ public sealed class ScreenExtendService : IDisposable
             return (false, "未指定对端");
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.None)
-                return (false, ScreenExtendConflict.DescribeLocalBusy(Role, Peer));
+            if (_hostPeer != null || _sinks.Count > 0)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(
+                    _hostPeer != null ? ScreenExtendRole.Host : ScreenExtendRole.Sink,
+                    _hostPeer ?? _activeSinkPeer));
         }
 
-        // 旧端可能无 ScreenExtendSink 能力位；双向可达的电脑/大屏仍允许发起（对端忽略未知消息即可）
         if (!_connections.PeerSupports(peer, PeerCaps.ScreenExtendSink)
             && !ScreenExtendTargets.IsEligiblePeer(_connections, peer))
             return (false, "对端不支持扩展屏从机");
@@ -324,15 +371,17 @@ public sealed class ScreenExtendService : IDisposable
         var sessionId = Guid.NewGuid();
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.None)
-                return (false, ScreenExtendConflict.DescribeLocalBusy(Role, Peer));
-            Role = ScreenExtendRole.Host;
-            Peer = peer;
-            SessionId = sessionId;
+            if (_hostPeer != null || _sinks.Count > 0)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(
+                    _hostPeer != null ? ScreenExtendRole.Host : ScreenExtendRole.Sink,
+                    _hostPeer ?? _activeSinkPeer));
+            _hostPeer = peer;
+            _hostSessionId = sessionId;
+            _hostAudioSync = audioSync;
+            _hostRemoteControl = remoteControl;
             _frameSeq = 0;
             _audioSeq = 0;
-            AudioSync = audioSync;
-            RemoteControl = remoteControl;
+            SyncPublic_NoLock();
         }
 
         var offer = new ScreenExtendOfferPayload
@@ -362,10 +411,9 @@ public sealed class ScreenExtendService : IDisposable
 
             if (acceptTcs != null)
             {
-                // WhenAny+Delay：避免 WaitAsync(CancelAfter) 刷 TaskCanceledException
                 if (!await WaitTaskNoCancelAsync(acceptTcs.Task, TimeSpan.FromSeconds(15)).ConfigureAwait(false))
                 {
-                    ClearSession();
+                    ClearHostLocal();
                     return (false, "对端未接受投影会话");
                 }
             }
@@ -374,12 +422,12 @@ public sealed class ScreenExtendService : IDisposable
         }
         catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
         {
-            ClearSession();
+            ClearHostLocal();
             return (false, "对端未接受投影会话");
         }
         catch (Exception ex)
         {
-            ClearSession();
+            ClearHostLocal();
             return (false, ex.Message);
         }
         finally
@@ -389,34 +437,95 @@ public sealed class ScreenExtendService : IDisposable
         }
     }
 
-    public async Task StopAsync(string reason = "stopped", CancellationToken ct = default)
+    /// <summary>停止指定从机一路；若 peer 为空或为本机 Host 对端则停 Host。</summary>
+    public async Task StopSessionAsync(string? peer, string reason = "stopped", CancellationToken ct = default)
     {
-        string? peer;
+        string? targetPeer;
         Guid sid;
+        var isHost = false;
         lock (_gate)
         {
-            if (!IsActive) return;
-            peer = Peer;
-            sid = SessionId;
+            if (!string.IsNullOrWhiteSpace(peer)
+                && _hostPeer != null
+                && string.Equals(_hostPeer, peer, StringComparison.OrdinalIgnoreCase))
+            {
+                isHost = true;
+                targetPeer = _hostPeer;
+                sid = _hostSessionId;
+            }
+            else if (!string.IsNullOrWhiteSpace(peer) && _sinks.TryGetValue(peer, out var sink))
+            {
+                targetPeer = sink.Peer;
+                sid = sink.SessionId;
+            }
+            else if (_hostPeer != null && string.IsNullOrWhiteSpace(peer))
+            {
+                isHost = true;
+                targetPeer = _hostPeer;
+                sid = _hostSessionId;
+            }
+            else
+                return;
         }
 
-        if (!string.IsNullOrEmpty(peer))
+        await SendStopAsync(targetPeer!, sid, reason).ConfigureAwait(false);
+
+        if (isHost)
+            EndHostLocal(targetPeer!, reason);
+        else
+            EndSinkLocal(targetPeer!, reason);
+    }
+
+    /// <summary>停止全部（Host + 所有 Sink）。</summary>
+    public async Task StopAsync(string reason = "stopped", CancellationToken ct = default)
+    {
+        List<(string Peer, Guid Sid, bool Host)> targets;
+        lock (_gate)
         {
-            try
-            {
-                var stop = new ScreenExtendStopPayload { SessionId = sid.ToString("D"), Reason = reason };
-                var bytes = MessageCodec.JsonBytes(stop);
-                // 控制面入队成功不等于对端已经读到。画面在 bulk 上，对端一定在读那条连接。
-                // 停止两路都写；后到的一份会因会话已结束被忽略。这样播放器 Esc 才能让投影端停采集并恢复音量。
-                await _connections.SendToAsync(peer, MessageType.ScreenExtendStop, bytes)
-                    .ConfigureAwait(false);
-                await _connections.SendOnBulkAsync(peer, MessageType.ScreenExtendStop, bytes)
-                    .ConfigureAwait(false);
-            }
+            targets = new List<(string, Guid, bool)>();
+            if (_hostPeer != null)
+                targets.Add((_hostPeer, _hostSessionId, true));
+            foreach (var s in _sinks.Values)
+                targets.Add((s.Peer, s.SessionId, false));
+        }
+
+        if (targets.Count == 0) return;
+
+        foreach (var t in targets)
+        {
+            try { await SendStopAsync(t.Peer, t.Sid, reason).ConfigureAwait(false); }
             catch { /* ignore */ }
         }
 
-        EndSessionLocal("stopped");
+        List<string> endedPeers;
+        lock (_gate)
+        {
+            endedPeers = _sinks.Keys.ToList();
+            if (_hostPeer != null)
+                endedPeers.Insert(0, _hostPeer);
+            ResetAll_NoLock();
+        }
+
+        if (endedPeers.Count == 0)
+        {
+            FinishSession(null, reason);
+            return;
+        }
+
+        foreach (var p in endedPeers)
+            FinishSession(p, reason);
+    }
+
+    private async Task SendStopAsync(string peer, Guid sid, string reason)
+    {
+        try
+        {
+            var stop = new ScreenExtendStopPayload { SessionId = sid.ToString("D"), Reason = reason };
+            var bytes = MessageCodec.JsonBytes(stop);
+            await _connections.SendToAsync(peer, MessageType.ScreenExtendStop, bytes).ConfigureAwait(false);
+            await _connections.SendOnBulkAsync(peer, MessageType.ScreenExtendStop, bytes).ConfigureAwait(false);
+        }
+        catch { /* ignore */ }
     }
 
     public Task SendFrameAsync(ReadOnlyMemory<byte> jpeg, int width, int height, CancellationToken ct = default)
@@ -430,10 +539,9 @@ public sealed class ScreenExtendService : IDisposable
         int seq;
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.Host || string.IsNullOrEmpty(Peer))
-                return Task.CompletedTask;
-            peer = Peer;
-            sid = SessionId;
+            if (_hostPeer == null) return Task.CompletedTask;
+            peer = _hostPeer;
+            sid = _hostSessionId;
             seq = ++_frameSeq;
         }
 
@@ -446,13 +554,12 @@ public sealed class ScreenExtendService : IDisposable
         }
         catch
         {
-            // 推流失败不立刻拆会话；由心跳/断连清理
+            // ignore
         }
 
         return Task.CompletedTask;
     }
 
-    /// <summary>主机把一块 PCM s16le 送给当前从机。积压过多时丢掉，避免声音把链路堵住。</summary>
     public void PostAudio(byte[] pcm, int sampleRate, int channels)
     {
         if (pcm.Length == 0 || sampleRate <= 0 || channels <= 0) return;
@@ -474,10 +581,9 @@ public sealed class ScreenExtendService : IDisposable
             int seq;
             lock (_gate)
             {
-                if (Role != ScreenExtendRole.Host || !AudioSync || string.IsNullOrEmpty(Peer))
-                    return;
-                peer = Peer;
-                sid = SessionId;
+                if (_hostPeer == null || !_hostAudioSync) return;
+                peer = _hostPeer;
+                sid = _hostSessionId;
                 seq = ++_audioSeq;
             }
 
@@ -487,7 +593,7 @@ public sealed class ScreenExtendService : IDisposable
         }
         catch
         {
-            // 单块声音失败不拆会话
+            // ignore
         }
         finally
         {
@@ -543,7 +649,7 @@ public sealed class ScreenExtendService : IDisposable
         {
             if (req.Stop)
             {
-                if (IsActive && Role == ScreenExtendRole.Host)
+                if (_hostPeer != null)
                     await StopAsync("remote-project-stop").ConfigureAwait(false);
                 ok = true;
                 error = null;
@@ -601,32 +707,28 @@ public sealed class ScreenExtendService : IDisposable
         if (offer == null || !Guid.TryParse(offer.SessionId, out var sid))
             return;
 
-        ScreenExtendRole busyRole;
-        string? busyPeer;
+        string? hostBusyPeer;
         lock (_gate)
         {
-            busyRole = Role;
-            busyPeer = Peer;
+            hostBusyPeer = _hostPeer;
+            // 同对端已有 Sink：替换该路
+            if (hostBusyPeer == null && _sinks.ContainsKey(peer))
+            {
+                _sinks.Remove(peer);
+                if (string.Equals(_activeSinkPeer, peer, StringComparison.OrdinalIgnoreCase))
+                    _activeSinkPeer = _sinks.Keys.FirstOrDefault();
+                SyncPublic_NoLock();
+            }
         }
 
-        if (busyRole != ScreenExtendRole.None)
+        if (hostBusyPeer != null)
         {
-            // 同对端重复 Offer：清掉卡在「等待投影画面」的旧 Sink，接受新会话
-            var sameSink = busyRole == ScreenExtendRole.Sink
-                           && string.Equals(busyPeer, peer, StringComparison.OrdinalIgnoreCase);
-            if (sameSink)
-            {
-                ClearSession();
-            }
-            else
-            {
-                var reason = ScreenExtendConflict.ReasonForRole(busyRole);
-                var notice = ScreenExtendConflict.DescribeLocalRejectOffer(peer, busyRole, busyPeer);
-                Publish(notice);
-                NotifyUser(notice);
-                await RejectAsync(peer, offer.SessionId, reason).ConfigureAwait(false);
-                return;
-            }
+            var notice = ScreenExtendConflict.DescribeLocalRejectOffer(
+                peer, ScreenExtendRole.Host, hostBusyPeer);
+            Publish(notice);
+            NotifyUser(notice);
+            await RejectAsync(peer, offer.SessionId, ScreenExtendConflict.ReasonBusyHost).ConfigureAwait(false);
+            return;
         }
 
         var accept = ShouldAcceptOffer?.Invoke(peer, offer) ?? true;
@@ -636,35 +738,34 @@ public sealed class ScreenExtendService : IDisposable
             return;
         }
 
+        var enrolled = false;
         lock (_gate)
         {
-            // 竞态：Accept 前又进了别的会话
-            if (Role != ScreenExtendRole.None)
-            {
-                busyRole = Role;
-                busyPeer = Peer;
-            }
+            if (_hostPeer != null)
+                hostBusyPeer = _hostPeer;
             else
             {
-                Role = ScreenExtendRole.Sink;
-                Peer = peer;
-                SessionId = sid;
-                _frameSeq = 0;
-                _audioSeq = 0;
-                AudioSync = offer.AudioSync;
-                RemoteControl = offer.RemoteControl;
-                busyRole = ScreenExtendRole.None;
-                busyPeer = null;
+                _sinks[peer] = new SinkSession
+                {
+                    Peer = peer,
+                    SessionId = sid,
+                    AudioSync = offer.AudioSync,
+                    RemoteControl = offer.RemoteControl,
+                    FrameSeq = 0
+                };
+                _activeSinkPeer ??= peer;
+                SyncPublic_NoLock();
+                enrolled = true;
             }
         }
 
-        if (busyRole != ScreenExtendRole.None)
+        if (!enrolled)
         {
-            var reason = ScreenExtendConflict.ReasonForRole(busyRole);
-            var notice = ScreenExtendConflict.DescribeLocalRejectOffer(peer, busyRole, busyPeer);
+            var notice = ScreenExtendConflict.DescribeLocalRejectOffer(
+                peer, ScreenExtendRole.Host, hostBusyPeer);
             Publish(notice);
             NotifyUser(notice);
-            await RejectAsync(peer, offer.SessionId, reason).ConfigureAwait(false);
+            await RejectAsync(peer, offer.SessionId, ScreenExtendConflict.ReasonBusyHost).ConfigureAwait(false);
             return;
         }
 
@@ -704,11 +805,18 @@ public sealed class ScreenExtendService : IDisposable
             await _connections.SendToAsync(peer, MessageType.ScreenExtendAccept,
                 MessageCodec.JsonBytes(acc)).ConfigureAwait(false);
             Publish($"投影：已接受来自 {peer}（本机 {sinkW}x{sinkH}）");
-            try { SinkSessionReady?.Invoke(); } catch { /* ignore */ }
+            try { SinkSessionReady?.Invoke(peer); } catch { /* ignore */ }
         }
         catch (Exception ex)
         {
-            ClearSession();
+            lock (_gate)
+            {
+                _sinks.Remove(peer);
+                if (string.Equals(_activeSinkPeer, peer, StringComparison.OrdinalIgnoreCase))
+                    _activeSinkPeer = _sinks.Keys.FirstOrDefault();
+                SyncPublic_NoLock();
+            }
+
             Publish($"扩展屏接受失败：{ex.Message}");
         }
     }
@@ -730,8 +838,8 @@ public sealed class ScreenExtendService : IDisposable
         if (acc == null || !Guid.TryParse(acc.SessionId, out var sid)) return;
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.Host || SessionId != sid) return;
-            if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+            if (_hostPeer == null || _hostSessionId != sid) return;
+            if (!string.Equals(_hostPeer, peer, StringComparison.OrdinalIgnoreCase)) return;
         }
 
         if (acc.SinkWidth > 0 && acc.SinkHeight > 0)
@@ -754,13 +862,13 @@ public sealed class ScreenExtendService : IDisposable
         if (rej == null || !Guid.TryParse(rej.SessionId, out var sid)) return;
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.Host || SessionId != sid) return;
+            if (_hostPeer == null || _hostSessionId != sid) return;
         }
 
         var notice = ScreenExtendConflict.DescribeRemoteReject(peer, rej.Reason);
         Publish(notice);
         NotifyUser(notice);
-        EndSessionLocal("rejected");
+        EndHostLocal(peer, "rejected");
     }
 
     private void NotifyUser(string message)
@@ -772,48 +880,73 @@ public sealed class ScreenExtendService : IDisposable
     {
         var stop = MessageCodec.DecodeJson<ScreenExtendStopPayload>(payload);
         if (stop == null || !Guid.TryParse(stop.SessionId, out var sid)) return;
+
+        var asHost = false;
+        var asSink = false;
         lock (_gate)
         {
-            if (!IsActive || SessionId != sid) return;
-            if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
-            // 控制面和 bulk 会各到一份。先清会话，另一份不能再进来把音量恢复做两遍。
-            ResetSessionFields();
+            if (_hostPeer != null
+                && _hostSessionId == sid
+                && string.Equals(_hostPeer, peer, StringComparison.OrdinalIgnoreCase))
+            {
+                ResetHost_NoLock();
+                SyncPublic_NoLock();
+                asHost = true;
+            }
+            else if (_sinks.TryGetValue(peer, out var sink) && sink.SessionId == sid)
+            {
+                _sinks.Remove(peer);
+                if (string.Equals(_activeSinkPeer, peer, StringComparison.OrdinalIgnoreCase))
+                    _activeSinkPeer = _sinks.Keys.FirstOrDefault();
+                SyncPublic_NoLock();
+                asSink = true;
+            }
         }
 
+        if (!asHost && !asSink) return;
         Publish($"扩展屏已结束：{stop.Reason}");
-        FinishSession("remote-stop");
+        FinishSession(peer, "remote-stop");
     }
 
     private void HandleFrame(string peer, byte[] payload)
     {
-        if (Role != ScreenExtendRole.Sink) return;
-        if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+        SinkSession? session;
+        lock (_gate)
+        {
+            if (!_sinks.TryGetValue(peer, out session)) return;
+        }
+
         if (!ScreenExtendFrameCodec.TryDecode(payload, out var sid, out var w, out var h, out var seq,
                 out var capturedUnixMs, out var jpeg))
             return;
-        if (sid != SessionId || jpeg.Length == 0) return;
+        if (sid != session.SessionId || jpeg.Length == 0) return;
 
         var first = false;
         lock (_gate)
         {
-            if (_frameSeq == 0) first = true;
-            _frameSeq = seq;
+            if (!_sinks.TryGetValue(peer, out session)) return;
+            if (session.FrameSeq == 0) first = true;
+            session.FrameSeq = seq;
         }
 
         if (first)
             Publish($"投影：正在接收 {peer} 画面 {w}x{h}");
 
-        try { FrameReceived?.Invoke(jpeg.ToArray(), w, h, capturedUnixMs); } catch { /* ignore */ }
+        try { FrameReceived?.Invoke(jpeg.ToArray(), w, h, capturedUnixMs, peer); } catch { /* ignore */ }
     }
 
     private void HandleAudio(string peer, byte[] payload)
     {
-        if (Role != ScreenExtendRole.Sink || !AudioSync) return;
-        if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+        SinkSession? session;
+        lock (_gate)
+        {
+            if (!_sinks.TryGetValue(peer, out session) || !session.AudioSync) return;
+        }
+
         if (!ScreenExtendAudioCodec.TryDecode(payload, out var sid, out var rate, out var channels, out _, out var pcm))
             return;
-        if (sid != SessionId || pcm.Length == 0) return;
-        try { AudioReceived?.Invoke(pcm.ToArray(), rate, channels); } catch { /* ignore */ }
+        if (sid != session.SessionId || pcm.Length == 0) return;
+        try { AudioReceived?.Invoke(pcm.ToArray(), rate, channels, peer); } catch { /* ignore */ }
     }
 
     private void HandleReverseInput(string peer, byte[] payload)
@@ -822,9 +955,9 @@ public sealed class ScreenExtendService : IDisposable
         if (input == null || !Guid.TryParse(input.SessionId, out var sid)) return;
         lock (_gate)
         {
-            if (Role != ScreenExtendRole.Host || !RemoteControl) return;
-            if (SessionId != sid) return;
-            if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
+            if (_hostPeer == null || !_hostRemoteControl) return;
+            if (_hostSessionId != sid) return;
+            if (!string.Equals(_hostPeer, peer, StringComparison.OrdinalIgnoreCase)) return;
         }
 
         try { ReverseInputReceived?.Invoke(input); } catch { /* ignore */ }
@@ -832,43 +965,123 @@ public sealed class ScreenExtendService : IDisposable
 
     private void OnPeerLinkChanged(string peer, bool outbound, bool inbound)
     {
-        if (!IsActive) return;
-        if (!string.Equals(Peer, peer, StringComparison.OrdinalIgnoreCase)) return;
         if (outbound || inbound) return;
+
+        var endHost = false;
+        var endSink = false;
+        lock (_gate)
+        {
+            if (_hostPeer != null && string.Equals(_hostPeer, peer, StringComparison.OrdinalIgnoreCase))
+            {
+                ResetHost_NoLock();
+                SyncPublic_NoLock();
+                endHost = true;
+            }
+            else if (_sinks.ContainsKey(peer))
+            {
+                _sinks.Remove(peer);
+                if (string.Equals(_activeSinkPeer, peer, StringComparison.OrdinalIgnoreCase))
+                    _activeSinkPeer = _sinks.Keys.FirstOrDefault();
+                SyncPublic_NoLock();
+                endSink = true;
+            }
+        }
+
+        if (!endHost && !endSink) return;
         Publish($"扩展屏：对端 {peer} 断开");
-        EndSessionLocal("disconnect");
+        FinishSession(peer, "disconnect");
     }
 
-    private void EndSessionLocal(string reason)
-    {
-        ClearSession();
-        FinishSession(reason);
-    }
-
-    private void FinishSession(string reason)
-    {
-        try { SessionEnded?.Invoke(); } catch { /* ignore */ }
-        Publish($"扩展屏会话结束（{reason}）");
-    }
-
-    private void ClearSession()
+    private void ClearHostLocal()
     {
         lock (_gate)
-            ResetSessionFields();
+        {
+            ResetHost_NoLock();
+            SyncPublic_NoLock();
+        }
     }
 
-    private void ResetSessionFields()
+    private void EndHostLocal(string peer, string reason)
     {
+        lock (_gate)
+        {
+            ResetHost_NoLock();
+            SyncPublic_NoLock();
+        }
+
+        FinishSession(peer, reason);
+    }
+
+    private void EndSinkLocal(string peer, string reason)
+    {
+        lock (_gate)
+        {
+            _sinks.Remove(peer);
+            if (string.Equals(_activeSinkPeer, peer, StringComparison.OrdinalIgnoreCase))
+                _activeSinkPeer = _sinks.Keys.FirstOrDefault();
+            SyncPublic_NoLock();
+        }
+
+        FinishSession(peer, reason);
+    }
+
+    private void FinishSession(string? peer, string reason)
+    {
+        try { SessionEnded?.Invoke(peer); } catch { /* ignore */ }
+        Publish($"扩展屏会话结束（{reason}）" + (string.IsNullOrEmpty(peer) ? "" : $" · {peer}"));
+    }
+
+    private void SyncPublic_NoLock()
+    {
+        if (_hostPeer != null)
+        {
+            Role = ScreenExtendRole.Host;
+            Peer = _hostPeer;
+            SessionId = _hostSessionId;
+            AudioSync = _hostAudioSync;
+            RemoteControl = _hostRemoteControl;
+            return;
+        }
+
+        if (_sinks.Count > 0)
+        {
+            Role = ScreenExtendRole.Sink;
+            if (string.IsNullOrEmpty(_activeSinkPeer) || !_sinks.ContainsKey(_activeSinkPeer))
+                _activeSinkPeer = _sinks.Keys.First();
+            var s = _sinks[_activeSinkPeer!];
+            Peer = s.Peer;
+            SessionId = s.SessionId;
+            AudioSync = s.AudioSync;
+            RemoteControl = s.RemoteControl;
+            return;
+        }
+
         Role = ScreenExtendRole.None;
         Peer = null;
         SessionId = Guid.Empty;
+        AudioSync = false;
+        RemoteControl = false;
+    }
+
+    private void ResetHost_NoLock()
+    {
+        _hostPeer = null;
+        _hostSessionId = Guid.Empty;
+        _hostAudioSync = false;
+        _hostRemoteControl = false;
         _frameSeq = 0;
+        _audioSeq = 0;
         PeerSinkWidth = 0;
         PeerSinkHeight = 0;
         PeerSinkScalePercent = 0;
-        AudioSync = false;
-        RemoteControl = false;
-        _audioSeq = 0;
+    }
+
+    private void ResetAll_NoLock()
+    {
+        ResetHost_NoLock();
+        _sinks.Clear();
+        _activeSinkPeer = null;
+        SyncPublic_NoLock();
     }
 
     private void Publish(string msg)
@@ -880,16 +1093,16 @@ public sealed class ScreenExtendService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        // 进程退出/宿主释放：尽力通知对端停投影（杀进程则靠 PeerLinkChanged）
         try
         {
-            if (IsActive)
+            if (IsActive || GetSinkPeers().Count > 0)
                 StopAsync("dispose").GetAwaiter().GetResult();
         }
         catch { /* ignore */ }
 
         _connections.MessageReceived -= OnPeerMessage;
         _connections.PeerLinkChanged -= OnPeerLinkChanged;
-        ClearSession();
+        lock (_gate)
+            ResetAll_NoLock();
     }
 }

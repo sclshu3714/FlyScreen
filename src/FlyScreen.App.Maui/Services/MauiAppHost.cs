@@ -95,7 +95,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.UserNotice += OnProjectionUserNotice;
         ScreenExtend.OnHostRequestAsync = HandleRemoteHostRequestAsync;
-        ScreenExtend.SessionEnded += () =>
+        ScreenExtend.SessionEnded += peer =>
         {
             try
             {

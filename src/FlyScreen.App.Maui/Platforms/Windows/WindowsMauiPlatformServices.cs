@@ -24,6 +24,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private MauiTrayService? _tray;
     private MauiScreenExtendController? _screenExtendUi;
 
+    public MauiScreenExtendController? ScreenExtendUi => _screenExtendUi;
+
     public WindowsMauiPlatformServices(
         AppSettings settings,
         ConnectionManager connections,
@@ -36,7 +38,7 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _screenExtend = screenExtend;
         _screenExtendUi = new MauiScreenExtendController(screenExtend);
         // 从机期间穿边由 ShouldPauseEasyMouseForExtend 暂停，勿永久关掉 EasyMouseEnabled
-        _screenExtend.SessionEnded += () =>
+        _screenExtend.SessionEnded += _ =>
         {
             try
             {

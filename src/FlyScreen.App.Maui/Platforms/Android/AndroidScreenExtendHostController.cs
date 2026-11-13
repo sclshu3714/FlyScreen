@@ -148,7 +148,7 @@ public sealed class AndroidScreenExtendHostController : IDisposable
         return (Math.Max(1, w), Math.Max(1, h), Math.Max(1, dpi));
     }
 
-    private void OnSessionEnded()
+    private void OnSessionEnded(string? peer)
     {
         try { _disarmReverse(); } catch { /* ignore */ }
         _ = ReleaseAsync();

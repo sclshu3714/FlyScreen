@@ -89,6 +89,22 @@ public partial class MainWindow : Window
         ToolIconRegistry.EnsureFromLoadedAssemblies();
         ApplyWindowIcon();
         _host = AppHost.EnsureCreated();
+        _host.ScreenExtendUi.ListAddablePeers = () => ProjectionAddTargets.List(
+            _host.Connections,
+            _host.Connections.Discovery.GetPeers().Select(p => p.MachineName),
+            _host.ScreenExtend.GetSinkPeers());
+        _host.ScreenExtendUi.StartExtraProjection = async remote =>
+        {
+            var choice = RemoteProjectChoice.FromSettings(_host.Settings, LocalPeerIdentity.MachineName);
+            await _host.Connections.EnsureAdHocPeerAsync(remote).ConfigureAwait(true);
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote, LocalPeerIdentity.MachineName,
+                preferredWidth: choice.Width, preferredHeight: choice.Height,
+                fps: choice.Fps, remoteControl: true, jpegQuality: choice.JpegQuality)
+                .ConfigureAwait(true);
+            if (!ok)
+                StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+        };
         // 开机自启：先藏主窗再挂托盘，避免未渲染完的黑块闪一下/卡住
         if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
         {
@@ -311,12 +327,12 @@ public partial class MainWindow : Window
             RefreshTitleProjectButton();
             RefreshDiscovery();
         });
-        _host.ScreenExtend.SinkSessionReady += () => Dispatcher.Invoke(() =>
+        _host.ScreenExtend.SinkSessionReady += _ => Dispatcher.Invoke(() =>
         {
             RefreshTitleProjectButton();
             RefreshDiscovery();
         });
-        _host.ScreenExtend.SessionEnded += () => Dispatcher.Invoke(() =>
+        _host.ScreenExtend.SessionEnded += _ => Dispatcher.Invoke(() =>
         {
             RefreshTitleProjectButton();
             OnDeviceProjectSessionEnded();

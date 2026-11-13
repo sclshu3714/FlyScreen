@@ -50,6 +50,8 @@ public interface IDesktopShellHost
 
     ScreenExtendService ScreenExtend { get; }
 
+    ScreenExtendDesktopController ScreenExtendUi { get; }
+
     /// <summary>本端能否作为投影主机推流。Mac 可以；Linux 仍只接收。</summary>
     bool CanStartProjection => false;
 

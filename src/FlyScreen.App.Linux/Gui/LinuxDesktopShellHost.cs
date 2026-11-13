@@ -100,6 +100,8 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
 
     public ScreenExtendService ScreenExtend => _host.ScreenExtend;
 
+    public ScreenExtendDesktopController ScreenExtendUi => _screenExtendUi;
+
     public async Task<(bool Ok, string? Message)> StartProjectionAsync(
         ProjectionTarget? target,
         DisplayProjectionMode mode,

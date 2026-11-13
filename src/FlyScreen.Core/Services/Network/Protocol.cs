@@ -849,7 +849,18 @@ public static class ScreenExtendFrameCodec
         width = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
         height = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(20, 4));
         seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
-        // 旧头：offset 28 起即 JPEG（SOI=FF D8）。新头：28..36 为 CapturedUnixMs。
+        // 优先认 v2：offset 36 起是 JPEG SOI（时间戳低字节偶发 FF D8，不能只看 offset 28）。
+        if (payload.Length >= HeaderSize + 2
+            && payload[HeaderSize] == 0xFF
+            && payload[HeaderSize + 1] == 0xD8)
+        {
+            capturedUnixMs = BinaryPrimitives.ReadInt64LittleEndian(payload.Slice(28, 8));
+            if (capturedUnixMs < 0) capturedUnixMs = 0;
+            jpeg = payload[HeaderSize..];
+            return true;
+        }
+
+        // v1 旧头：offset 28 起即 JPEG。
         if (payload.Length >= LegacyHeaderSize + 2
             && payload[LegacyHeaderSize] == 0xFF
             && payload[LegacyHeaderSize + 1] == 0xD8)

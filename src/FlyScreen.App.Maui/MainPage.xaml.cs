@@ -103,6 +103,9 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         _host = MauiAppHost.EnsureCreated();
+#if WINDOWS
+        WireWindowsScreenExtendMultiTab();
+#endif
         DiscoveryList.ItemsSource = _discovery;
         TransferList.ItemsSource = _host.Transfers.Items;
         TrayBtn.IsVisible = _host.Platform.SupportsTray;
@@ -243,6 +246,8 @@ public partial class MainPage : ContentPage
             OnDeviceProjectSessionEndedIfNeeded();
             RefreshDiscovery();
         });
+
+    private void OnProjectionSessionChanged(string? peer) => OnProjectionSessionChanged();
 
     private void OnToolsCatalogChanged()
         => RunOnUi(RefreshToolsPage);
@@ -6216,6 +6221,35 @@ public partial class MainPage : ContentPage
     /// 日志行：点选切换选中高亮（无复选框）。
     /// Win CollectionView Multiple 会画平台勾选框，故用 SelectionMode=None + 自绘背景。
     /// </summary>
+#if WINDOWS
+    private void WireWindowsScreenExtendMultiTab()
+    {
+        if (_host.Platform is not Platforms.Windows.WindowsMauiPlatformServices win)
+            return;
+        var ui = win.ScreenExtendUi;
+        if (ui == null) return;
+        ui.ListAddablePeers = () => ProjectionAddTargets.List(
+            _host.Connections,
+            _host.Connections.Discovery.GetPeers().Select(p => p.MachineName),
+            _host.ScreenExtend.GetSinkPeers());
+        ui.StartExtraProjection = async remote =>
+        {
+            var choice = RemoteProjectChoice.FromSettings(_host.Settings, LocalPeerIdentity.MachineName);
+            await _host.Connections.EnsureAdHocPeerAsync(remote).ConfigureAwait(true);
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                LocalPeerIdentity.MachineName,
+                preferredWidth: choice.Width,
+                preferredHeight: choice.Height,
+                fps: choice.Fps,
+                remoteControl: true,
+                jpegQuality: choice.JpegQuality).ConfigureAwait(true);
+            if (!ok)
+                StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+        };
+    }
+#endif
+
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
     {
         private bool _isSelected;
