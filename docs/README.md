@@ -9,6 +9,7 @@
 | [extended-display.md](extended-display.md) | **电脑扩展屏 / 投影**：真扩展、声音同步、远程回控、1 对 1 互斥、VDD |
 | [tools.md](tools.md) | **工具系统规格（供实现）**：两端都装、分享、`.flytool`、开源哈希信任、标题栏、通用信封（未编码） |
 | [shared-devices.md](shared-devices.md) | **共享摄像头 / 麦克风 / 扬声器**：工具页三条独立工具；协议与冲突解决（未编码） |
+| [video-wall.md](video-wall.md) | **视频墙工具（规划）**：命名、需求、能力分级、架构、分期、`tools.md` 增量、验收；配套 [可行性](video-wall-feasibility.md) / [原型](video-wall-prototype.md) / [协议与编码矩阵](video-wall-sources.md) |
 | [THIRD_PARTY.md](THIRD_PARTY.md) | **第三方依赖与许可**：开源清单、专有依赖（ML Kit）、Linux 字体 |
 | [../third_party/licenses/](../third_party/licenses/) | Monaco / VDD 等 MIT 许可文本 |
 | [device-matrix.md](device-matrix.md) | 设备形态（手机/平板/电视/桌面/鸿蒙电脑）× 功能矩阵 |

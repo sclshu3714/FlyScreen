@@ -1,0 +1,29 @@
+{
+  "id": "video-wall",
+  "kind": "enhancement",
+  "crossScreen": false,
+  "group": "media",
+  "nameKey": "Tool.VideoWall.Name",
+  "summaryKey": "Tool.VideoWall.Summary",
+  "schemaVersion": 1,
+  "minAppVersion": "1.0.0",
+  "deviceClasses": ["Desktop"],
+  "platforms": ["Windows"],
+  "featuresByDeviceClass": {
+    "Desktop": ["fixed-sources", "temp-sources", "grid", "composite"]
+  },
+  "roles": ["local"],
+  "supportsRepair": false,
+  "capNames": [],
+  "titleBar": false,
+  "hasWorkspace": true,
+  "icon": "tool-video-wall",
+  "permissions": ["networkStream", "localFile.open", "speaker"],
+  "package": {
+    "version": "0.1.0",
+    "format": "flytool",
+    "formatVersion": 1
+  },
+  "entryAssembly": "FlyScreen.Tool.VideoWall.dll",
+  "entryType": "FlyScreen.Tool.VideoWall.Module"
+}
