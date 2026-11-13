@@ -118,7 +118,10 @@ public partial class MainWindow : Window
                 fps: choice.Fps, remoteControl: true, jpegQuality: choice.JpegQuality)
                 .ConfigureAwait(true);
             if (!ok)
+            {
+                await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
                 StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+            }
         };
         Opened += OnOpened;
         Closing += OnClosing;
@@ -3032,9 +3035,9 @@ public partial class MainWindow : Window
     private void OnDeviceProjectSessionEnded()
     {
         foreach (var item in _deviceInventory.Where(i => i.IsProjecting).ToList())
-            _host.Connections.RemoveAdHocPeer(item.Name);
+            _ = _host.Connections.ReleaseAdHocPeerAsync(item.Name);
         if (!string.IsNullOrWhiteSpace(_deviceMgmtProjectRemote))
-            _host.Connections.RemoveAdHocPeer(_deviceMgmtProjectRemote);
+            _ = _host.Connections.ReleaseAdHocPeerAsync(_deviceMgmtProjectRemote);
         _deviceMgmtProjectRemote = null;
         RefreshDiscovery();
     }
@@ -3284,7 +3287,7 @@ public partial class MainWindow : Window
                 await _host.ScreenExtend.StopAsync("device-mgmt-stop").ConfigureAwait(true);
             }
             catch { /* ignore */ }
-            _host.Connections.RemoveAdHocPeer(remote);
+            await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
             _deviceMgmtProjectRemote = null;
             RefreshDiscovery();
             StatusText.Text = string.Format(Loc.T("Remote.ProjectStopped"), remote);
@@ -3319,7 +3322,7 @@ public partial class MainWindow : Window
             var st = _host.Connections.GetPeerStatus(remote);
             if (!st.AnyAlive && !st.Bidirectional)
             {
-                _host.Connections.RemoveAdHocPeer(remote);
+                await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
                 StatusText.Text = string.Format(Loc.T("Remote.ProjectNeedPeer"), remote);
                 return;
             }
@@ -3334,7 +3337,7 @@ public partial class MainWindow : Window
                 jpegQuality: choice.JpegQuality).ConfigureAwait(true);
             if (!ok)
             {
-                _host.Connections.RemoveAdHocPeer(remote);
+                await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
                 _deviceMgmtProjectRemote = null;
                 StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
                 RefreshDiscovery();
@@ -3347,14 +3350,14 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
         {
-            _host.Connections.RemoveAdHocPeer(remote);
+            await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
             _deviceMgmtProjectRemote = null;
             StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), "操作超时或已取消");
             RefreshDiscovery();
         }
         catch (Exception ex)
         {
-            _host.Connections.RemoveAdHocPeer(remote);
+            await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
             _deviceMgmtProjectRemote = null;
             StatusText.Text = string.Format(Loc.T("Remote.ProjectFail"), ex.Message);
             RefreshDiscovery();

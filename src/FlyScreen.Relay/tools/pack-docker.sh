@@ -118,10 +118,16 @@ if [[ "$SAVE" -eq 1 ]]; then
   [[ -n "$OUT_DIR" ]] || OUT_DIR="$RELAY_ROOT/out"
   mkdir -p "$OUT_DIR"
   EXPORT_PATH="$OUT_DIR/${IMAGE_NAME}-${RESOLVED_TAG}.tar"
-  echo "==> docker save -o $EXPORT_PATH ${REFS[*]}"
-  docker save -o "$EXPORT_PATH" "${REFS[@]}"
+  # 只导出版本标签，避免 load 后出现 latest + 版本两条镜像
+  SAVE_REFS=("${IMAGE_NAME}:${RESOLVED_TAG}")
+  if [[ -n "$REGISTRY" ]]; then
+    SAVE_REFS+=("${REGISTRY%/}/${IMAGE_NAME}:${RESOLVED_TAG}")
+  fi
+  echo "==> docker save -o $EXPORT_PATH ${SAVE_REFS[*]}  （仅版本标签）"
+  docker save -o "$EXPORT_PATH" "${SAVE_REFS[@]}"
   SIZE_MB="$(du -m "$EXPORT_PATH" | awk '{print $1}')"
   echo "已导出: $EXPORT_PATH (${SIZE_MB} MB)"
+  echo "  load 后若需 latest: docker tag ${IMAGE_NAME}:${RESOLVED_TAG} ${IMAGE_NAME}:latest"
 fi
 
 if [[ "$PUSH" -eq 1 ]]; then
@@ -148,5 +154,6 @@ echo "本地运行示例:"
 echo "  docker run -d --name flyscreen-relay \\"
 echo "    -p 8443:8443 -p 9080:9080 -p 15155:15155 -p 8443:8443/udp -p 15156:15156/udp \\"
 echo "    -v flyscreen-relay-data:/app/data \\"
-echo "    $PRIMARY"
-echo "  或: docker compose up -d"
+echo "    ${IMAGE_NAME}:${RESOLVED_TAG}"
+echo "  或: docker tag ${IMAGE_NAME}:${RESOLVED_TAG} ${IMAGE_NAME}:latest && docker compose up -d"
+echo "  群晖等面板：请手动加 容器端口 8443 / UDP（STUN；勿填「8443/udp」字面量）"

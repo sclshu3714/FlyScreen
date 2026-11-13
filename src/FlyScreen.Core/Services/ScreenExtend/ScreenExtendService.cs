@@ -1029,6 +1029,22 @@ public sealed class ScreenExtendService : IDisposable
     {
         try { SessionEnded?.Invoke(peer); } catch { /* ignore */ }
         Publish($"投影会话结束（{reason}）" + (string.IsNullOrEmpty(peer) ? "" : $" · {peer}"));
+        // 清临时保活并拆除非持久链路，避免 MaintainLoop 经信令/中继重建控制/bulk 管道
+        _ = ReleaseProjectionLinksAsync(peer);
+    }
+
+    private async Task ReleaseProjectionLinksAsync(string? peer)
+    {
+        try
+        {
+            await _connections.ReleaseAdHocPeerAsync(peer).ConfigureAwait(false);
+            if (!IsActive)
+                await _connections.DropNonPersistentPeersAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     private void SyncPublic_NoLock()

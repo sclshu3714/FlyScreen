@@ -251,6 +251,58 @@ public sealed class ConnectionManager : IAsyncDisposable
         _adHocPeers.TryRemove(name, out _);
     }
 
+    /// <summary>
+    /// 结束临时投影保活：移出 AdHoc；若对端不在布局/远程绑定中则断开链路，
+    /// 避免 MaintainLoop 经信令/中继再次拨回。
+    /// </summary>
+    public async Task ReleaseAdHocPeerAsync(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _adHocPeers.TryRemove(name, out _);
+        if (IsPersistentlyConfiguredPeer(name)) return;
+        await DropPeerAsync(name).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 拆除所有非布局/非绑定对端（含残留 AdHoc），用于投影会话全部结束后清场。
+    /// </summary>
+    public async Task DropNonPersistentPeersAsync()
+    {
+        foreach (var n in _adHocPeers.Keys.ToArray())
+            _adHocPeers.TryRemove(n, out _);
+
+        foreach (var name in _links.Keys.ToArray())
+        {
+            if (IsPersistentlyConfiguredPeer(name)) continue;
+            await DropPeerAsync(name).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>布局槽位或远程绑定中的对端（不含 AdHoc）。</summary>
+    public bool IsPersistentlyConfiguredPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)
+            || string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        _settings.EnsureLocalMachineSlot();
+        if ((_settings.MachineSlots ?? [])
+            .Any(m => string.Equals((m ?? "").Trim(), name, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(b.BoundLocalDeviceId) || string.IsNullOrWhiteSpace(b.RemoteName))
+                continue;
+            if (string.Equals(b.RemoteName.Trim(), name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     public bool IsAdHocPeer(string? peerName)
     {
         var name = (peerName ?? "").Trim();
@@ -731,6 +783,9 @@ public sealed class ConnectionManager : IAsyncDisposable
         foreach (var name in _links.Keys.ToArray())
         {
             if (allowed.Contains(name)) continue;
+            // 对端以 AdHocConnect 入站时本机不一定写入 AdHoc；存活链路留给投影结束时 DropNonPersistent
+            if (_links.TryGetValue(name, out var link) && link.AnyAlive)
+                continue;
             await DropPeerAsync(name).ConfigureAwait(false);
         }
     }
@@ -1532,10 +1587,11 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         // 布局成员 / 临时投影保活 / 布局加入请求；禁止无关主机入站占槽
         // bulk 不得触发布局加入；临时投影不写布局
+        // AdHocConnect：仅放行本次握手，不写入 _adHocPeers（保活由发起方 EnsureAdHoc 负责），
+        // 否则停投后本机 MaintainLoop 仍会经中继拨回对端。
         var configured = ConfiguredPeers().Contains(hs.MachineName, StringComparer.OrdinalIgnoreCase);
         if (!configured && hs.AdHocConnect)
         {
-            _adHocPeers[hs.MachineName.Trim()] = 0;
             configured = true;
             if (!isBulk)
                 StatusMessage?.Invoke($"已接受临时连接 ← {hs.MachineName}（投影/直连，不进布局）");

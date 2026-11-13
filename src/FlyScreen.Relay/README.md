@@ -31,7 +31,7 @@ docker compose up -d --build
 
 ## Docker 打包镜像
 
-工程内脚本会构建镜像并打上 `latest` + 版本标签（默认取 git describe，否则用时间戳）。
+工程内脚本会构建镜像并打上 `latest` + 版本标签（默认取 git describe，否则用时间戳）。**导出 tar 只含版本标签**，避免 `docker load` / 群晖导入后出现 `latest` 与版本两条。
 
 ```powershell
 cd src/FlyScreen.Relay
@@ -60,9 +60,22 @@ chmod +x tools/pack-docker.sh
 
 ```bash
 docker load -i flyscreen-relay-1.0.0.tar
+docker tag flyscreen-relay:1.0.0 flyscreen-relay:latest   # compose 用 latest 时
 docker compose up -d
 # 或 docker run … 见脚本输出提示
 ```
+
+### 群晖 / 部分面板建容器注意
+
+镜像 `EXPOSE` **不会**带出 STUN 的 UDP `8443`（与边缘 TCP 同号；写出 `8443/udp` 时面板常把容器端口填成字面量 `8443/udp`）。请手动增加映射：
+
+| NAS 端口 | 容器端口 | 类型 |
+|----------|----------|------|
+| 8443 | **8443**（不要填 `8443/udp`） | UDP |
+| 15156 | 15156 | UDP |
+| 8443 / 9080 / 15155 | 同号 | TCP |
+
+`docker-compose.yml` 已包含正确的 TCP/UDP 映射，优先用 compose。
 
 下文示例默认服务器地址为 `relay.example.com`，请换成你的 IP 或域名。
 

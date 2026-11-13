@@ -734,6 +734,8 @@ public sealed class MauiAppHost : IAsyncDisposable
             .ConfigureAwait(false);
         if (!ok)
         {
+            if (!sinkIsLocal)
+                try { await Connections.ReleaseAdHocPeerAsync(sink).ConfigureAwait(false); } catch { /* ignore */ }
 #if ANDROID
             await Platform.ReleaseScreenExtendHostDisplayAsync().ConfigureAwait(false);
 #endif

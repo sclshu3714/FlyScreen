@@ -553,6 +553,8 @@ public sealed class AppHost : IAsyncDisposable
             .ConfigureAwait(false);
         if (ok)
             PublishStatus($"投影：复制主屏 → {sink}（应 {fromPeer} 请求）");
+        else if (!sinkIsLocal)
+            try { await Connections.ReleaseAdHocPeerAsync(sink).ConfigureAwait(false); } catch { /* ignore */ }
         return (ok, err);
     }
 

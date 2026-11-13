@@ -75,6 +75,7 @@ function Resolve-Tag([string]$explicit) {
 }
 
 function Get-ImageRefs([string]$name, [string]$tag, [string]$registry) {
+  # 本地仍打 latest + 版本，方便 compose；导出 tar 只带版本标签，避免 load 后出现两条镜像
   $localLatest = "${name}:latest"
   $localTagged = "${name}:${tag}"
   $refs = @($localLatest, $localTagged)
@@ -83,6 +84,17 @@ function Get-ImageRefs([string]$name, [string]$tag, [string]$registry) {
     $refs += @("${prefix}/${name}:latest", "${prefix}/${name}:${tag}")
   }
   return ,$refs
+}
+
+function Get-SaveRefs([string[]]$refs, [string]$name, [string]$tag) {
+  $versionRef = "${name}:${tag}"
+  $list = @($versionRef)
+  if (-not [string]::IsNullOrWhiteSpace($Registry)) {
+    $prefix = $Registry.TrimEnd('/')
+    $remote = "${prefix}/${name}:${tag}"
+    if ($refs -contains $remote) { $list += $remote }
+  }
+  return ,$list
 }
 
 Assert-Docker
@@ -140,12 +152,14 @@ if ($Save) {
   }
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
   $exportPath = Join-Path $OutDir ("{0}-{1}.tar" -f $ImageName, $resolvedTag)
-  Write-Host "==> docker save -o $exportPath $($imageRefs -join ' ')"
-  & docker save -o $exportPath @imageRefs
+  $saveRefs = Get-SaveRefs $imageRefs $ImageName $resolvedTag
+  Write-Host "==> docker save -o $exportPath $($saveRefs -join ' ')  （仅版本标签，避免 load 出两条）"
+  & docker save -o $exportPath @saveRefs
   if ($LASTEXITCODE -ne 0) { throw "docker save 失败 (exit $LASTEXITCODE)" }
 
   $sizeMb = [math]::Round((Get-Item -LiteralPath $exportPath).Length / 1MB, 2)
   Write-Host "已导出: $exportPath ($sizeMb MB)"
+  Write-Host "  load 后若需 latest: docker tag ${ImageName}:${resolvedTag} ${ImageName}:latest"
 }
 
 if ($Push) {
@@ -170,5 +184,6 @@ Write-Host "本地运行示例:"
 Write-Host "  docker run -d --name flyscreen-relay ``"
 Write-Host "    -p 8443:8443 -p 9080:9080 -p 15155:15155 -p 8443:8443/udp -p 15156:15156/udp ``"
 Write-Host "    -v flyscreen-relay-data:/app/data ``"
-Write-Host "    $primary"
-Write-Host "  或: docker compose up -d"
+Write-Host "    ${ImageName}:${resolvedTag}"
+Write-Host "  或: docker tag ${ImageName}:${resolvedTag} ${ImageName}:latest && docker compose up -d"
+Write-Host "  群晖等面板：镜像不会自动带出 STUN 的 UDP 8443，请手动加 容器端口 8443 / UDP（勿填「8443/udp」字面量）"
