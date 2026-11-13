@@ -239,10 +239,10 @@ public sealed class RelaySessionManager
         return n;
     }
 
-    private static Task NotifyRelayRequestAsync(
+    private async Task NotifyRelayRequestAsync(
         DeviceConnection peer, string fromDeviceId, string peerId, string sessionId, CancellationToken ct)
     {
-        return peer.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
+        await peer.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
         {
             Type = MessageTypes.Signal,
             From = fromDeviceId,
@@ -255,7 +255,8 @@ public sealed class RelaySessionManager
                 from = fromDeviceId,
                 reason = "p2p-failed-or-preferred-relay"
             }, Wire.JsonOptions)
-        }), ct);
+        }), ct).ConfigureAwait(false);
+        _stats.SignalsForwarded++;
     }
 
     private void NotifyPeerLeft(RelaySession session, string deviceId, string sessionId)

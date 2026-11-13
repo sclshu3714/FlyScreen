@@ -80,7 +80,7 @@ public sealed class AppSettings
     /// <summary>对本机发现/握手名的覆盖；空则自动（WSL 会加发行版后缀避免与宿主机撞名）。</summary>
     public string MachineNameOverride { get; set; } = "";
     /// <summary>
-    /// 连接配置附加行（远程设备 / 中转服务）。缺省空列表；经 <c>RemoteBindingSync</c> 在布局电脑间同步已验证行。
+    /// 连接配置附加行（远程设备 / 中转服务）。只保存在本机，不随布局同步。
     /// </summary>
     public List<ConnectionEndpoint> ConnectionEndpoints { get; set; } = [];
     /// <summary>

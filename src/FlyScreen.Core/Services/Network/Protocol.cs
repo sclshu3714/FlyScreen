@@ -575,8 +575,7 @@ public sealed class LayoutSyncPayload
 }
 
 /// <summary>
-/// 远程连接配置（地址/类型）+ 绑定池 + 当前远程，在布局电脑之间权威同步。
-/// 不含本机「测试通过」态：A 可达不代表 B 可达。
+/// 远程投影关联在布局电脑之间同步。Endpoints 不再携带连接配置，接收方忽略该字段。
 /// </summary>
 public sealed class RemoteBindingSyncPayload
 {

@@ -225,9 +225,10 @@ public sealed class DeviceRegistry
         _log.LogInformation("设备离线 {DeviceId} room={Room}", conn.DeviceId, conn.RoomId);
     }
 
-    public async Task BroadcastRoomAsync(string roomId, string json, string? exceptDeviceId = null, CancellationToken ct = default)
+    public async Task<int> BroadcastRoomAsync(string roomId, string json, string? exceptDeviceId = null, CancellationToken ct = default)
     {
-        if (!_rooms.TryGetValue(roomId, out var set)) return;
+        if (!_rooms.TryGetValue(roomId, out var set)) return 0;
+        var delivered = 0;
         foreach (var deviceId in set.Keys)
         {
             if (exceptDeviceId is not null
@@ -235,10 +236,16 @@ public sealed class DeviceRegistry
                 continue;
             if (TryGetByDeviceId(deviceId, out var c) && c is not null)
             {
-                try { await c.SendTextAsync(json, ct).ConfigureAwait(false); }
+                try
+                {
+                    await c.SendTextAsync(json, ct).ConfigureAwait(false);
+                    delivered++;
+                }
                 catch (Exception ex) { _log.LogDebug(ex, "广播失败 {DeviceId}", deviceId); }
             }
         }
+
+        return delivered;
     }
 
     public async Task KickAsync(string deviceId)

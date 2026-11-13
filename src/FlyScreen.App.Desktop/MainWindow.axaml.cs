@@ -557,10 +557,9 @@ public partial class MainWindow : Window
         });
         _host.RemoteBindingSyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
         {
-            ReloadEndpointListFromSettings();
             RefreshSlotBoundRemotes();
             RefreshDiscovery();
-            StatusText.Text = $"已同步远程配置 ← {from}（须本机重新测试）";
+            StatusText.Text = $"已同步远程投影关联 ← {from}";
         });
         _host.SecurityKeySyncedFromPeer += from => Dispatcher.UIThread.Post(() =>
         {
@@ -3201,8 +3200,6 @@ public partial class MainWindow : Window
         }
 
         PersistEndpoints();
-        if (ok)
-            _ = _host.BroadcastRemoteBindingSyncAsync("远程连接配置已同步到布局内电脑");
         if (updateStatusBar)
             StatusText.Text = ok ? $"{Loc.T("Net.TestOk")}: {message}" : $"{Loc.T("Net.TestFail")}: {message}";
         RefreshDiscovery();
@@ -3233,7 +3230,6 @@ public partial class MainWindow : Window
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
         RefreshDiscovery();
-        _ = _host.BroadcastRemoteBindingSyncAsync();
     }
 
     private void DevicePrimaryAction_Click(object? sender, RoutedEventArgs e)

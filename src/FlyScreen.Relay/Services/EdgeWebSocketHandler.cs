@@ -118,7 +118,7 @@ public sealed class EdgeWebSocketHandler
                     }), ctx.RequestAborted).ConfigureAwait(false);
 
                     await PushDeviceListAsync(device).ConfigureAwait(false);
-                    await _devices.BroadcastRoomAsync(
+                    var announced = await _devices.BroadcastRoomAsync(
                         device.RoomId,
                         DeviceRegistry.JsonSerialize(new WireMessage
                         {
@@ -127,6 +127,8 @@ public sealed class EdgeWebSocketHandler
                         }),
                         exceptDeviceId: device.DeviceId,
                         ct: ctx.RequestAborted).ConfigureAwait(false);
+                    if (device.Candidates is { Count: > 0 })
+                        _stats.SignalsForwarded += announced;
                     continue;
                 }
 
@@ -187,7 +189,7 @@ public sealed class EdgeWebSocketHandler
 
             case MessageTypes.Candidates:
                 _devices.UpdateCandidates(device, msg.Candidates);
-                await _devices.BroadcastRoomAsync(
+                var forwarded = await _devices.BroadcastRoomAsync(
                     device.RoomId,
                     DeviceRegistry.JsonSerialize(new WireMessage
                     {
@@ -196,6 +198,7 @@ public sealed class EdgeWebSocketHandler
                     }),
                     exceptDeviceId: device.DeviceId,
                     ct: ct).ConfigureAwait(false);
+                _stats.SignalsForwarded += forwarded;
                 break;
 
             case MessageTypes.DevicesQuery:
@@ -333,12 +336,19 @@ public sealed class EdgeWebSocketHandler
         }
     }
 
-    private Task PushDeviceListAsync(DeviceConnection device)
-        => device.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
+    private async Task PushDeviceListAsync(DeviceConnection device)
+    {
+        var list = _devices.ListRoom(device.RoomId).ToList();
+        await device.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
         {
             Type = MessageTypes.Devices,
-            Devices = _devices.ListRoom(device.RoomId).ToList()
-        }));
+            Devices = list
+        })).ConfigureAwait(false);
+        if (list.Any(d =>
+                !string.Equals(d.Id, device.DeviceId, StringComparison.OrdinalIgnoreCase)
+                && d.Candidates is { Count: > 0 }))
+            _stats.SignalsForwarded++;
+    }
 
     private static async Task SendAsync(WebSocket socket, WireMessage msg)
     {

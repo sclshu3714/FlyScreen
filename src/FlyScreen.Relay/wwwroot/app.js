@@ -108,12 +108,28 @@ function roomRows(rooms) {
   </tr>`).join("");
 }
 
+function deviceIps(d) {
+  const seen = new Set();
+  const lines = [];
+  for (const c of d.candidates || []) {
+    const kind = String(c?.kind || "").toLowerCase();
+    if (kind === "relay") continue;
+    const address = String(c?.address || "").trim();
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    lines.push(address);
+  }
+  if (!lines.length) return `<span class="subid">—</span>`;
+  return `<div class="ips">${lines.map((a) => `<span>${esc(a)}</span>`).join("")}</div>`;
+}
+
 function deviceRows(devices) {
   return (devices || []).map((d) => `<tr>
     <td>${esc(d.name)}<div class="subid mono">${esc(d.id)}</div></td>
     <td>${pill(d.online)}</td>
     <td>${esc(d.platform || "-")}</td>
     <td class="mono">${esc(d.remoteAddress || "-")}</td>
+    <td class="mono">${deviceIps(d)}</td>
     <td>${esc(fmtTime(d.lastSeen))}</td>
     <td>${d.online ? `<button data-kick="${esc(d.id)}">踢出</button>` : ""}</td>
   </tr>`).join("");
@@ -231,7 +247,7 @@ async function renderRoom(id) {
       <p>在线 ${esc(room.onlineCount)} · 注册 ${esc(room.deviceCount)} · 建立于 ${esc(fmtTime(room.createdAt))}</p>
     </div>
     ${devices.length ? `<div class="table-wrap"><table>
-      <thead><tr><th>设备</th><th>状态</th><th>平台</th><th>地址</th><th>最后连接</th><th></th></tr></thead>
+      <thead><tr><th>设备</th><th>状态</th><th>平台</th><th>地址</th><th>设备 IP</th><th>最后连接</th><th></th></tr></thead>
       <tbody>${deviceRows(devices)}</tbody>
     </table></div>` : `<div class="table-wrap"><div class="empty">这个房间还没有设备记录。</div></div>`}`;
   bindKick(view, () => renderRoom(id));

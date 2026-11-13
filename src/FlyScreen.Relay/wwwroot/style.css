@@ -132,6 +132,8 @@ tr.link { cursor: pointer; }
 tr.link:hover td { background: rgba(61, 139, 253, 0.08); }
 .mono { font-family: var(--mono); font-size: 0.8rem; }
 .subid { color: var(--muted); font-size: 0.75rem; margin-top: 0.15rem; }
+.ips { display: flex; flex-direction: column; gap: 0.12rem; }
+.ips span { white-space: nowrap; }
 .num { font-variant-numeric: tabular-nums; }
 .num.on { color: var(--cyan); font-weight: 650; }
 .pill {
