@@ -552,7 +552,7 @@ public sealed class AppHost : IAsyncDisposable
                 ct: ct)
             .ConfigureAwait(false);
         if (ok)
-            PublishStatus($"远程投影：本机画面 → {sink}（应 {fromPeer} 请求）");
+            PublishStatus($"投影：复制主屏 → {sink}（应 {fromPeer} 请求）");
         return (ok, err);
     }
 

@@ -364,7 +364,7 @@ public sealed class ScreenExtendService : IDisposable
 
         if (!_connections.PeerSupports(peer, PeerCaps.ScreenExtendSink)
             && !ScreenExtendTargets.IsEligiblePeer(_connections, peer))
-            return (false, "对端不支持扩展屏从机");
+            return (false, "对端不支持投影接收");
         if (!_connections.IsPeerReachable(peer))
             return (false, "对端未连接");
 
@@ -407,7 +407,7 @@ public sealed class ScreenExtendService : IDisposable
         {
             await _connections.SendToAsync(peer, MessageType.ScreenExtendOffer,
                 MessageCodec.JsonBytes(offer)).ConfigureAwait(false);
-            Publish($"扩展屏：已向 {peer} 发起");
+            Publish($"投影：已向 {peer} 发起");
 
             if (acceptTcs != null)
             {
@@ -817,7 +817,7 @@ public sealed class ScreenExtendService : IDisposable
                 SyncPublic_NoLock();
             }
 
-            Publish($"扩展屏接受失败：{ex.Message}");
+            Publish($"投影接受失败：{ex.Message}");
         }
     }
 
@@ -850,7 +850,7 @@ public sealed class ScreenExtendService : IDisposable
                 PeerSinkScalePercent = acc.SinkScalePercent;
         }
 
-        Publish($"扩展屏：{peer} 已接受（从机 {PeerSinkWidth}x{PeerSinkHeight}"
+        Publish($"投影：{peer} 已接受（{PeerSinkWidth}x{PeerSinkHeight}"
                 + (PeerSinkScalePercent > 0 ? $" @{PeerSinkScalePercent}%" : "")
                 + "），开始推流");
         try { HostSessionReady?.Invoke(); } catch { /* ignore */ }
@@ -904,7 +904,7 @@ public sealed class ScreenExtendService : IDisposable
         }
 
         if (!asHost && !asSink) return;
-        Publish($"扩展屏已结束：{stop.Reason}");
+        Publish($"投影已结束：{stop.Reason}");
         FinishSession(peer, "remote-stop");
     }
 
@@ -988,7 +988,7 @@ public sealed class ScreenExtendService : IDisposable
         }
 
         if (!endHost && !endSink) return;
-        Publish($"扩展屏：对端 {peer} 断开");
+        Publish($"投影：对端 {peer} 断开");
         FinishSession(peer, "disconnect");
     }
 
@@ -1028,7 +1028,7 @@ public sealed class ScreenExtendService : IDisposable
     private void FinishSession(string? peer, string reason)
     {
         try { SessionEnded?.Invoke(peer); } catch { /* ignore */ }
-        Publish($"扩展屏会话结束（{reason}）" + (string.IsNullOrEmpty(peer) ? "" : $" · {peer}"));
+        Publish($"投影会话结束（{reason}）" + (string.IsNullOrEmpty(peer) ? "" : $" · {peer}"));
     }
 
     private void SyncPublic_NoLock()

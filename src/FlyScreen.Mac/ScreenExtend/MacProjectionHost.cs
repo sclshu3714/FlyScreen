@@ -98,7 +98,8 @@ public sealed class MacProjectionHost : IDisposable
     {
         _hostReadyTick = Environment.TickCount64;
         Interlocked.Exchange(ref _remoteDriving, 0);
-        if (_mode == DisplayProjectionMode.Extend)
+        if (_mode == DisplayProjectionMode.Extend
+            && _choice.Source != ProjectionDisplaySource.HostPrimary)
             TryMatchPeerSize();
         StartCapture();
     }

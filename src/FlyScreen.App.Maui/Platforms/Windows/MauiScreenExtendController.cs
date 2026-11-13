@@ -51,6 +51,11 @@ public sealed class MauiScreenExtendController : IDisposable
 
     public void SetProjectionMode(DisplayProjectionMode mode) => _mode = mode;
 
+    /// <summary>设备管理的远程投影固定复制主屏，不占用虚拟副屏。</summary>
+    private bool UsesExtendDisplay
+        => _mode == DisplayProjectionMode.Extend
+           && _display.Source != ProjectionDisplaySource.HostPrimary;
+
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
         => _display = choice?.Clone() ?? new ProjectionDisplayChoice();
 
@@ -119,7 +124,7 @@ public sealed class MauiScreenExtendController : IDisposable
 
     private async Task OnHostReadyAsync()
     {
-        if (_mode == DisplayProjectionMode.Extend)
+        if (UsesExtendDisplay)
         {
             try
             {
@@ -137,7 +142,7 @@ public sealed class MauiScreenExtendController : IDisposable
     {
         await StopCaptureAsync(releaseDisplay: false).ConfigureAwait(false);
 
-        if (_mode == DisplayProjectionMode.Extend)
+        if (UsesExtendDisplay)
         {
             if (_vdd?.Target == null && DisplayMonitorEnum.FindBestExtendTarget() == null)
             {
@@ -194,7 +199,7 @@ public sealed class MauiScreenExtendController : IDisposable
 
     private MonitorRect? ResolveCaptureTarget()
     {
-        if (_mode == DisplayProjectionMode.Clone)
+        if (!UsesExtendDisplay)
             return DisplayMonitorEnum.FindPrimary();
 
         var secondary = DisplayMonitorEnum.FindBestExtendTarget();

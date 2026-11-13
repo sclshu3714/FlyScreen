@@ -54,6 +54,11 @@ public sealed class ScreenExtendController : IDisposable
 
     public void SetProjectionMode(DisplayProjectionMode mode) => _mode = mode;
 
+    /// <summary>设备管理的远程投影固定复制主屏，不占用虚拟副屏。</summary>
+    private bool UsesExtendDisplay
+        => _mode == DisplayProjectionMode.Extend
+           && _display.Source != ProjectionDisplaySource.HostPrimary;
+
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
         => _display = choice?.Clone() ?? new ProjectionDisplayChoice();
 
@@ -120,7 +125,7 @@ public sealed class ScreenExtendController : IDisposable
     private async Task OnHostReadyAsync()
     {
         // Accept 后按所选分辨率（目标电脑自动则用 PeerSink）再定位一次副屏
-        if (_mode == DisplayProjectionMode.Extend)
+        if (UsesExtendDisplay)
         {
             try
             {
@@ -138,7 +143,7 @@ public sealed class ScreenExtendController : IDisposable
     {
         await StopCaptureAsync(releaseDisplay: false).ConfigureAwait(false);
 
-        if (_mode == DisplayProjectionMode.Extend)
+        if (UsesExtendDisplay)
         {
             if (_vdd?.Target == null && DisplayMonitorEnum.FindBestExtendTarget() == null)
             {
@@ -195,7 +200,7 @@ public sealed class ScreenExtendController : IDisposable
 
     private MonitorRect? ResolveCaptureTarget()
     {
-        if (_mode == DisplayProjectionMode.Clone)
+        if (!UsesExtendDisplay)
             return DisplayMonitorEnum.FindPrimary();
 
         // 扩展：每帧重枚举副屏；禁止回退主屏（否则从机看到本机桌面且分辨率错乱）

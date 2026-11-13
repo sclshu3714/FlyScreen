@@ -1848,9 +1848,15 @@ public sealed class ConnectionManager : IAsyncDisposable
             try { sessions = [Outbound, Inbound, OutboundBulk, InboundBulk]; }
             finally { _gate.Release(); }
 
+            var bulkAlive = OutboundBulk is { IsAlive: true, Authenticated: true }
+                            || InboundBulk is { IsAlive: true, Authenticated: true };
             foreach (var s in sessions)
             {
                 if (s is not { IsAlive: true, Authenticated: true }) continue;
+
+                // 复制投影的画面走文件通道。控制面暂时没有新包时不能拆，否则播放器会在出画前被关掉。
+                if (!s.IsBulkChannel && bulkAlive)
+                    continue;
 
                 // bulk 传输中心跳可能排在分块之后；用收发活动时间 + 更宽超时，避免传文件时被误拆。
                 // 控制面仍只看收包：本机一直在发不能掩盖对端已不再回话。
