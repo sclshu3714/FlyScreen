@@ -1,5 +1,4 @@
 using System.Net;
-using FlyScreen.Relay.Admin;
 using FlyScreen.Relay.Models;
 using FlyScreen.Relay.Options;
 using FlyScreen.Relay.Services;
@@ -19,8 +18,16 @@ builder.WebHost.ConfigureKestrel(kestrel =>
     kestrel.Listen(adminEp.Address, adminEp.Port);
 });
 
+builder.Services.AddSingleton(sp =>
+{
+    var env = sp.GetRequiredService<IHostEnvironment>();
+    var opt = sp.GetRequiredService<IOptions<RelayOptions>>().Value;
+    var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("FlyScreen.Relay.Database");
+    return RelayStore.Open(opt.Database, env.ContentRootPath, log);
+});
 builder.Services.AddSingleton<RelayStats>();
 builder.Services.AddSingleton<DeviceRegistry>();
+builder.Services.AddSingleton<AdminCatalog>();
 builder.Services.AddSingleton<RelaySessionManager>();
 builder.Services.AddSingleton<EdgeWebSocketHandler>();
 builder.Services.AddHostedService<StunServer>();
@@ -34,15 +41,19 @@ var adminPort = adminEp.Port;
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache"
+});
 
 bool IsAdmin(HttpContext ctx) => ctx.Connection.LocalPort == adminPort;
 bool IsEdge(HttpContext ctx) => ctx.Connection.LocalPort == edgePort;
 
-// ---- Admin API（管理口）----
-app.MapGet("/api/health", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices, RelaySessionManager sessions, RelayStats stats) =>
+// ---- Admin API（管理口，页面直接读取，不再使用管理令牌）----
+app.MapGet("/api/health", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices, AdminCatalog catalog, RelaySessionManager sessions, RelayStats stats) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
+    var rooms = catalog.ListRooms(includeDevices: false);
     return Results.Json(new
     {
         ok = true,
@@ -50,47 +61,50 @@ app.MapGet("/api/health", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, D
         startedAt = stats.StartedAt,
         uptimeSec = (long)(DateTimeOffset.UtcNow - stats.StartedAt).TotalSeconds,
         devices = devices.OnlineCount,
-        rooms = devices.RoomCount,
+        registeredDevices = rooms.Sum(r => r.DeviceCount),
+        rooms = rooms.Count,
         sessions = sessions.ActiveCount,
         relayBytes = stats.RelayBytes,
         signals = stats.SignalsForwarded
     });
 });
 
-app.MapGet("/api/devices", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices) =>
+app.MapGet("/api/dashboard", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, AdminCatalog catalog, RelaySessionManager sessions, RelayStats stats) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
-    if (!AdminAuth.IsAuthorized(ctx, opt.CurrentValue, write: false)) return AdminAuth.UnauthorizedResult();
-    return Results.Json(new { devices = devices.ListAll() });
-});
-
-app.MapGet("/api/rooms", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices) =>
-{
-    if (!IsAdmin(ctx)) return Results.NotFound();
-    if (!AdminAuth.IsAuthorized(ctx, opt.CurrentValue, write: false)) return AdminAuth.UnauthorizedResult();
+    var rooms = catalog.ListRooms(includeDevices: true);
+    var names = rooms.SelectMany(r => r.Devices).ToDictionary(d => d.Id, d => d.Name, StringComparer.OrdinalIgnoreCase);
+    var roomNo = rooms.ToDictionary(r => r.RoomId, r => r.RoomNo, StringComparer.Ordinal);
+    string NameOf(string id) => names.TryGetValue(id, out var n) && !string.IsNullOrWhiteSpace(n) ? n : id;
     return Results.Json(new
     {
-        rooms = devices.ListRooms().Select(r => new
+        server = opt.CurrentValue.ServerName,
+        startedAt = stats.StartedAt,
+        uptimeSec = (long)(DateTimeOffset.UtcNow - stats.StartedAt).TotalSeconds,
+        registeredRooms = rooms.Count,
+        registeredDevices = rooms.Sum(r => r.DeviceCount),
+        onlineDevices = rooms.Sum(r => r.OnlineCount),
+        sessions = sessions.ActiveCount,
+        relayBytes = stats.RelayBytes,
+        signals = stats.SignalsForwarded,
+        rooms = rooms.Select(r => new
         {
-            roomId = r.RoomId,
-            deviceCount = r.Count,
-            devices = devices.ListRoom(r.RoomId)
-        })
-    });
-});
-
-app.MapGet("/api/sessions", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, RelaySessionManager sessions) =>
-{
-    if (!IsAdmin(ctx)) return Results.NotFound();
-    if (!AdminAuth.IsAuthorized(ctx, opt.CurrentValue, write: false)) return AdminAuth.UnauthorizedResult();
-    return Results.Json(new
-    {
-        sessions = sessions.List().Select(s => new
+            r.RoomId,
+            r.RoomNo,
+            r.CreatedAt,
+            r.DeviceCount,
+            r.OnlineCount,
+            r.LastSeen
+        }),
+        sessionList = sessions.List().Select(s => new
         {
             s.SessionId,
             s.RoomId,
+            roomNo = roomNo.TryGetValue(s.RoomId, out var no) ? no : s.RoomId,
             s.DeviceA,
+            deviceAName = NameOf(s.DeviceA),
             s.DeviceB,
+            deviceBName = NameOf(s.DeviceB),
             s.CreatedAt,
             s.LastActivity,
             s.BytesAtoB,
@@ -99,36 +113,35 @@ app.MapGet("/api/sessions", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt,
     });
 });
 
-app.MapGet("/api/stats", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices, RelaySessionManager sessions, RelayStats stats) =>
+app.MapGet("/api/rooms", (HttpContext ctx, AdminCatalog catalog) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
-    if (!AdminAuth.IsAuthorized(ctx, opt.CurrentValue, write: false)) return AdminAuth.UnauthorizedResult();
-    return Results.Json(new
-    {
-        server = opt.CurrentValue.ServerName,
-        startedAt = stats.StartedAt,
-        devicesOnline = devices.OnlineCount,
-        rooms = devices.RoomCount,
-        sessionsActive = sessions.ActiveCount,
-        sessionsOpened = stats.SessionsOpened,
-        sessionsClosed = stats.SessionsClosed,
-        relayBytes = stats.RelayBytes,
-        signalsForwarded = stats.SignalsForwarded
-    });
+    return Results.Json(new { rooms = catalog.ListRooms(includeDevices: false) });
 });
 
-app.MapDelete("/api/devices/{deviceId}", async (string deviceId, HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices) =>
+app.MapGet("/api/rooms/{roomId}", (string roomId, HttpContext ctx, AdminCatalog catalog) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
-    if (!AdminAuth.IsAuthorized(ctx, opt.CurrentValue, write: true)) return AdminAuth.UnauthorizedResult();
+    var room = catalog.FindRoom(roomId);
+    return room is null
+        ? Results.Json(new { error = "not_found", message = "房间不存在" }, statusCode: StatusCodes.Status404NotFound)
+        : Results.Json(room);
+});
+
+app.MapDelete("/api/devices/{deviceId}", async (string deviceId, HttpContext ctx, DeviceRegistry devices) =>
+{
+    if (!IsAdmin(ctx)) return Results.NotFound();
+    if (!devices.TryGetByDeviceId(deviceId, out var conn) || conn is null)
+        return Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
     await devices.KickAsync(deviceId).ConfigureAwait(false);
     return Results.Json(new { ok = true, kicked = deviceId });
 });
 
-app.MapPost("/api/sessions/{sessionId}/close", (string sessionId, HttpContext ctx, IOptionsMonitor<RelayOptions> opt, RelaySessionManager sessions) =>
+app.MapPost("/api/sessions/{sessionId}/close", (string sessionId, HttpContext ctx, RelaySessionManager sessions) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
-    if (!AdminAuth.IsAuthorized(ctx, opt.CurrentValue, write: true)) return AdminAuth.UnauthorizedResult();
+    if (!sessions.TryGet(sessionId, out var session) || session is null)
+        return Results.Json(new { ok = false, error = "not_found" }, statusCode: StatusCodes.Status404NotFound);
     sessions.Close(sessionId, "admin");
     return Results.Json(new { ok = true, closed = sessionId });
 });

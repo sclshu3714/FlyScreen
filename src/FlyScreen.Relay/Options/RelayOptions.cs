@@ -37,16 +37,31 @@ public sealed class RelayOptions
     /// <summary>是否周期性向 IPv4 广播宣告在线设备（同局域网/VPN 时无需单播也能扫到）。</summary>
     public bool DiscoveryBroadcastAnnounce { get; set; } = true;
 
-    /// <summary>
-    /// 管理 API / 页面鉴权令牌。建议与客户端「安全密钥」设为同一字符串，便于同钥同房与管理面统一。
-    /// 设备 WebSocket 注册仍用 roomKey（=客户端安全密钥），不校验本令牌。
-    /// </summary>
-    public string AdminToken { get; set; } = "change-me";
+    /// <summary>注册库。默认内嵌 SQLite；只有 <see cref="DatabaseOptions.UseEmbedded"/> 为 false 时才使用外部库。</summary>
+    public DatabaseOptions Database { get; set; } = new();
 
     public int DeviceOfflineAfterSeconds { get; set; } = 90;
     public int RelayIdleTimeoutSeconds { get; set; } = 600;
     public int MaxDevicesPerRoom { get; set; } = 64;
     public int MaxRelaySessions { get; set; } = 128;
     public int MaxRelayFrameBytes { get; set; } = 1_048_576;
-    public bool AllowAnonymousAdminRead { get; set; }
+}
+
+/// <summary>管理端注册库。默认内嵌 SQLite，不读取安全密钥、也不作为管理令牌。</summary>
+public sealed class DatabaseOptions
+{
+    /// <summary>
+    /// true（默认）：使用内嵌 SQLite。
+    /// 只有显式设为 false 时才改用外部数据库，此时必须填写 <see cref="Provider"/> 与 <see cref="ConnectionString"/>。
+    /// </summary>
+    public bool UseEmbedded { get; set; } = true;
+
+    /// <summary>内嵌库文件。相对路径相对于内容根目录。仅 <see cref="UseEmbedded"/> 为 true 时使用。</summary>
+    public string EmbeddedPath { get; set; } = "data/relay.db";
+
+    /// <summary>外部库类型。当前支持 mysql、mariadb。</summary>
+    public string Provider { get; set; } = "";
+
+    /// <summary>外部库连接串。例如 Server=127.0.0.1;Port=3306;Database=flyscreen;User ID=fly;Password=secret;</summary>
+    public string ConnectionString { get; set; } = "";
 }

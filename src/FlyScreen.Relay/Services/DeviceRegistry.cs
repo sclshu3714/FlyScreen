@@ -83,16 +83,21 @@ public sealed class DeviceRegistry
     private readonly ConcurrentDictionary<string, string> _deviceToConnection = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _rooms = new(StringComparer.Ordinal);
     private readonly IOptionsMonitor<RelayOptions> _options;
+    private readonly RelayStore _store;
     private readonly ILogger<DeviceRegistry> _log;
 
-    public DeviceRegistry(IOptionsMonitor<RelayOptions> options, ILogger<DeviceRegistry> log)
+    public DeviceRegistry(IOptionsMonitor<RelayOptions> options, RelayStore store, ILogger<DeviceRegistry> log)
     {
         _options = options;
+        _store = store;
         _log = log;
     }
 
     public int OnlineCount => _byConnection.Count;
     public int RoomCount => _rooms.Count;
+
+    public bool ContainsRoom(string? roomId)
+        => !string.IsNullOrEmpty(roomId) && _rooms.ContainsKey(roomId);
 
     public static string HashRoomKey(string roomKey)
     {
@@ -114,6 +119,7 @@ public sealed class DeviceRegistry
             : hello.DeviceId!.Trim();
         var roomId = HashRoomKey(hello.RoomKey ?? "");
         var name = string.IsNullOrWhiteSpace(hello.Name) ? deviceId[..Math.Min(8, deviceId.Length)] : hello.Name!.Trim();
+        if (name.Length > 200) name = name[..200];
 
         if (_rooms.TryGetValue(roomId, out var existing) && existing.Count >= opts.MaxDevicesPerRoom
             && !_deviceToConnection.ContainsKey(deviceId))
@@ -150,8 +156,19 @@ public sealed class DeviceRegistry
         var room = _rooms.GetOrAdd(roomId, _ => new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
         room[deviceId] = 0;
 
-        _log.LogInformation("设备注册 {DeviceId} name={Name} room={Room} from={Remote}",
-            deviceId, name, roomId, remoteAddress);
+        var roomNo = name;
+        try
+        {
+            roomNo = _store.EnsureRoom(roomId, name, deviceId);
+            _store.UpsertDevice(conn);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "写入注册库失败 {DeviceId}", deviceId);
+        }
+
+        _log.LogInformation("设备注册 {DeviceId} name={Name} roomNo={RoomNo} room={Room} from={Remote}",
+            deviceId, name, roomNo, roomId, remoteAddress);
         return conn;
     }
 
@@ -163,6 +180,8 @@ public sealed class DeviceRegistry
         if (candidates is null) return;
         conn.Candidates = candidates;
         conn.LastSeen = DateTimeOffset.UtcNow;
+        try { _store.UpsertDevice(conn); }
+        catch (Exception ex) { _log.LogDebug(ex, "更新设备候选失败 {DeviceId}", conn.DeviceId); }
     }
 
     public bool TryGetByDeviceId(string deviceId, out DeviceConnection? conn)
@@ -201,6 +220,8 @@ public sealed class DeviceRegistry
             _deviceToConnection.TryRemove(conn.DeviceId, out _);
         RemoveFromRoom(conn.RoomId, conn.DeviceId);
         try { conn.Lifetime.Cancel(); } catch { /* ignore */ }
+        try { _store.Touch(conn.DeviceId, conn.LastSeen); }
+        catch (Exception ex) { _log.LogDebug(ex, "更新离线时间失败 {DeviceId}", conn.DeviceId); }
         _log.LogInformation("设备离线 {DeviceId} room={Room}", conn.DeviceId, conn.RoomId);
     }
 

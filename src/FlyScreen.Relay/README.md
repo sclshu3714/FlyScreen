@@ -10,7 +10,7 @@
 | STUN | UDP `8443` | 客户端收集 srflx 候选，优先 P2P |
 | **发现桥接** | UDP `15156` | 兼容现有客户端 `DiscoveryService`，应答全部在线注册设备 |
 
-> 本目录为独立服务。下文示例用 `ws://` / `http://`；生产请用 TLS（`wss://` / `https://`）并改 `AdminToken`。
+> 本目录为独立服务。下文示例用 `ws://` / `http://`；生产请用 TLS（`wss://` / `https://`）。管理页在管理口直接打开，房间号取第一台注册电脑的名称。注册记录默认写入内嵌 SQLite（`data/relay.db`）。
 
 ---
 
@@ -164,7 +164,7 @@ curl "http://relay.example.com:8443/v1/devices?roomKey=demo-room"
 curl "http://relay.example.com:8443/v1/discover"
 ```
 
-管理页 http://relay.example.com:9080/ 也可查看（写操作需 `X-Admin-Token`）。
+管理页 http://relay.example.com:9080/ ：左侧「首页」是看板，「房间」列出已注册房间及其设备。房间号是该房间第一台注册电脑的名称。
 
 ---
 
@@ -407,15 +407,14 @@ S→A  原样转发
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/health` | 公开健康 |
-| GET | `/api/devices` | 设备列表 |
-| GET | `/api/rooms` | 按房间 |
-| GET | `/api/sessions` | 中继会话 |
-| GET | `/api/stats` | 统计 |
-| DELETE | `/api/devices/{id}` | 踢出（需令牌） |
+| GET | `/api/health` | 健康与计数 |
+| GET | `/api/dashboard` | 首页看板 |
+| GET | `/api/rooms` | 已注册房间（房间号为第一台电脑名称） |
+| GET | `/api/rooms/{roomId}` | 房间内设备 |
+| DELETE | `/api/devices/{id}` | 踢出在线设备（注册记录保留） |
 | POST | `/api/sessions/{id}/close` | 关闭会话 |
 
-鉴权：头 `X-Admin-Token` 或 `?token=`。开发默认令牌见 `appsettings.Development.json`（`dev-token`）。
+管理口不再要求令牌。请只在内网或反向代理后开放 `9080`。
 
 ---
 
@@ -429,7 +428,10 @@ S→A  原样转发
 | StunUdpPort | `8443` | STUN；`0` 关闭 |
 | DiscoveryUdpPort | `15156` | 兼容客户端发现；`0` 关闭 |
 | DiscoveryBroadcastAnnounce | `true` | 周期广播宣告 |
-| AdminToken | `change-me` | 管理令牌 |
+| Database:UseEmbedded | `true` | 使用内嵌 SQLite。设为 `false` 时必须同时给出外部库，否则启动失败 |
+| Database:EmbeddedPath | `data/relay.db` | 内嵌库文件，相对内容根目录 |
+| Database:Provider | 空 | 外部库类型：`mysql` 或 `mariadb`。仅 `UseEmbedded=false` 时生效 |
+| Database:ConnectionString | 空 | 外部库连接串。仅 `UseEmbedded=false` 时生效 |
 | PublicEdgeUrl | 空 | 对外公布的 wss 根地址 |
 | MaxDevicesPerRoom | `64` | 单房间设备上限 |
 | MaxRelaySessions | `128` | 同时中继会话上限 |

@@ -23,7 +23,10 @@ services:
       Relay__StunUdpPort: "8443"
       Relay__DiscoveryUdpPort: "15156"
       Relay__DiscoveryBroadcastAnnounce: "true"
-      Relay__AdminToken: change-me
+      # 默认内嵌 SQLite，数据在卷 ./data。改用 MySQL 时必须同时关掉内嵌库：
+      # Relay__Database__UseEmbedded: "false"
+      # Relay__Database__Provider: mysql
+      # Relay__Database__ConnectionString: Server=mysql;Port=3306;Database=flyscreen;User ID=fly;Password=secret;
       # Relay__PublicEdgeUrl: wss://relay.example.com:8443
     volumes:
       - ./data:/app/data

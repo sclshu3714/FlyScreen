@@ -57,6 +57,9 @@ public sealed class RelaySessionManager
     public IReadOnlyList<RelaySession> List()
         => _sessions.Values.OrderByDescending(s => s.LastActivity).ToList();
 
+    public bool TryGet(string sessionId, out RelaySession? session)
+        => _sessions.TryGetValue(sessionId, out session);
+
     public async Task<(bool Ok, string? Error, RelaySession? Session)> OpenAsync(
         DeviceConnection self, string peerId, string? sessionId, CancellationToken ct)
     {
