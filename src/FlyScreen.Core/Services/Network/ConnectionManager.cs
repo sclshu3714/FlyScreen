@@ -943,12 +943,21 @@ public sealed class ConnectionManager : IAsyncDisposable
             return false;
         }
 
-        if (tunnel == null) return false;
-        return await TryOutboundHandshakeAsync(
+        if (tunnel == null)
+        {
+            if (!bulk)
+                StatusMessage?.Invoke($"中继隧道未就绪（对端未加入或信令超时）→ {peerName}");
+            return false;
+        }
+
+        var ok = await TryOutboundHandshakeAsync(
             link, peerName, "中继", 0, bulk, ct,
             connectTimeout: TimeSpan.FromSeconds(8),
             rememberPeer: false,
             connected: tunnel).ConfigureAwait(false);
+        if (!ok && !bulk)
+            StatusMessage?.Invoke($"中继已接通但握手失败 → {peerName}（请确认双方密钥一致、对端在线）");
+        return ok;
     }
 
     private IEnumerable<(string Ip, int Port)> EnumerateSignalingP2PTargets(

@@ -42,6 +42,9 @@ public sealed class RelayClient : IAsyncDisposable
     private readonly ConcurrentDictionary<string, RelayPipe> _pipes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _readyWaits = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _accepting = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>对端 StartPipe 前已到达的中继帧（局域网中继 RTT 常短于本机 Accept）。</summary>
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<byte[]>> _earlyBinary =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public string EndpointId => _endpointId;
 
@@ -669,10 +672,18 @@ public sealed class RelayClient : IAsyncDisposable
     {
         if (!_accepting.TryAdd(sessionId, 0)) return;
         var wait = ArmReady(sessionId);
+        TcpClient? local = null;
         try
         {
             var socket = _socket;
             if (socket == null || !_registered) return;
+
+            // 与 WaitReady 并行拨本机监听，缩短 Ready 后到管道就绪的窗口
+            var dial = _localAcceptDial;
+            var dialTask = dial != null
+                ? DialLocalSafeAsync(dial, ct)
+                : Task.FromResult<TcpClient?>(null);
+
             await SendAsync(socket, new RelayWireMessage
             {
                 Type = RelayMessageTypes.RelayOpen,
@@ -681,27 +692,25 @@ public sealed class RelayClient : IAsyncDisposable
             }, ct).ConfigureAwait(false);
 
             var ready = await WaitReadyAsync(wait, sessionId, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false);
-            if (!ready) return;
+            local = await dialTask.ConfigureAwait(false);
 
-            var dial = _localAcceptDial;
-            if (dial == null)
+            if (!ready)
             {
-                await SendCloseAsync(sessionId, ct).ConfigureAwait(false);
+                try { local?.Dispose(); } catch { /* ignore */ }
+                local = null;
                 return;
             }
-
-            TcpClient? local;
-            try { local = await dial(ct).ConfigureAwait(false); }
-            catch { local = null; }
 
             if (local == null || !local.Connected)
             {
                 try { local?.Dispose(); } catch { /* ignore */ }
+                local = null;
                 await SendCloseAsync(sessionId, ct).ConfigureAwait(false);
                 return;
             }
 
             StartPipe(sessionId, local, ct);
+            local = null; // 所有权交给 pipe
         }
         catch (OperationCanceledException)
         {
@@ -713,8 +722,16 @@ public sealed class RelayClient : IAsyncDisposable
         }
         finally
         {
+            try { local?.Dispose(); } catch { /* ignore */ }
             _accepting.TryRemove(sessionId, out _);
         }
+    }
+
+    private static async Task<TcpClient?> DialLocalSafeAsync(
+        Func<CancellationToken, Task<TcpClient?>> dial, CancellationToken ct)
+    {
+        try { return await dial(ct).ConfigureAwait(false); }
+        catch { return null; }
     }
 
     private async Task<TcpClient?> SpliceLoopbackAsync(string sessionId, CancellationToken ct)
@@ -766,6 +783,13 @@ public sealed class RelayClient : IAsyncDisposable
             return;
         }
 
+        // 灌入 Ready 前已到达、因管道未建而暂存的帧
+        if (_earlyBinary.TryRemove(sessionId, out var early))
+        {
+            while (early.TryDequeue(out var chunk))
+                pipe.Incoming.Writer.TryWrite(chunk);
+        }
+
         _ = Task.Run(() => PumpPipeAsync(pipe));
     }
 
@@ -814,10 +838,19 @@ public sealed class RelayClient : IAsyncDisposable
         catch { return; }
 
         var sid = guid.ToString("N");
-        if (!_pipes.TryGetValue(sid, out var pipe)) return;
         var payload = new byte[data.Length - 17];
         Buffer.BlockCopy(data, 17, payload, 0, payload.Length);
-        pipe.Incoming.Writer.TryWrite(payload);
+
+        if (_pipes.TryGetValue(sid, out var pipe))
+        {
+            pipe.Incoming.Writer.TryWrite(payload);
+            return;
+        }
+
+        // 管道尚未 StartPipe：短时缓存，避免局域网中继抢跑丢掉握手首包
+        var q = _earlyBinary.GetOrAdd(sid, _ => new ConcurrentQueue<byte[]>());
+        if (q.Count < 64)
+            q.Enqueue(payload);
     }
 
     private async Task SendBinaryAsync(Guid session, ReadOnlyMemory<byte> payload, CancellationToken ct)
@@ -892,6 +925,7 @@ public sealed class RelayClient : IAsyncDisposable
     private void ClosePipe(RelayPipe pipe, bool notify)
     {
         if (!_pipes.TryRemove(pipe.SessionId, out _)) return;
+        _earlyBinary.TryRemove(pipe.SessionId, out _);
         try { pipe.Incoming.Writer.TryComplete(); } catch { /* ignore */ }
         try { pipe.Tcp.Close(); } catch { /* ignore */ }
         try { pipe.Cts.Cancel(); } catch { /* ignore */ }
@@ -909,6 +943,9 @@ public sealed class RelayClient : IAsyncDisposable
 
         foreach (var pipe in _pipes.Values.ToArray())
             ClosePipe(pipe, notify: false);
+
+        foreach (var key in _earlyBinary.Keys.ToArray())
+            _earlyBinary.TryRemove(key, out _);
     }
 
     private static int RankKind(string? kind, IPAddress ip)
