@@ -10,25 +10,40 @@ $repo = Split-Path $PSScriptRoot -Parent
 $tools = @(
     @{
         Id = "color-picker"
-        Proj = "src/FlyScreen.Tool.ColorPicker/FlyScreen.Tool.ColorPicker.csproj"
-        Manifest = "src/FlyScreen.Tool.ColorPicker/manifest.json"
+        Proj = "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker/FlyScreen.Tool.ColorPicker.csproj"
+        Manifest = "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker/manifest.json"
         UiProjs = @(
-            "src/FlyScreen.Tool.ColorPicker.Ui.Win/FlyScreen.Tool.ColorPicker.Ui.Win.csproj",
-            "src/FlyScreen.Tool.ColorPicker.Ui.Desktop/FlyScreen.Tool.ColorPicker.Ui.Desktop.csproj",
-            "src/FlyScreen.Tool.ColorPicker.Ui.Maui/FlyScreen.Tool.ColorPicker.Ui.Maui.csproj"
+            "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker.Ui.Win/FlyScreen.Tool.ColorPicker.Ui.Win.csproj",
+            "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker.Ui.Desktop/FlyScreen.Tool.ColorPicker.Ui.Desktop.csproj",
+            "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker.Ui.Maui/FlyScreen.Tool.ColorPicker.Ui.Maui.csproj"
         )
     },
     @{
         Id = "shared-devices"
-        Proj = "src/FlyScreen.Tool.SharedDevices/FlyScreen.Tool.SharedDevices.csproj"
-        Manifest = "src/FlyScreen.Tool.SharedDevices/manifest.json"
+        Proj = "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices/FlyScreen.Tool.SharedDevices.csproj"
+        Manifest = "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices/manifest.json"
         UiProjs = @(
-            "src/FlyScreen.Tool.SharedDevices.Ui.Win/FlyScreen.Tool.SharedDevices.Ui.Win.csproj",
-            "src/FlyScreen.Tool.SharedDevices.Ui.Desktop/FlyScreen.Tool.SharedDevices.Ui.Desktop.csproj",
-            "src/FlyScreen.Tool.SharedDevices.Ui.Maui/FlyScreen.Tool.SharedDevices.Ui.Maui.csproj"
+            "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Win/FlyScreen.Tool.SharedDevices.Ui.Win.csproj",
+            "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Desktop/FlyScreen.Tool.SharedDevices.Ui.Desktop.csproj",
+            "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Maui/FlyScreen.Tool.SharedDevices.Ui.Maui.csproj"
         )
     }
 )
+
+function Resolve-ProjectOutputDir([string]$projectFile, [string]$configuration, [string]$assemblyName) {
+    $projDir = Split-Path -Parent $projectFile
+    $candidates = @(
+        (Join-Path $projDir "bin/$configuration/net10.0"),
+        (Join-Path $projDir "bin/$configuration/net10.0-windows7.0"),
+        (Join-Path $projDir "bin/$configuration/net10.0-windows10.0.19041.0"),
+        (Join-Path $projDir "bin/$configuration/net10.0-android")
+    )
+    foreach ($dir in $candidates) {
+        $dll = Join-Path $dir "$assemblyName.dll"
+        if (Test-Path -LiteralPath $dll) { return $dir }
+    }
+    return $null
+}
 
 $stage = Join-Path $repo "artifacts/flytools-stage"
 $bundledOut = if ($OutRoot) { $OutRoot } else { Join-Path $repo "artifacts/flytools" }
@@ -38,42 +53,39 @@ $index = [ordered]@{ schemaVersion = 1; tools = @() }
 
 foreach ($t in $tools) {
     $proj = Join-Path $repo $t.Proj
+    if (-not (Test-Path -LiteralPath $proj)) { throw "missing project: $($t.Proj)" }
+    $manifest = Join-Path $repo $t.Manifest
+    if (-not (Test-Path -LiteralPath $manifest)) { throw "missing manifest: $($t.Manifest)" }
+
     Write-Host "Building $($t.Id)..."
     dotnet build $proj -c $Configuration --nologo -v q
     if ($LASTEXITCODE -ne 0) { throw "build failed $($t.Id)" }
 
-    $outDir = Join-Path $repo ("src/" + [IO.Path]::GetFileNameWithoutExtension($t.Proj) + "/bin/$Configuration/net10.0")
-    # 实际路径
-    $asmName = [IO.Path]::GetFileNameWithoutExtension($t.Proj)
-    $outDir = Join-Path $repo "src/$asmName/bin/$Configuration/net10.0"
-    if (-not (Test-Path $outDir)) { throw "missing $outDir" }
+    $asmName = [IO.Path]::GetFileNameWithoutExtension($proj)
+    $outDir = Resolve-ProjectOutputDir $proj $Configuration $asmName
+    if (-not $outDir) { throw "missing output dll for $asmName under $(Split-Path $proj -Parent)/bin/$Configuration" }
 
     $packStage = Join-Path $stage $t.Id
     Remove-Item -Recurse -Force $packStage -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $packStage | Out-Null
-    Copy-Item (Join-Path $repo $t.Manifest) (Join-Path $packStage "manifest.json") -Force
+    Copy-Item $manifest (Join-Path $packStage "manifest.json") -Force
     Copy-Item (Join-Path $outDir "$asmName.dll") $packStage -Force
+
     # 平台 UI 卫星程序集（宿主提供 Core/ToolSdk）
     foreach ($uiRel in @($t.UiProjs)) {
         $uiProj = Join-Path $repo $uiRel
-        if (-not (Test-Path $uiProj)) { continue }
+        if (-not (Test-Path -LiteralPath $uiProj)) { continue }
         Write-Host "  Building UI $uiRel..."
         dotnet build $uiProj -c $Configuration --nologo -v q
         if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
-        $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiRel)
-        $uiOutRoots = @(
-            (Join-Path $repo "src/$uiAsm/bin/$Configuration/net10.0"),
-            (Join-Path $repo "src/$uiAsm/bin/$Configuration/net10.0-windows7.0"),
-            (Join-Path $repo "src/$uiAsm/bin/$Configuration/net10.0-windows10.0.19041.0"),
-            (Join-Path $repo "src/$uiAsm/bin/$Configuration/net10.0-android")
-        )
-        foreach ($uiOut in $uiOutRoots) {
-            $dll = Join-Path $uiOut "$uiAsm.dll"
-            if (Test-Path $dll) {
-                Copy-Item $dll $packStage -Force
-                Write-Host "  + $uiAsm.dll"
-                break
-            }
+        $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiProj)
+        $uiOut = Resolve-ProjectOutputDir $uiProj $Configuration $uiAsm
+        if ($uiOut) {
+            Copy-Item (Join-Path $uiOut "$uiAsm.dll") $packStage -Force
+            Write-Host "  + $uiAsm.dll"
+        }
+        else {
+            Write-Host "  ! skip missing UI dll $uiAsm"
         }
     }
 
@@ -86,7 +98,7 @@ foreach ($t in $tools) {
     $len = (Get-Item $fly).Length
     Write-Host "Packed $fly ($len bytes, sha256=$hash)"
 
-    $mf = Get-Content (Join-Path $repo $t.Manifest) -Raw | ConvertFrom-Json
+    $mf = Get-Content $manifest -Raw | ConvertFrom-Json
     $index.tools += [ordered]@{
         id = $t.Id
         version = $mf.package.version
@@ -105,6 +117,8 @@ if (-not $SkipAppCopy) {
         "src/FlyScreen.App.Windows/bin/$Configuration/net10.0-windows",
         "src/FlyScreen.App.Windows/bin/$Configuration/net10.0-windows10.0.19041.0",
         "src/FlyScreen.App.Desktop/bin/$Configuration/net10.0",
+        "src/FlyScreen.App.Mac/bin/$Configuration/net10.0",
+        "src/FlyScreen.App.Linux/bin/$Configuration/net10.0",
         "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-windows10.0.19041.0/win-x64"
     )
     foreach ($rel in $targets) {

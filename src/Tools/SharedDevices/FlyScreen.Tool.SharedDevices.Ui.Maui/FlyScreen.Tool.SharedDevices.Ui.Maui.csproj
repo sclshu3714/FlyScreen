@@ -12,7 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj" />
-    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
-    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 </Project>

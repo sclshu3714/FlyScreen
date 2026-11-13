@@ -8,8 +8,8 @@
     <Description>玄鸟共享设备工具包入口</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
-    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>

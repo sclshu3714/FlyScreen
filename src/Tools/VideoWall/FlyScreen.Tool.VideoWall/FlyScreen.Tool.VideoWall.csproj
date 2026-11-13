@@ -9,6 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- 骨架阶段只依赖契约程序集，便于单独编译；接线后再补 FlyScreen.Core 引用。 -->
-    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 </Project>
