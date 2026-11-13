@@ -480,23 +480,28 @@ public partial class MainWindow : Window
 
     private void TryApplyWindowIcon()
     {
-        try
-        {
-            var uri = new Uri("avares://FlyScreen.App.Desktop/Assets/app_icon.png");
-            Icon = new WindowIcon(AssetLoader.Open(uri));
-        }
-        catch
+        Icon = LoadAppWindowIcon();
+    }
+
+    private static WindowIcon? LoadAppWindowIcon()
+    {
+        foreach (var path in new[]
+                 {
+                     "avares://FlyScreen.App.Desktop/Assets/app_icon.png",
+                     "avares://FlyScreen.App.Desktop/Assets/wlogo_tu.ico"
+                 })
         {
             try
             {
-                var uri = new Uri("avares://FlyScreen.App.Desktop/Assets/wlogo_tu.ico");
-                Icon = new WindowIcon(AssetLoader.Open(uri));
+                return new WindowIcon(AssetLoader.Open(new Uri(path)));
             }
             catch
             {
-                // 保持默认
+                // try next
             }
         }
+
+        return null;
     }
 
     private async void OnOpened(object? sender, EventArgs e)
@@ -659,7 +664,7 @@ public partial class MainWindow : Window
             {
                 IsVisible = true,
                 ToolTipText = Loc.T("Tray.Tip"),
-                Icon = Icon,
+                Icon = Icon ?? LoadAppWindowIcon(),
                 Menu = BuildTrayMenu()
             };
             _trayIcon.Clicked += (_, _) => Dispatcher.UIThread.Post(ShowFromTray);
@@ -1577,7 +1582,7 @@ public partial class MainWindow : Window
     private void ToolsCatalogHost_SizeChanged(object? sender, SizeChangedEventArgs e)
         => ApplyToolsWrapColumns();
 
-    /// <summary>桌面默认两列；更宽/全屏按宽度加列。</summary>
+    /// <summary>对齐 Win/Maui：≥400 至少两列，更宽按 240 槽加列；列表置顶不垂直居中。</summary>
     private void ApplyToolsWrapColumns()
     {
         if (ToolsCatalogHost == null || ToolsList == null) return;
@@ -1586,9 +1591,21 @@ public partial class MainWindow : Window
         const double minCardSlot = 240;
         var byWidth = Math.Max(1, (int)Math.Floor(host / minCardSlot));
         var cols = host >= 400 ? Math.Max(2, byWidth) : byWidth;
+        ToolsList.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
         var grid = ToolsList.GetVisualDescendants().OfType<UniformGrid>().FirstOrDefault();
-        if (grid != null && grid.Columns != cols)
+        if (grid == null) return;
+        if (grid.Columns != cols)
             grid.Columns = cols;
+        var count = 0;
+        if (ToolsList.ItemsSource is System.Collections.ICollection col)
+            count = col.Count;
+        else if (ToolsList.ItemCount > 0)
+            count = ToolsList.ItemCount;
+        var rows = Math.Max(1, (int)Math.Ceiling(count / (double)Math.Max(1, cols)));
+        if (grid.Rows != rows)
+            grid.Rows = rows;
+        grid.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        grid.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
     }
 
     private void RefreshToolsWorkspace()

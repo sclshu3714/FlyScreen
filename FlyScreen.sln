@@ -53,23 +53,23 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Uninstaller", "se
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.ToolSdk", "src\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj", "{15B59E4C-CB6F-4AD8-BFCC-DFC3C9689215}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker", "src\FlyScreen.Tool.ColorPicker\FlyScreen.Tool.ColorPicker.csproj", "{AFEC647F-FF30-4832-9B00-687DCB9CE29D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker", "src\Tools\ColorPicker\FlyScreen.Tool.ColorPicker\FlyScreen.Tool.ColorPicker.csproj", "{AFEC647F-FF30-4832-9B00-687DCB9CE29D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices", "src\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj", "{CA70F3A7-1DF4-44C3-ACE5-B9A3981F1297}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices", "src\Tools\SharedDevices\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj", "{CA70F3A7-1DF4-44C3-ACE5-B9A3981F1297}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.Ui.Win", "src\FlyScreen.Tool.ColorPicker.Ui.Win\FlyScreen.Tool.ColorPicker.Ui.Win.csproj", "{0BA011EF-BF86-4573-B12A-AB61991E3FC6}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.Ui.Win", "src\Tools\ColorPicker\FlyScreen.Tool.ColorPicker.Ui.Win\FlyScreen.Tool.ColorPicker.Ui.Win.csproj", "{0BA011EF-BF86-4573-B12A-AB61991E3FC6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Win", "src\FlyScreen.Tool.SharedDevices.Ui.Win\FlyScreen.Tool.SharedDevices.Ui.Win.csproj", "{92CF49C5-8C36-4A31-8488-F244477E266C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Win", "src\Tools\SharedDevices\FlyScreen.Tool.SharedDevices.Ui.Win\FlyScreen.Tool.SharedDevices.Ui.Win.csproj", "{92CF49C5-8C36-4A31-8488-F244477E266C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.Ui.Desktop", "src\FlyScreen.Tool.ColorPicker.Ui.Desktop\FlyScreen.Tool.ColorPicker.Ui.Desktop.csproj", "{696F1C97-9C2F-48D4-AC52-2BAA16EA5AC6}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.Ui.Desktop", "src\Tools\ColorPicker\FlyScreen.Tool.ColorPicker.Ui.Desktop\FlyScreen.Tool.ColorPicker.Ui.Desktop.csproj", "{696F1C97-9C2F-48D4-AC52-2BAA16EA5AC6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Desktop", "src\FlyScreen.Tool.SharedDevices.Ui.Desktop\FlyScreen.Tool.SharedDevices.Ui.Desktop.csproj", "{66096384-58DC-4084-A3B0-A33DE26F265F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Desktop", "src\Tools\SharedDevices\FlyScreen.Tool.SharedDevices.Ui.Desktop\FlyScreen.Tool.SharedDevices.Ui.Desktop.csproj", "{66096384-58DC-4084-A3B0-A33DE26F265F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.Ui.Maui", "src\FlyScreen.Tool.ColorPicker.Ui.Maui\FlyScreen.Tool.ColorPicker.Ui.Maui.csproj", "{1D128F14-52EC-4A67-8E64-FA9320E8DFC0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.Ui.Maui", "src\Tools\ColorPicker\FlyScreen.Tool.ColorPicker.Ui.Maui\FlyScreen.Tool.ColorPicker.Ui.Maui.csproj", "{1D128F14-52EC-4A67-8E64-FA9320E8DFC0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Maui", "src\FlyScreen.Tool.SharedDevices.Ui.Maui\FlyScreen.Tool.SharedDevices.Ui.Maui.csproj", "{0F6E2A55-2355-4026-B254-E4EDE5D8EABA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Maui", "src\Tools\SharedDevices\FlyScreen.Tool.SharedDevices.Ui.Maui\FlyScreen.Tool.SharedDevices.Ui.Maui.csproj", "{0F6E2A55-2355-4026-B254-E4EDE5D8EABA}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{17C9FBA4-E68B-495C-A119-DE4C46DB9D77}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tools", "Tools", "{17C9FBA4-E68B-495C-A119-DE4C46DB9D77}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ColorPicker", "ColorPicker", "{A3B31424-197B-4EA0-AAE3-68290D515CE3}"
 EndProject

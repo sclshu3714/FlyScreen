@@ -87,6 +87,7 @@
       <Setter Property="MinWidth" Value="88"/>
       <Setter Property="Margin" Value="8,0,0,0"/>
     </Style>
+    <!-- 对齐 Win NetIconOpBtn：固定 28 高圆角方钮，避免 Fluent 默认把操作列拉成细长胶囊 -->
     <Style Selector="Button.netIconOp">
       <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
@@ -94,13 +95,38 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="Height" Value="28"/>
-      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="MaxHeight" Value="28"/>
+      <Setter Property="MinWidth" Value="28"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.netIconOp:pointerover">
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+    </Style>
+    <Style Selector="Button.netIconOp:pressed">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
     </Style>
     <Style Selector="Button.netIconOpWarn">
       <Setter Property="Background" Value="{DynamicResource WarnSoft}"/>
@@ -109,13 +135,38 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="Height" Value="28"/>
-      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="MaxHeight" Value="28"/>
+      <Setter Property="MinWidth" Value="28"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.netIconOpWarn:pointerover">
+      <Setter Property="Opacity" Value="0.85"/>
+    </Style>
+    <Style Selector="Button.netIconOpWarn:pressed">
+      <Setter Property="Background" Value="{DynamicResource Warn}"/>
+      <Setter Property="Foreground" Value="White"/>
     </Style>
     <Style Selector="Button.progTool">
       <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
@@ -885,9 +936,9 @@
               <Border x:Name="PanelDeviceMgmt" Classes="card" IsVisible="False">
                 <Grid RowDefinitions="Auto,Auto,Auto,*">
                   <DockPanel Margin="0,0,0,4" LastChildFill="True">
-                    <Button x:Name="RefreshDiscoveryBtn" DockPanel.Dock="Right" Width="32" Height="28" Padding="0"
-                            Content="↻" Click="RefreshDiscovery_Click"
-                            Foreground="{DynamicResource Blue}" FontSize="14" FontWeight="SemiBold" Margin="8,0,0,0"/>
+                    <Button x:Name="RefreshDiscoveryBtn" DockPanel.Dock="Right" Classes="netIconOp"
+                            Width="32" Content="↻" Click="RefreshDiscovery_Click"
+                            ToolTip.Tip="刷新发现" Margin="8,0,0,0"/>
                     <StackPanel>
                       <TextBlock x:Name="DiscoveryTitleText" Text="设备管理" FontWeight="SemiBold" FontSize="15"/>
                       <TextBlock x:Name="DiscoveryHintText"
@@ -1338,10 +1389,11 @@
                 <Panel>
                 <ScrollViewer x:Name="ToolsCatalogHost" HorizontalScrollBarVisibility="Disabled"
                               SizeChanged="ToolsCatalogHost_SizeChanged">
-                  <ItemsControl x:Name="ToolsList">
+                  <!-- VerticalAlignment=Top：避免 ScrollViewer 拉伸后 UniformGrid 把卡片沉底 -->
+                  <ItemsControl x:Name="ToolsList" VerticalAlignment="Top" HorizontalAlignment="Stretch">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate>
-                        <UniformGrid Columns="2"/>
+                        <UniformGrid Columns="2" VerticalAlignment="Top"/>
                       </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>

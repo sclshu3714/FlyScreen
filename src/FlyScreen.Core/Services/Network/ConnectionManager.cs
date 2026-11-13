@@ -133,8 +133,17 @@ public sealed class ConnectionManager : IAsyncDisposable
         }
 
         var ct = _cts.Token;
-        _ = Task.Run(() => AcceptLoopAsync(ct), ct);
-        _ = Task.Run(() => MaintainLoopAsync(ct), ct);
+        // 外层吞掉残留异常，避免 Task 未观察故障在调试器里刷成「崩溃」
+        _ = Task.Run(async () =>
+        {
+            try { await AcceptLoopAsync(ct).ConfigureAwait(false); }
+            catch { /* AcceptLoop 内已处理 */ }
+        });
+        _ = Task.Run(async () =>
+        {
+            try { await MaintainLoopAsync(ct).ConfigureAwait(false); }
+            catch { /* MaintainLoop 内已处理 */ }
+        });
         StatusMessage?.Invoke(listenAny
             ? $"已在 0.0.0.0:{_settings.TcpPort} 监听（全部网卡）"
             : $"已在 {_bindIp}:{_settings.TcpPort} 监听");
@@ -163,11 +172,12 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public async Task StopAsync()
     {
-        // 先停监听唤醒 Accept，再取消 CTS，避免 AcceptTcpClientAsync(ct) 路径抛 OCE
+        // 先取消 CTS 唤醒 AcceptTcpClientAsync(ct)，再 Stop 监听兜底；
+        // 避免仅靠 listener.Stop() 触发 SocketException 在调试器里像未处理异常。
         var listener = _listener;
         _listener = null;
-        try { listener?.Stop(); } catch { /* ignore */ }
         try { _cts?.Cancel(); } catch { /* ignore */ }
+        try { listener?.Stop(); } catch { /* ignore */ }
         _discovery.Stop();
         RelayHub.StopAll();
 
@@ -676,8 +686,8 @@ public sealed class ConnectionManager : IAsyncDisposable
 
             try
             {
-                // 不传 CancellationToken：停止时靠 listener.Stop() 唤醒，避免 Accept 抛 OCE 刷调试器
-                var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                // 带 ct：Stop 时先 Cancel，优先 OCE 退出；Stop() 兜底仍可能 SocketException（已捕获）
+                var client = await listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
                 if (ct.IsCancellationRequested || !ReferenceEquals(_listener, listener))
                 {
                     try { client.Dispose(); } catch { /* ignore */ }
@@ -711,20 +721,20 @@ public sealed class ConnectionManager : IAsyncDisposable
                 // Stop()/重绑时 Accept 会抛；务必退出旧循环，勿在已替换的 listener 上空转
                 if (ct.IsCancellationRequested || _listener == null || !ReferenceEquals(_listener, listener))
                     break;
-                try { await Task.Delay(200).ConfigureAwait(false); }
+                try { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); }
                 catch { break; }
             }
             catch (InvalidOperationException)
             {
                 if (_listener == null || !ReferenceEquals(_listener, listener)) break;
-                try { await Task.Delay(200).ConfigureAwait(false); }
+                try { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); }
                 catch { break; }
             }
             catch
             {
                 if (ct.IsCancellationRequested || _listener == null || !ReferenceEquals(_listener, listener))
                     break;
-                try { await Task.Delay(200).ConfigureAwait(false); }
+                try { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); }
                 catch { break; }
             }
         }

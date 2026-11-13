@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -14,6 +16,8 @@
     <!-- Windows 上可编译验证；真机发布：-r osx-arm64 / osx-x64 -->
     <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- 任务栏 / 资源管理器图标（Win 上调试 Mac 宿主也需要） -->
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
