@@ -92,34 +92,36 @@ public sealed class RelaySessionManager
         var pairKey = PairKey(self.DeviceId, peerId);
         var pending = new PendingOpen(sid, self.RoomId, self.DeviceId, peerId, DateTimeOffset.UtcNow);
 
+        if (_pending.TryGetValue(pairKey, out var held)
+            && string.Equals(held.DeviceId, self.DeviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            // 同一发起方重试：刷新等待，避免被当成对端加入而连成自环
+            _pending[pairKey] = pending;
+            self.RelaySessions[sid] = 0;
+            await NotifyRelayRequestAsync(peer, self.DeviceId, peerId, sid, ct).ConfigureAwait(false);
+            return (true, null, null);
+        }
+
         if (_pending.TryAdd(pairKey, pending))
         {
             // 首端：等待对端以同一 sessionId（或任意，匹配 pair）打开
             self.RelaySessions[sid] = 0;
             _log.LogInformation("中继等待对端 session={Session} {A}->{B}", sid, self.DeviceId, peerId);
-
-            // 通知对端有人请求中继
-            await peer.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
-            {
-                Type = MessageTypes.Signal,
-                From = self.DeviceId,
-                To = peerId,
-                MsgType = "relay-request",
-                SessionId = sid,
-                Payload = System.Text.Json.JsonSerializer.SerializeToElement(new
-                {
-                    sessionId = sid,
-                    from = self.DeviceId,
-                    reason = "p2p-failed-or-preferred-relay"
-                }, Wire.JsonOptions)
-            }), ct).ConfigureAwait(false);
-
+            await NotifyRelayRequestAsync(peer, self.DeviceId, peerId, sid, ct).ConfigureAwait(false);
             return (true, null, null); // 尚未 ready
         }
 
         // 对端已 pending：建立会话
         if (!_pending.TryRemove(pairKey, out var first))
             return (false, "中继握手冲突，请重试", null);
+
+        if (string.Equals(first.DeviceId, self.DeviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            _pending[pairKey] = pending;
+            self.RelaySessions[sid] = 0;
+            await NotifyRelayRequestAsync(peer, self.DeviceId, peerId, sid, ct).ConfigureAwait(false);
+            return (true, null, null);
+        }
 
         // 允许第二端带不同 sessionId：统一用首端的
         sid = first.SessionId;
@@ -235,6 +237,25 @@ public sealed class RelaySessionManager
         }
 
         return n;
+    }
+
+    private static Task NotifyRelayRequestAsync(
+        DeviceConnection peer, string fromDeviceId, string peerId, string sessionId, CancellationToken ct)
+    {
+        return peer.SendTextAsync(DeviceRegistry.JsonSerialize(new WireMessage
+        {
+            Type = MessageTypes.Signal,
+            From = fromDeviceId,
+            To = peerId,
+            MsgType = "relay-request",
+            SessionId = sessionId,
+            Payload = System.Text.Json.JsonSerializer.SerializeToElement(new
+            {
+                sessionId,
+                from = fromDeviceId,
+                reason = "p2p-failed-or-preferred-relay"
+            }, Wire.JsonOptions)
+        }), ct);
     }
 
     private void NotifyPeerLeft(RelaySession session, string deviceId, string sessionId)

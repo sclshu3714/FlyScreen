@@ -140,6 +140,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             : $"已在 {_bindIp}:{_settings.TcpPort} 监听");
 
         RelayHub.AttachSettings(_settings);
+        RelayHub.SetLocalAcceptDial(DialLocalListenerAsync);
         var relayCt = _cts.Token;
         _ = RelayHub.StartAllConfiguredAsync(_settings, relayCt);
     }
@@ -728,6 +729,15 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         try
         {
+            if (IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice))
+            {
+                var ok = await ConnectViaSignalingAsync(link, peerName, relayClient, relayDevice, bulk: false, ct)
+                    .ConfigureAwait(false);
+                if (!ok)
+                    ReportConnectFailed(peerName, SignalingFailDetail(relayDevice));
+                return;
+            }
+
             List<(string Ip, int Port)> targets;
             try
             {
@@ -788,6 +798,13 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         try
         {
+            if (IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice))
+            {
+                await ConnectViaSignalingAsync(link, peerName, relayClient, relayDevice, bulk: true, ct)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             List<(string Ip, int Port)> targets;
             try
             {
@@ -817,25 +834,178 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// 信令服务发现的设备：不走局域网发现，也不走远程配置拨号。先按登记候选做 P2P，失败再开中继。
+    /// </summary>
+    private bool IsSignalingOnlyPeer(string peerName, out RelayClient? client, out RelayDiscoveredDevice? device)
+    {
+        client = null;
+        device = null;
+        var origin = FindDiscoveryOrigin(peerName);
+        if (origin == DiscoveryOrigin.Lan)
+            return false;
+        if (RelayHub.TryFindDevice(peerName, out client, out device))
+            return true;
+        return origin == DiscoveryOrigin.Service;
+    }
+
+    private int? FindDiscoveryOrigin(string peerName)
+    {
+        foreach (var peer in _discovery.GetPeers())
+        {
+            if (string.Equals(peer.MachineName, peerName, StringComparison.OrdinalIgnoreCase))
+                return peer.Origin;
+        }
+
+        return null;
+    }
+
+    private static string SignalingFailDetail(RelayDiscoveredDevice? device)
+    {
+        if (device == null) return "信令服务未登记该设备";
+        if (!device.Online) return "对端未在信令服务在线";
+        return "P2P 与中继均未打通";
+    }
+
+    private async Task<bool> ConnectViaSignalingAsync(
+        PeerLink link,
+        string peerName,
+        RelayClient? client,
+        RelayDiscoveredDevice? device,
+        bool bulk,
+        CancellationToken ct)
+    {
+        if (client != null && !client.IsConnected)
+        {
+            var ep = (_settings.ConnectionEndpoints ?? []).FirstOrDefault(e =>
+                string.Equals(e.Id, client.EndpointId, StringComparison.Ordinal));
+            if (ep != null)
+            {
+                try { await RelayHub.EnsureAsync(ep, _settings, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { return false; }
+                catch { /* 候选仍可试 */ }
+            }
+        }
+
+        var controlViaRelay = bulk
+                              && link.Outbound is { IsAlive: true, PeerIp: var controlIp }
+                              && IPAddress.TryParse(controlIp, out var controlAddr)
+                              && IPAddress.IsLoopback(controlAddr);
+        if (!controlViaRelay)
+        {
+            if (!bulk)
+                StatusMessage?.Invoke($"正在通过信令连接 {peerName}");
+
+            foreach (var (ip, port) in EnumerateSignalingP2PTargets(peerName, client, device))
+            {
+                if (ct.IsCancellationRequested) return false;
+                if (await TryOutboundHandshakeAsync(
+                        link, peerName, ip, port, bulk, ct,
+                        connectTimeout: TimeSpan.FromSeconds(3),
+                        rememberPeer: false).ConfigureAwait(false))
+                    return true;
+            }
+        }
+
+        if (client == null || device == null || string.IsNullOrWhiteSpace(device.Id) || !device.Online)
+            return false;
+
+        if (!bulk)
+            StatusMessage?.Invoke($"P2P 未通，正在通过中继连接 {peerName}");
+
+        TcpClient? tunnel;
+        try
+        {
+            tunnel = await client.OpenOutboundTunnelAsync(device.Id, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (tunnel == null) return false;
+        return await TryOutboundHandshakeAsync(
+            link, peerName, "中继", 0, bulk, ct,
+            connectTimeout: TimeSpan.FromSeconds(8),
+            rememberPeer: false,
+            connected: tunnel).ConfigureAwait(false);
+    }
+
+    private IEnumerable<(string Ip, int Port)> EnumerateSignalingP2PTargets(
+        string peerName, RelayClient? client, RelayDiscoveredDevice? device)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (client != null && device != null && !string.IsNullOrWhiteSpace(device.Id))
+        {
+            foreach (var target in client.ListP2PTargets(device.Id))
+            {
+                if (seen.Add($"{target.Ip}:{target.Port}"))
+                    yield return target;
+            }
+        }
+
+        foreach (var peer in _discovery.GetPeers())
+        {
+            if (!string.Equals(peer.MachineName, peerName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (peer.Origin != DiscoveryOrigin.Service) continue;
+            if (peer.TcpPort is <= 0 or RelayClient.DefaultEdgePort) continue;
+            if (!IPAddress.TryParse(peer.Ip, out var addr) || IPAddress.IsLoopback(addr)) continue;
+            if (seen.Add($"{peer.Ip}:{peer.TcpPort}"))
+                yield return (peer.Ip, peer.TcpPort);
+        }
+    }
+
+    private async Task<TcpClient?> DialLocalListenerAsync(CancellationToken ct)
+    {
+        var port = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+        var listenAny = string.IsNullOrWhiteSpace(_bindIp) || _bindIp == "0.0.0.0";
+        var addr = listenAny ? IPAddress.Loopback : IPAddress.Parse(_bindIp);
+        var client = new TcpClient { NoDelay = true };
+        if (!await ConnectWithTimeoutAsync(client, addr, port, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false))
+        {
+            try { client.Dispose(); } catch { /* ignore */ }
+            return null;
+        }
+
+        return client;
+    }
+
+    private bool IsLocalSocket(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip) || !IPAddress.TryParse(ip, out var addr))
+            return false;
+        if (IPAddress.IsLoopback(addr)) return true;
+        return !string.IsNullOrWhiteSpace(_bindIp)
+               && _bindIp != "0.0.0.0"
+               && string.Equals(_bindIp, addr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// 连到一个候选地址并完成握手。先挂上应答等待再发送，避免局域网回包快于订阅而丢掉 HandshakeAck。
     /// </summary>
     private async Task<bool> TryOutboundHandshakeAsync(
-        PeerLink link, string peerName, string ip, int port, bool bulk, CancellationToken ct)
+        PeerLink link, string peerName, string ip, int port, bool bulk, CancellationToken ct,
+        TimeSpan? connectTimeout = null, bool rememberPeer = true, TcpClient? connected = null)
     {
-        TcpClient? client = null;
+        TcpClient? client = connected;
         PeerSession? session = null;
         try
         {
-            client = new TcpClient();
-            BindOutbound(client, ip);
-
-            var connectTimeout = OutboundConnectTimeout(ip);
-            if (!await ConnectWithTimeoutAsync(client, IPAddress.Parse(ip), port, connectTimeout, ct)
-                    .ConfigureAwait(false))
+            var timeout = connectTimeout ?? OutboundConnectTimeout(ip);
+            if (client == null)
             {
-                client.Dispose();
-                client = null;
-                return false;
+                if (!IPAddress.TryParse(ip, out var address))
+                    return false;
+                client = new TcpClient(address.AddressFamily) { NoDelay = true };
+                if (address.AddressFamily == AddressFamily.InterNetwork)
+                    BindOutbound(client, ip);
+
+                if (!await ConnectWithTimeoutAsync(client, address, port, timeout, ct).ConfigureAwait(false))
+                {
+                    client.Dispose();
+                    client = null;
+                    return false;
+                }
             }
 
             session = new PeerSession(client, isOutbound: true);
@@ -855,7 +1025,7 @@ public sealed class ConnectionManager : IAsyncDisposable
                 AdHocConnect = adHoc
             }));
             // Tailscale/VPN 握手回包也可能慢于局域网的 3s
-            var ackTimeout = connectTimeout > TimeSpan.FromSeconds(5)
+            var ackTimeout = timeout > TimeSpan.FromSeconds(5)
                 ? TimeSpan.FromSeconds(8)
                 : TimeSpan.FromSeconds(3);
             var ackWait = WaitMessageAsync(session, MessageType.HandshakeAck, ackTimeout, ct);
@@ -894,10 +1064,15 @@ public sealed class ConnectionManager : IAsyncDisposable
             session.SetPeerIdentity(peerName, remote);
             await link.SetOutboundAsync(session).ConfigureAwait(false);
             link.UpdateRemoteInfo(remote);
-            RememberPeerAddress(peerName, ip, ack!.LocalIp);
+            if (rememberPeer)
+                RememberPeerAddress(peerName, ip, ack!.LocalIp);
             session = null;
             NotifyLink(peerName, link);
-            StatusMessage?.Invoke($"已出站连接 {peerName} ({ip}) · {remote}");
+            StatusMessage?.Invoke(rememberPeer
+                ? $"已出站连接 {peerName} ({ip}) · {remote}"
+                : ip == "中继"
+                    ? $"已通过中继连接 {peerName} · {remote}"
+                    : $"已通过 P2P 连接 {peerName} ({ip}) · {remote}");
             if (RemoteAdvertisesBulk(remote))
                 _ = EnsureOutboundBulkAsync(peerName, ct);
             return true;
@@ -1311,7 +1486,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             return;
         }
 
-        if (_settings.SameSubnetOnly)
+        // 中继管道从本机回环接入，对端真实地址不在同网段时仍应完成握手
+        if (_settings.SameSubnetOnly && !IsLocalSocket(session.PeerIp))
         {
             var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
             if (nic != null && !string.IsNullOrEmpty(hs.LocalIp) &&

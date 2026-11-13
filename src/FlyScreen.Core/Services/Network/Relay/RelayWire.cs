@@ -30,6 +30,14 @@ public sealed class RelayWireMessage
 
     public long? Ts { get; set; }
 
+    public string? To { get; set; }
+    public string? From { get; set; }
+    public string? MsgType { get; set; }
+    public JsonElement? Payload { get; set; }
+
+    public string? PeerId { get; set; }
+    public string? SessionId { get; set; }
+
     public string? ServerId { get; set; }
     public string? ServerName { get; set; }
     public DateTimeOffset? ServerTime { get; set; }
@@ -65,10 +73,16 @@ public static class RelayMessageTypes
 {
     public const string Hello = "hello";
     public const string Ping = "ping";
+    public const string Candidates = "candidates";
+    public const string Signal = "signal";
+    public const string RelayOpen = "relay.open";
+    public const string RelayClose = "relay.close";
     public const string Welcome = "welcome";
     public const string Registered = "registered";
     public const string Devices = "devices";
     public const string DeviceUpdated = "device.updated";
     public const string Pong = "pong";
+    public const string RelayReady = "relay.ready";
+    public const string RelayPeerLeft = "relay.peer-left";
     public const string Error = "error";
 }

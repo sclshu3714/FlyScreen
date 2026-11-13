@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using FlyScreen.Models;
 
 namespace FlyScreen.Services.Network.Relay;
@@ -9,6 +10,40 @@ public sealed class RelaySessionHub
     private readonly Dictionary<string, RelayClient> _clients = new(StringComparer.Ordinal);
     private AppSettings? _settings;
     private CancellationToken _hubCt;
+    private Func<CancellationToken, Task<TcpClient?>>? _localAcceptDial;
+
+    public void SetLocalAcceptDial(Func<CancellationToken, Task<TcpClient?>>? dial)
+    {
+        lock (_gate)
+        {
+            _localAcceptDial = dial;
+            foreach (var client in _clients.Values)
+                client.SetLocalAcceptDial(dial);
+        }
+    }
+
+    /// <summary>按电脑名找信令房间里的设备。在线优先。</summary>
+    public bool TryFindDevice(string name, out RelayClient? client, out RelayDiscoveredDevice? device)
+    {
+        client = null;
+        device = null;
+        var key = (name ?? "").Trim();
+        if (key.Length == 0) return false;
+
+        RelayClient[] snapshot;
+        lock (_gate)
+            snapshot = _clients.Values.ToArray();
+
+        foreach (var c in snapshot)
+        {
+            if (!c.TryGetDeviceByName(key, out var found) || found == null) continue;
+            client = c;
+            device = found;
+            if (found.Online) return true;
+        }
+
+        return client != null;
+    }
 
     public void AttachSettings(AppSettings settings) => _settings = settings;
 
@@ -123,6 +158,7 @@ public sealed class RelaySessionHub
                 return existing;
 
             var client = new RelayClient(endpointId);
+            client.SetLocalAcceptDial(_localAcceptDial);
             client.DevicesChanged += OnClientDevicesChanged;
             _clients[endpointId] = client;
             return client;
