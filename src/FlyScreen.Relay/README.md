@@ -408,13 +408,16 @@ S→A  原样转发
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/health` | 健康与计数 |
-| GET | `/api/dashboard` | 首页看板 |
+| GET | `/api/dashboard` | 首页看板（一次性 JSON） |
+| GET | `/api/dashboard/stream` | SSE：`event: dashboard` 完整快照（KPI + 房间节点/连接数 + 设备在线离线 + 会话）。设备注册/离线、会话开闭**立即推送**；流量等计数最多 1s 一帧 |
 | GET | `/api/rooms` | 已注册房间（房间号为第一台电脑名称） |
 | GET | `/api/rooms/{roomId}` | 房间内设备 |
 | DELETE | `/api/devices/{id}` | 踢出在线设备（注册记录保留） |
 | POST | `/api/sessions/{id}/close` | 关闭会话 |
 
 管理口不再要求令牌。请只在内网或反向代理后开放 `9080`。
+
+实时刷新：管理页用 `EventSource('/api/dashboard/stream')` 订阅，首页/房间列表/房间详情共用一路流。设备 `hello` 注册、断线离线、候选地址更新、中继会话开闭会立刻唤醒推送；标签页隐藏时断开，可见时重连。若经 nginx 反代，需关闭该路径缓冲（响应已带 `X-Accel-Buffering: no`）。
 
 ---
 

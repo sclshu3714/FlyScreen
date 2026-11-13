@@ -84,12 +84,18 @@ public sealed class DeviceRegistry
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _rooms = new(StringComparer.Ordinal);
     private readonly IOptionsMonitor<RelayOptions> _options;
     private readonly RelayStore _store;
+    private readonly AdminChangeNotifier _adminNotify;
     private readonly ILogger<DeviceRegistry> _log;
 
-    public DeviceRegistry(IOptionsMonitor<RelayOptions> options, RelayStore store, ILogger<DeviceRegistry> log)
+    public DeviceRegistry(
+        IOptionsMonitor<RelayOptions> options,
+        RelayStore store,
+        AdminChangeNotifier adminNotify,
+        ILogger<DeviceRegistry> log)
     {
         _options = options;
         _store = store;
+        _adminNotify = adminNotify;
         _log = log;
     }
 
@@ -169,6 +175,7 @@ public sealed class DeviceRegistry
 
         _log.LogInformation("设备注册 {DeviceId} name={Name} roomNo={RoomNo} room={Room} from={Remote}",
             deviceId, name, roomNo, roomId, remoteAddress);
+        _adminNotify.Notify();
         return conn;
     }
 
@@ -182,6 +189,7 @@ public sealed class DeviceRegistry
         conn.LastSeen = DateTimeOffset.UtcNow;
         try { _store.UpsertDevice(conn); }
         catch (Exception ex) { _log.LogDebug(ex, "更新设备候选失败 {DeviceId}", conn.DeviceId); }
+        _adminNotify.Notify();
     }
 
     public bool TryGetByDeviceId(string deviceId, out DeviceConnection? conn)
@@ -223,6 +231,7 @@ public sealed class DeviceRegistry
         try { _store.Touch(conn.DeviceId, conn.LastSeen); }
         catch (Exception ex) { _log.LogDebug(ex, "更新离线时间失败 {DeviceId}", conn.DeviceId); }
         _log.LogInformation("设备离线 {DeviceId} room={Room}", conn.DeviceId, conn.RoomId);
+        _adminNotify.Notify();
     }
 
     public async Task<int> BroadcastRoomAsync(string roomId, string json, string? exceptDeviceId = null, CancellationToken ct = default)

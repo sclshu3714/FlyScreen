@@ -37,6 +37,7 @@ public sealed class RelaySessionManager
     private readonly IOptionsMonitor<RelayOptions> _options;
     private readonly ILogger<RelaySessionManager> _log;
     private readonly RelayStats _stats;
+    private readonly AdminChangeNotifier _adminNotify;
 
     private sealed record PendingOpen(string SessionId, string RoomId, string DeviceId, string PeerId, DateTimeOffset CreatedAt);
 
@@ -44,11 +45,13 @@ public sealed class RelaySessionManager
         DeviceRegistry devices,
         IOptionsMonitor<RelayOptions> options,
         RelayStats stats,
+        AdminChangeNotifier adminNotify,
         ILogger<RelaySessionManager> log)
     {
         _devices = devices;
         _options = options;
         _stats = stats;
+        _adminNotify = adminNotify;
         _log = log;
     }
 
@@ -142,6 +145,7 @@ public sealed class RelaySessionManager
 
         _stats.SessionsOpened++;
         _log.LogInformation("中继就绪 session={Session} {A}<->{B}", sid, session.DeviceA, session.DeviceB);
+        _adminNotify.Notify();
 
         var ready = DeviceRegistry.JsonSerialize(new WireMessage
         {
@@ -173,6 +177,7 @@ public sealed class RelaySessionManager
 
         NotifyPeerLeft(session, session.DeviceA, sessionId);
         NotifyPeerLeft(session, session.DeviceB, sessionId);
+        _adminNotify.Notify();
     }
 
     public void OnDeviceGone(string deviceId)

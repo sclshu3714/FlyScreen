@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using FlyScreen.Relay.Models;
 using FlyScreen.Relay.Options;
 using FlyScreen.Relay.Services;
@@ -26,6 +28,7 @@ builder.Services.AddSingleton(sp =>
     return RelayStore.Open(opt.Database, env.ContentRootPath, log);
 });
 builder.Services.AddSingleton<RelayStats>();
+builder.Services.AddSingleton<AdminChangeNotifier>();
 builder.Services.AddSingleton<DeviceRegistry>();
 builder.Services.AddSingleton<AdminCatalog>();
 builder.Services.AddSingleton<RelaySessionManager>();
@@ -48,6 +51,11 @@ app.UseStaticFiles(new StaticFileOptions
 
 bool IsAdmin(HttpContext ctx) => ctx.Connection.LocalPort == adminPort;
 bool IsEdge(HttpContext ctx) => ctx.Connection.LocalPort == edgePort;
+
+var adminJson = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+{
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+};
 
 // ---- Admin API（管理口，页面直接读取，不再使用管理令牌）----
 app.MapGet("/api/health", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, DeviceRegistry devices, AdminCatalog catalog, RelaySessionManager sessions, RelayStats stats) =>
@@ -72,45 +80,51 @@ app.MapGet("/api/health", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, D
 app.MapGet("/api/dashboard", (HttpContext ctx, IOptionsMonitor<RelayOptions> opt, AdminCatalog catalog, RelaySessionManager sessions, RelayStats stats) =>
 {
     if (!IsAdmin(ctx)) return Results.NotFound();
-    var rooms = catalog.ListRooms(includeDevices: true);
-    var names = rooms.SelectMany(r => r.Devices).ToDictionary(d => d.Id, d => d.Name, StringComparer.OrdinalIgnoreCase);
-    var roomNo = rooms.ToDictionary(r => r.RoomId, r => r.RoomNo, StringComparer.Ordinal);
-    string NameOf(string id) => names.TryGetValue(id, out var n) && !string.IsNullOrWhiteSpace(n) ? n : id;
-    return Results.Json(new
+    return Results.Json(AdminDashboard.Build(opt, catalog, sessions, stats));
+});
+
+// SSE：设备注册/离线、会话开闭立即推送完整看板（含房间设备在线状态）；流量等指标最多 1s 兜底一帧。
+app.MapGet("/api/dashboard/stream", async (
+    HttpContext ctx,
+    IOptionsMonitor<RelayOptions> opt,
+    AdminCatalog catalog,
+    RelaySessionManager sessions,
+    RelayStats stats,
+    AdminChangeNotifier changes) =>
+{
+    if (!IsAdmin(ctx))
     {
-        server = opt.CurrentValue.ServerName,
-        startedAt = stats.StartedAt,
-        uptimeSec = (long)(DateTimeOffset.UtcNow - stats.StartedAt).TotalSeconds,
-        registeredRooms = rooms.Count,
-        registeredDevices = rooms.Sum(r => r.DeviceCount),
-        onlineDevices = rooms.Sum(r => r.OnlineCount),
-        sessions = sessions.ActiveCount,
-        relayBytes = stats.RelayBytes,
-        signals = stats.SignalsForwarded,
-        rooms = rooms.Select(r => new
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    ctx.Response.Headers.ContentType = "text/event-stream; charset=utf-8";
+    ctx.Response.Headers.CacheControl = "no-cache, no-store";
+    ctx.Response.Headers.Connection = "keep-alive";
+    ctx.Response.Headers["X-Accel-Buffering"] = "no";
+
+    var ct = ctx.RequestAborted;
+    try
+    {
+        while (!ct.IsCancellationRequested)
         {
-            r.RoomId,
-            r.RoomNo,
-            r.CreatedAt,
-            r.DeviceCount,
-            r.OnlineCount,
-            r.LastSeen
-        }),
-        sessionList = sessions.List().Select(s => new
-        {
-            s.SessionId,
-            s.RoomId,
-            roomNo = roomNo.TryGetValue(s.RoomId, out var no) ? no : s.RoomId,
-            s.DeviceA,
-            deviceAName = NameOf(s.DeviceA),
-            s.DeviceB,
-            deviceBName = NameOf(s.DeviceB),
-            s.CreatedAt,
-            s.LastActivity,
-            s.BytesAtoB,
-            s.BytesBtoA
-        })
-    });
+            var seen = changes.Version;
+            var snapshot = AdminDashboard.Build(opt, catalog, sessions, stats, includeRoomDevices: true, revision: seen);
+            var json = JsonSerializer.Serialize(snapshot, adminJson);
+            await ctx.Response.WriteAsync("event: dashboard\ndata: ", ct).ConfigureAwait(false);
+            await ctx.Response.WriteAsync(json, ct).ConfigureAwait(false);
+            await ctx.Response.WriteAsync("\n\n", ct).ConfigureAwait(false);
+            await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+
+            // 发送期间又有注册/离线等变化则立刻再推；否则最多等 1s（刷新流量等计数）
+            if (changes.Version == seen)
+                await changes.WaitAsync(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+        }
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        // 客户端断开
+    }
 });
 
 app.MapGet("/api/rooms", (HttpContext ctx, AdminCatalog catalog) =>
