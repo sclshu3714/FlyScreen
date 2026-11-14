@@ -56,11 +56,12 @@ public sealed class MauiConnectionDiagnostics
             {
                 var ip = string.IsNullOrEmpty(st.DiscoveredIp) ? "未发现 IP" : st.DiscoveredIp;
                 if (st.Bidirectional)
-                    report.Add($"对端 {st.Name}", $"双向已连接，发现 IP {ip}", MauiDiagnosticLevel.Ok);
-                else if (st.AnyAlive)
-                    report.Add($"对端 {st.Name}",
-                        $"仅{(st.Outbound ? "出站" : "入站")}连通，发现 IP {ip}（需补齐另一方向）",
-                        MauiDiagnosticLevel.Warn);
+                {
+                    var detail = st.DualLinked
+                        ? $"双向已连接（双 TCP），发现 IP {ip}"
+                        : $"已连接（{(st.Outbound ? "出站" : "入站")} TCP，全双工可用），发现 IP {ip}";
+                    report.Add($"对端 {st.Name}", detail, MauiDiagnosticLevel.Ok);
+                }
                 else if (string.IsNullOrEmpty(st.DiscoveredIp))
                     report.Add($"对端 {st.Name}", "未连接且局域网未发现（检查网卡/防火墙/密钥/对方是否启动）",
                         MauiDiagnosticLevel.Error);

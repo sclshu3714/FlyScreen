@@ -102,7 +102,7 @@ public sealed class ClipboardMonitor : IDisposable
     }
 
     /// <summary>
-    /// 鼠标已进入本机 / 本机收到宣告：只挂占位剪贴板点亮「粘贴」，不开始网络接收。
+    /// 鼠标已进入本机：文件挂占位；内联若尚未写入则拉取。
     /// </summary>
     public void ArmRemoteClipboardForPaste()
     {
@@ -111,15 +111,19 @@ public sealed class ClipboardMonitor : IDisposable
         if (_settings.TransferFile && _transfers.HasRemotePendingFiles)
             ArmFilesForLazyPaste();
 
+        PrefetchRemoteInline();
+    }
+
+    /// <summary>收到内联宣告即拉取写入（不必等鼠标进入，避免截图粘贴竞态）。</summary>
+    public void PrefetchRemoteInline()
+    {
+        if (!_settings.ShareClipboard) return;
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
     }
 
-    /// <summary>不再预取：接收必须由真正粘贴触发。</summary>
-    public void PrefetchForLikelyPaste()
-    {
-        // intentionally empty
-    }
+    /// <summary>兼容旧调用名。</summary>
+    public void PrefetchForLikelyPaste() => PrefetchRemoteInline();
 
     /// <summary>
     /// 虚拟文件剪贴板由资源管理器 GetData 触发拉取，无需拦截 Ctrl+V。
@@ -260,17 +264,30 @@ public sealed class ClipboardMonitor : IDisposable
         {
             if (!_transfers.HasRemotePendingInline) return;
 
+            var seq = _transfers.GetRemotePendingInlineSequence();
             var data = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
             if (data == null || data.IsEmpty) return;
 
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher == null) return;
 
+            var ok = false;
             await dispatcher.InvokeAsync(() =>
             {
-                ClipboardBridge.ApplyInlineSuppressing(data);
-                _lastInlineKey = data.BuildKey();
+                try
+                {
+                    ClipboardBridge.ApplyInlineSuppressing(data);
+                    _lastInlineKey = data.BuildKey();
+                    ok = true;
+                }
+                catch
+                {
+                    ok = false;
+                }
             });
+
+            if (ok && seq != 0)
+                _transfers.MarkRemoteInlineConsumed(seq);
         }
         catch
         {

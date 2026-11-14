@@ -14,7 +14,17 @@ public static class NicService
         "Bluetooth", "Teredo", "ISATAP", "NPCAP", "Npcap", "TAP-Windows", "TAP Adapter",
         "TUN", "WireGuard", "OpenVPN", "Hamachi", "Tailscale", "ZeroTier", "Cisco AnyConnect",
         "Fortinet", "Check Point", "VPN", "Pseudo", "Hosted Network", "Wi-Fi Direct",
-        "Microsoft Wi-Fi Direct", "Kernel Debug", "Loopback", "Virtual Adapter"
+        "Microsoft Wi-Fi Direct", "Kernel Debug", "Loopback", "Virtual Adapter",
+        // 企业/蒲公英等 VPN：名称不一定含 “VPN” 字样
+        "Oray", "OrayBox", "iNode", "SoftEther", "Sangfor", "EasyConnect", "SSLVPN",
+        "OpenVPN Connect", "DCO Adapter"
+    ];
+
+    /// <summary>可参与发现突发宣告的 overlay 网卡关键字（含 Tunnel 类型）。</summary>
+    private static readonly string[] OverlayKeywords =
+    [
+        "Tailscale", "WireGuard", "ZeroTier", "Hamachi", "OpenVPN", "TUN",
+        "TAP-Windows", "TAP Adapter"
     ];
 
     /// <summary>平台注入的优先 IPv4（如 Android WifiManager），在枚举网卡之前采用。</summary>
@@ -54,6 +64,74 @@ public static class NicService
         return EnumerateIpv4Nics(usableOnly: false)
             .Where(n => n.IsUp && !IsApipa(n.IPv4))
             .ToList();
+    }
+
+    /// <summary>
+    /// 发现宣告用网卡列表：物理口；<paramref name="includeOverlay"/> 时含 Tailscale/WireGuard 等（含 Tunnel）。
+    /// 周期宣告与刷新突发均用此列表做逐口发送。
+    /// </summary>
+    public static IReadOnlyList<NicInfo> ListAnnounceIpv4Nics(bool includeOverlay)
+    {
+        if (!includeOverlay)
+            return ListUsableIpv4Nics();
+
+        var list = new List<NicInfo>();
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                continue;
+            if (nic.OperationalStatus != OperationalStatus.Up
+                && nic.OperationalStatus != OperationalStatus.Unknown)
+                continue;
+
+            // Tunnel 仅保留已知 overlay，避免收进无关隧道
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel
+                && !IsOverlayAdapter(nic))
+                continue;
+            // Oray/企业 VPN 等虚拟口不参与逐口宣告（否则本机地址会被刷成 172.x）
+            if (IsVirtualAdapter(nic) && !IsOverlayAdapter(nic))
+                continue;
+
+            var props = nic.GetIPProperties();
+            foreach (var uni in props.UnicastAddresses)
+            {
+                if (uni.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
+                if (!IsUsableUnicast(uni.Address))
+                    continue;
+
+                list.Add(new NicInfo
+                {
+                    Id = nic.Id,
+                    Name = nic.Name,
+                    Description = nic.Description,
+                    IPv4 = uni.Address.ToString(),
+                    SubnetMask = uni.IPv4Mask?.ToString() ?? "255.255.255.0",
+                    IsUp = nic.OperationalStatus == OperationalStatus.Up
+                });
+            }
+        }
+
+        return list
+            .GroupBy(n => n.IPv4, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderByDescending(n => n.IsUp)
+            .ThenBy(n => NicPreferenceRank(n))
+            .ThenBy(n => n.Name)
+            .ToList();
+    }
+
+    /// <summary>Tailscale / WireGuard / ZeroTier 等 overlay 适配器。</summary>
+    public static bool IsOverlayAdapter(NetworkInterface nic)
+    {
+        var text = nic.Name + " " + nic.Description;
+        foreach (var key in OverlayKeywords)
+        {
+            if (text.Contains(key, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>设置页下拉：自动 + 可用物理/无线网卡（不含 Tailscale 等虚拟适配器）。</summary>
@@ -226,7 +304,14 @@ public static class NicService
             if (byId != null) return byId;
         }
 
-        // 优先以太网/Wi‑Fi，避开蜂窝与虚拟网卡
+        return PickBestUsableNic(all);
+    }
+
+    /// <summary>选一块适合局域网宣告/发现的物理网卡（以太网/Wi‑Fi 优先，排除虚拟与蜂窝）。</summary>
+    public static NicInfo? PickBestUsableNic(IReadOnlyList<NicInfo>? all = null)
+    {
+        all ??= ListUsableIpv4Nics();
+        if (all.Count == 0) all = ListIpv4Nics();
         return all.FirstOrDefault(n => PreferWifiOrEthernet(n) && !IsCellularAdapter(n))
                ?? all.FirstOrDefault(n => !IsCellularAdapter(n)
                    && !n.Description.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
@@ -235,6 +320,15 @@ public static class NicService
                    && !n.Description.Contains("WSL", StringComparison.OrdinalIgnoreCase)
                    && !n.Name.Contains("vEthernet", StringComparison.OrdinalIgnoreCase))
                ?? all.FirstOrDefault();
+    }
+
+    public static NicInfo? FindByIpv4(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip) || ip == "0.0.0.0") return null;
+        return ListUsableIpv4Nics().FirstOrDefault(n =>
+                   string.Equals(n.IPv4, ip, StringComparison.OrdinalIgnoreCase))
+               ?? ListIpv4Nics().FirstOrDefault(n =>
+                   string.Equals(n.IPv4, ip, StringComparison.OrdinalIgnoreCase));
     }
 
     public static bool SameSubnet(string ipA, string maskA, string ipB)
@@ -258,16 +352,65 @@ public static class NicService
         }
     }
 
+    /// <summary>Tailscale/CGNAT 100.64.0.0/10。</summary>
+    public static bool IsTailscaleCgNat(string? ip)
+    {
+        if (!IPAddress.TryParse(ip, out var addr) || addr.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+        var b = addr.GetAddressBytes();
+        return b[0] == 100 && b[1] >= 64 && b[1] <= 127;
+    }
+
+    /// <summary>
+    /// 对端地址是否落在本机某块物理/无线网卡同网段（用于设备管理「本地 vs 远程」）。
+    /// Tailscale CGNAT 一律视为跨网。
+    /// </summary>
+    public static bool IsOnLocalPhysicalSubnet(string? peerIp)
+    {
+        if (string.IsNullOrWhiteSpace(peerIp)
+            || !IPAddress.TryParse(peerIp, out var addr)
+            || !IsUsableUnicast(addr))
+            return false;
+        if (IsTailscaleCgNat(peerIp))
+            return false;
+
+        foreach (var nic in ListUsableIpv4Nics())
+        {
+            if (string.IsNullOrWhiteSpace(nic.IPv4) || nic.IPv4 == "0.0.0.0")
+                continue;
+            if (IsTailscaleCgNat(nic.IPv4))
+                continue;
+            if (SameSubnet(nic.IPv4, nic.SubnetMask, peerIp))
+                return true;
+        }
+
+        return false;
+    }
+
     public static async Task<string?> ResolveHostAsync(string hostOrIp, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(hostOrIp))
+            return null;
         if (IPAddress.TryParse(hostOrIp, out _))
             return hostOrIp;
 
+        // Windows 计算机名（无点）通常不在 DNS 里，免去 GetAddrInfo「不知道这样的主机」
+        if (!hostOrIp.Contains('.', StringComparison.Ordinal))
+            return null;
+
         try
         {
-            var entry = await Dns.GetHostEntryAsync(hostOrIp, ct).ConfigureAwait(false);
-            var v4 = entry.AddressList.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+            var addrs = await Dns.GetHostAddressesAsync(hostOrIp, ct).ConfigureAwait(false);
+            var v4 = addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
             return v4?.ToString();
+        }
+        catch (SocketException)
+        {
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {

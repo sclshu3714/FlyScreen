@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Tool.PortProxy</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.PortProxy</AssemblyName>
+    <Description>玄鸟 Windows 端口代理（netsh interface portproxy）管理工具</Description>
+    <!-- 本工具 platforms=Windows；WindowsIdentity 等 API 仅在此端加载 -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\tool-port-proxy.png" LogicalName="FlyScreen.Tool.PortProxy.Icons.tool-port-proxy.png" />
+  </ItemGroup>
+</Project>

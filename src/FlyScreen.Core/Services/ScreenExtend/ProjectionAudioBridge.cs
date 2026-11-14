@@ -23,6 +23,7 @@ public sealed class ProjectionAudioBridge : IDisposable
     private readonly ScreenExtendService _session;
     private readonly IProjectionAudioEngine _engine;
     private int _disposed;
+    private int _playbackStarted;
 
     public ProjectionAudioBridge(ScreenExtendService session, IProjectionAudioEngine engine)
     {
@@ -60,9 +61,10 @@ public sealed class ProjectionAudioBridge : IDisposable
         }
     }
 
-    private void OnSinkReady()
+    private void OnSinkReady(string peer)
     {
-        if (!_session.AudioSync) return;
+        if (!_session.TryGetSinkSession(peer, out var audio, out _) || !audio) return;
+        if (Interlocked.Exchange(ref _playbackStarted, 1) == 1) return;
         try
         {
             if (!_engine.TryStartPlayback(out var error))
@@ -73,21 +75,44 @@ public sealed class ProjectionAudioBridge : IDisposable
         catch (Exception ex)
         {
             AppLog.Warn("投影声音播放失败：" + ex.Message);
+            Interlocked.Exchange(ref _playbackStarted, 0);
         }
     }
 
-    private void OnAudio(byte[] pcm, int sampleRate, int channels)
+    private void OnAudio(byte[] pcm, int sampleRate, int channels, string peer)
     {
-        if (!_session.AudioSync) return;
+        // 多 Tab：只播当前激活从机
+        if (!string.Equals(peer, _session.Peer, StringComparison.OrdinalIgnoreCase)) return;
+        if (!_session.TryGetSinkSession(peer, out var audio, out _) || !audio) return;
         try { _engine.SubmitPlayback(pcm, sampleRate, channels); }
         catch { /* ignore */ }
     }
 
-    private void OnSessionEnded() => StopBoth();
+    private void OnSessionEnded(string? peer)
+    {
+        if (peer == null)
+        {
+            StopBoth();
+            return;
+        }
+
+        // 停掉某一从机：若无剩余从机再停播放
+        if (_session.Role != ScreenExtendRole.Sink)
+        {
+            try { _engine.StopPlayback(); } catch { /* ignore */ }
+            Interlocked.Exchange(ref _playbackStarted, 0);
+        }
+
+        if (_session.Role != ScreenExtendRole.Host)
+        {
+            try { _engine.StopCapture(); } catch { /* ignore */ }
+        }
+    }
 
     private void StopBoth()
     {
         try { _engine.StopCapture(); } catch { /* ignore */ }
         try { _engine.StopPlayback(); } catch { /* ignore */ }
+        Interlocked.Exchange(ref _playbackStarted, 0);
     }
 }

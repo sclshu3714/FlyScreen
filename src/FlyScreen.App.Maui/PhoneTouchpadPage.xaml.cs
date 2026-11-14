@@ -91,6 +91,8 @@ public partial class PhoneTouchpadPage : ContentPage
     private void OnProjectionSessionChanged()
         => MainThread.BeginInvokeOnMainThread(RefreshProjectButton);
 
+    private void OnProjectionSessionChanged(string? peer) => OnProjectionSessionChanged();
+
     protected override void OnAppearing()
     {
         base.OnAppearing();

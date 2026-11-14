@@ -11,6 +11,7 @@ public static class ToolBundledPackSeeder
     [
         "color-picker.flytool",
         "shared-devices.flytool",
+        "port-proxy.flytool",
         "tools-index.json"
     ];
 

@@ -28,19 +28,32 @@ public sealed class MauiClipboardApplySink : IClipboardApplySink
     }
 
     public void ApplyInline(ClipboardInlineData data)
+        => _ = ApplyInlineAsync(data);
+
+    /// <returns>是否已写入本机剪贴板。</returns>
+    public async Task<bool> ApplyInlineAsync(ClipboardInlineData data)
     {
-        if (data.IsEmpty || IsSuppressed) return;
-        _lastAppliedKey = data.BuildKey();
-        Suppress(2500);
+        if (data.IsEmpty || IsSuppressed) return false;
 #if WINDOWS
-        _ = ApplyInlineWindowsAsync(data);
+        var ok = await ApplyInlineWindowsAsync(data).ConfigureAwait(false);
 #elif ANDROID
-        _ = ApplyInlineAndroidAsync(data);
+        var ok = await ApplyInlineAndroidAsync(data).ConfigureAwait(false);
 #else
         var text = PreferText(data);
+        var ok = false;
         if (!string.IsNullOrEmpty(text))
-            _ = SetTextAsync(text);
+        {
+            await SetTextAsync(text).ConfigureAwait(false);
+            ok = true;
+        }
 #endif
+        if (ok)
+        {
+            _lastAppliedKey = data.BuildKey();
+            Suppress(2500);
+        }
+
+        return ok;
     }
 
     public async Task<string?> TryGetTextAsync()
@@ -113,28 +126,25 @@ public sealed class MauiClipboardApplySink : IClipboardApplySink
     }
 
 #if WINDOWS
-    private static async Task ApplyInlineWindowsAsync(ClipboardInlineData data)
+    private static async Task<bool> ApplyInlineWindowsAsync(ClipboardInlineData data)
     {
         try
         {
             if (MainThread.IsMainThread)
-            {
-                await MauiWinClipboardInline.ApplyAsync(data).ConfigureAwait(true);
-                return;
-            }
+                return await MauiWinClipboardInline.ApplyAsync(data).ConfigureAwait(true);
 
-            await MainThread.InvokeOnMainThreadAsync(() => MauiWinClipboardInline.ApplyAsync(data))
+            return await MainThread.InvokeOnMainThreadAsync(() => MauiWinClipboardInline.ApplyAsync(data))
                 .ConfigureAwait(false);
         }
         catch
         {
-            // ignore
+            return false;
         }
     }
 #endif
 
 #if ANDROID
-    private static async Task ApplyInlineAndroidAsync(ClipboardInlineData data)
+    private static async Task<bool> ApplyInlineAndroidAsync(ClipboardInlineData data)
     {
         try
         {
@@ -143,10 +153,11 @@ public sealed class MauiClipboardApplySink : IClipboardApplySink
             else
                 await MainThread.InvokeOnMainThreadAsync(() => ApplyInlineAndroidOnUiAsync(data))
                     .ConfigureAwait(false);
+            return !data.IsEmpty;
         }
         catch
         {
-            // ignore
+            return false;
         }
     }
 

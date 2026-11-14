@@ -170,18 +170,49 @@ public partial class MainWindow : Window
         if (!installerMode || !anyWindowsSetup)
             InstallerOptionsExpander.IsExpanded = false;
 
-        DeployHint.Text = frameworkMode
-            ? "依赖框架：产物更小，目标机器需已安装对应 .NET 运行时。Android 不受此选项影响。"
-            : "独立部署：自带运行时，体积更大，无需预装 .NET。";
+        var selected = _targets.FirstOrDefault(t => t.IsSelected && t.IsEnabled);
+        if (selected?.IsFlyTools == true)
+        {
+            DeployHint.Text = "插件工具组包不受 Self-contained/依赖框架影响，始终 Release 产出 .flytool。";
+        }
+        else if (selected?.IsRelayDocker == true)
+        {
+            DeployHint.Text = "Docker 镜像打包不受部署模式影响；需本机 Docker Desktop，默认启用国内 Mirror 并导出 .tar。";
+        }
+        else if (selected?.IsRelay == true)
+        {
+            DeployHint.Text = frameworkMode
+                ? "中继服务依赖框架：产物更小，目标机需 .NET 10 运行时。运行时选 docker 可改打镜像。"
+                : "中继服务独立部署：自带运行时。运行时选 docker 可改为打包 Docker 镜像。";
+        }
+        else
+        {
+            DeployHint.Text = frameworkMode
+                ? "依赖框架：产物更小，目标机器需已安装对应 .NET 运行时。Android 不受此选项影响。"
+                : "独立部署：自带运行时，体积更大，无需预装 .NET。";
+        }
 
         var enabledCount = _targets.Count(t => t.IsEnabled);
-        var selected = _targets.FirstOrDefault(t => t.IsSelected && t.IsEnabled);
-        TargetMutexHint.Text = installerMode
-            ? $"安装包可选 Win Setup / Android APK / Linux tar.gz，共 {enabledCount} 个端；当前：{selected?.DisplayName ?? "未选"}。"
-            : $"独立应用可选 {enabledCount} 个端；当前：{selected?.DisplayName ?? "未选"}。";
+        TargetMutexHint.Text = DescribeTargetHint(installerMode, enabledCount, selected);
 
         ApplyVddOfflineState();
         RefreshCascadeFromSelection();
+    }
+
+    private static string DescribeTargetHint(bool installerMode, int enabledCount, PublishTargetItem? selected)
+    {
+        var name = selected?.DisplayName ?? "未选";
+        if (selected?.IsFlyTools == true)
+            return $"插件工具：输出 FlyScreen-{{ver}}-flytools.zip（及目录副本）；当前：{name}。";
+        if (selected?.IsRelayDocker == true)
+            return $"中继 Docker：导出 FlyScreen-{{ver}}-relay-docker.tar + compose；当前：{name}。";
+        if (selected?.IsRelay == true)
+            return installerMode
+                ? $"中继服务安装包：zip 目录产物；运行时选 docker 可打镜像。当前：{name}。"
+                : $"中继服务独立应用：单文件或 zip；运行时选 docker 可打镜像。当前：{name}。";
+        return installerMode
+            ? $"安装包可选 Win Setup / Android APK / Linux tar.gz / 插件 / 中继，共 {enabledCount} 项；当前：{name}。"
+            : $"独立应用可选 {enabledCount} 项；当前：{name}。";
     }
 
     private void RefreshCascadeFromSelection()
@@ -224,7 +255,11 @@ public partial class MainWindow : Window
             RuntimeBox.IsEnabled = active.IsEnabled && RuntimeBox.Items.Count > 0;
 
             FrameworkHint.Text = $"当前目标：{active.DisplayName}。可选框架随打包目标变化。";
-            RuntimeHint.Text = "可选运行时随目标框架变化。";
+            RuntimeHint.Text = active.IsRelay
+                ? "中继可选本机 RID，或选 docker 打包 Docker 镜像（需 Docker Desktop）。"
+                : active.IsFlyTools
+                    ? "插件工具无平台 RID，bundled 表示组全部内置 .flytool。"
+                    : "可选运行时随目标框架变化。";
         }
         finally
         {
@@ -282,6 +317,9 @@ public partial class MainWindow : Window
         if (FrameworkBox.SelectedItem is string fw)
             _cascadeTarget.SelectedFramework = fw;
         _cascadeTarget.ApplySelectedFrameworkRuntime();
+        // Relay 选 docker 时部署提示需刷新
+        if (_cascadeTarget.IsRelay)
+            ApplyMutexRules();
     }
 
     private void ApplyVddOfflineState()

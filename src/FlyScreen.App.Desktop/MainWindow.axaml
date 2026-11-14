@@ -87,6 +87,7 @@
       <Setter Property="MinWidth" Value="88"/>
       <Setter Property="Margin" Value="8,0,0,0"/>
     </Style>
+    <!-- 对齐 Win NetIconOpBtn：固定 28 高圆角方钮，避免 Fluent 默认把操作列拉成细长胶囊 -->
     <Style Selector="Button.netIconOp">
       <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
       <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
@@ -94,13 +95,38 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="Height" Value="28"/>
-      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="MaxHeight" Value="28"/>
+      <Setter Property="MinWidth" Value="28"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.netIconOp:pointerover">
+      <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+    </Style>
+    <Style Selector="Button.netIconOp:pressed">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
     </Style>
     <Style Selector="Button.netIconOpWarn">
       <Setter Property="Background" Value="{DynamicResource WarnSoft}"/>
@@ -109,13 +135,38 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="Height" Value="28"/>
-      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="MaxHeight" Value="28"/>
+      <Setter Property="MinWidth" Value="28"/>
       <Setter Property="Padding" Value="0"/>
       <Setter Property="Margin" Value="0"/>
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.netIconOpWarn:pointerover">
+      <Setter Property="Opacity" Value="0.85"/>
+    </Style>
+    <Style Selector="Button.netIconOpWarn:pressed">
+      <Setter Property="Background" Value="{DynamicResource Warn}"/>
+      <Setter Property="Foreground" Value="White"/>
     </Style>
     <Style Selector="Button.progTool">
       <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
@@ -649,19 +700,59 @@
                                   PointerReleased="SlotCard_PointerReleased"
                                   PointerCaptureLost="SlotCard_PointerCaptureLost"
                                   DragDrop.AllowDrop="True">
-                            <StackPanel Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        IsHitTestVisible="False">
-                              <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
-                                         HorizontalAlignment="Center"/>
-                              <Border Width="36" Height="24" Background="#1F2937" CornerRadius="3" HorizontalAlignment="Center"
-                                      BorderBrush="#111827" BorderThickness="2">
-                                <Border Background="#60A5FA" Margin="3" CornerRadius="2" Opacity="0.4"/>
+                            <Grid Margin="4">
+                              <StackPanel Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Grid>
+                                  <TextBlock Text="{Binding PositionLabel}" FontSize="11" Foreground="{DynamicResource Muted}"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                                             IsHitTestVisible="False"/>
+                                  <Button Content="⋯" Width="28" Height="28" Padding="0" FontSize="16" FontWeight="Bold"
+                                          Background="Transparent" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                          IsVisible="{Binding ShowAsRemotePrimary}"
+                                          Click="RemoteShadowMenu_Click"/>
+                                </Grid>
+                                <Border Width="36" Height="24" Background="#1F2937" CornerRadius="3" HorizontalAlignment="Center"
+                                        BorderBrush="#111827" BorderThickness="2" IsHitTestVisible="False">
+                                  <Border Background="#60A5FA" Margin="3" CornerRadius="2" Opacity="0.4"/>
+                                </Border>
+                                <TextBlock Text="{Binding CardTitle}" FontSize="12" FontWeight="SemiBold"
+                                           TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           IsHitTestVisible="False"/>
+                                <TextBlock Text="{Binding CardStatus}" Foreground="{DynamicResource Success}"
+                                           FontWeight="SemiBold" FontSize="11" TextAlignment="Center"
+                                           IsHitTestVisible="False"/>
+                                <TextBlock Text="{Binding CardEdgeHint}" Foreground="{DynamicResource Blue}"
+                                           FontSize="10" TextAlignment="Center"
+                                           IsVisible="{Binding ShowHostHint}" IsHitTestVisible="False"/>
+                                <TextBlock Text="{Binding CardHostHint}" Foreground="{DynamicResource Muted}"
+                                           FontSize="10" TextAlignment="Center"
+                                           IsVisible="{Binding ShowHostHint}" IsHitTestVisible="False"/>
+                              </StackPanel>
+                              <Border VerticalAlignment="Bottom" MinHeight="78" Padding="8,10" CornerRadius="6"
+                                      Background="{DynamicResource BlueSoft}"
+                                      BorderBrush="{DynamicResource Blue}" BorderThickness="1"
+                                      IsVisible="{Binding ShowRemoteSubCard}">
+                                <Grid RowDefinitions="Auto,*,Auto">
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="{Binding ActiveRemoteStatusText}" FontSize="10"
+                                               Foreground="{DynamicResource Success}" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                               Margin="0,0,4,0" IsHitTestVisible="False"/>
+                                    <Button Grid.Column="1" Content="⋯" Width="28" Height="28" Padding="0"
+                                            FontSize="16" FontWeight="Bold" Background="Transparent"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                                            Click="RemoteShadowMenu_Click"/>
+                                  </Grid>
+                                  <TextBlock Grid.Row="1" Text="{Binding ActiveRemoteName}" FontSize="12"
+                                             FontWeight="SemiBold" Foreground="{DynamicResource Blue}"
+                                             TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                             Margin="0,4,0,0" IsHitTestVisible="False"/>
+                                  <TextBlock Grid.Row="2" Text="{Binding ActiveRemoteBindHint}" FontSize="9"
+                                             Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                             IsHitTestVisible="False"/>
+                                </Grid>
                               </Border>
-                              <TextBlock Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
-                                         TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                              <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource Success}"
-                                         FontWeight="SemiBold" FontSize="11" TextAlignment="Center"/>
-                            </StackPanel>
+                            </Grid>
                           </Border>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
@@ -767,7 +858,7 @@
                     <StackPanel>
                       <TextBlock x:Name="ConnConfigTitleText" Text="连接配置" FontWeight="SemiBold" FontSize="15"/>
                       <TextBlock x:Name="ConnConfigHintText"
-                                 Text="本机网卡用于局域网；可添加远程设备或中转服务地址。"
+                                 Text="本机网卡用于局域网；可添加远程设备或服务地址。"
                                  Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                   </DockPanel>
@@ -775,7 +866,8 @@
                           BorderThickness="1" CornerRadius="8" Padding="0" Margin="0,0,0,8">
                     <Grid Margin="12,8" ColumnDefinitions="140,*,Auto">
                       <TextBlock x:Name="ConnColType" Text="类型" FontSize="12" FontWeight="SemiBold"
-                                 Foreground="{DynamicResource Muted}"/>
+                                 Foreground="{DynamicResource Muted}"
+                                 HorizontalAlignment="Stretch" TextAlignment="Center"/>
                       <TextBlock x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" FontWeight="SemiBold"
                                  Foreground="{DynamicResource Muted}"/>
                       <TextBlock x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" FontWeight="SemiBold"
@@ -787,7 +879,8 @@
                       <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                               BorderThickness="0,0,0,1" Padding="12,10">
                         <Grid ColumnDefinitions="140,*,96">
-                          <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                          <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center" FontWeight="SemiBold"
+                                     HorizontalAlignment="Center" TextAlignment="Center"/>
                           <ComboBox x:Name="NicCombo" Grid.Column="1" HorizontalAlignment="Stretch"
                                     VerticalAlignment="Center" Margin="0,0,8,0">
                             <ComboBox.ItemTemplate>
@@ -806,13 +899,14 @@
                             <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                                     BorderThickness="0,0,0,1" Padding="12,10">
                               <Grid ColumnDefinitions="140,*,96" RowDefinitions="Auto,Auto">
-                                <ComboBox SelectedIndex="{Binding Kind}" VerticalAlignment="Center"
-                                          ToolTip.Tip="远程=一对一；中转服务=一对多">
-                                  <ComboBoxItem>远程</ComboBoxItem>
-                                  <ComboBoxItem>中转服务</ComboBoxItem>
-                                </ComboBox>
+                                <Button Content="{Binding KindLabel}" HorizontalAlignment="Center"
+                                        HorizontalContentAlignment="Center" FontWeight="SemiBold"
+                                        Margin="0" MinWidth="0" Padding="10,0"
+                                        Click="EndpointKind_Click" Tag="{Binding}"
+                                        ToolTip.Tip="点击切换：远程=一对一；服务=一对多（注册到 FlyScreen.Relay）"/>
                                 <TextBox Grid.Column="1" Text="{Binding Address}" Margin="0,0,8,0"
-                                         VerticalContentAlignment="Center" Watermark="远程 host:port / 中转 wss://…"/>
+                                         VerticalContentAlignment="Center"
+                                         Watermark="远程 host:port 或仅 IP（未写端口用下方 TCP）；中转 wss://…"/>
                                 <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                   <Button Classes="netIconOp" Content="⚡" ToolTip.Tip="测试（通过后才进入设备管理）"
                                           Click="TestEndpoint_Click" Tag="{Binding}"/>
@@ -842,13 +936,13 @@
               <Border x:Name="PanelDeviceMgmt" Classes="card" IsVisible="False">
                 <Grid RowDefinitions="Auto,Auto,Auto,*">
                   <DockPanel Margin="0,0,0,4" LastChildFill="True">
-                    <Button x:Name="RefreshDiscoveryBtn" DockPanel.Dock="Right" Width="32" Height="28" Padding="0"
-                            Content="↻" Click="RefreshDiscovery_Click"
-                            Foreground="{DynamicResource Blue}" FontSize="14" FontWeight="SemiBold" Margin="8,0,0,0"/>
+                    <Button x:Name="RefreshDiscoveryBtn" DockPanel.Dock="Right" Classes="netIconOp"
+                            Width="32" Content="↻" Click="RefreshDiscovery_Click"
+                            ToolTip.Tip="刷新发现" Margin="8,0,0,0"/>
                     <StackPanel>
                       <TextBlock x:Name="DiscoveryTitleText" Text="设备管理" FontWeight="SemiBold" FontSize="15"/>
                       <TextBlock x:Name="DiscoveryHintText"
-                                 Text="刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。"
+                                 Text="刷新：全网卡（含 Tailscale）广播并探测连接配置中的远程地址；发现到的以「本地」列出。设备管理无上限，布局最多 4 台。"
                                  Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                   </DockPanel>
@@ -1295,10 +1389,11 @@
                 <Panel>
                 <ScrollViewer x:Name="ToolsCatalogHost" HorizontalScrollBarVisibility="Disabled"
                               SizeChanged="ToolsCatalogHost_SizeChanged">
-                  <ItemsControl x:Name="ToolsList">
+                  <!-- VerticalAlignment=Top：避免 ScrollViewer 拉伸后 UniformGrid 把卡片沉底 -->
+                  <ItemsControl x:Name="ToolsList" VerticalAlignment="Top" HorizontalAlignment="Stretch">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate>
-                        <UniformGrid Columns="2"/>
+                        <UniformGrid Columns="2" VerticalAlignment="Top"/>
                       </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>

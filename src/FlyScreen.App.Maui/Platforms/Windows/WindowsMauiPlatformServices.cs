@@ -24,6 +24,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
     private MauiTrayService? _tray;
     private MauiScreenExtendController? _screenExtendUi;
 
+    public MauiScreenExtendController? ScreenExtendUi => _screenExtendUi;
+
     public WindowsMauiPlatformServices(
         AppSettings settings,
         ConnectionManager connections,
@@ -35,13 +37,15 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         _transfers = transfers;
         _screenExtend = screenExtend;
         _screenExtendUi = new MauiScreenExtendController(screenExtend);
-        _screenExtend.SinkSessionReady += () =>
+        // 从机期间穿边由 ShouldPauseEasyMouseForExtend 暂停，勿永久关掉 EasyMouseEnabled
+        _screenExtend.SessionEnded += _ =>
         {
-            try { _router?.SetEasyMousePaused(true); } catch { /* ignore */ }
-        };
-        _screenExtend.SessionEnded += () =>
-        {
-            try { _router?.SetEasyMousePaused(false); } catch { /* ignore */ }
+            try
+            {
+                if (_router != null)
+                    _router.EasyMouseEnabled = _settings.EasyMouse;
+            }
+            catch { /* ignore */ }
         };
     }
 
@@ -168,6 +172,9 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public void ArmRemoteClipboardForPaste()
         => _clipMonitor?.ArmRemoteClipboardForPaste();
+
+    public void PrefetchRemoteInline()
+        => _clipMonitor?.PrefetchRemoteInline();
 
     public bool GetAutoStartEnabled() => AutoStartHelper.IsEnabled();
 

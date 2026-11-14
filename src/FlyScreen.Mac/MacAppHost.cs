@@ -2,6 +2,7 @@ using FlyScreen.Mac.Audio;
 using FlyScreen.Mac.Input;
 using FlyScreen.Mac.Native;
 using FlyScreen.Mac.Permissions;
+using FlyScreen.Mac.ScreenExtend;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
@@ -37,6 +38,7 @@ public sealed class MacAppHost : IAsyncDisposable
     public WindowsEdgeInputRouter? WindowsEdge { get; private set; }
     public LayoutSyncHelper LayoutSync { get; }
     public BehaviorSyncHelper BehaviorSync { get; }
+    public RemoteBindingSyncHelper RemoteBindingSync { get; }
     public SecurityKeySyncHelper SecurityKeySync { get; }
     public DisplayInfoService DisplayInfo { get; }
     public ScreenExtendService ScreenExtend { get; }
@@ -80,6 +82,7 @@ public sealed class MacAppHost : IAsyncDisposable
     public event Action<string>? StatusMessage;
     public event Action<string>? LayoutSyncedFromPeer;
     public event Action<string>? BehaviorSyncedFromPeer;
+    public event Action<string>? RemoteBindingSyncedFromPeer;
     public event Action<string>? SecurityKeySyncedFromPeer;
 
     private bool _receivingRemote;
@@ -118,6 +121,12 @@ public sealed class MacAppHost : IAsyncDisposable
         {
             BehaviorSyncedFromPeer?.Invoke(peer);
         };
+        RemoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
+        RemoteBindingSync.StatusMessage += PublishStatus;
+        RemoteBindingSync.RemoteBindingSyncedFromPeer += peer =>
+        {
+            try { RemoteBindingSyncedFromPeer?.Invoke(peer); } catch { /* ignore */ }
+        };
         SecurityKeySync = new SecurityKeySyncHelper(Settings, Connections, Connections.Discovery);
         SecurityKeySync.StatusMessage += PublishStatus;
         SecurityKeySync.SecurityKeyAppliedFromPeer += (from, _key) =>
@@ -147,6 +156,19 @@ public sealed class MacAppHost : IAsyncDisposable
         }
         ScreenExtend.StatusMessage += PublishStatus;
         ScreenExtend.ShouldAcceptOffer = (_, _) => true;
+        ScreenExtend.OnHostRequestAsync = HandleRemoteHostRequestAsync;
+        ScreenExtend.SessionEnded += peer =>
+        {
+            try
+            {
+                if (RemoteBindingHelper.ClearAllProjecting(Settings))
+                {
+                    Settings.Save();
+                    _ = BroadcastRemoteBindingSyncAsync();
+                }
+            }
+            catch { /* ignore */ }
+        };
         ScreenExtend.GetSinkDisplayInfo = () =>
         {
             var d = DisplayInfo.GetLocalDisplayInfo?.Invoke();
@@ -228,10 +250,16 @@ public sealed class MacAppHost : IAsyncDisposable
             || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal)
             || Connections.NeedsListenRebind();
 
+        var keyChanged = !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+
         if (needRestart || !Connections.IsRunning)
             await Connections.StartAsync().ConfigureAwait(false);
         else
+        {
             await Connections.RefreshConfiguredPeersAsync().ConfigureAwait(false);
+            if (keyChanged)
+                await Connections.RelayHub.RebindRoomKeyAsync(Settings, default).ConfigureAwait(false);
+        }
     }
 
     public Task BroadcastLayoutSyncAsync() => LayoutSync.BroadcastReplaceAsync();
@@ -239,6 +267,9 @@ public sealed class MacAppHost : IAsyncDisposable
     public Task BroadcastLayoutMergeAsync() => LayoutSync.BroadcastMergeAsync();
 
     public Task BroadcastBehaviorSyncAsync() => BehaviorSync.BroadcastAsync();
+
+    public Task BroadcastRemoteBindingSyncAsync(string? statusHint = null)
+        => RemoteBindingSync.BroadcastAsync(statusHint);
 
     public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
         => SecurityKeySync.SyncCurrentKeyAsync(ct);
@@ -365,12 +396,76 @@ public sealed class MacAppHost : IAsyncDisposable
                || string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>远程影子投影：对端请本机 Host 推流。</summary>
+    private async Task<(bool Ok, string? Error)> HandleRemoteHostRequestAsync(
+        string fromPeer,
+        ScreenExtendHostRequestPayload req,
+        CancellationToken ct)
+    {
+        if (!AccessibilityPermission.IsMacOS)
+            return (false, "非 macOS，不能作为远程投影主机");
+        if (!MacScreenRecording.IsGranted())
+        {
+            MacScreenRecording.Request();
+            return (false, "需要屏幕录制权限");
+        }
+
+        var sink = string.IsNullOrWhiteSpace(req.SinkPeer) ? fromPeer : req.SinkPeer.Trim();
+        if (string.IsNullOrWhiteSpace(sink))
+            return (false, "未指定接收端");
+        var sinkIsLocal = string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase);
+        if (!sinkIsLocal && !Connections.IsPeerReachable(sink))
+        {
+            try { await Connections.EnsureAdHocPeerAsync(sink, ct).ConfigureAwait(false); }
+            catch { /* ignore */ }
+        }
+        if (!sinkIsLocal && !Connections.IsPeerReachable(sink))
+            return (false, $"接收端「{sink}」未连接");
+
+        var d = DisplayInfo.GetLocalDisplayInfo?.Invoke();
+        var choice = new ProjectionDisplayChoice
+        {
+            Source = ProjectionDisplaySource.HostPrimary,
+            Width = req.PreferredWidth > 0 ? req.PreferredWidth : (d?.Width ?? 1920),
+            Height = req.PreferredHeight > 0 ? req.PreferredHeight : (d?.Height ?? 1080),
+            ScalePercent = d?.ScalePercent > 0 ? d.ScalePercent : 100,
+            Fps = req.Fps > 0 ? req.Fps : ProjectionDisplayPresets.DefaultFps,
+            JpegQuality = req.JpegQuality > 0
+                ? ProjectionDisplayPresets.ClampJpegQuality(req.JpegQuality)
+                : ProjectionDisplayPresets.DefaultJpegQuality
+        };
+        Projection.Configure(DisplayProjectionMode.Clone, choice, LayoutEdgeSide.Unknown);
+        Projection.ReleaseExtend();
+
+        if (ScreenExtend.IsActive)
+        {
+            var same = ScreenExtend.Role == ScreenExtendRole.Host
+                       && string.Equals(ScreenExtend.Peer, sink, StringComparison.OrdinalIgnoreCase);
+            if (!same)
+                return (false, ScreenExtendConflict.DescribeLocalBusy(ScreenExtend.Role, ScreenExtend.Peer));
+            Projection.Configure(DisplayProjectionMode.Clone, choice, LayoutEdgeSide.Unknown);
+            try { ScreenExtend.NotifyHostSessionReady(); } catch { /* ignore */ }
+            return (true, null);
+        }
+
+        return await ScreenExtend.StartHostAsync(
+                sink,
+                choice.Width,
+                choice.Height,
+                fps: choice.Fps > 0 ? choice.Fps : 12,
+                audioSync: req.AudioSync,
+                remoteControl: req.RemoteControl,
+                ct: ct)
+            .ConfigureAwait(false);
+    }
+
     public async ValueTask DisposeAsync()
     {
         try { ProgramService.Instance.Runner.StopAllForShutdown(); }
         catch { /* ignore */ }
         LayoutSync.Detach();
         BehaviorSync.Detach();
+        RemoteBindingSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
         _projectionAudio.Dispose();

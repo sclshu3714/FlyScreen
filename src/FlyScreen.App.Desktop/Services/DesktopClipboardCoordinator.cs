@@ -41,9 +41,14 @@ public sealed class DesktopClipboardCoordinator : IDisposable
         if (Interlocked.Exchange(ref _busy, 1) == 1) return;
         try
         {
+            var seq = _transfers.GetRemotePendingInlineSequence();
             var data = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(true);
             if (data != null && !data.IsEmpty)
+            {
                 _sink.ApplyInline(data);
+                if (seq != 0)
+                    _transfers.MarkRemoteInlineConsumed(seq);
+            }
         }
         catch
         {

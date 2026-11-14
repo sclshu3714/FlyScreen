@@ -327,7 +327,7 @@
                                     <VerticalStackLayout Spacing="4">
                                         <Label x:Name="ConnConfigTitleText" Text="连接配置" FontSize="15" FontAttributes="Bold" />
                                         <Label x:Name="ConnConfigHintText"
-                                               Text="本机网卡用于局域网；可添加远程/中转（旧端忽略未知配置）。"
+                                               Text="本机网卡用于局域网；可添加远程/服务（旧端忽略未知配置）。"
                                                TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                                     </VerticalStackLayout>
                                     <Button x:Name="AddEndpointBtn" Grid.Column="1" Text="+" WidthRequest="32" HeightRequest="28"
@@ -337,10 +337,12 @@
                                 </Grid>
                                 <Border Grid.Row="1" BackgroundColor="{DynamicResource ListBg}" Stroke="{DynamicResource Line}"
                                         StrokeThickness="1" StrokeShape="RoundRectangle 8" Padding="12,8">
-                                    <Grid ColumnDefinitions="120,*,Auto">
-                                        <Label x:Name="ConnColType" Text="类型" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
+                                    <Grid ColumnDefinitions="100,*,96">
+                                        <Label x:Name="ConnColType" Text="类型" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold"
+                                               HorizontalTextAlignment="Center" HorizontalOptions="Fill" />
                                         <Label x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
-                                        <Label x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
+                                        <Label x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold"
+                                               HorizontalTextAlignment="End" />
                                     </Grid>
                                 </Border>
                                 <ScrollView Grid.Row="2">
@@ -348,7 +350,8 @@
                                         <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
                                                 StrokeThickness="0,0,0,1" Padding="12,10">
                                             <Grid ColumnDefinitions="100,*,96" ColumnSpacing="8">
-                                                <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" VerticalOptions="Center" />
+                                                <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" VerticalOptions="Center"
+                                                       HorizontalTextAlignment="Center" HorizontalOptions="Center" />
                                                 <Picker x:Name="NicPicker" Grid.Column="1" HeightRequest="36"
                                                         ItemDisplayBinding="{Binding ShortDisplay}" />
                                                 <Button x:Name="RefreshNicsBtn" Grid.Column="2" Text="↻" HeightRequest="28"
@@ -364,14 +367,14 @@
                                                     <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
                                                             StrokeThickness="0,0,0,1" Padding="12,10">
                                                         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="100,*,96" ColumnSpacing="8" RowSpacing="4">
-                                                            <Picker Title="类型" SelectedIndex="{Binding Kind}" VerticalOptions="Center">
-                                                                <Picker.Items>
-                                                                    <x:String>远程</x:String>
-                                                                    <x:String>中转服务</x:String>
-                                                                </Picker.Items>
-                                                            </Picker>
+                                                            <Button Text="{Binding KindLabel}" HeightRequest="34" Padding="10,0"
+                                                                    FontAttributes="Bold" HorizontalOptions="Center"
+                                                                    Clicked="EndpointKind_Clicked"
+                                                                    CommandParameter="{Binding}"
+                                                                    BackgroundColor="{DynamicResource BlueSoft}"
+                                                                    TextColor="{DynamicResource Text}" />
                                                             <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
-                                                                   Placeholder="远程 host:port / 中转 wss://…" />
+                                                                   Placeholder="远程 host:port；服务 ws://host:8443 或 host:8443" />
                                                             <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                                                 <Button Text="⚡" HeightRequest="28" Padding="0" FontSize="14"
                                                                         TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
@@ -406,7 +409,7 @@
                                     <VerticalStackLayout Spacing="4">
                                         <Label x:Name="DiscoveryTitleText" Text="设备管理" FontSize="15" FontAttributes="Bold" />
                                         <Label x:Name="DiscoveryHintText"
-                                               Text="刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。"
+                                               Text="刷新：全网卡（含 Tailscale）广播并探测连接配置中的远程地址；发现到的以「本地」列出。设备管理无上限，布局最多 4 台。"
                                                TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                                     </VerticalStackLayout>
                                     <Button x:Name="RefreshDiscoveryBtn" Grid.Column="1" Text="↻" WidthRequest="32" HeightRequest="28"

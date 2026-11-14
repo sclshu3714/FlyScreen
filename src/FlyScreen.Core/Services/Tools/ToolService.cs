@@ -54,6 +54,16 @@ public sealed class ToolService
         }
     }
 
+    /// <summary>已加载的端口代理服务（实现位于工具包程序集）。</summary>
+    public IPortProxyService? PortProxy
+    {
+        get
+        {
+            lock (_gate)
+                return _hostServices?.GetService<IPortProxyService>();
+        }
+    }
+
     /// <summary>从宿主服务容器取工具已注册的具体服务（如 SharedDevicesService）。</summary>
     public T? GetToolService<T>() where T : class
     {

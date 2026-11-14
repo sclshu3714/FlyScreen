@@ -135,6 +135,58 @@ public static class TargetCatalog
                         ExtraArgsTemplate = "-r {rid} -p:CreatePackage=false"
                     }
                 ]
+            },
+            new PublishTargetItem
+            {
+                Id = "flytools",
+                DisplayName = "插件工具 (.flytool)",
+                Rid = "flytools",
+                Kind = "FlyTools",
+                ProjectPath = @"build\Pack-FlyTools.ps1",
+                Framework = "Release",
+                SupportsInstaller = true,
+                SupportsStandalone = true,
+                SupportsSelfContained = false,
+                UsesWindowsSetup = false,
+                UsesArchiveInstaller = true,
+                FrameworkChoices =
+                [
+                    new FrameworkChoice
+                    {
+                        Framework = "Release",
+                        Runtimes = ["bundled"]
+                    }
+                ]
+            },
+            new PublishTargetItem
+            {
+                Id = "relay",
+                DisplayName = "中继服务 (Relay)",
+                Rid = "relay-win-x64",
+                Kind = "Relay",
+                ProjectPath = @"src\FlyScreen.Relay\FlyScreen.Relay.csproj",
+                Framework = "net10.0",
+                SupportsInstaller = true,
+                SupportsStandalone = true,
+                SupportsSelfContained = true,
+                UsesWindowsSetup = false,
+                UsesArchiveInstaller = true,
+                FrameworkChoices =
+                [
+                    new FrameworkChoice
+                    {
+                        Framework = "net10.0",
+                        Runtimes =
+                        [
+                            "win-x64",
+                            "linux-x64",
+                            "linux-arm64",
+                            "osx-arm64",
+                            "osx-x64",
+                            "docker"
+                        ]
+                    }
+                ]
             }
         ];
 
@@ -168,6 +220,16 @@ public static class TargetCatalog
             return ExtractArgValue(t.ExtraArgs, "RuntimeIdentifier=") ?? fw.Runtimes.FirstOrDefault();
         if (t.Id == "maui-mac")
             return ExtractArgValue(t.ExtraArgs, "-r ") ?? "maccatalyst-arm64";
+        if (t.Id == "flytools")
+            return "bundled";
+        if (t.Id == "relay")
+        {
+            if (t.Rid.StartsWith("relay-", StringComparison.OrdinalIgnoreCase))
+                return t.Rid["relay-".Length..];
+            return OperatingSystem.IsWindows() ? "win-x64"
+                : OperatingSystem.IsMacOS() ? "osx-arm64"
+                : "linux-x64";
+        }
         return t.Rid;
     }
 

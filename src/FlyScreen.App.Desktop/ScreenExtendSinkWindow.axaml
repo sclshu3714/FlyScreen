@@ -2,16 +2,94 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="FlyScreen.DesktopUi.ScreenExtendSinkWindow"
         Title="玄鸟投影"
-        Background="Black"
+        Background="#0B0B0C"
         SystemDecorations="None"
-        WindowState="FullScreen"
-        Topmost="True">
+        WindowState="Maximized"
+        Topmost="True"
+        MinWidth="640"
+        MinHeight="400"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="0">
   <Grid>
-    <Image x:Name="FrameImage" Stretch="Uniform"
-           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-    <TextBlock x:Name="WaitingText" Text="等待投影画面…" FontSize="18" Opacity="0.7" Foreground="White"
-               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-    <TextBlock Text="Esc 退出投影" Margin="16" Opacity="0.55" Foreground="White"
-               HorizontalAlignment="Left" VerticalAlignment="Top"/>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <Border x:Name="TitleBar" Grid.Row="0" Background="#1A1A1D" Height="36"
+            PointerPressed="TitleBar_PointerPressed">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Bottom"
+                    Margin="8,4,0,0" Spacing="0">
+          <StackPanel x:Name="TabsHost" Orientation="Horizontal" Spacing="0"/>
+          <Border Width="1" Height="18" Background="#3F3F46" Margin="6,0,4,4" VerticalAlignment="Bottom"/>
+          <Button x:Name="AddTabBtn" Width="28" Height="28" Margin="0,0,4,4"
+                  Padding="0" Background="Transparent" BorderThickness="0"
+                  Click="AddTab_Click" ToolTip.Tip="添加投影" VerticalAlignment="Bottom">
+            <TextBlock Text="+" FontSize="16" Foreground="#9CA3AF"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Button>
+        </StackPanel>
+
+        <!-- 中间空白：显式命中层，拖动整窗 -->
+        <Border Grid.Column="1" Background="#01000000"/>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+          <Button x:Name="FullscreenBtn" Width="46" Height="32" Background="Transparent"
+                  BorderThickness="0" Click="Fullscreen_Click" ToolTip.Tip="全屏"
+                  Content="⛶" FontSize="14" Foreground="#D1D5DB"/>
+          <Button Width="46" Height="32" Background="Transparent" BorderThickness="0"
+                  Click="Minimize_Click" ToolTip.Tip="最小化"
+                  Content="─" FontSize="12" Foreground="#D1D5DB"/>
+          <Button x:Name="MaxBtn" Width="46" Height="32" Background="Transparent"
+                  BorderThickness="0" Click="Maximize_Click" ToolTip.Tip="最大化"
+                  Content="□" FontSize="12" Foreground="#D1D5DB"/>
+          <Button Width="46" Height="32" Background="Transparent" BorderThickness="0"
+                  Click="WindowClose_Click" ToolTip.Tip="关闭"
+                  Content="✕" FontSize="12" Foreground="#D1D5DB"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid x:Name="ContentHost" Grid.Row="1" Background="Black"
+          PointerMoved="ContentHost_PointerMoved">
+      <Image x:Name="FrameImage" Stretch="Uniform"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+      <TextBlock x:Name="WaitingText" Text="等待投影画面…" FontSize="18" Opacity="0.7" Foreground="White"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Grid>
+
+    <Canvas x:Name="FsToolbarLayer" Grid.RowSpan="2" IsVisible="False" ZIndex="100"
+            ClipToBounds="True"
+            PointerMoved="FsToolbarLayer_PointerMoved"
+            PointerReleased="FsToolbarLayer_PointerReleased">
+      <Border x:Name="FsToolbar" Background="#E01A1A1D" CornerRadius="6"
+              BorderBrush="#33FFFFFF" BorderThickness="1" Padding="2"
+              PointerEntered="FsToolbar_PointerEntered"
+              PointerExited="FsToolbar_PointerExited">
+        <StackPanel Orientation="Horizontal" Spacing="0">
+          <Button x:Name="FsGripBtn" Width="28" Height="28" Padding="0"
+                  Background="Transparent" BorderThickness="0"
+                  ToolTip.Tip="延迟测量中…"
+                  PointerPressed="FsGrip_PointerPressed"
+                  PointerMoved="FsGrip_PointerMoved"
+                  PointerReleased="FsGrip_PointerReleased"
+                  Content="◂▸" FontSize="11" Foreground="#C8C8CE"/>
+          <StackPanel x:Name="FsToolbarExtra" Orientation="Horizontal" Spacing="0">
+            <Button x:Name="FsNextTabBtn" Width="28" Height="28" Padding="0"
+                    Background="Transparent" BorderThickness="0"
+                    Click="NextTab_Click" ToolTip.Tip="切换标签"
+                    Content="⇄" FontSize="12" Foreground="#C8C8CE"/>
+            <Button Width="28" Height="28" Padding="0" Background="Transparent"
+                    BorderThickness="0" Click="Fullscreen_Click" ToolTip.Tip="退出全屏"
+                    Content="⛶" FontSize="12" Foreground="#C8C8CE"/>
+            <Button Width="28" Height="28" Padding="0" Background="Transparent"
+                    BorderThickness="0" Click="CloseCurrentTab_Click" ToolTip.Tip="结束投影"
+                    Content="⊗" FontSize="13" Foreground="#C8C8CE"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Canvas>
   </Grid>
 </Window>

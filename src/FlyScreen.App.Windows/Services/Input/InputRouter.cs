@@ -1006,10 +1006,28 @@ public sealed class InputRouter : IDisposable
         for (var i = 0; i < 4; i++)
         {
             var name = i < _settings.MachineSlots.Count ? _settings.MachineSlots[i] : null;
-            slots[i] = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                slots[i] = null;
+                continue;
+            }
+
+            // 投影中：仅当远程已具备穿边能力时才改写目标；否则保留本地名，避免残留「投影中」导致整边失效
+            slots[i] = ResolveEdgePeerNameForInput(name.Trim());
         }
 
         return slots;
+    }
+
+    private string ResolveEdgePeerNameForInput(string localSlotName)
+    {
+        var resolved = RemoteBindingHelper.ResolveEdgePeerName(_settings, localSlotName);
+        if (string.IsNullOrWhiteSpace(resolved)
+            || string.Equals(resolved, localSlotName, StringComparison.OrdinalIgnoreCase))
+            return localSlotName;
+        if (_connections.IsPeerEdgeMouseCapable(resolved))
+            return resolved;
+        return localSlotName;
     }
 
     private int ResolvePeerSide(string peer)
@@ -1048,11 +1066,16 @@ public sealed class InputRouter : IDisposable
 
     private int FindLocalSlotIndex(string?[] slots)
     {
-        var idx = FindSlotIndex(slots, LocalPeerIdentity.MachineName);
-        if (idx >= 0) return idx;
-        var env = Environment.MachineName;
-        if (!LocalPeerIdentity.IsBogusMachineName(env))
-            return FindSlotIndex(slots, env);
+        // 用物理槽位找本机：投影改写后 slots[i] 可能是远程名
+        _ = slots;
+        _settings.EnsureLocalMachineSlot();
+        for (var i = 0; i < 4; i++)
+        {
+            var physical = i < _settings.MachineSlots.Count ? _settings.MachineSlots[i] : null;
+            if (!string.IsNullOrWhiteSpace(physical) && IsLocalMachine(physical))
+                return i;
+        }
+
         return -1;
     }
 
@@ -1296,11 +1319,14 @@ public sealed class InputRouter : IDisposable
         return true;
     }
 
-    /// <summary>在已占用格子中找邻居（委托 <see cref="LayoutEdge"/>，含两机死边回绕）。</summary>
+    /// <summary>
+    /// 按物理布局找邻居，再按需改写为投影远程名（远程未具备穿边能力时保持电脑名）。
+    /// </summary>
     private string? FindOccupiedNeighborOf(string?[] slots, int fromIndex, bool horizontal, int dir)
     {
         _ = slots;
-        return LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
+        var physical = LayoutEdge.Neighbor(_settings, fromIndex, horizontal, dir);
+        return physical == null ? null : ResolveEdgePeerNameForInput(physical);
     }
 
     private async Task SendMouseMoveAsync(string peer, double nx, double ny)

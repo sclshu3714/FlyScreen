@@ -62,6 +62,8 @@ public enum MessageType : byte
     DisplayInfoQuery = 66,
     /// <summary>对端主屏分辨率/缩放应答。</summary>
     DisplayInfoReply = 67,
+    /// <summary>远程连接配置 + 绑定池同步（布局内电脑；旧端忽略）。</summary>
+    RemoteBindingSync = 68,
     /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
     CompositionUpdate = 70,
     /// <summary>电脑→手机：取消组字浮层。</summary>
@@ -95,6 +97,14 @@ public enum MessageType : byte
 
     /// <summary>投影回控：从机播放器 → 主机采集区键鼠（勿与普通 MouseMove/KeyEvent 混用）。</summary>
     ScreenExtendInput = 89,
+
+    /// <summary>
+    /// 远程影子投影：请对端作为 Host，向 SinkPeer 发起 ScreenExtendOffer。
+    /// 旧端忽略未知类型即可。
+    /// </summary>
+    ScreenExtendHostRequest = 90,
+    /// <summary>对 ScreenExtendHostRequest 的结果回执。</summary>
+    ScreenExtendHostRequestResult = 91,
 
     /// <summary>通用工具信令（JSON 信封，见 docs/tools.md §8）。</summary>
     ToolSignal = 100,
@@ -151,6 +161,16 @@ public sealed class HandshakePayload
     public bool IsReply { get; set; }
     /// <summary>发起方刚刚把对端加入布局，请对端在密钥一致且有空位时把本机加进布局。</summary>
     public bool RequestLayoutJoin { get; set; }
+    /// <summary>
+    /// 临时会话（设备管理远程投影等）：密钥正确即可建链，不要求双方同在电脑布局，也不请求加布局。
+    /// 旧端忽略未知字段时仍按「未授权」拒绝。
+    /// </summary>
+    public bool AdHocConnect { get; set; }
+    /// <summary>
+    /// 仅身份探测：密钥正确则回 Ack 后断开，不要求已在布局、不建链路。
+    /// 旧端忽略未知字段时仍走原「未授权」拒绝（探测方视为失败）。
+    /// </summary>
+    public bool ProbeOnly { get; set; }
     /// <summary>拒绝原因：key=安全密钥不一致，full=对端布局已满。空表示接受。</summary>
     public string? RejectReason { get; set; }
 
@@ -554,6 +574,45 @@ public sealed class LayoutSyncPayload
     public int Mode { get; set; }
 }
 
+/// <summary>
+/// 远程投影关联在布局电脑之间同步。Endpoints 不再携带连接配置，接收方忽略该字段。
+/// </summary>
+public sealed class RemoteBindingSyncPayload
+{
+    public string SourceMachine { get; set; } = "";
+    /// <summary>UTC 毫秒；更大者覆盖。</summary>
+    public long Revision { get; set; }
+    public List<RemoteEndpointSyncItem> Endpoints { get; set; } = [];
+    public List<RemoteBindingSyncItem> Bindings { get; set; } = [];
+    public Dictionary<string, string> ActiveRemoteByLocalDevice { get; set; } = new();
+}
+
+public sealed class RemoteEndpointSyncItem
+{
+    public string Id { get; set; } = "";
+    public int Kind { get; set; }
+    public string Address { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    /// <summary>期望对端名（建连提示）；接收方不得据此显示「测试通过」。</summary>
+    public string VerifiedPeerName { get; set; } = "";
+    /// <summary>已废弃同步：接收方忽略，发送方应置 0。</summary>
+    public int State { get; set; }
+    /// <summary>已废弃同步：接收方忽略。</summary>
+    public int? LastRttMs { get; set; }
+}
+
+public sealed class RemoteBindingSyncItem
+{
+    public string RemoteId { get; set; } = "";
+    public string RemoteName { get; set; } = "";
+    public string BoundLocalDeviceId { get; set; } = "";
+    public string EndpointId { get; set; } = "";
+    public string Endpoint { get; set; } = "";
+    public int Mode { get; set; }
+    public int State { get; set; }
+    public int? RttMs { get; set; }
+}
+
 /// <summary>高级页「功能 / 行为」跨机同步（不含开机自启、本机快捷键字母、主题语言等）。</summary>
 public sealed class BehaviorSyncPayload
 {
@@ -721,34 +780,97 @@ public sealed class ScreenExtendStopPayload
 }
 
 /// <summary>
-/// ScreenExtendFrame 二进制：16 字节 SessionId（Guid）+ int32 W + int32 H + int32 Seq + JPEG。
+/// 请对端成为投影 Host：把对端画面推到 <see cref="SinkPeer"/>（空=回推请求方）。
+/// <see cref="Stop"/> 为 true 时表示请对端结束当前 Host 会话。
+/// </summary>
+public sealed class ScreenExtendHostRequestPayload
+{
+    public string RequestId { get; set; } = "";
+    /// <summary>画面接收端机器名；空则回推给请求方。</summary>
+    public string SinkPeer { get; set; } = "";
+    public int PreferredWidth { get; set; } = 1920;
+    public int PreferredHeight { get; set; } = 1080;
+    public int Fps { get; set; } = 12;
+    /// <summary>JPEG 画质 0=原画 / 1–100；旧端缺省 0 按采集端默认。</summary>
+    public int JpegQuality { get; set; }
+    public bool AudioSync { get; set; }
+    public bool RemoteControl { get; set; } = true;
+    /// <summary>true：结束 Host；false：开始向 Sink 推流。</summary>
+    public bool Stop { get; set; }
+}
+
+public sealed class ScreenExtendHostRequestResultPayload
+{
+    public string RequestId { get; set; } = "";
+    public bool Ok { get; set; }
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// ScreenExtendFrame 二进制：
+/// v2：16 字节 SessionId + int32 W + int32 H + int32 Seq + int64 CapturedUnixMs + JPEG；
+/// v1（旧）：无 CapturedUnixMs，头 28 字节。
 /// </summary>
 public static class ScreenExtendFrameCodec
 {
-    public const int HeaderSize = 28;
+    public const int HeaderSize = 36;
+    public const int LegacyHeaderSize = 28;
 
-    public static byte[] Encode(Guid sessionId, int width, int height, int seq, ReadOnlySpan<byte> jpeg)
+    public static byte[] Encode(Guid sessionId, int width, int height, int seq, ReadOnlySpan<byte> jpeg,
+        long capturedUnixMs = 0)
     {
+        if (capturedUnixMs <= 0)
+            capturedUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var buf = new byte[HeaderSize + jpeg.Length];
         sessionId.TryWriteBytes(buf.AsSpan(0, 16));
         BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(16, 4), width);
         BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(20, 4), height);
         BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(24, 4), seq);
+        BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(28, 8), capturedUnixMs);
         jpeg.CopyTo(buf.AsSpan(HeaderSize));
         return buf;
     }
 
     public static bool TryDecode(ReadOnlySpan<byte> payload,
         out Guid sessionId, out int width, out int height, out int seq, out ReadOnlySpan<byte> jpeg)
+        => TryDecode(payload, out sessionId, out width, out height, out seq, out _, out jpeg);
+
+    public static bool TryDecode(ReadOnlySpan<byte> payload,
+        out Guid sessionId, out int width, out int height, out int seq, out long capturedUnixMs,
+        out ReadOnlySpan<byte> jpeg)
     {
         sessionId = default;
         width = height = seq = 0;
+        capturedUnixMs = 0;
         jpeg = default;
-        if (payload.Length < HeaderSize) return false;
+        if (payload.Length < LegacyHeaderSize) return false;
         sessionId = new Guid(payload[..16]);
         width = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(16, 4));
         height = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(20, 4));
         seq = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(24, 4));
+        // 优先认 v2：offset 36 起是 JPEG SOI（时间戳低字节偶发 FF D8，不能只看 offset 28）。
+        if (payload.Length >= HeaderSize + 2
+            && payload[HeaderSize] == 0xFF
+            && payload[HeaderSize + 1] == 0xD8)
+        {
+            capturedUnixMs = BinaryPrimitives.ReadInt64LittleEndian(payload.Slice(28, 8));
+            if (capturedUnixMs < 0) capturedUnixMs = 0;
+            jpeg = payload[HeaderSize..];
+            return true;
+        }
+
+        // v1 旧头：offset 28 起即 JPEG。
+        if (payload.Length >= LegacyHeaderSize + 2
+            && payload[LegacyHeaderSize] == 0xFF
+            && payload[LegacyHeaderSize + 1] == 0xD8)
+        {
+            jpeg = payload[LegacyHeaderSize..];
+            return true;
+        }
+
+        if (payload.Length < HeaderSize) return false;
+        capturedUnixMs = BinaryPrimitives.ReadInt64LittleEndian(payload.Slice(28, 8));
+        if (capturedUnixMs < 0) capturedUnixMs = 0;
         jpeg = payload[HeaderSize..];
         return true;
     }

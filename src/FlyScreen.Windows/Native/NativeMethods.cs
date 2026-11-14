@@ -67,6 +67,17 @@ public static class NativeMethods
     public const uint LLMHF_LOWER_IL_INJECTED = 0x00000002;
     public const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
 
+    /// <summary>无边框窗拖动：ReleaseCapture + SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)。</summary>
+    public const int WM_NCLBUTTONDOWN = 0x00A1;
+    public const int HTCAPTION = 0x2;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -123,6 +134,9 @@ public static class NativeMethods
     public const uint SWP_NOZORDER = 0x0004;
     public const uint SWP_NOACTIVATE = 0x0010;
     public const uint SWP_FRAMECHANGED = 0x0020;
+    public const uint SWP_SHOWWINDOW = 0x0040;
+    public static readonly IntPtr HWND_TOPMOST = new(-1);
+    public static readonly IntPtr HWND_NOTOPMOST = new(-2);
 
     /// <summary>
     /// 按应用淡/深色同步系统标题栏（沉浸式深色 + Win11 标题栏/边框色）。
@@ -245,6 +259,8 @@ public static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern uint RegisterClipboardFormat(string lpszFormat);
 
+    public const uint CF_DIB = 8;
+    public const uint CF_UNICODETEXT = 13;
     public const uint CF_HDROP = 15;
     public const uint GMEM_MOVEABLE = 0x0002;
     public const uint GMEM_ZEROINIT = 0x0040;

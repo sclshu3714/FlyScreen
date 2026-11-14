@@ -1,10 +1,12 @@
+using System.Net;
 using FlyScreen.Models;
 
 namespace FlyScreen.Services.Network;
 
 /// <summary>
-/// 安全密钥同步：TCP 推已连接对端；UDP 广播推布局内因密钥不同未连上的实例。
-/// 接收方仅当发送方在本机电脑布局槽位中（或本机在对方布局中）时才应用。
+/// 安全密钥同步：仅面向电脑布局内的设备。
+/// TCP 只推布局内已连接对端；UDP 全网卡广播 + 向布局内已知地址单播（含 Tailscale），
+/// 以便密钥不同尚未连上的布局电脑也能收到。接收方仍校验发送方属于布局关系。
 /// </summary>
 public sealed class SecurityKeySyncHelper : IDisposable
 {
@@ -29,7 +31,7 @@ public sealed class SecurityKeySyncHelper : IDisposable
         _discovery.SecurityKeySyncPacketReceived += OnUdpKeySync;
     }
 
-    /// <summary>把当前设置中的密钥同步到布局内所有电脑（已连接 + 仅发现）。</summary>
+    /// <summary>把当前设置中的密钥同步到布局内所有电脑（已连接 + 仅发现/探测地址）。</summary>
     public async Task<(bool Ok, string Message)> SyncCurrentKeyAsync(CancellationToken ct = default)
     {
         var key = (_settings.SecurityKey ?? "").Trim();
@@ -53,56 +55,133 @@ public sealed class SecurityKeySyncHelper : IDisposable
         };
         var bytes = MessageCodec.JsonBytes(payload);
 
+        // TCP：只发给布局内已连接的电脑（不广播到远程影子等非布局链路）
         var tcpPeers = 0;
-        try
+        foreach (var peer in slots)
         {
-            await _connections.BroadcastAsync(MessageType.SecurityKeySync, bytes, requiredCap: null)
-                .ConfigureAwait(false);
-            foreach (var peer in slots)
+            ct.ThrowIfCancellationRequested();
+            if (string.Equals(peer, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
             {
-                if (string.Equals(peer, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                var st = _connections.GetPeerStatus(peer);
-                if (st.AnyAlive) tcpPeers++;
+                if (await _connections.SendToAsync(peer, MessageType.SecurityKeySync, bytes)
+                        .ConfigureAwait(false))
+                    tcpPeers++;
             }
+            catch { /* UDP 仍可推 */ }
         }
-        catch { /* UDP 仍可推密钥不同未连上的机 */ }
 
-        // 多发几次 UDP，提高密钥不同未连上实例的送达率
+        // 布局内对端的已知探测地址（发现表 + 连接配置命中机名）→ UDP 单播
+        var unicastHosts = CollectLayoutUnicastHosts(slots);
+
+        // 多发几次：全网卡广播 + 布局内单播，提高密钥不同未连上实例的送达率
         var udpOk = false;
         for (var i = 0; i < 3; i++)
         {
             ct.ThrowIfCancellationRequested();
-            if (await _discovery.TryBroadcastRawAsync(bytes, ct).ConfigureAwait(false))
+            if (await _discovery.TryBroadcastRawEverywhereAsync(bytes, unicastHosts, ct)
+                    .ConfigureAwait(false))
                 udpOk = true;
             if (i < 2)
                 await Task.Delay(80, ct).ConfigureAwait(false);
         }
 
-        // 发现未启动时兜底新建广播套接字
+        // 发现未启动时兜底
         if (!udpOk)
-            udpOk = await FallbackUdpBroadcastAsync(bytes, ct).ConfigureAwait(false);
+            udpOk = await FallbackUdpBroadcastAsync(bytes, unicastHosts, ct).ConfigureAwait(false);
 
         lock (_gate)
             _lastAppliedRevision = Math.Max(_lastAppliedRevision, revision);
 
         var msg = udpOk
-            ? $"已同步安全密钥（已连接约 {tcpPeers} 台，UDP 已广播布局内设备）。"
-            : $"已向已连接对端同步安全密钥（约 {tcpPeers} 台）；UDP 广播失败，密钥不同的未连设备可能收不到。";
+            ? $"已同步安全密钥到布局内设备（TCP 约 {tcpPeers} 台，UDP 已全网卡广播/单播）。"
+            : $"已向布局内已连接对端同步安全密钥（约 {tcpPeers} 台）；UDP 发送失败，密钥不同的未连设备可能收不到。";
         StatusMessage?.Invoke(msg);
         return (true, msg);
     }
 
-    private async Task<bool> FallbackUdpBroadcastAsync(byte[] bytes, CancellationToken ct)
+    /// <summary>仅收集布局槽位电脑的可达地址，不含「只在连接配置、未进布局」的远程。</summary>
+    private List<string> CollectLayoutUnicastHosts(IReadOnlyList<string> layoutSlots)
+    {
+        var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var tcpPort = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+
+        foreach (var peer in layoutSlots)
+        {
+            if (string.Equals(peer, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (_discovery.TryGetConnectTargets(peer, tcpPort, out var targets))
+            {
+                foreach (var (ip, _) in targets)
+                {
+                    if (!string.IsNullOrWhiteSpace(ip))
+                        hosts.Add(ip);
+                }
+            }
+            else
+            {
+                var ip = _discovery.FindIp(peer);
+                if (!string.IsNullOrWhiteSpace(ip))
+                    hosts.Add(ip!);
+            }
+
+            foreach (var ep in _settings.ConnectionEndpoints ?? [])
+            {
+                if (ep.Kind != ConnectionEndpoint.KindRemote) continue;
+                if (!string.Equals(ep.VerifiedPeerName, peer, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!ConnectionEndpointProbe.TryParseHostPort(ep.Address?.Trim() ?? "", out var host, out _, tcpPort))
+                    continue;
+                hosts.Add(host);
+            }
+        }
+
+        return hosts.ToList();
+    }
+
+    private async Task<bool> FallbackUdpBroadcastAsync(
+        byte[] bytes, IReadOnlyList<string> unicastHosts, CancellationToken ct)
     {
         try
         {
             var port = _discovery.UdpPort > 0 ? _discovery.UdpPort : _settings.UdpPort;
             if (port <= 0) port = 15156;
-            using var udp = new System.Net.Sockets.UdpClient();
-            udp.EnableBroadcast = true;
-            await udp.SendAsync(bytes, bytes.Length,
-                    new System.Net.IPEndPoint(System.Net.IPAddress.Broadcast, port))
+            var any = false;
+            foreach (var nic in NicService.ListAnnounceIpv4Nics(includeOverlay: true))
+            {
+                if (ct.IsCancellationRequested) break;
+                if (string.IsNullOrWhiteSpace(nic.IPv4) || nic.IPv4 == "0.0.0.0") continue;
+                try
+                {
+                    using var udp = new System.Net.Sockets.UdpClient();
+                    udp.Client.Bind(new IPEndPoint(IPAddress.Parse(nic.IPv4), 0));
+                    udp.EnableBroadcast = true;
+                    await udp.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, port))
+                        .ConfigureAwait(false);
+                    any = true;
+                }
+                catch { /* continue */ }
+            }
+
+            foreach (var host in unicastHosts)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (!IPAddress.TryParse(host, out var ip)) continue;
+                try
+                {
+                    using var udp = new System.Net.Sockets.UdpClient();
+                    await udp.SendAsync(bytes, bytes.Length, new IPEndPoint(ip, port)).ConfigureAwait(false);
+                    any = true;
+                }
+                catch { /* continue */ }
+            }
+
+            if (any) return true;
+
+            using var fallback = new System.Net.Sockets.UdpClient();
+            fallback.EnableBroadcast = true;
+            await fallback.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, port))
                 .ConfigureAwait(false);
             return true;
         }
@@ -150,7 +229,7 @@ public sealed class SecurityKeySyncHelper : IDisposable
             return;
         }
 
-        // 发送方须在本机布局中，或本机出现在对方声明的布局槽位中
+        // 仅布局关系：发送方在本机布局中，或本机出现在对方声明的布局槽位中
         var localSlots = LayoutSlotMerge.NonEmptyNames(_settings.MachineSlots).ToList();
         var sourceInLocal = localSlots.Any(s => string.Equals(s, source, StringComparison.OrdinalIgnoreCase));
         var selfInRemote = sync.LayoutSlots != null && sync.LayoutSlots.Any(s =>

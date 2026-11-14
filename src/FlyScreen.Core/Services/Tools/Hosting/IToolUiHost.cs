@@ -54,7 +54,17 @@ public sealed class ToolUiHost : IToolUiHost
     public object? CreateWorkspaceContent(string toolId)
     {
         if (string.IsNullOrWhiteSpace(toolId)) return null;
-        return _workspaces.TryGetValue(toolId.Trim(), out var factory) ? factory() : null;
+        if (!_workspaces.TryGetValue(toolId.Trim(), out var factory))
+            return null;
+        try
+        {
+            return factory();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"创建工具工作区失败 {toolId}: {ex.Message}");
+            return null;
+        }
     }
 
     private sealed class ToolIdKindComparer : IEqualityComparer<(string ToolId, string Kind)>

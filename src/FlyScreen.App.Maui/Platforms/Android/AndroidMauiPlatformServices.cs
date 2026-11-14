@@ -363,9 +363,15 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     public void ArmRemoteClipboardForPaste()
     {
         if (!_settings.ShareClipboard) return;
+        PrefetchRemoteInline();
+        // 文件：与 Win 对齐，宣告时不拉取；由「接收剪贴板文件」显式拉取
+    }
+
+    public void PrefetchRemoteInline()
+    {
+        if (!_settings.ShareClipboard) return;
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
-        // 与 Win 对齐：宣告时不拉取；由「接收剪贴板文件」显式拉取
     }
 
 
@@ -753,9 +759,12 @@ public sealed class AndroidMauiPlatformServices : IMauiPlatformServices
     {
         try
         {
+            var seq = _transfers.GetRemotePendingInlineSequence();
             var data = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
             if (data == null || data.IsEmpty) return;
-            MainThread.BeginInvokeOnMainThread(() => _clipSink.ApplyInline(data));
+            var ok = await _clipSink.ApplyInlineAsync(data).ConfigureAwait(false);
+            if (ok && seq != 0)
+                _transfers.MarkRemoteInlineConsumed(seq);
         }
         catch { /* ignore */ }
     }

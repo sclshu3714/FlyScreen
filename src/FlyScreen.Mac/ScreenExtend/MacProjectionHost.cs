@@ -98,12 +98,13 @@ public sealed class MacProjectionHost : IDisposable
     {
         _hostReadyTick = Environment.TickCount64;
         Interlocked.Exchange(ref _remoteDriving, 0);
-        if (_mode == DisplayProjectionMode.Extend)
+        if (_mode == DisplayProjectionMode.Extend
+            && _choice.Source != ProjectionDisplaySource.HostPrimary)
             TryMatchPeerSize();
         StartCapture();
     }
 
-    private void OnSessionEnded()
+    private void OnSessionEnded(string? peer)
     {
         StopCapture();
         ReleaseExtend();
@@ -182,11 +183,13 @@ public sealed class MacProjectionHost : IDisposable
                 var started = Environment.TickCount64;
                 try
                 {
+                    var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     var drawCursor = Volatile.Read(ref _remoteDriving) == 0;
                     var frame = MacScreenCapture.Capture(display.Value.Id, picture.EncodeQuality, maxEdge, drawCursor);
                     if (frame is { Jpeg.Length: > 0 })
                     {
-                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height, token)
+                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height,
+                                capturedAt, token)
                             .ConfigureAwait(false);
                     }
                 }

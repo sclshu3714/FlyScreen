@@ -4,21 +4,31 @@ namespace FlyScreen.Services.ScreenExtend;
 
 public enum ProjectionTargetKind
 {
-    /// <summary>本机已有非主物理/已枚举副屏（扩展时可直接采集，不强制 MTT）。</summary>
+    /// <summary>本机副屏（扩展模式遗留；主窗投影不再混入）。</summary>
     LocalSecondaryMonitor = 0,
-    /// <summary>双向已连接的电脑/大屏。</summary>
+    /// <summary>电脑布局中的局域网电脑/大屏。</summary>
     Peer = 1
 }
 
-/// <summary>投影目标：真副屏或对端设备。</summary>
+/// <summary>主窗投影目标（非设备管理远程投影）。</summary>
 public sealed class ProjectionTarget
 {
     public ProjectionTargetKind Kind { get; init; }
     public string Id { get; init; } = "";
     public string DisplayName { get; init; } = "";
 
-    /// <summary>副屏时为监视器描述；Peer 时为机器名。</summary>
     public string? PeerName => Kind == ProjectionTargetKind.Peer ? Id : null;
+
+    public static ProjectionTarget Peer(string peerName, string? displayName = null)
+    {
+        var name = (peerName ?? "").Trim();
+        return new ProjectionTarget
+        {
+            Kind = ProjectionTargetKind.Peer,
+            Id = name,
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? name : displayName.Trim()
+        };
+    }
 
     public override string ToString() => DisplayName;
 }
@@ -26,62 +36,30 @@ public sealed class ProjectionTarget
 public static class ProjectionTargets
 {
     /// <summary>
-    /// 目标列表：本机副屏（可选）+ 双向已连接电脑/大屏。
-    /// <paramref name="localSecondaryLabels"/> 由平台枚举后传入（Core 不依赖 Win32）。
+    /// 主窗「投影」目标列表：仅电脑布局局域网电脑（见 <see cref="ScreenExtendTargets"/>）。
+    /// 与设备管理「远程/中转投影」无关；勿传入远程名作 prefer 期望强行入列。
     /// </summary>
     public static IReadOnlyList<ProjectionTarget> ListForPicker(
         ConnectionManager connections,
         IReadOnlyList<(string Id, string Label)>? localSecondaryLabels = null,
         string? preferPeer = null)
     {
-        var list = new List<ProjectionTarget>();
+        _ = localSecondaryLabels; // 主窗投影不列本机副屏
 
-        if (localSecondaryLabels != null)
+        var names = ScreenExtendTargets.ListForPicker(connections, preferPeer);
+        var list = new List<ProjectionTarget>(names.Count);
+        foreach (var name in names)
         {
-            foreach (var (id, label) in localSecondaryLabels)
-            {
-                if (string.IsNullOrWhiteSpace(id)) continue;
-                list.Add(new ProjectionTarget
-                {
-                    Kind = ProjectionTargetKind.LocalSecondaryMonitor,
-                    Id = id.Trim(),
-                    DisplayName = string.IsNullOrWhiteSpace(label) ? $"本机副屏 ({id})" : label.Trim()
-                });
-            }
+            var st = connections.GetPeerStatus(name);
+            var label = st.AnyAlive ? name : name + "（未连接）";
+            list.Add(ProjectionTarget.Peer(name, label));
         }
 
-        foreach (var name in ScreenExtendTargets.ListEligible(connections))
-        {
-            list.Add(new ProjectionTarget
-            {
-                Kind = ProjectionTargetKind.Peer,
-                Id = name,
-                DisplayName = name
-            });
-        }
-
-        // 保留上次选择的对端（即使暂未双向），避免列表抖动
-        if (!string.IsNullOrWhiteSpace(preferPeer)
-            && list.All(t => !string.Equals(t.Id, preferPeer, StringComparison.OrdinalIgnoreCase)))
-        {
-            foreach (var name in ScreenExtendTargets.ListForPicker(connections, preferPeer))
-            {
-                if (list.Any(t => string.Equals(t.Id, name, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-                list.Add(new ProjectionTarget
-                {
-                    Kind = ProjectionTargetKind.Peer,
-                    Id = name,
-                    DisplayName = name + "（未双向）"
-                });
-            }
-        }
-
+        // prefer 仅用于调用方选中，不在此插入布局外项
         return list;
     }
 }
 
-/// <summary>开始投影结果。</summary>
 public sealed record ProjectionStartResult(bool Ok, bool NeedEnvironmentRepair, string? Message)
 {
     public static ProjectionStartResult Success(string? message = null)

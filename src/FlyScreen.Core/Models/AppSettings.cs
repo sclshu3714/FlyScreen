@@ -7,12 +7,16 @@ namespace FlyScreen.Models;
 public sealed class AppSettings
 {
     public string SecurityKey { get; set; } = GenerateKey();
+    /// <summary>中转边缘 WebSocket 注册用的稳定设备 Id（首次连接时生成并持久化）。</summary>
+    public string RelayDeviceId { get; set; } = "";
     public List<string> MachineSlots { get; set; } = ["", "", "", ""];
     public bool TwoRow { get; set; }
     /// <summary>最近一次布局修订（UTC 毫秒），用于跨机同步去重。</summary>
     public long LayoutRevision { get; set; }
     /// <summary>最近一次功能/行为修订（UTC 毫秒），用于跨机同步去重。</summary>
     public long BehaviorRevision { get; set; }
+    /// <summary>最近一次远程绑定/连接配置修订（UTC 毫秒），布局电脑之间同步去重。</summary>
+    public long RemoteBindingRevision { get; set; }
     public bool WrapMouse { get; set; }
     public bool ShareClipboard { get; set; } = true;
     public bool TransferFile { get; set; } = true;
@@ -76,11 +80,11 @@ public sealed class AppSettings
     /// <summary>对本机发现/握手名的覆盖；空则自动（WSL 会加发行版后缀避免与宿主机撞名）。</summary>
     public string MachineNameOverride { get; set; } = "";
     /// <summary>
-    /// 连接配置附加行（远程设备 / 中转服务）。缺省空列表；旧端忽略即可，不进 LayoutSync。
+    /// 连接配置附加行（远程设备 / 中转服务）。只保存在本机，不随布局同步。
     /// </summary>
     public List<ConnectionEndpoint> ConnectionEndpoints { get; set; } = [];
     /// <summary>
-    /// 远程设备绑定池（按 BoundLocalDeviceId 归属本地电脑）。仅本机 UI/后台状态，不进 LayoutSync。
+    /// 远程设备绑定池（按 BoundLocalDeviceId 归属本地电脑）。经 <c>RemoteBindingSync</c> 同步到布局电脑。
     /// </summary>
     public List<RemoteBinding> RemoteBindings { get; set; } = [];
     /// <summary>各本地设备当前展示的远程 Id（LocalDeviceId → RemoteId）。</summary>
@@ -173,6 +177,19 @@ public sealed class AppSettings
             MachineSlots[empty] = local;
         else
             MachineSlots[0] = local;
+    }
+
+    /// <summary>确保 <see cref="RelayDeviceId"/> 为 N 格式 GUID 并已写入设置。</summary>
+    public string EnsureRelayDeviceId()
+    {
+        var id = (RelayDeviceId ?? "").Trim();
+        if (id.Length == 32 && Guid.TryParseExact(id, "N", out _))
+            return id;
+
+        id = Guid.NewGuid().ToString("N");
+        RelayDeviceId = id;
+        try { Save(); } catch { /* ignore */ }
+        return id;
     }
 
     public static string GenerateKey()

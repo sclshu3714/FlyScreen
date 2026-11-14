@@ -33,15 +33,23 @@ public static class LayoutEdge
 
     public static string? Neighbor(AppSettings settings, int fromIndex, bool horizontal, int dir)
     {
-        if (fromIndex < 0 || dir == 0) return null;
-
         var slots = new string?[4];
         var n = Math.Min(4, settings.MachineSlots.Count);
         for (var i = 0; i < n; i++)
             slots[i] = settings.MachineSlots[i];
+        return Neighbor(slots, settings.TwoRow, settings.WrapMouse, fromIndex, horizontal, dir);
+    }
 
-        var cols = settings.TwoRow ? 2 : 4;
-        var rows = settings.TwoRow ? 2 : 1;
+    /// <summary>
+    /// 使用已解析的 4 格名称（可含投影改写后的远程名）找邻居。
+    /// </summary>
+    public static string? Neighbor(
+        string?[] slots, bool twoRow, bool wrapMouse, int fromIndex, bool horizontal, int dir)
+    {
+        if (slots == null || slots.Length < 4 || fromIndex < 0 || dir == 0) return null;
+
+        var cols = twoRow ? 2 : 4;
+        var rows = twoRow ? 2 : 1;
         if (fromIndex >= cols * rows) return null;
         var row = fromIndex / cols;
         var col = fromIndex % cols;
@@ -70,7 +78,7 @@ public static class LayoutEdge
         if (myPos < 0) return null;
 
         int nextPos;
-        if (settings.WrapMouse)
+        if (wrapMouse)
         {
             if (occupied.Count < 2) return null;
             nextPos = (myPos + dir + occupied.Count) % occupied.Count;

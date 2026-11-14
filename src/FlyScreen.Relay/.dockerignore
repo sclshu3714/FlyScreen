@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/data/
+**/.vs/
+**/.idea/
+**/*.user
+**/*.suo
+**/out/
+**/dist/
+**/*.tar
+**/*.tar.gz
+.git/
+.gitignore
+.dockerignore
+README.md
+tools/
+*.md

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Tool.VideoWall</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.VideoWall</AssemblyName>
+    <Description>玄鸟视频墙工具包入口（骨架：契约与模块桩，播放后端未接线）</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 骨架阶段只依赖契约程序集，便于单独编译；接线后再补 FlyScreen.Core 引用。 -->
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+</Project>

@@ -16,7 +16,7 @@
     </Grid.RowDefinitions>
 
     <TextBlock Grid.Row="0" Margin="0,0,0,16"
-               Text="选择端、打包方式与部署模式，一键发布独立程序或自定义安装包（始终使用 Release，不含 PDB）。"
+               Text="选择端 / 插件工具 / 中继服务，一键发布独立程序、安装包或 Docker 镜像（始终 Release，不含 PDB）。"
                Foreground="{StaticResource MutedBrush}" FontSize="13" TextWrapping="Wrap"/>
 
     <Grid Grid.Row="1">
@@ -50,7 +50,7 @@
                                    IsChecked="True" Checked="PackageMode_Changed"/>
                     </StackPanel>
                     <TextBlock x:Name="InstallerHint"
-                               Text="安装包：Windows 桌面 / MAUI Win → Setup.exe；MAUI Android → APK；Linux → tar.gz。Mac 请用「独立应用」。"
+                               Text="安装包：Win/Maui-Win → Setup.exe；Android → APK；Linux → tar.gz；插件 → zip；中继 → zip 或 Docker tar。Mac 客户端请用「独立应用」。"
                                TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"
                                FontSize="12" Margin="0,8,0,0" Visibility="Collapsed"/>
                   </StackPanel>

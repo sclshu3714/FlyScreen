@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.Models;
@@ -18,8 +19,10 @@ public sealed class DeviceInventoryItem
     /// <summary>本地：布局槽位索引；-1 未加入。</summary>
     public int LayoutSlotIndex { get; set; } = -1;
     public string LayoutPositionLabel { get; set; } = "";
-    /// <summary>远程：是否已绑定。</summary>
+    /// <summary>远程：是否已绑定到布局（旧路径；设备管理直接投影不再依赖）。</summary>
     public bool IsBound { get; set; }
+    /// <summary>远程：当前是否正在向本机投影。</summary>
+    public bool IsProjecting { get; set; }
     public string BoundPositionLabel { get; set; } = "";
     public string BoundLocalDeviceId { get; set; } = "";
     /// <summary>服务：ConnectionEndpoint.Id。</summary>
@@ -48,8 +51,8 @@ public sealed class DeviceInventoryItem
                 if (IsLocalMachine) return "定位";
                 return LayoutSlotIndex >= 0 ? "定位" : "添加";
             }
-            if (Kind == KindRemote)
-                return IsBound ? "切换绑定" : "绑定";
+            if (Kind is KindRemote or KindService)
+                return IsProjecting ? "停止投影" : "投影";
             return "测试";
         }
     }
@@ -60,10 +63,9 @@ public sealed class DeviceInventoryItem
         {
             if (Kind == KindLocal && LayoutSlotIndex >= 0 && !IsLocalMachine)
                 return "移除";
-            if (Kind == KindRemote && IsBound)
-                return "删除";
-            if (Kind == KindService)
-                return "删除";
+            // 设备管理直接投影不再走布局绑定；旧绑定仍可「解除」
+            if ((Kind == KindRemote || Kind == KindService) && IsBound && !IsProjecting)
+                return "解除";
             return "";
         }
     }
@@ -75,8 +77,8 @@ public sealed class DeviceInventoryItem
         {
             if (Kind == KindLocal)
                 return LayoutSlotIndex >= 0 || IsLocalMachine ? "⌖" : "+";
-            if (Kind == KindRemote)
-                return "◎";
+            if (Kind is KindRemote or KindService)
+                return IsProjecting ? "■" : "◎";
             return "⚡";
         }
     }
@@ -100,4 +102,60 @@ public sealed class DeviceInventoryItem
 
     /// <summary>操作区 3 列网格中主按钮的 ColumnSpan（单钮=3，双钮=1）。</summary>
     public int PrimaryActionColumnSpan => PrimaryActionStretch ? 3 : 1;
+
+    /// <summary>
+    /// 内容未变则跳过。变更时用 Replace/Add/Remove 差分更新，避免 Clear（Reset）
+    /// 与 ListBox CollectionView 枚举冲突，也避免 DeferRefresh 期间改集合抛错。
+    /// </summary>
+    public static bool ReplaceIfChanged(
+        ObservableCollection<DeviceInventoryItem> dest,
+        IReadOnlyList<DeviceInventoryItem> next)
+    {
+        if (RowsEqual(dest, next))
+            return false;
+
+        var i = 0;
+        for (; i < next.Count; i++)
+        {
+            if (i < dest.Count)
+            {
+                if (!RowEqual(dest[i], next[i]))
+                    dest[i] = next[i];
+            }
+            else
+                dest.Add(next[i]);
+        }
+
+        while (dest.Count > next.Count)
+            dest.RemoveAt(dest.Count - 1);
+
+        return true;
+    }
+
+    private static bool RowsEqual(
+        IReadOnlyList<DeviceInventoryItem> a,
+        IReadOnlyList<DeviceInventoryItem> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (!RowEqual(a[i], b[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool RowEqual(DeviceInventoryItem x, DeviceInventoryItem y)
+        => string.Equals(x.Id, y.Id, StringComparison.Ordinal)
+           && string.Equals(x.Name, y.Name, StringComparison.Ordinal)
+           && x.Kind == y.Kind
+           && string.Equals(x.Address, y.Address, StringComparison.Ordinal)
+           && string.Equals(x.StatusText, y.StatusText, StringComparison.Ordinal)
+           && x.IsOnline == y.IsOnline
+           && x.IsBound == y.IsBound
+           && x.IsProjecting == y.IsProjecting
+           && x.LayoutSlotIndex == y.LayoutSlotIndex
+           && string.Equals(x.PrimaryActionText, y.PrimaryActionText, StringComparison.Ordinal)
+           && string.Equals(x.SecondaryActionText, y.SecondaryActionText, StringComparison.Ordinal);
 }

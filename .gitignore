@@ -2,6 +2,8 @@ bin/
 obj/
 .vs/
 artifacts/
+src/FlyScreen.Relay/out/
+src/FlyScreen.Relay/data/
 *.user
 *.suo
 *.swp

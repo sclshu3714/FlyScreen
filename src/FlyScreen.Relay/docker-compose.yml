@@ -1,0 +1,32 @@
+services:
+  flyscreen-relay:
+    build:
+      context: .
+      args:
+        # 国内可改为 mcr.m.daocloud.io/dotnet/sdk:10.0 与 aspnet:10.0
+        SDK_IMAGE: ${SDK_IMAGE:-mcr.microsoft.com/dotnet/sdk:10.0}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-mcr.microsoft.com/dotnet/aspnet:10.0}
+    image: flyscreen-relay:latest
+    container_name: flyscreen-relay
+    restart: unless-stopped
+    ports:
+      - "8443:8443"       # 边缘：HTTP + WebSocket（注册/信令/中继）
+      - "9080:9080"       # 管理：网页 + REST
+      - "15155:15155"     # 兼容客户端默认 TCP（测试 / ProbeOnly）
+      - "8443:8443/udp"   # STUN
+      - "15156:15156/udp" # 兼容客户端 UDP 发现
+    environment:
+      Relay__ServerName: flyscreen-relay
+      Relay__EdgeListen: 0.0.0.0:8443
+      Relay__AdminListen: 0.0.0.0:9080
+      Relay__PeerTcpPort: "15155"
+      Relay__StunUdpPort: "8443"
+      Relay__DiscoveryUdpPort: "15156"
+      Relay__DiscoveryBroadcastAnnounce: "true"
+      # 默认内嵌 SQLite，数据在卷 ./data。改用 MySQL 时必须同时关掉内嵌库：
+      # Relay__Database__UseEmbedded: "false"
+      # Relay__Database__Provider: mysql
+      # Relay__Database__ConnectionString: Server=mysql;Port=3306;Database=flyscreen;User ID=fly;Password=secret;
+      # Relay__PublicEdgeUrl: wss://relay.example.com:8443
+    volumes:
+      - ./data:/app/data

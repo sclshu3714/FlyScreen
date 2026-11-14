@@ -272,7 +272,7 @@
 | `tools-shortcuts.json` | 工具页快捷栏（4 槽） |
 | `tools-index.cache.json` | 远程索引缓存 |
 
-组包：`build/Pack-FlyTools.ps1` → `artifacts/flytools/` 并复制到各 App 输出 `Tools/Bundled`。契约工程：`FlyScreen.ToolSdk`；入口工程：`FlyScreen.Tool.ColorPicker` / `FlyScreen.Tool.SharedDevices`。
+组包：`build/Pack-FlyTools.ps1` → `artifacts/flytools/` 并复制到各 App 输出 `Tools/Bundled`。亦可在 `FlyScreen.Setup` 勾选「插件工具 (.flytool)」一键产出 `FlyScreen-{ver}-flytools.zip`。契约工程：`FlyScreen.ToolSdk`；入口工程：`FlyScreen.Tool.ColorPicker` / `FlyScreen.Tool.SharedDevices`。
 
 **卡片与 UI 解耦（已实现）：**
 

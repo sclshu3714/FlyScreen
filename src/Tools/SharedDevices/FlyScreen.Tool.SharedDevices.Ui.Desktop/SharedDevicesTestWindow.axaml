@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.Tool.SharedDevices.Ui.Desktop.SharedDevicesTestWindow"
+        Width="520" Height="600"
+        MinWidth="420" MinHeight="480"
+        MaxWidth="640" MaxHeight="720"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        Title="共享设备测试"
+        Background="{DynamicResource WinBg}">
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12" Spacing="10">
+      <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold"/>
+      <Button x:Name="GoStartBtn" Classes="primary" HorizontalAlignment="Left"
+              IsVisible="False" Click="GoStart_Click"/>
+    </StackPanel>
+    <Button x:Name="CloseBtn" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,12,0,0"
+            Classes="normal" Click="Close_Click"/>
+    <ScrollViewer>
+      <StackPanel Spacing="12">
+        <Border Classes="card" Padding="12">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="CameraTitle" FontWeight="SemiBold"/>
+            <TextBlock x:Name="CameraHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="CameraStartBtn" Classes="primary" Click="CameraStart_Click"/>
+              <Button x:Name="CameraStopBtn" Classes="normal" Click="CameraStop_Click" IsEnabled="False"/>
+            </StackPanel>
+            <Border Background="{DynamicResource SubtleBg}" CornerRadius="8" Height="220" ClipToBounds="True">
+              <Panel>
+                <Image x:Name="CameraPreview" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <TextBlock x:Name="CameraStatus" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}"/>
+              </Panel>
+            </Border>
+          </StackPanel>
+        </Border>
+        <Border Classes="card" Padding="12">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="SpeakerTitle" FontWeight="SemiBold"/>
+            <TextBlock x:Name="SpeakerHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="SpeakerPlayBtn" Classes="primary" Click="SpeakerPlay_Click"/>
+              <TextBlock x:Name="SpeakerStatus" VerticalAlignment="Center" FontSize="12"
+                         Foreground="{DynamicResource Muted}"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <Border Classes="card" Padding="12">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="MicTitle" FontWeight="SemiBold"/>
+            <TextBlock x:Name="MicHint" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="MicStartBtn" Classes="primary" Click="MicStart_Click"/>
+              <Button x:Name="MicStopBtn" Classes="normal" Click="MicStop_Click" IsEnabled="False"/>
+              <TextBlock x:Name="MicStatus" VerticalAlignment="Center" FontSize="12"
+                         Foreground="{DynamicResource Muted}"/>
+            </StackPanel>
+            <ProgressBar x:Name="MicLevel" Minimum="0" Maximum="100" Value="0" Height="12"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

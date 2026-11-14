@@ -52,6 +52,12 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         remove => _host.BehaviorSyncedFromPeer -= value;
     }
 
+    public event Action<string>? RemoteBindingSyncedFromPeer
+    {
+        add => _host.RemoteBindingSyncedFromPeer += value;
+        remove => _host.RemoteBindingSyncedFromPeer -= value;
+    }
+
     public event Action<string>? SecurityKeySyncedFromPeer
     {
         add => _host.SecurityKeySyncedFromPeer += value;
@@ -94,10 +100,14 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public Task BroadcastLayoutSyncAsync() => _host.BroadcastLayoutSyncAsync();
     public Task BroadcastLayoutMergeAsync() => _host.BroadcastLayoutMergeAsync();
     public Task BroadcastBehaviorSyncAsync() => _host.BroadcastBehaviorSyncAsync();
+    public Task BroadcastRemoteBindingSyncAsync(string? statusHint = null)
+        => _host.BroadcastRemoteBindingSyncAsync(statusHint);
     public Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default)
         => _host.SyncSecurityKeyAsync(ct);
 
     public ScreenExtendService ScreenExtend => _host.ScreenExtend;
+
+    public ScreenExtendDesktopController ScreenExtendUi => _screenExtendUi;
 
     public bool CanStartProjection => AccessibilityPermission.IsMacOS;
 

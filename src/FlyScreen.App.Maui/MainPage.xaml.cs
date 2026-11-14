@@ -9,6 +9,7 @@ using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
+using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
@@ -74,6 +75,7 @@ public partial class MainPage : ContentPage
     private Action? _onAppLogChanged;
     private Action<string>? _onLayoutSynced;
     private Action<string>? _onBehaviorSynced;
+    private Action<string>? _onRemoteBindingSynced;
     private Action<string>? _onSecurityKeySynced;
     private Action<IReadOnlyList<DiscoveredPeer>>? _onPeersUpdated;
     private Action<string, bool, bool>? _onPeerLinkChanged;
@@ -101,6 +103,9 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         _host = MauiAppHost.EnsureCreated();
+#if WINDOWS
+        WireWindowsScreenExtendMultiTab();
+#endif
         DiscoveryList.ItemsSource = _discovery;
         TransferList.ItemsSource = _host.Transfers.Items;
         TrayBtn.IsVisible = _host.Platform.SupportsTray;
@@ -137,9 +142,9 @@ public partial class MainPage : ContentPage
         EnsureNetworkBreadcrumb();
         EndpointList.ItemsSource = _endpoints;
         DeviceInventoryList.ItemsSource = _deviceInventory;
-        _endpoints.Clear();
-        foreach (var ep in _host.Settings.ConnectionEndpoints ?? [])
-            _endpoints.Add(ep);
+        if (ConnectionEndpointStore.EnsureFromBindings(_host.Settings) > 0)
+            _host.Settings.Save();
+        ReloadEndpointListFromSettings();
         RefreshNetworkBreadcrumb();
         RefreshNics();
         RefreshDiscovery();
@@ -186,6 +191,13 @@ public partial class MainPage : ContentPage
             LoadUi();
             ApplyLocalizedUi();
         });
+        _onRemoteBindingSynced = from => RunOnUi(() =>
+        {
+            RefreshSlotBoundRemotes();
+            RebuildMatrix();
+            RefreshDiscovery();
+            StatusLabel.Text = $"已同步远程投影关联 ← {from}";
+        });
         _onSecurityKeySynced = from => RunOnUi(() =>
         {
             KeyEntry.Text = _host.Settings.SecurityKey ?? "";
@@ -200,10 +212,12 @@ public partial class MainPage : ContentPage
         AppLog.Changed += _onAppLogChanged;
         _host.LayoutSyncedFromPeer += _onLayoutSynced;
         _host.BehaviorSyncedFromPeer += _onBehaviorSynced;
+        _host.RemoteBindingSyncedFromPeer += _onRemoteBindingSynced;
         _host.SecurityKeySyncedFromPeer += _onSecurityKeySynced;
         _host.Connections.Discovery.PeersUpdated += _onPeersUpdated;
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
         _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
+        _host.ScreenExtend.SinkSessionReady += OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
         RegisterToolUiBridge();
         ToolService.Instance.Catalog.Changed += OnToolsCatalogChanged;
@@ -225,7 +239,14 @@ public partial class MainPage : ContentPage
     }
 
     private void OnProjectionSessionChanged()
-        => RunOnUi(RefreshPhoneProjectButton);
+        => RunOnUi(() =>
+        {
+            RefreshPhoneProjectButton();
+            OnDeviceProjectSessionEndedIfNeeded();
+            RefreshDiscovery();
+        });
+
+    private void OnProjectionSessionChanged(string? peer) => OnProjectionSessionChanged();
 
     private void OnToolsCatalogChanged()
         => RunOnUi(RefreshToolsPage);
@@ -245,6 +266,8 @@ public partial class MainPage : ContentPage
             _host.LayoutSyncedFromPeer -= _onLayoutSynced;
         if (_onBehaviorSynced != null)
             _host.BehaviorSyncedFromPeer -= _onBehaviorSynced;
+        if (_onRemoteBindingSynced != null)
+            _host.RemoteBindingSyncedFromPeer -= _onRemoteBindingSynced;
         if (_onSecurityKeySynced != null)
             _host.SecurityKeySyncedFromPeer -= _onSecurityKeySynced;
         if (_onPeersUpdated != null)
@@ -252,6 +275,7 @@ public partial class MainPage : ContentPage
         if (_onPeerLinkChanged != null)
             _host.Connections.PeerLinkChanged -= _onPeerLinkChanged;
         _host.ScreenExtend.HostSessionReady -= OnProjectionSessionChanged;
+        _host.ScreenExtend.SinkSessionReady -= OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded -= OnProjectionSessionChanged;
         ToolService.Instance.Catalog.Changed -= OnToolsCatalogChanged;
         ToolService.Instance.InstallProgress.Changed -= OnToolsCatalogChanged;
@@ -269,6 +293,7 @@ public partial class MainPage : ContentPage
         _onAppLogChanged = null;
         _onLayoutSynced = null;
         _onBehaviorSynced = null;
+        _onRemoteBindingSynced = null;
         _onSecurityKeySynced = null;
         _onPeersUpdated = null;
         _onPeerLinkChanged = null;
@@ -1192,9 +1217,9 @@ public partial class MainPage : ContentPage
 
         TcpPortEntry.Text = s.TcpPort.ToString();
         UdpPortEntry.Text = s.UdpPort.ToString();
-        _endpoints.Clear();
-        foreach (var ep in s.ConnectionEndpoints ?? [])
-            _endpoints.Add(ep);
+        if (ConnectionEndpointStore.EnsureFromBindings(s) > 0)
+            s.Save();
+        ReloadEndpointListFromSettings();
 
         SyncSlotsFromSettings();
     }
@@ -1362,6 +1387,7 @@ public partial class MainPage : ContentPage
             _slots.Add(slot);
         }
 
+        RemoteBindingHelper.ApplyToSlots(_slots, _host.Settings);
         _selected = null;
     }
 
@@ -1548,7 +1574,7 @@ public partial class MainPage : ContentPage
             ? (Color)Application.Current!.Resources["Success"]
             : (Color)Application.Current!.Resources["Muted"];
 
-        View content;
+        View main;
         if (_twoRow)
         {
             // 对齐 Win MachineCard2x2：图标左 + 文字右
@@ -1574,7 +1600,7 @@ public partial class MainPage : ContentPage
             });
             text.Children.Add(new Label
             {
-                Text = slot.DisplayName,
+                Text = slot.CardTitle,
                 FontSize = 13,
                 FontAttributes = FontAttributes.Bold,
                 LineBreakMode = LineBreakMode.TailTruncation,
@@ -1582,15 +1608,38 @@ public partial class MainPage : ContentPage
             });
             text.Children.Add(new Label
             {
-                Text = slot.DisplaySubtitle,
+                Text = slot.ShowAsRemotePrimary ? slot.CardStatus : slot.DisplaySubtitle,
                 FontSize = 11,
                 FontAttributes = FontAttributes.Bold,
                 TextColor = statusColor,
                 HorizontalTextAlignment = TextAlignment.Start,
                 Margin = new Thickness(0, 3, 0, 0)
             });
+            if (slot.ShowHostHint)
+            {
+                text.Children.Add(new Label
+                {
+                    Text = slot.CardEdgeHint,
+                    FontSize = 10,
+                    TextColor = (Color)Application.Current!.Resources["Blue"],
+                    HorizontalTextAlignment = TextAlignment.Start,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+                text.Children.Add(new Label
+                {
+                    Text = slot.CardHostHint,
+                    FontSize = 10,
+                    TextColor = (Color)Application.Current!.Resources["Muted"],
+                    HorizontalTextAlignment = TextAlignment.Start,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+            }
+
+            if (slot.ShowAsRemotePrimary)
+                text.Children.Add(CreateRemoteMenuButton(slot));
+
             grid.Add(text, 1, 0);
-            content = grid;
+            main = grid;
         }
         else
         {
@@ -1615,7 +1664,7 @@ public partial class MainPage : ContentPage
             stack.Children.Add(icon);
             stack.Children.Add(new Label
             {
-                Text = slot.DisplayName,
+                Text = slot.CardTitle,
                 FontSize = 12,
                 FontAttributes = FontAttributes.Bold,
                 LineBreakMode = LineBreakMode.TailTruncation,
@@ -1623,19 +1672,153 @@ public partial class MainPage : ContentPage
             });
             stack.Children.Add(new Label
             {
-                Text = slot.DisplaySubtitle,
+                Text = slot.ShowAsRemotePrimary ? slot.CardStatus : slot.DisplaySubtitle,
                 FontSize = 11,
                 FontAttributes = FontAttributes.Bold,
                 TextColor = statusColor,
                 HorizontalTextAlignment = TextAlignment.Center,
                 Margin = new Thickness(0, 4, 0, 0)
             });
-            content = stack;
+            if (slot.ShowHostHint)
+            {
+                stack.Children.Add(new Label
+                {
+                    Text = slot.CardEdgeHint,
+                    FontSize = 10,
+                    TextColor = (Color)Application.Current!.Resources["Blue"],
+                    HorizontalTextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+                stack.Children.Add(new Label
+                {
+                    Text = slot.CardHostHint,
+                    FontSize = 10,
+                    TextColor = (Color)Application.Current!.Resources["Muted"],
+                    HorizontalTextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+            }
+
+            if (slot.ShowAsRemotePrimary)
+                stack.Children.Add(CreateRemoteMenuButton(slot));
+
+            main = stack;
         }
 
-        border.Content = content;
+        // 叠层：主卡相对整卡居中；子卡贴底不挤占主卡高度
+        if (slot.ShowRemoteSubCard)
+        {
+            var root = new Grid();
+            main.VerticalOptions = LayoutOptions.Center;
+            root.Add(main);
+            var sub = CreateRemoteSubCard(slot);
+            sub.VerticalOptions = LayoutOptions.End;
+            root.Add(sub);
+            border.Content = root;
+        }
+        else
+        {
+            border.Content = main;
+        }
         AttachSlotGestures(border, slot);
         return border;
+    }
+
+    private View CreateRemoteMenuButton(MachineSlot slot)
+    {
+        var btn = new Button
+        {
+            Text = "⋯",
+            FontSize = 14,
+            Padding = new Thickness(8, 2),
+            Margin = new Thickness(0, 4, 0, 0),
+            HorizontalOptions = LayoutOptions.End,
+            BackgroundColor = Colors.Transparent
+        };
+        btn.Clicked += async (_, _) => await OpenRemoteShadowMenuAsync(slot).ConfigureAwait(true);
+        return btn;
+    }
+
+    private View CreateRemoteSubCard(MachineSlot slot)
+    {
+        var blue = (Color)Application.Current!.Resources["Blue"];
+        Color blueSoft;
+        if (Application.Current.Resources.TryGetValue("BlueSoft", out var soft) && soft is Color c)
+            blueSoft = c;
+        else
+            blueSoft = blue.WithAlpha(0.15f);
+        var grid = new Grid
+        {
+            Padding = new Thickness(8, 10),
+            Margin = new Thickness(0),
+            MinimumHeightRequest = 78,
+            RowDefinitions = new RowDefinitionCollection
+            {
+                new(GridLength.Auto),
+                new(GridLength.Star),
+                new(GridLength.Auto)
+            }
+        };
+        var head = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Auto)
+            }
+        };
+        head.Add(new Label
+        {
+            Text = slot.ActiveRemoteStatusText,
+            FontSize = 10,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = (Color)Application.Current.Resources["Success"],
+            LineBreakMode = LineBreakMode.TailTruncation,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 0, 4, 0)
+        }, 0, 0);
+        var more = new Button
+        {
+            Text = "⋯",
+            FontSize = 16,
+            FontAttributes = FontAttributes.Bold,
+            WidthRequest = 28,
+            HeightRequest = 28,
+            Padding = 0,
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            BackgroundColor = Colors.Transparent
+        };
+        more.Clicked += async (_, _) => await OpenRemoteShadowMenuAsync(slot).ConfigureAwait(true);
+        head.Add(more, 1, 0);
+        grid.Add(head, 0, 0);
+        grid.Add(new Label
+        {
+            Text = slot.ActiveRemoteName,
+            FontSize = 12,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = blue,
+            LineBreakMode = LineBreakMode.TailTruncation,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 4, 0, 0)
+        }, 0, 1);
+        grid.Add(new Label
+        {
+            Text = slot.ActiveRemoteBindHint,
+            FontSize = 9,
+            TextColor = (Color)Application.Current.Resources["Muted"],
+            LineBreakMode = LineBreakMode.WordWrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        }, 0, 2);
+
+        return new Border
+        {
+            Stroke = blue,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 6 },
+            BackgroundColor = blueSoft,
+            Content = grid
+        };
     }
 
     /// <summary>
@@ -1694,6 +1877,7 @@ public partial class MainPage : ContentPage
 
                 SwapSlotData(src, slot);
                 SyncSlotLocalFlags();
+                RefreshSlotBoundRemotes();
                 SelectSlotOnly(slot);
                 ClearMatrixDropTargets();
                 _nativeDragSource = null;
@@ -2055,6 +2239,7 @@ public partial class MainPage : ContentPage
 
             SwapSlotData(slot, target);
             SyncSlotLocalFlags();
+            RefreshSlotBoundRemotes();
             SelectSlotOnly(target);
             RebuildMatrix();
             StatusLabel.Text = "已互换位置（请点「应用」同步）";
@@ -4856,8 +5041,19 @@ public partial class MainPage : ContentPage
 
     private async void RefreshDiscovery_Clicked(object? sender, EventArgs e)
     {
-        await RevalidateEndpointsAsync().ConfigureAwait(true);
+        StatusLabel.Text = Loc.T("Net.RefreshDiscovery");
+        try
+        {
+            await RevalidateEndpointsAsync().ConfigureAwait(true);
+            await _host.Connections.RefreshDiscoveryProbeAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            // 探测失败仍刷新清单
+        }
+
         RefreshDiscovery();
+        StatusLabel.Text = Loc.T("Net.DeviceMgmtTitle") + " · " + Loc.T("Net.RefreshDiscovery");
     }
 
     private void RefreshDiscovery()
@@ -4873,22 +5069,22 @@ public partial class MainPage : ContentPage
             _slots.ToList(),
             _endpoints.ToList(),
             _host.Settings.RemoteBindings,
-            LocalPeerIdentity.MachineName);
+            LocalPeerIdentity.MachineName,
+            CurrentDeviceProjectingPeer(),
+            _host.Connections.LocalAnnounceIp);
 
         var filter = DevFilterRemote?.IsChecked == true ? DeviceInventoryItem.KindRemote
             : DevFilterService?.IsChecked == true ? DeviceInventoryItem.KindService
             : DevFilterLocal?.IsChecked == true ? DeviceInventoryItem.KindLocal
             : (int?)null;
 
-        // WinUI：避免对已绑定集合 Clear() 触发 COM 崩溃，整体替换 ItemsSource
+        // 内容未变则跳过 Clear/Add，避免闪烁与点击落空；WinUI 勿反复替换 ItemsSource
         var filtered = filter is int kind
             ? items.Where(i => i.Kind == kind).ToList()
             : items;
-        _deviceInventory.Clear();
-        foreach (var item in filtered)
-            _deviceInventory.Add(item);
-        DeviceInventoryList.ItemsSource = null;
-        DeviceInventoryList.ItemsSource = _deviceInventory;
+        DeviceInventoryItem.ReplaceIfChanged(_deviceInventory, filtered);
+        if (!ReferenceEquals(DeviceInventoryList.ItemsSource, _deviceInventory))
+            DeviceInventoryList.ItemsSource = _deviceInventory;
 
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -4950,12 +5146,59 @@ public partial class MainPage : ContentPage
         if (e.Value) RefreshDiscovery();
     }
 
+    private void ReloadEndpointListFromSettings()
+    {
+        var s = _host.Settings;
+        s.EnsureCollections();
+        var before = s.ConnectionEndpoints.Count;
+        RemoteBindingSyncHelper.DeduplicateEndpoints(s);
+        if (s.ConnectionEndpoints.Count != before)
+            s.Save();
+        _endpoints.Clear();
+        foreach (var ep in s.ConnectionEndpoints)
+            _endpoints.Add(ep);
+        if (EndpointList != null)
+            EndpointList.ItemsSource = _endpoints;
+    }
+
+    private void PersistEndpoints(bool saveFile = true)
+    {
+        var s = _host.Settings;
+        s.EnsureCollections();
+        s.ConnectionEndpoints = _endpoints.ToList();
+        RemoteBindingSyncHelper.DeduplicateEndpoints(s);
+        _endpoints.Clear();
+        foreach (var ep in s.ConnectionEndpoints)
+            _endpoints.Add(ep);
+        if (saveFile)
+            s.Save();
+        try { _host.Connections.RefreshDiscoveryProbeHosts(); } catch { /* ignore */ }
+    }
+
     private void AddEndpoint_Clicked(object? sender, EventArgs e)
     {
         _endpoints.Add(new ConnectionEndpoint { Kind = ConnectionEndpoint.KindRemote });
+        PersistEndpoints();
+        EndpointList.ItemsSource = null;
+        EndpointList.ItemsSource = _endpoints;
+        StatusLabel.Text = Loc.T("Net.EndpointAdded");
+    }
+
+    private void EndpointKind_Clicked(object? sender, EventArgs e)
+    {
+        var ep = (sender as Button)?.CommandParameter as ConnectionEndpoint
+                 ?? (sender as Button)?.BindingContext as ConnectionEndpoint;
+        if (ep == null) return;
+        ep.ToggleKind();
+        PersistEndpoints();
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
     }
+
+    private int ReadUiTcpPort()
+        => int.TryParse(TcpPortEntry?.Text, out var p) && p is > 0 and <= 65535
+            ? p
+            : (_host.Settings.TcpPort > 0 ? _host.Settings.TcpPort : 15155);
 
     private async void TestEndpoint_Clicked(object? sender, EventArgs e)
     {
@@ -4978,32 +5221,39 @@ public partial class MainPage : ContentPage
     {
         if (updateStatusBar)
             StatusLabel.Text = Loc.T("Net.TestingEndpoint");
-        var result = await ConnectionEndpointProbe.TestAsync(ep).ConfigureAwait(true);
-        if (result.Ok)
+
+        bool ok;
+        string message;
+        if (ep.Kind == ConnectionEndpoint.KindRelay)
         {
-            ep.LastError = "";
-            ep.LastRttMs = result.RttMs;
-            if (ep.Kind == ConnectionEndpoint.KindRemote)
-            {
-                ep.DiscoveredDevices = [];
-                ep.VerifiedPeerName = result.VerifiedPeerName?.Trim() ?? "";
-            }
-            else
-            {
-                ep.VerifiedPeerName = "";
-                ep.DiscoveredDevices = result.DiscoveredDevices?.ToList() ?? [];
-            }
-            ep.State = ConnectionEndpoint.StateConnected;
+            var relay = await _host.Connections.ConnectRelayEndpointAsync(ep).ConfigureAwait(true);
+            ok = relay.Ok;
+            message = relay.Message;
         }
         else
         {
-            ep.ClearVerification();
-            ep.LastError = result.Message;
-            ep.State = ConnectionEndpoint.StateError;
+            var result = await ConnectionEndpointProbe.TestAsync(ep, ReadUiTcpPort()).ConfigureAwait(true);
+            ok = result.Ok;
+            message = result.Message;
+            if (result.Ok)
+            {
+                ep.LastError = "";
+                ep.LastRttMs = result.RttMs;
+                ep.DiscoveredDevices = [];
+                ep.VerifiedPeerName = result.VerifiedPeerName?.Trim() ?? "";
+                ep.State = ConnectionEndpoint.StateConnected;
+            }
+            else
+            {
+                ep.ClearVerification();
+                ep.LastError = result.Message;
+                ep.State = ConnectionEndpoint.StateError;
+            }
         }
 
+        PersistEndpoints();
         if (updateStatusBar)
-            StatusLabel.Text = result.Ok ? $"{Loc.T("Net.TestOk")}: {result.Message}" : $"{Loc.T("Net.TestFail")}: {result.Message}";
+            StatusLabel.Text = ok ? $"{Loc.T("Net.TestOk")}: {message}" : $"{Loc.T("Net.TestFail")}: {message}";
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
         RefreshDiscovery();
@@ -5015,6 +5265,7 @@ public partial class MainPage : ContentPage
                  ?? (sender as Button)?.BindingContext as ConnectionEndpoint;
         if (ep == null) return;
         _endpoints.Remove(ep);
+        PersistEndpoints();
         EndpointList.ItemsSource = null;
         EndpointList.ItemsSource = _endpoints;
         RefreshDiscovery();
@@ -5043,15 +5294,9 @@ public partial class MainPage : ContentPage
                     TryAddPeer(item.Peer.MachineName);
                 break;
             case DeviceInventoryItem.KindRemote:
-                StatusLabel.Text = Loc.T("Net.RemoteBindSoon");
-                break;
             case DeviceInventoryItem.KindService:
-            {
-                var ep = _endpoints.FirstOrDefault(x => x.Id == item.EndpointId);
-                if (ep != null)
-                    _ = TestEndpointAsync(ep);
+                _ = ToggleDeviceProjectAsync(item);
                 break;
-            }
         }
     }
 
@@ -5065,24 +5310,335 @@ public partial class MainPage : ContentPage
             var slot = _slots.ElementAtOrDefault(item.LayoutSlotIndex);
             if (slot != null) RemoveSlot(slot);
         }
-        else if (item.Kind == DeviceInventoryItem.KindService)
+        else if (item.Kind is DeviceInventoryItem.KindRemote or DeviceInventoryItem.KindService)
+            _ = PromptUnbindDeviceAsync(item);
+    }
+
+    private string? _deviceMgmtProjectRemote;
+
+    private string? CurrentDeviceProjectingPeer()
+    {
+        if (!string.IsNullOrWhiteSpace(_deviceMgmtProjectRemote))
+            return _deviceMgmtProjectRemote;
+        var se = _host.ScreenExtend;
+        if (!se.IsActive || se.Role != ScreenExtendRole.Sink)
+            return null;
+        return string.IsNullOrWhiteSpace(se.Peer) ? null : se.Peer;
+    }
+
+    private void OnDeviceProjectSessionEndedIfNeeded()
+    {
+        // Host/Sink 就绪时不要清 ad-hoc；仅会话结束后清
+        if (_host.ScreenExtend.IsActive) return;
+        foreach (var item in _deviceInventory.Where(i => i.IsProjecting).ToList())
+            _ = _host.Connections.ReleaseAdHocPeerAsync(item.Name);
+        if (!string.IsNullOrWhiteSpace(_deviceMgmtProjectRemote))
+            _ = _host.Connections.ReleaseAdHocPeerAsync(_deviceMgmtProjectRemote);
+        _deviceMgmtProjectRemote = null;
+    }
+
+    private async Task ToggleDeviceProjectAsync(DeviceInventoryItem item)
+    {
+        var remote = (item.Name ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(remote)) return;
+
+        if (item.IsProjecting
+            || string.Equals(CurrentDeviceProjectingPeer(), remote, StringComparison.OrdinalIgnoreCase))
         {
-            var ep = _endpoints.FirstOrDefault(x => x.Id == item.EndpointId);
-            if (ep != null)
+            try
             {
-                _endpoints.Remove(ep);
-                EndpointList.ItemsSource = null;
-                EndpointList.ItemsSource = _endpoints;
-                RefreshDiscovery();
+                await _host.ScreenExtend.RequestPeerEndHostAsync(remote).ConfigureAwait(true);
+                await _host.ScreenExtend.StopAsync("device-mgmt-stop").ConfigureAwait(true);
             }
+            catch { /* ignore */ }
+            await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
+            _deviceMgmtProjectRemote = null;
+            RefreshDiscovery();
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectStopped"), remote);
+            return;
         }
-        else if (item.Kind == DeviceInventoryItem.KindRemote)
+
+        var targets = RemoteBindingHelper.ListLayoutTargets(_slots);
+        if (targets.Count == 0)
         {
-            _host.Settings.RemoteBindings.RemoveAll(b =>
-                string.Equals("remote:" + b.RemoteId, item.Id, StringComparison.OrdinalIgnoreCase));
-            _host.Settings.Save();
+            StatusLabel.Text = Loc.T("Net.BindNoLayout");
+            return;
+        }
+
+        var page = new RemoteProjectDialogPage(
+            remote, targets, LocalPeerIdentity.MachineName, _host.Settings);
+        await Navigation.PushModalAsync(page).ConfigureAwait(true);
+        var choice = await page.WaitAsync().ConfigureAwait(true);
+        if (choice == null || string.IsNullOrWhiteSpace(choice.DeviceId)) return;
+
+        choice.WriteRemembered(_host.Settings);
+        _host.Settings.Save();
+
+        var sink = choice.DeviceId.Trim();
+        if (string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase)
+            || _slots.FirstOrDefault(s =>
+                   string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase))?.IsLocal == true)
+            sink = LocalPeerIdentity.MachineName;
+
+        try
+        {
+            StatusLabel.Text = Loc.T("Remote.Projecting") + " · " + remote;
+            await _host.Connections.EnsureAdHocPeerAsync(remote).ConfigureAwait(true);
+            var st = _host.Connections.GetPeerStatus(remote);
+            if (!st.AnyAlive && !st.Bidirectional)
+            {
+                await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
+                StatusLabel.Text = string.Format(Loc.T("Remote.ProjectNeedPeer"), remote);
+                return;
+            }
+
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                sink,
+                preferredWidth: choice.Width,
+                preferredHeight: choice.Height,
+                fps: choice.Fps,
+                remoteControl: true,
+                jpegQuality: choice.JpegQuality).ConfigureAwait(true);
+            if (!ok)
+            {
+                await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
+                _deviceMgmtProjectRemote = null;
+                StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+                RefreshDiscovery();
+                return;
+            }
+
+            _deviceMgmtProjectRemote = remote;
+            RefreshDiscovery();
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TaskCanceledException)
+        {
+            await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
+            _deviceMgmtProjectRemote = null;
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), "操作超时或已取消");
             RefreshDiscovery();
         }
+        catch (Exception ex)
+        {
+            await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
+            _deviceMgmtProjectRemote = null;
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), ex.Message);
+            RefreshDiscovery();
+        }
+    }
+
+    private async Task PromptUnbindDeviceAsync(DeviceInventoryItem item)
+    {
+        var page = new ConfirmPage(
+            Loc.T("Net.BindTitle"),
+            string.Format(Loc.T("Net.UnbindConfirm"), item.Name),
+            Loc.T("Dlg.Ok"));
+        var choice = await ShowConfirmAsync(page).ConfigureAwait(true);
+        if (choice != UiConfirmChoice.Primary) return;
+
+        RemoteBindingHelper.Unbind(_host.Settings, item);
+        _host.Settings.Save();
+        RefreshSlotBoundRemotes();
+        RebuildMatrix();
+        RefreshDiscovery();
+        _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程投影关联已同步到布局内电脑");
+        StatusLabel.Text = string.Format(Loc.T("Net.UnbindDone"), item.Name);
+    }
+
+    private void RefreshSlotBoundRemotes()
+        => RemoteBindingHelper.ApplyToSlots(_slots, _host.Settings);
+
+    private async Task OpenRemoteShadowMenuAsync(MachineSlot slot)
+    {
+        if (!slot.HasActiveRemote) return;
+        var options = new List<string>();
+        if (slot.CanSwitchRemote)
+            options.Add(Loc.T("Remote.Switch"));
+        options.Add(Loc.T("Remote.Rebind"));
+        options.Add(slot.ActiveRemoteIsProjecting ? Loc.T("Remote.StopProject") : Loc.T("Remote.Project"));
+
+        var choice = await DisplayActionSheet(
+            slot.ActiveRemoteName,
+            Loc.T("Dlg.Cancel"),
+            null,
+            options.ToArray()).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(choice) || choice == Loc.T("Dlg.Cancel"))
+            return;
+
+        if (choice == Loc.T("Remote.Switch"))
+            await PromptSwitchRemoteAsync(slot).ConfigureAwait(true);
+        else if (choice == Loc.T("Remote.Rebind"))
+            await PromptRebindRemoteAsync(slot).ConfigureAwait(true);
+        else if (choice == Loc.T("Remote.Project"))
+            await StartRemoteProjectAsync(slot).ConfigureAwait(true);
+        else if (choice == Loc.T("Remote.StopProject"))
+            await StopRemoteProjectAsync(slot).ConfigureAwait(true);
+    }
+
+    private async Task PromptSwitchRemoteAsync(MachineSlot slot)
+    {
+        if (slot.ActiveRemoteIsProjecting)
+        {
+            StatusLabel.Text = Loc.T("Remote.SwitchNeedStop");
+            return;
+        }
+
+        var pool = RemoteBindingHelper.ListPool(_host.Settings, slot.Name);
+        if (pool.Count <= 1) return;
+
+        var labels = pool.Select(b =>
+        {
+            var mode = b.Mode == RemoteBinding.ModeP2P ? "P2P" : "中转";
+            var mark = string.Equals(b.RemoteId, slot.ActiveRemoteId, StringComparison.OrdinalIgnoreCase) ? "● " : "○ ";
+            var rtt = b.RttMs is int ms ? $" {ms}ms" : "";
+            return $"{mark}{b.RemoteName}  [{mode}]{rtt}";
+        }).ToArray();
+
+        var choice = await DisplayActionSheet(
+            Loc.T("Remote.SwitchTitle"),
+            Loc.T("Dlg.Cancel"),
+            null,
+            labels).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(choice) || choice == Loc.T("Dlg.Cancel"))
+            return;
+
+        var idx = Array.IndexOf(labels, choice);
+        if (idx < 0 || idx >= pool.Count) return;
+        var pick = pool[idx];
+        if (!RemoteBindingHelper.SetActive(_host.Settings, slot.Name, pick.RemoteId))
+        {
+            StatusLabel.Text = Loc.T("Remote.SwitchNeedStop");
+            return;
+        }
+
+        _host.Settings.Save();
+        RefreshSlotBoundRemotes();
+        RebuildMatrix();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
+        StatusLabel.Text = string.Format(Loc.T("Remote.Switched"), pick.RemoteName);
+    }
+
+    private async Task PromptRebindRemoteAsync(MachineSlot slot)
+    {
+        var binding = RemoteBindingHelper.FindById(_host.Settings, slot.ActiveRemoteId)
+                      ?? RemoteBindingHelper.GetActive(_host.Settings, slot.Name);
+        if (binding == null) return;
+
+        if (binding.State == RemoteBinding.StateProjecting)
+            await StopRemoteProjectAsync(slot).ConfigureAwait(true);
+
+        var targets = RemoteBindingHelper.ListLayoutTargets(_slots);
+        if (targets.Count == 0)
+        {
+            StatusLabel.Text = Loc.T("Net.BindNoLayout");
+            return;
+        }
+
+        var labels = targets.Select(t => t.Label).ToArray();
+        var choice = await DisplayActionSheet(
+            Loc.T("Net.BindTitle"),
+            Loc.T("Dlg.Cancel"),
+            null,
+            labels).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(choice) || choice == Loc.T("Dlg.Cancel"))
+            return;
+
+        var selected = targets.FirstOrDefault(t => t.Label == choice);
+        if (string.IsNullOrWhiteSpace(selected.DeviceId)) return;
+        if (string.Equals(selected.DeviceId, binding.BoundLocalDeviceId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        RemoteBindingHelper.Rebind(_host.Settings, binding, selected.DeviceId);
+        _host.Settings.Save();
+        RefreshSlotBoundRemotes();
+        RebuildMatrix();
+        RefreshDiscovery();
+        _ = _host.Connections.RefreshConfiguredPeersAsync();
+        _ = _host.BroadcastRemoteBindingSyncAsync("远程投影关联已同步到布局内电脑");
+        StatusLabel.Text = string.Format(Loc.T("Remote.Rebound"), binding.RemoteName, selected.Label);
+    }
+
+    private async Task StartRemoteProjectAsync(MachineSlot slot)
+    {
+        var binding = RemoteBindingHelper.FindById(_host.Settings, slot.ActiveRemoteId)
+                      ?? RemoteBindingHelper.GetActive(_host.Settings, slot.Name);
+        if (binding == null) return;
+
+        await _host.Connections.RefreshConfiguredPeersAsync().ConfigureAwait(true);
+        var remote = binding.RemoteName.Trim();
+        var st = _host.Connections.GetPeerStatus(remote);
+        if (!st.AnyAlive && !st.Bidirectional)
+        {
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectNeedPeer"), remote);
+            return;
+        }
+
+        var sink = binding.BoundLocalDeviceId.Trim();
+        var localSlot = _slots.FirstOrDefault(s =>
+            string.Equals(s.Name, sink, StringComparison.OrdinalIgnoreCase));
+        if (localSlot?.IsLocal == true
+            || string.Equals(sink, LocalPeerIdentity.MachineName, StringComparison.OrdinalIgnoreCase))
+            sink = LocalPeerIdentity.MachineName;
+        try
+        {
+            var remembered = RemoteProjectChoice.FromSettings(_host.Settings, sink);
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                sink,
+                preferredWidth: remembered.Width,
+                preferredHeight: remembered.Height,
+                fps: remembered.Fps,
+                remoteControl: true,
+                jpegQuality: remembered.JpegQuality).ConfigureAwait(true);
+            if (!ok)
+            {
+                StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+                return;
+            }
+
+            RemoteBindingHelper.SetProjecting(_host.Settings, binding, true);
+            _host.Settings.Save();
+            RefreshSlotBoundRemotes();
+            RebuildMatrix();
+            _ = _host.BroadcastRemoteBindingSyncAsync();
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectStarted"), remote, sink);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"),
+                ex is OperationCanceledException or TaskCanceledException ? "操作超时或已取消" : ex.Message);
+        }
+    }
+
+    private async Task StopRemoteProjectAsync(MachineSlot slot)
+    {
+        var binding = RemoteBindingHelper.FindById(_host.Settings, slot.ActiveRemoteId)
+                      ?? RemoteBindingHelper.GetActive(_host.Settings, slot.Name);
+        if (binding == null) return;
+
+        var remote = binding.RemoteName.Trim();
+        var sink = binding.BoundLocalDeviceId.Trim();
+        try
+        {
+            if (_host.ScreenExtend.IsActive)
+                await _host.StopProjectionAsync().ConfigureAwait(true);
+            else
+                await _host.ScreenExtend.RequestPeerEndHostAsync(remote, sink).ConfigureAwait(true);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        RemoteBindingHelper.SetProjecting(_host.Settings, binding, false);
+        _host.Settings.Save();
+        RefreshSlotBoundRemotes();
+        RebuildMatrix();
+        _ = _host.BroadcastRemoteBindingSyncAsync();
+        StatusLabel.Text = string.Format(Loc.T("Remote.ProjectStopped"), binding.RemoteName);
     }
 
     private void AddPeer_Clicked(object? sender, EventArgs e)
@@ -5146,6 +5702,12 @@ public partial class MainPage : ContentPage
 
     private void TryAddPeer(string name)
     {
+        if (_host.Connections.IsLayoutIneligiblePeer(name))
+        {
+            StatusLabel.Text = $"{name} 是远程设备，不能加入电脑布局；请在设备管理中投影";
+            return;
+        }
+
         if (_slots.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
             StatusLabel.Text = $"{name} 已在布局中";
@@ -5661,6 +6223,38 @@ public partial class MainPage : ContentPage
     /// 日志行：点选切换选中高亮（无复选框）。
     /// Win CollectionView Multiple 会画平台勾选框，故用 SelectionMode=None + 自绘背景。
     /// </summary>
+#if WINDOWS
+    private void WireWindowsScreenExtendMultiTab()
+    {
+        if (_host.Platform is not Platforms.Windows.WindowsMauiPlatformServices win)
+            return;
+        var ui = win.ScreenExtendUi;
+        if (ui == null) return;
+        ui.ListAddablePeers = () => ProjectionAddTargets.List(
+            _host.Connections,
+            _host.Connections.Discovery.GetPeers().Select(p => p.MachineName),
+            _host.ScreenExtend.GetSinkPeers());
+        ui.StartExtraProjection = async remote =>
+        {
+            var choice = RemoteProjectChoice.FromSettings(_host.Settings, LocalPeerIdentity.MachineName);
+            await _host.Connections.EnsureAdHocPeerAsync(remote).ConfigureAwait(true);
+            var (ok, err) = await _host.ScreenExtend.RequestPeerBecomeHostAsync(
+                remote,
+                LocalPeerIdentity.MachineName,
+                preferredWidth: choice.Width,
+                preferredHeight: choice.Height,
+                fps: choice.Fps,
+                remoteControl: true,
+                jpegQuality: choice.JpegQuality).ConfigureAwait(true);
+            if (!ok)
+            {
+                await _host.Connections.ReleaseAdHocPeerAsync(remote).ConfigureAwait(true);
+                StatusLabel.Text = string.Format(Loc.T("Remote.ProjectFail"), err ?? "");
+            }
+        };
+    }
+#endif
+
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
     {
         private bool _isSelected;

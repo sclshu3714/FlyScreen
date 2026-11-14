@@ -570,9 +570,10 @@ public sealed class FlyScreenMediaProjectionService : Service
     {
         try
         {
+            var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var jpeg = FinishJpeg(width, height, out var outW, out var outH);
             if (jpeg is { Length: > 0 })
-                extend.SendFrameAsync(jpeg, outW, outH).GetAwaiter().GetResult();
+                extend.SendFrameAsync(jpeg, outW, outH, capturedAt).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {

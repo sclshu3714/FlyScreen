@@ -6,8 +6,9 @@ namespace FlyScreen.Models;
 
 /// <summary>
 /// 连接配置表中的可添加行。
-/// 远程=一对一（Tailscale/VPN/公网 IP 等直连对端）；中转服务=一对多（公网中继上注册的设备）。
-/// 未测试通过的不进入设备管理清单。
+/// 远程=一对一探测地址（Tailscale/VPN 等）；「测试」仅测连通，不进设备管理。
+/// 刷新发现时把远程地址当作 UDP/握手探测目标，对端以「本地」出现在设备管理。
+/// 服务=一对多；仅扫描到的真实设备可进设备管理。
 /// </summary>
 public sealed class ConnectionEndpoint : INotifyPropertyChanged
 {
@@ -23,20 +24,25 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     /// <summary>稳定 Id（本机生成，不参与跨机协议）。</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
-    /// <summary>0=远程（一对一） 1=中转服务（一对多）。</summary>
+    /// <summary>0=远程（一对一） 1=服务（一对多中转）。</summary>
     public int Kind
     {
         get => _kind;
         set
         {
-            if (_kind == value) return;
-            _kind = value;
+            // ComboBox SelectedIndex=-1 等非法值钳到远程，避免行“空白/不可用”
+            var v = value == KindRelay ? KindRelay : KindRemote;
+            if (_kind == v) return;
+            _kind = v;
             OnPropertyChanged();
             OnPropertyChanged(nameof(KindLabel));
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(HasInventoryDevices));
         }
     }
+
+    public void ToggleKind()
+        => Kind = Kind == KindRelay ? KindRemote : KindRelay;
 
     /// <summary>地址：远程为 host:port / IP；中转为 wss://… 或中继入口。</summary>
     public string Address
@@ -88,7 +94,7 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     }
 
     [JsonIgnore]
-    public string KindLabel => Kind == KindRelay ? "中转服务" : "远程";
+    public string KindLabel => Kind == KindRelay ? "服务" : "远程";
 
     /// <summary>最近一次失败原因（仅 UI）。</summary>
     public string LastError
@@ -97,25 +103,26 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         set { if (_lastError == value) return; _lastError = value ?? ""; OnPropertyChanged(); OnPropertyChanged(nameof(StatusText)); }
     }
 
+    /// <summary>
+    /// 测试状态文案。● 仅表示探测通过，真正会话要等加入/绑定布局后由 ConnectionManager 建连。
+    /// </summary>
     [JsonIgnore]
     public string StatusText => State switch
     {
-        StateConnected when Kind == KindRelay && (DiscoveredDevices == null || DiscoveredDevices.Count == 0)
-            => LastRttMs is int ms
-                ? $"● 入口可达 {ms}ms（等待设备注册）"
-                : "● 入口可达（等待设备注册）",
-        StateConnected => LastRttMs is int ms ? $"● 已连接 {ms}ms" : "● 已连接",
-        StateDisconnected => "○ 未连接",
+        StateConnected when Kind == KindRelay
+            => FormatRelayConnectedStatus(),
+        StateConnected => LastRttMs is int ms ? $"● 测试通过 {ms}ms" : "● 测试通过",
+        StateDisconnected => "○ 未测试",
         StateError => string.IsNullOrWhiteSpace(LastError) ? "○ 无法连接" : $"○ {LastError}",
         _ => "○ 未测试"
     };
 
-    /// <summary>是否已具备进入设备管理的资格（远程已解析名；中转已扫到真实设备）。</summary>
+    /// <summary>中转是否已扫到可进设备管理的设备。远程配置永不直接进清单。</summary>
     [JsonIgnore]
     public bool HasInventoryDevices =>
-        State == StateConnected && (
-            (Kind == KindRemote && !string.IsNullOrWhiteSpace(VerifiedPeerName))
-            || (Kind == KindRelay && DiscoveredDevices is { Count: > 0 }));
+        Kind == KindRelay
+        && State == StateConnected
+        && DiscoveredDevices is { Count: > 0 };
 
     public const int KindRemote = 0;
     public const int KindRelay = 1;
@@ -130,6 +137,21 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         VerifiedPeerName = "";
         DiscoveredDevices = [];
         LastRttMs = null;
+    }
+
+    private string FormatRelayConnectedStatus()
+    {
+        var n = DiscoveredDevices?.Count ?? 0;
+        if (n > 0)
+        {
+            return LastRttMs is int ms
+                ? $"● 已注册 · {n} 台设备 · {ms}ms"
+                : $"● 已注册 · {n} 台设备";
+        }
+
+        return LastRttMs is int rtt
+            ? $"● 已注册 · {rtt}ms（等待其它设备）"
+            : "● 已注册（等待其它设备）";
     }
 
     public void TryInferKindFromAddress()

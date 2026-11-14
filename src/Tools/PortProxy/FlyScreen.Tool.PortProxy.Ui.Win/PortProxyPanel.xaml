@@ -1,0 +1,164 @@
+<UserControl x:Class="FlyScreen.Tool.PortProxy.Ui.Win.PortProxyPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource WinBg}"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+  <UserControl.Resources>
+    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="Text" Color="#111827"/>
+    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="Warn" Color="#DC2626"/>
+    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+
+    <Style x:Key="ToolBarBtn" TargetType="Button">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="MinWidth" Value="72"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Background" Value="{StaticResource ControlBg}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Foreground" Value="{StaticResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="8" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Blue}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="ToolBarPrimaryBtn" TargetType="Button" BasedOn="{StaticResource ToolBarBtn}">
+      <Setter Property="Background" Value="{StaticResource Blue}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style x:Key="ToolBarDangerBtn" TargetType="Button" BasedOn="{StaticResource ToolBarBtn}">
+      <Setter Property="Foreground" Value="{StaticResource Warn}"/>
+      <Setter Property="BorderBrush" Value="#FECACA"/>
+    </Style>
+    <Style x:Key="RowActionBtn" TargetType="Button" BasedOn="{StaticResource ToolBarBtn}">
+      <Setter Property="MinWidth" Value="52"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+  </UserControl.Resources>
+
+  <Grid Margin="4,0,4,4">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock x:Name="HintText" TextWrapping="Wrap" FontSize="12"
+               Foreground="{StaticResource Muted}" Margin="0,0,0,8"/>
+
+    <Border x:Name="AdminBanner" Grid.Row="1" Margin="0,0,0,8" Padding="10,8"
+            CornerRadius="8" BorderThickness="1"
+            BorderBrush="{StaticResource Line}" Background="{StaticResource SubtleBg}">
+      <TextBlock x:Name="AdminText" FontSize="12" TextWrapping="Wrap"
+                 Foreground="{StaticResource Text}"/>
+    </Border>
+
+    <!-- 工具条：添加 / 删除(批量) / 刷新 / 重置 / 导出 -->
+    <Border Grid.Row="2" Margin="0,0,0,8" Padding="10,8" CornerRadius="8"
+            BorderBrush="{StaticResource Line}" BorderThickness="1"
+            Background="{StaticResource ControlBg}">
+      <DockPanel LastChildFill="False">
+        <Button x:Name="AddBtn" Style="{StaticResource ToolBarPrimaryBtn}"
+                Click="AddBtn_Click"/>
+        <Button x:Name="DeleteBtn" Style="{StaticResource ToolBarDangerBtn}"
+                Click="DeleteBtn_Click"/>
+        <Button x:Name="RefreshBtn" Style="{StaticResource ToolBarBtn}"
+                Click="RefreshBtn_Click"/>
+        <Button x:Name="ResetBtn" Style="{StaticResource ToolBarDangerBtn}"
+                Click="ResetBtn_Click"/>
+        <Button x:Name="DumpBtn" Style="{StaticResource ToolBarBtn}" Margin="0"
+                Click="DumpBtn_Click"/>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <RadioButton x:Name="FilterAll" GroupName="KindFilter" IsChecked="True"
+                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
+          <RadioButton x:Name="FilterV4ToV4" GroupName="KindFilter" Content="v4tov4"
+                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
+          <RadioButton x:Name="FilterV4ToV6" GroupName="KindFilter" Content="v4tov6"
+                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
+          <RadioButton x:Name="FilterV6ToV4" GroupName="KindFilter" Content="v6tov4"
+                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
+          <RadioButton x:Name="FilterV6ToV6" GroupName="KindFilter" Content="v6tov6"
+                       VerticalAlignment="Center" Checked="Filter_Checked"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <DataGrid x:Name="RulesGrid" Grid.Row="3"
+              AutoGenerateColumns="False" IsReadOnly="True"
+              CanUserAddRows="False" CanUserDeleteRows="False"
+              SelectionMode="Extended" SelectionUnit="FullRow"
+              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+              Background="{StaticResource ControlBg}" BorderThickness="1"
+              BorderBrush="{StaticResource Line}"
+              RowHeaderWidth="0" FontSize="12"
+              Foreground="{StaticResource Text}"
+              AlternatingRowBackground="{StaticResource SubtleBg}"
+              EnableRowVirtualization="True"
+              MouseDoubleClick="RulesGrid_MouseDoubleClick">
+      <DataGrid.Columns>
+        <DataGridTemplateColumn Width="44">
+          <DataGridTemplateColumn.Header>
+            <CheckBox x:Name="SelectAllBox" Click="SelectAllBox_Click" VerticalAlignment="Center"/>
+          </DataGridTemplateColumn.Header>
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Click="RowCheck_Click"/>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn x:Name="ColKind" Binding="{Binding KindToken}" Width="80"/>
+        <DataGridTextColumn x:Name="ColListenAddress" Binding="{Binding ListenAddress}" Width="*"/>
+        <DataGridTextColumn x:Name="ColListenPort" Binding="{Binding ListenPort}" Width="88"/>
+        <DataGridTextColumn x:Name="ColConnectAddress" Binding="{Binding ConnectAddress}" Width="*"/>
+        <DataGridTextColumn x:Name="ColConnectPort" Binding="{Binding ConnectPort}" Width="88"/>
+        <DataGridTextColumn x:Name="ColProtocol" Binding="{Binding Protocol}" Width="64"/>
+        <DataGridTemplateColumn x:Name="ColActions" Width="140">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="{Binding EditLabel}" Style="{StaticResource RowActionBtn}"
+                        Tag="{Binding}" Click="RowEdit_Click"/>
+                <Button Content="{Binding DeleteLabel}" Style="{StaticResource ToolBarDangerBtn}"
+                        MinWidth="52" MinHeight="28" Margin="0" Padding="8,0" FontSize="12"
+                        Tag="{Binding}" Click="RowDelete_Click"/>
+              </StackPanel>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <TextBlock x:Name="StatusText" Grid.Row="4" Margin="0,8,0,0" FontSize="12"
+               Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/>
+  </Grid>
+</UserControl>

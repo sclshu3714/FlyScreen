@@ -1,6 +1,6 @@
 namespace FlyScreen.Services.ScreenExtend;
 
-/// <summary>投影 1 对 1 互斥：参与会话的电脑不能再发起或接收其他投影。</summary>
+/// <summary>投影互斥：本机 Host 单路；Sink 可多路。Host 忙时不能再收/发。</summary>
 public static class ScreenExtendConflict
 {
     public const string ReasonBusyHost = "busy-host";
@@ -26,8 +26,8 @@ public static class ScreenExtendConflict
         if (role == ScreenExtendRole.Sink)
         {
             return string.IsNullOrWhiteSpace(peer)
-                ? "本机正在接收投影，请先退出全屏接收（Esc）后再发起或接收其他投影。"
-                : $"本机正在接收「{peer}」的投影，请先退出全屏接收（Esc）后再发起或接收其他投影。";
+                ? "本机正在接收投影，无法再作为投影主机。请先结束接收后再试。"
+                : $"本机正在接收「{peer}」等投影，无法再作为投影主机。请先结束接收后再试。";
         }
 
         return "本机已有投影会话，请先结束后再试。";

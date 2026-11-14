@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using FlyScreen.Models;
+using FlyScreen.Services.Network.Relay;
 
 namespace FlyScreen.Services.Network;
 
@@ -18,9 +19,13 @@ public sealed class ConnectionManager : IAsyncDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private string _bindIp = "0.0.0.0";
+    /// <summary>UDP/握手宣告用的具体 IPv4；「自动」监听时与 <see cref="_bindIp"/>（0.0.0.0）分离，避免出站误绑物理网卡。</summary>
+    private string _announceIp = "0.0.0.0";
     private readonly ConcurrentDictionary<string, long> _layoutJoinUntil = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, long> _keyMismatchNotice = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, long> _connectFailNotice = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>设备管理直接投影等临时保活对端（不进布局/绑定）。</summary>
+    private readonly ConcurrentDictionary<string, byte> _adHocPeers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _outboundBusy = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _bulkBusy = new(StringComparer.OrdinalIgnoreCase);
     private long _lastDialTick;
@@ -28,6 +33,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     public string LocalMachine => LocalPeerIdentity.MachineName;
     public DiscoveryService Discovery => _discovery;
     public string BindIp => _bindIp;
+    /// <summary>UDP/握手宣告用的本机 IPv4（自动监听时为优选物理网卡，非 VPN）。</summary>
+    public string LocalAnnounceIp => AdvertisedLocalIp;
 
     public event Action<string, bool, bool>? PeerLinkChanged;
     public event Action<string, NetMessage>? MessageReceived;
@@ -37,9 +44,12 @@ public sealed class ConnectionManager : IAsyncDisposable
     /// <summary>入站握手密钥正确，且对端请求加入布局。返回 false 则拒绝连接。</summary>
     public Func<string, bool>? TryAcceptLayoutJoin;
 
+    public RelaySessionHub RelayHub { get; } = new();
+
     public ConnectionManager(AppSettings settings)
     {
         _settings = settings;
+        RelayHub.AttachSettings(settings);
         _discovery.PeerDialRequested += OnPeerDialRequested;
     }
 
@@ -90,19 +100,30 @@ public sealed class ConnectionManager : IAsyncDisposable
         _listener.Start();
 
         _discovery.AnnounceTcpPort = _settings.TcpPort;
-        // 始终启动 UDP 发现。Android 上绑定具体网卡 IP 常收不到广播，优先 bindAny。
-        var announceIp = _bindIp;
-        if (announceIp == "0.0.0.0")
-            announceIp = NicService.ListUsableIpv4Nics().FirstOrDefault()?.IPv4
-                         ?? NicService.ListIpv4Nics().FirstOrDefault()?.IPv4
-                         ?? "0.0.0.0";
+        // TCP：自动时保持 _bindIp=0.0.0.0（出站不绑死 LAN，Tailscale 才能通）。
+        // UDP 发现：宣告 IP 用物理网卡；bindAny 收包 + 全网卡（含 Tailscale）逐口广播，
+        // 并对连接配置中的远程地址周期单播探测。
+        _announceIp = _bindIp;
+        var announceMask = nic?.SubnetMask;
+        if (_announceIp == "0.0.0.0")
+        {
+            var announceNic = NicService.PickBestUsableNic();
+            _announceIp = announceNic?.IPv4 ?? "0.0.0.0";
+            announceMask = announceNic?.SubnetMask;
+        }
+        else if (string.IsNullOrWhiteSpace(announceMask) || announceMask == "0.0.0.0")
+        {
+            announceMask = NicService.FindByIpv4(_announceIp)?.SubnetMask ?? announceMask;
+        }
+
         try
         {
-            var bindAny = OperatingSystem.IsAndroid()
-                          || string.Equals(announceIp, "0.0.0.0", StringComparison.Ordinal);
-            _discovery.Start(announceIp, _settings.UdpPort, nic?.SubnetMask, bindAny);
-            if (announceIp != "0.0.0.0" && _bindIp == "0.0.0.0")
-                _bindIp = announceIp;
+            var discoveryBindAny = OperatingSystem.IsAndroid()
+                                   || listenAny
+                                   || string.Equals(_announceIp, "0.0.0.0", StringComparison.Ordinal);
+            _discovery.Start(_announceIp, _settings.UdpPort, announceMask, discoveryBindAny,
+                announceAllUsable: true);
+            RefreshDiscoveryProbeHosts();
         }
         catch (SocketException ex)
         {
@@ -112,21 +133,56 @@ public sealed class ConnectionManager : IAsyncDisposable
         }
 
         var ct = _cts.Token;
-        _ = Task.Run(() => AcceptLoopAsync(ct), ct);
-        _ = Task.Run(() => MaintainLoopAsync(ct), ct);
-        StatusMessage?.Invoke($"已在 {_bindIp}:{_settings.TcpPort} 监听");
+        // 外层吞掉残留异常，避免 Task 未观察故障在调试器里刷成「崩溃」
+        _ = Task.Run(async () =>
+        {
+            try { await AcceptLoopAsync(ct).ConfigureAwait(false); }
+            catch { /* AcceptLoop 内已处理 */ }
+        });
+        _ = Task.Run(async () =>
+        {
+            try { await MaintainLoopAsync(ct).ConfigureAwait(false); }
+            catch { /* MaintainLoop 内已处理 */ }
+        });
+        StatusMessage?.Invoke(listenAny
+            ? $"已在 0.0.0.0:{_settings.TcpPort} 监听（全部网卡）"
+            : $"已在 {_bindIp}:{_settings.TcpPort} 监听");
+
+        RelayHub.AttachSettings(_settings);
+        RelayHub.SetLocalAcceptDial(DialLocalListenerAsync);
+        var relayCt = _cts.Token;
+        _ = RelayHub.StartAllConfiguredAsync(_settings, relayCt);
     }
+
+    /// <summary>服务类型连接配置：WebSocket hello 注册并拉取房间设备（⚡ 测试）。</summary>
+    public async Task<RelayConnectResult> ConnectRelayEndpointAsync(ConnectionEndpoint ep, CancellationToken ct = default)
+    {
+        _settings.EnsureCollections();
+        using var linked = _cts != null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token)
+            : null;
+        var token = linked?.Token ?? ct;
+        var result = await RelayHub.EnsureAsync(ep, _settings, token).ConfigureAwait(false);
+        try { _settings.Save(); } catch { /* ignore */ }
+        return result;
+    }
+
+    private string AdvertisedLocalIp
+        => _bindIp == "0.0.0.0" || string.IsNullOrWhiteSpace(_bindIp) ? _announceIp : _bindIp;
 
     public async Task StopAsync()
     {
-        // 先停监听唤醒 Accept，再取消 CTS，避免 AcceptTcpClientAsync(ct) 路径抛 OCE
+        // 先取消 CTS 唤醒 AcceptTcpClientAsync(ct)，再 Stop 监听兜底；
+        // 避免仅靠 listener.Stop() 触发 SocketException 在调试器里像未处理异常。
         var listener = _listener;
         _listener = null;
-        try { listener?.Stop(); } catch { /* ignore */ }
         try { _cts?.Cancel(); } catch { /* ignore */ }
+        try { listener?.Stop(); } catch { /* ignore */ }
         _discovery.Stop();
+        RelayHub.StopAll();
 
         await DropAllPeerLinksAsync().ConfigureAwait(false);
+        _adHocPeers.Clear();
 
         _cts = null;
     }
@@ -143,13 +199,204 @@ public sealed class ConnectionManager : IAsyncDisposable
         _links.Clear();
     }
 
+    /// <summary>电脑布局槽位中的对端（不含远程绑定 / 临时会话）。标题栏投影只用这些。</summary>
+    public IEnumerable<string> LayoutPeers()
+    {
+        _settings.EnsureLocalMachineSlot();
+        return (_settings.MachineSlots ?? [])
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Where(m => !string.Equals(m, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>是否已在电脑布局槽位中（不含本机）。</summary>
+    public bool IsLayoutPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return LayoutPeers().Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public IReadOnlyList<PeerConnectionStatus> GetLayoutPeerStatuses()
+        => LayoutPeers().Select(GetPeerStatus).ToList();
+
     public IEnumerable<string> ConfiguredPeers()
     {
         _settings.EnsureLocalMachineSlot();
-        return _settings.MachineSlots
-            .Where(m => !string.IsNullOrWhiteSpace(m))
-            .Where(m => !string.Equals(m, LocalMachine, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+        // 布局槽位 + 远程绑定 + 临时投影保活对端
+        var names = LayoutPeers().ToList();
+
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(b.BoundLocalDeviceId) || string.IsNullOrWhiteSpace(b.RemoteName))
+                continue;
+            var n = b.RemoteName.Trim();
+            if (string.Equals(n, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                continue;
+            names.Add(n);
+        }
+
+        foreach (var n in _adHocPeers.Keys)
+        {
+            if (string.Equals(n, LocalMachine, StringComparison.OrdinalIgnoreCase))
+                continue;
+            names.Add(n);
+        }
+
+        return names.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>设备管理直接投影：把对端纳入保活并尝试建连（不写布局/绑定）。</summary>
+    public async Task EnsureAdHocPeerAsync(string peerName, CancellationToken ct = default)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)
+            || string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _adHocPeers[name] = 0;
+        if (!IsRunning)
+            await StartAsync().ConfigureAwait(false);
+        var token = ct;
+        if (_cts != null)
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+            token = linked.Token;
+            await EnsureOutboundAsync(name, token).ConfigureAwait(false);
+            await EnsureOutboundBulkAsync(name, token).ConfigureAwait(false);
+            return;
+        }
+
+        await EnsureOutboundAsync(name, token).ConfigureAwait(false);
+        await EnsureOutboundBulkAsync(name, token).ConfigureAwait(false);
+    }
+
+    public void RemoveAdHocPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _adHocPeers.TryRemove(name, out _);
+    }
+
+    /// <summary>
+    /// 结束临时投影保活：移出 AdHoc；若对端不在布局/远程绑定中则断开链路，
+    /// 避免 MaintainLoop 经信令/中继再次拨回。
+    /// </summary>
+    public async Task ReleaseAdHocPeerAsync(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _adHocPeers.TryRemove(name, out _);
+        if (IsPersistentlyConfiguredPeer(name)) return;
+        await DropPeerAsync(name).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 拆除所有非布局/非绑定对端（含残留 AdHoc），用于投影会话全部结束后清场。
+    /// </summary>
+    public async Task DropNonPersistentPeersAsync()
+    {
+        foreach (var n in _adHocPeers.Keys.ToArray())
+            _adHocPeers.TryRemove(n, out _);
+
+        foreach (var name in _links.Keys.ToArray())
+        {
+            if (IsPersistentlyConfiguredPeer(name)) continue;
+            await DropPeerAsync(name).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>布局槽位或远程绑定中的对端（不含 AdHoc）。</summary>
+    public bool IsPersistentlyConfiguredPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)
+            || string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        _settings.EnsureLocalMachineSlot();
+        if ((_settings.MachineSlots ?? [])
+            .Any(m => string.Equals((m ?? "").Trim(), name, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(b.BoundLocalDeviceId) || string.IsNullOrWhiteSpace(b.RemoteName))
+                continue;
+            if (string.Equals(b.RemoteName.Trim(), name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    public bool IsAdHocPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        return !string.IsNullOrWhiteSpace(name) && _adHocPeers.ContainsKey(name);
+    }
+
+    /// <summary>
+    /// 远程/中转来源不可进电脑布局，也不可作主窗「投影」目标（那些走设备管理投影）。
+    /// </summary>
+    public bool IsLayoutIneligiblePeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return true;
+        if (string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // 已在设备管理里绑定的远程/中转名：主窗投影不得选用
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(b.RemoteName)
+                && string.Equals(b.RemoteName.Trim(), name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        foreach (var p in _discovery.GetPeers())
+        {
+            if (!string.Equals(p.MachineName, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (p.Origin is DiscoveryOrigin.Remote or DiscoveryOrigin.Service)
+                return true;
+            if (MatchesRemoteConfiguredEndpoint(name, p.Ip, p.ObservedIp))
+                return true;
+        }
+
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote && ep.Kind != ConnectionEndpoint.KindRelay)
+                continue;
+            if (!string.IsNullOrWhiteSpace(ep.VerifiedPeerName)
+                && string.Equals(ep.VerifiedPeerName, name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool MatchesRemoteConfiguredEndpoint(string name, string? ip, string? observedIp)
+    {
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote)
+                continue;
+            if (!string.IsNullOrWhiteSpace(ep.VerifiedPeerName)
+                && string.Equals(ep.VerifiedPeerName, name, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrWhiteSpace(ip)
+                && !string.IsNullOrWhiteSpace(ep.Address)
+                && ep.Address.Contains(ip, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrWhiteSpace(observedIp)
+                && !string.IsNullOrWhiteSpace(ep.Address)
+                && ep.Address.Contains(observedIp, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public bool IsPeerReachable(string name)
@@ -166,6 +413,27 @@ public sealed class ConnectionManager : IAsyncDisposable
     public bool PeerSupports(string peerName, string cap)
         => GetEffectiveCaps(peerName)
             .Contains(cap, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>对端握手宣告的能力（不要用 Intersect：本机缺某能力时会把对端能力误判为无）。</summary>
+    public bool PeerAdvertises(string peerName, string cap)
+    {
+        var info = GetPeerRemoteInfo(peerName);
+        if (info?.Caps is not { Length: > 0 } caps) return false;
+        return caps.Contains(cap, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>当前控制面仍存活的对端名。</summary>
+    public IReadOnlyList<string> ListLivePeerNames()
+    {
+        var list = new List<string>();
+        foreach (var kv in _links)
+        {
+            if (kv.Value.ControlAlive && !string.IsNullOrWhiteSpace(kv.Key))
+                list.Add(kv.Key);
+        }
+
+        return list;
+    }
 
     /// <summary>边缘切换要求对端可达且双方均具备 EdgeMouse。</summary>
     public bool IsPeerEdgeMouseCapable(string peerName)
@@ -199,7 +467,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             return false;
 
         // 大块消息优先走独立 bulk 连接，避免堵死键鼠控制面；无 bulk 时回退控制通道（兼容旧端）
-        var useBulk = BulkMessageTypes.IsBulk(type) && link.BulkAlive;
+        var useBulk = PreferBulkChannel(link, type);
         if (!useBulk && !link.ControlAlive)
             return false;
 
@@ -231,7 +499,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (!_links.TryGetValue(peerName, out var link))
             return false;
 
-        var useBulk = BulkMessageTypes.IsBulk(type) && link.BulkAlive;
+        var useBulk = PreferBulkChannel(link, type);
         if (!useBulk && !link.ControlAlive)
             return false;
 
@@ -279,6 +547,19 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// 大帧是否走 bulk。仅有出站 bulk、无入站 bulk 时，远程投影大帧常「发得出收不到」，
+    /// 此时若有控制面（尤其对端连入的入站控制）则回退控制面回写。
+    /// </summary>
+    private static bool PreferBulkChannel(PeerLink link, MessageType type)
+    {
+        if (!BulkMessageTypes.IsBulk(type) || !link.BulkAlive)
+            return false;
+        if (link.InboundBulk is { IsAlive: true })
+            return true;
+        return !link.ControlAlive;
+    }
+
+    /// <summary>
     /// 对端是否显式宣告 BulkTransfer（旧端 Caps 为空时 Intersect 会误判为本机全能力，故不可用 PeerSupports）。
     /// </summary>
     private static bool RemoteAdvertisesBulk(PeerRemoteInfo info)
@@ -301,7 +582,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         var payload = LocalPeerIdentity.Enrich(new HandshakePayload
         {
             MachineName = LocalMachine,
-            LocalIp = _bindIp,
+            LocalIp = AdvertisedLocalIp,
             IsReply = false
         });
         // 不带密钥：仅身份/能力刷新
@@ -350,6 +631,99 @@ public sealed class ConnectionManager : IAsyncDisposable
         await ReconnectNowAsync().ConfigureAwait(false);
     }
 
+    /// <summary>把连接配置中的远程/中转地址同步为发现周期/突发的单播探测目标（带来源标记）。</summary>
+    public void RefreshDiscoveryProbeHosts()
+    {
+        _settings.EnsureCollections();
+        var tcpPort = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+        var targets = new List<(string Host, int Origin)>();
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(ep.Address)) continue;
+            var raw = ep.Address.Trim();
+            // wss/ws 中转：无 UDP host 可探，跳过（靠后续客户端 WS 发现）
+            if (raw.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("ws://", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!ConnectionEndpointProbe.TryParseHostPort(raw, out var host, out _, tcpPort))
+                continue;
+
+            var origin = ep.Kind == ConnectionEndpoint.KindRelay
+                ? DiscoveryOrigin.Service
+                : DiscoveryOrigin.Remote;
+            targets.Add((host, origin));
+        }
+
+        _discovery.SetProbeTargets(targets);
+    }
+
+    /// <summary>
+    /// 设备管理「刷新发现」：全网卡（含 Tailscale）突发 UDP 广播，
+    /// 并对连接配置中的远程/中转地址单播宣告 + 短握手学入发现表。
+    /// 发现来源写入 Origin：局域网=本地，远程配置=远程，中转=服务。
+    /// </summary>
+    public async Task RefreshDiscoveryProbeAsync(CancellationToken ct = default)
+    {
+        _settings.EnsureCollections();
+        var tcpPort = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+        RefreshDiscoveryProbeHosts();
+        var hostList = new List<string>();
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(ep.Address)) continue;
+            var raw = ep.Address.Trim();
+            if (raw.Contains("://", StringComparison.Ordinal)) continue;
+            if (!ConnectionEndpointProbe.TryParseHostPort(raw, out var host, out _, tcpPort))
+                continue;
+            hostList.Add(host);
+        }
+
+        if (_discovery.UdpPort <= 0)
+            _discovery.AnnounceTcpPort = tcpPort;
+
+        await _discovery.BurstProbeAsync(hostList, includeOverlayNics: true, ct).ConfigureAwait(false);
+
+        var announceIp = AdvertisedLocalIp;
+        var key = _settings.SecurityKey ?? "";
+        // Tailscale/跨网：与出站探测一致给足超时
+        var timeout = TimeSpan.FromSeconds(15);
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ct.IsCancellationRequested) break;
+            if (string.IsNullOrWhiteSpace(ep.Address)) continue;
+            var raw = ep.Address.Trim();
+            if (raw.Contains("://", StringComparison.Ordinal)) continue;
+            if (!ConnectionEndpointProbe.TryParseHostPort(raw, out var host, out var port, tcpPort))
+                continue;
+
+            var result = await DiscoveryIdentityProbe.ProbeAsync(
+                    host, port, announceIp, key, timeout, ct)
+                .ConfigureAwait(false);
+            if (!result.Ok) continue;
+
+            var origin = ep.Kind == ConnectionEndpoint.KindRelay
+                ? DiscoveryOrigin.Service
+                : DiscoveryOrigin.Remote;
+            // 中继 ProbeOnly 回报服务名：整机记为服务入口；同地址 UDP 多设备宣告仍靠 Origin=service 包
+            if (!string.IsNullOrWhiteSpace(result.Platform)
+                && result.Platform.Equals("relay", StringComparison.OrdinalIgnoreCase))
+                origin = DiscoveryOrigin.Service;
+
+            DiscoveryIdentityProbe.Remember(_discovery, result, host, port, origin);
+            if (!string.IsNullOrWhiteSpace(result.MachineName))
+                ep.VerifiedPeerName = result.MachineName!;
+            if (result.RttMs is int ms)
+                ep.LastRttMs = ms;
+            ep.State = ConnectionEndpoint.StateConnected;
+            ep.LastError = "";
+        }
+
+        try { _settings.Save(); } catch { /* ignore */ }
+    }
+
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -359,9 +733,9 @@ public sealed class ConnectionManager : IAsyncDisposable
 
             try
             {
-                // 不传 CancellationToken：停止时靠 listener.Stop() 唤醒，避免 Accept 抛 OCE 刷调试器
-                var client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                if (ct.IsCancellationRequested)
+                // 带 ct：Stop 时先 Cancel，优先 OCE 退出；Stop() 兜底仍可能 SocketException（已捕获）
+                var client = await listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
+                if (ct.IsCancellationRequested || !ReferenceEquals(_listener, listener))
                 {
                     try { client.Dispose(); } catch { /* ignore */ }
                     break;
@@ -385,22 +759,29 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 break;
             }
-            catch (SocketException) when (ct.IsCancellationRequested || _listener == null)
-            {
-                break;
-            }
-            catch (InvalidOperationException) when (_listener == null)
-            {
-                break;
-            }
             catch (OperationCanceledException)
             {
                 break;
             }
+            catch (SocketException)
+            {
+                // Stop()/重绑时 Accept 会抛；务必退出旧循环，勿在已替换的 listener 上空转
+                if (ct.IsCancellationRequested || _listener == null || !ReferenceEquals(_listener, listener))
+                    break;
+                try { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); }
+                catch { break; }
+            }
+            catch (InvalidOperationException)
+            {
+                if (_listener == null || !ReferenceEquals(_listener, listener)) break;
+                try { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); }
+                catch { break; }
+            }
             catch
             {
-                if (ct.IsCancellationRequested || _listener == null) break;
-                try { await Task.Delay(200).ConfigureAwait(false); }
+                if (ct.IsCancellationRequested || _listener == null || !ReferenceEquals(_listener, listener))
+                    break;
+                try { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); }
                 catch { break; }
             }
         }
@@ -414,14 +795,25 @@ public sealed class ConnectionManager : IAsyncDisposable
             {
                 await PruneUnconfiguredLinksAsync().ConfigureAwait(false);
 
-                foreach (var peer in ConfiguredPeers())
-                {
-                    await EnsureOutboundAsync(peer, ct).ConfigureAwait(false);
-                    await EnsureOutboundBulkAsync(peer, ct).ConfigureAwait(false);
-                }
-
+                // 心跳不能排在拨号后面：信令/中继失败要等十余秒，控制面空闲阈值也是 12 秒，
+                // 一次多余的出站会把已通的投影链路拆掉。
                 foreach (var kv in _links.ToArray())
                     await kv.Value.HeartbeatAsync(ct).ConfigureAwait(false);
+
+                foreach (var peer in ConfiguredPeers())
+                {
+                    var name = peer;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await EnsureOutboundAsync(name, ct).ConfigureAwait(false);
+                            await EnsureOutboundBulkAsync(name, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) { /* stopping */ }
+                        catch { /* ignore */ }
+                    }, ct);
+                }
             }
             catch (OperationCanceledException) { break; }
             catch { /* ignore */ }
@@ -448,6 +840,9 @@ public sealed class ConnectionManager : IAsyncDisposable
         foreach (var name in _links.Keys.ToArray())
         {
             if (allowed.Contains(name)) continue;
+            // 对端以 AdHocConnect 入站时本机不一定写入 AdHoc；存活链路留给投影结束时 DropNonPersistent
+            if (_links.TryGetValue(name, out var link) && link.AnyAlive)
+                continue;
             await DropPeerAsync(name).ConfigureAwait(false);
         }
     }
@@ -457,13 +852,33 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (ct.IsCancellationRequested) return;
 
         var link = _links.GetOrAdd(peerName, _ => new PeerLink(peerName));
+        // 已有本端出站则不必再拨。
+        // 信令/中继回环入站：复用管道，勿再开第二条抢 WebSocket。
+        // 局域网入站：即使对端也在中继房间，仍必须 TCP 回拨，否则布局卡在「仅入站/仅出站」。
         if (link.Outbound is { IsAlive: true, Authenticated: true })
             return;
+        var signalingOnly = IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice);
+        if (signalingOnly
+            && link.Inbound is { IsAlive: true, Authenticated: true } inboundCtl
+            && IsRelayStylePeerIp(inboundCtl.PeerIp))
+            return;
+        // 有局域网入站时优先回拨，勿走信令开第二管
+        if (signalingOnly && HasUsableLanInbound(link))
+            signalingOnly = false;
         if (!_outboundBusy.TryAdd(peerName, 0))
             return;
 
         try
         {
+            if (signalingOnly)
+            {
+                var ok = await ConnectViaSignalingAsync(link, peerName, relayClient!, relayDevice!, bulk: false, ct)
+                    .ConfigureAwait(false);
+                if (!ok)
+                    ReportConnectFailed(peerName, SignalingFailDetail(relayDevice));
+                return;
+            }
+
             List<(string Ip, int Port)> targets;
             try
             {
@@ -484,11 +899,15 @@ public sealed class ConnectionManager : IAsyncDisposable
             var nic = _settings.SameSubnetOnly
                 ? NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp)
                 : null;
+            var inboundPeerIp = link.Inbound is { IsAlive: true, PeerIp: var pip } ? pip : null;
             var tried = new List<string>();
             foreach (var (ip, port) in targets)
             {
                 if (ct.IsCancellationRequested) return;
-                if (nic != null && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
+                // 已有入站证明可达的对端 IP：不受 SameSubnetOnly 误拦
+                var knownReachable = !string.IsNullOrWhiteSpace(inboundPeerIp)
+                    && string.Equals(inboundPeerIp, ip, StringComparison.OrdinalIgnoreCase);
+                if (nic != null && !knownReachable && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
                     continue;
                 tried.Add($"{ip}:{port}");
                 if (await TryOutboundHandshakeAsync(link, peerName, ip, port, bulk: false, ct).ConfigureAwait(false))
@@ -496,7 +915,10 @@ public sealed class ConnectionManager : IAsyncDisposable
             }
 
             if (tried.Count == 0)
+            {
+                await AskPeerToDialAsync().ConfigureAwait(false);
                 return;
+            }
             ReportConnectFailed(peerName, string.Join("、", tried));
             await AskPeerToDialAsync().ConfigureAwait(false);
         }
@@ -517,13 +939,28 @@ public sealed class ConnectionManager : IAsyncDisposable
             return;
         if (!RemoteAdvertisesBulk(link.RemoteInfo))
             return;
+        // 与控制面相同：局域网入站仍回拨；仅中继回环入站可跳过
         if (link.OutboundBulk is { IsAlive: true, Authenticated: true })
             return;
+        var signalingOnly = IsSignalingOnlyPeer(peerName, out var relayClient, out var relayDevice);
+        if (signalingOnly
+            && link.InboundBulk is { IsAlive: true, Authenticated: true } inboundBulk
+            && IsRelayStylePeerIp(inboundBulk.PeerIp))
+            return;
+        if (signalingOnly && HasUsableLanInboundBulk(link))
+            signalingOnly = false;
         if (!_bulkBusy.TryAdd(peerName, 0))
             return;
 
         try
         {
+            if (signalingOnly)
+            {
+                await ConnectViaSignalingAsync(link, peerName, relayClient!, relayDevice!, bulk: true, ct)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             List<(string Ip, int Port)> targets;
             try
             {
@@ -537,10 +974,14 @@ public sealed class ConnectionManager : IAsyncDisposable
             var nic = _settings.SameSubnetOnly
                 ? NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp)
                 : null;
+            var inboundPeerIp = link.InboundBulk is { IsAlive: true, PeerIp: var bip } ? bip
+                : link.Inbound is { IsAlive: true, PeerIp: var cip } ? cip : null;
             foreach (var (ip, port) in targets)
             {
                 if (ct.IsCancellationRequested) return;
-                if (nic != null && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
+                var knownReachable = !string.IsNullOrWhiteSpace(inboundPeerIp)
+                    && string.Equals(inboundPeerIp, ip, StringComparison.OrdinalIgnoreCase);
+                if (nic != null && !knownReachable && !NicService.SameSubnet(nic.IPv4, nic.SubnetMask, ip))
                     continue;
                 if (await TryOutboundHandshakeAsync(link, peerName, ip, port, bulk: true, ct).ConfigureAwait(false))
                     return;
@@ -553,39 +994,224 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// 信令服务发现的设备：不走局域网发现，也不走远程配置拨号。先按登记候选做 P2P，失败再开中继。
+    /// </summary>
+    private bool IsSignalingOnlyPeer(string peerName, out RelayClient? client, out RelayDiscoveredDevice? device)
+    {
+        client = null;
+        device = null;
+        var origin = FindDiscoveryOrigin(peerName);
+        if (origin == DiscoveryOrigin.Lan)
+            return false;
+        if (RelayHub.TryFindDevice(peerName, out client, out device))
+            return true;
+        return origin == DiscoveryOrigin.Service;
+    }
+
+    private int? FindDiscoveryOrigin(string peerName)
+    {
+        foreach (var peer in _discovery.GetPeers())
+        {
+            if (string.Equals(peer.MachineName, peerName, StringComparison.OrdinalIgnoreCase))
+                return peer.Origin;
+        }
+
+        return null;
+    }
+
+    private static string SignalingFailDetail(RelayDiscoveredDevice? device)
+    {
+        if (device == null) return "信令服务未登记该设备";
+        if (!device.Online) return "对端未在信令服务在线";
+        return "P2P 与中继均未打通";
+    }
+
+    private async Task<bool> ConnectViaSignalingAsync(
+        PeerLink link,
+        string peerName,
+        RelayClient? client,
+        RelayDiscoveredDevice? device,
+        bool bulk,
+        CancellationToken ct)
+    {
+        if (client != null && !client.IsConnected)
+        {
+            var ep = (_settings.ConnectionEndpoints ?? []).FirstOrDefault(e =>
+                string.Equals(e.Id, client.EndpointId, StringComparison.Ordinal));
+            if (ep != null)
+            {
+                try { await RelayHub.EnsureAsync(ep, _settings, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { return false; }
+                catch { /* 候选仍可试 */ }
+            }
+        }
+
+        var controlViaRelay = bulk
+                              && link.Outbound is { IsAlive: true, PeerIp: var controlIp }
+                              && IPAddress.TryParse(controlIp, out var controlAddr)
+                              && IPAddress.IsLoopback(controlAddr);
+        if (!controlViaRelay)
+        {
+            if (!bulk)
+                StatusMessage?.Invoke($"正在通过信令连接 {peerName}");
+
+            foreach (var (ip, port) in EnumerateSignalingP2PTargets(peerName, client, device))
+            {
+                if (ct.IsCancellationRequested) return false;
+                if (await TryOutboundHandshakeAsync(
+                        link, peerName, ip, port, bulk, ct,
+                        connectTimeout: TimeSpan.FromSeconds(3),
+                        rememberPeer: false).ConfigureAwait(false))
+                    return true;
+            }
+        }
+
+        if (client == null || device == null || string.IsNullOrWhiteSpace(device.Id) || !device.Online)
+            return false;
+
+        if (!bulk)
+            StatusMessage?.Invoke($"P2P 未通，正在通过中继连接 {peerName}");
+
+        TcpClient? tunnel;
+        try
+        {
+            tunnel = await client.OpenOutboundTunnelAsync(device.Id, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (tunnel == null)
+        {
+            if (!bulk)
+                StatusMessage?.Invoke($"中继隧道未就绪（对端未加入或信令超时）→ {peerName}");
+            return false;
+        }
+
+        var ok = await TryOutboundHandshakeAsync(
+            link, peerName, "中继", 0, bulk, ct,
+            connectTimeout: TimeSpan.FromSeconds(8),
+            rememberPeer: false,
+            connected: tunnel).ConfigureAwait(false);
+        if (!ok && !bulk)
+            StatusMessage?.Invoke($"中继已接通但握手失败 → {peerName}（请确认双方密钥一致、对端在线）");
+        return ok;
+    }
+
+    private IEnumerable<(string Ip, int Port)> EnumerateSignalingP2PTargets(
+        string peerName, RelayClient? client, RelayDiscoveredDevice? device)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (client != null && device != null && !string.IsNullOrWhiteSpace(device.Id))
+        {
+            foreach (var target in client.ListP2PTargets(device.Id))
+            {
+                if (seen.Add($"{target.Ip}:{target.Port}"))
+                    yield return target;
+            }
+        }
+
+        foreach (var peer in _discovery.GetPeers())
+        {
+            if (!string.Equals(peer.MachineName, peerName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (peer.Origin != DiscoveryOrigin.Service) continue;
+            if (peer.TcpPort is <= 0 or RelayClient.DefaultEdgePort) continue;
+            if (!IPAddress.TryParse(peer.Ip, out var addr) || IPAddress.IsLoopback(addr)) continue;
+            if (seen.Add($"{peer.Ip}:{peer.TcpPort}"))
+                yield return (peer.Ip, peer.TcpPort);
+        }
+    }
+
+    private async Task<TcpClient?> DialLocalListenerAsync(CancellationToken ct)
+    {
+        var port = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+        var listenAny = string.IsNullOrWhiteSpace(_bindIp) || _bindIp == "0.0.0.0";
+        var addr = listenAny ? IPAddress.Loopback : IPAddress.Parse(_bindIp);
+        var client = new TcpClient { NoDelay = true };
+        if (!await ConnectWithTimeoutAsync(client, addr, port, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false))
+        {
+            try { client.Dispose(); } catch { /* ignore */ }
+            return null;
+        }
+
+        return client;
+    }
+
+    private bool IsLocalSocket(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip) || !IPAddress.TryParse(ip, out var addr))
+            return false;
+        if (IPAddress.IsLoopback(addr)) return true;
+        return !string.IsNullOrWhiteSpace(_bindIp)
+               && _bindIp != "0.0.0.0"
+               && string.Equals(_bindIp, addr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>中继管道入站常见回环/本机地址；局域网入站则为对端真实 IPv4。</summary>
+    private bool IsRelayStylePeerIp(string? ip)
+        => string.IsNullOrWhiteSpace(ip)
+           || IsLocalSocket(ip)
+           || !DiscoveryService.IsUsableLanIpv4(ip);
+
+    private static bool HasUsableLanInbound(PeerLink link)
+        => link.Inbound is { IsAlive: true, Authenticated: true, PeerIp: var ip }
+           && DiscoveryService.IsUsableLanIpv4(ip);
+
+    private static bool HasUsableLanInboundBulk(PeerLink link)
+        => link.InboundBulk is { IsAlive: true, Authenticated: true, PeerIp: var ip }
+           && DiscoveryService.IsUsableLanIpv4(ip);
+
+    /// <summary>
     /// 连到一个候选地址并完成握手。先挂上应答等待再发送，避免局域网回包快于订阅而丢掉 HandshakeAck。
     /// </summary>
     private async Task<bool> TryOutboundHandshakeAsync(
-        PeerLink link, string peerName, string ip, int port, bool bulk, CancellationToken ct)
+        PeerLink link, string peerName, string ip, int port, bool bulk, CancellationToken ct,
+        TimeSpan? connectTimeout = null, bool rememberPeer = true, TcpClient? connected = null)
     {
-        TcpClient? client = null;
+        TcpClient? client = connected;
         PeerSession? session = null;
         try
         {
-            client = new TcpClient();
-            BindOutbound(client);
-
-            if (!await ConnectWithTimeoutAsync(client, IPAddress.Parse(ip), port, TimeSpan.FromSeconds(3), ct)
-                    .ConfigureAwait(false))
+            var timeout = connectTimeout ?? OutboundConnectTimeout(ip);
+            if (client == null)
             {
-                client.Dispose();
-                client = null;
-                return false;
+                if (!IPAddress.TryParse(ip, out var address))
+                    return false;
+                client = new TcpClient(address.AddressFamily) { NoDelay = true };
+                if (address.AddressFamily == AddressFamily.InterNetwork)
+                    BindOutbound(client, ip);
+
+                if (!await ConnectWithTimeoutAsync(client, address, port, timeout, ct).ConfigureAwait(false))
+                {
+                    client.Dispose();
+                    client = null;
+                    return false;
+                }
             }
 
             session = new PeerSession(client, isOutbound: true);
             client = null;
             WireSession(session);
 
+            var layoutJoin = !bulk && IsLayoutJoinArmed(peerName);
+            // 控制面与 bulk 均可带 AdHoc：对端不在布局时靠此建临时链（投影）
+            var adHoc = !layoutJoin && IsAdHocPeer(peerName);
             var hs = MessageCodec.EncodeJson(MessageType.Handshake, LocalPeerIdentity.Enrich(new HandshakePayload
             {
                 MachineName = LocalMachine,
                 SecurityKey = _settings.SecurityKey,
-                LocalIp = _bindIp,
+                LocalIp = AdvertisedLocalIp,
                 Channel = bulk ? PeerChannel.Bulk : PeerChannel.Control,
-                RequestLayoutJoin = !bulk && IsLayoutJoinArmed(peerName)
+                RequestLayoutJoin = layoutJoin,
+                AdHocConnect = adHoc
             }));
-            var ackWait = WaitMessageAsync(session, MessageType.HandshakeAck, TimeSpan.FromSeconds(3), ct);
+            // Tailscale/VPN 握手回包也可能慢于局域网的 3s
+            var ackTimeout = timeout > TimeSpan.FromSeconds(5)
+                ? TimeSpan.FromSeconds(8)
+                : TimeSpan.FromSeconds(3);
+            var ackWait = WaitMessageAsync(session, MessageType.HandshakeAck, ackTimeout, ct);
             await session.SendRawAsync(hs).ConfigureAwait(false);
             var ackMsg = await ackWait.ConfigureAwait(false);
             if (ackMsg == null)
@@ -621,10 +1247,15 @@ public sealed class ConnectionManager : IAsyncDisposable
             session.SetPeerIdentity(peerName, remote);
             await link.SetOutboundAsync(session).ConfigureAwait(false);
             link.UpdateRemoteInfo(remote);
-            RememberPeerAddress(peerName, ip, ack!.LocalIp);
+            if (rememberPeer)
+                RememberPeerAddress(peerName, ip, ack!.LocalIp);
             session = null;
             NotifyLink(peerName, link);
-            StatusMessage?.Invoke($"已出站连接 {peerName} ({ip}) · {remote}");
+            StatusMessage?.Invoke(rememberPeer
+                ? $"已出站连接 {peerName} ({ip}) · {remote}"
+                : ip == "中继"
+                    ? $"已通过中继连接 {peerName} · {remote}"
+                    : $"已通过 P2P 连接 {peerName} ({ip}) · {remote}");
             if (RemoteAdvertisesBulk(remote))
                 _ = EnsureOutboundBulkAsync(peerName, ct);
             return true;
@@ -655,36 +1286,150 @@ public sealed class ConnectionManager : IAsyncDisposable
         }
     }
 
-    private void BindOutbound(TcpClient client)
+    private void BindOutbound(TcpClient client, string? targetIp = null)
     {
-        // Android 上强制绑定 WifiManager 给出的地址时，出口常不是这条路由，连接会超时。
+        // Android / 自动监听：交给系统选路（否则绑死 LAN 后连 Tailscale 100.x 必挂）。
         if (_bindIp == "0.0.0.0" || OperatingSystem.IsAndroid())
             return;
+        // 目标不在偏好网卡网段时也不强绑（跨网段 VPN / 双栈）
+        if (!string.IsNullOrWhiteSpace(targetIp))
+        {
+            var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
+            var mask = nic?.SubnetMask;
+            if (string.IsNullOrWhiteSpace(mask) || !NicService.SameSubnet(_bindIp, mask, targetIp))
+                return;
+        }
+
         client.Client.Bind(new IPEndPoint(IPAddress.Parse(_bindIp), 0));
+    }
+
+    /// <summary>同网段 3s；Tailscale/VPN/跨网段与探针一致 15s。</summary>
+    private TimeSpan OutboundConnectTimeout(string targetIp)
+    {
+        var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
+        if (nic != null
+            && !NicService.IsAutomatic(nic)
+            && !string.IsNullOrWhiteSpace(nic.IPv4)
+            && nic.IPv4 != "0.0.0.0"
+            && NicService.SameSubnet(nic.IPv4, nic.SubnetMask, targetIp))
+            return TimeSpan.FromSeconds(3);
+        return TimeSpan.FromSeconds(15);
     }
 
     private async Task<List<(string Ip, int Port)>> GetConnectTargetsAsync(string peerName, CancellationToken ct)
     {
-        if (_discovery.TryGetConnectTargets(peerName, _settings.TcpPort, out var found) && found.Count > 0)
-            return found.ToList();
+        var list = new List<(string Ip, int Port)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var defaultPort = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
 
+        void Add(string? ip, int port)
+        {
+            if (string.IsNullOrWhiteSpace(ip) || port <= 0) return;
+            var key = $"{ip}:{port}";
+            if (!seen.Add(key)) return;
+            list.Add((ip, port));
+        }
+
+        async Task AddHostAsync(string? hostOrIp, int port)
+        {
+            if (string.IsNullOrWhiteSpace(hostOrIp) || port <= 0) return;
+            if (IPAddress.TryParse(hostOrIp, out _))
+            {
+                Add(hostOrIp, port);
+                return;
+            }
+
+            // 配置里写的是主机名时才解析；解析失败不阻塞其它候选
+            var resolved = await NicService.ResolveHostAsync(hostOrIp, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(resolved))
+                Add(resolved, port);
+        }
+
+        // 已有会话对端 IP 优先（回拨时最准，避免发现表旧地址抢先失败）
         if (_links.TryGetValue(peerName, out var link))
         {
             foreach (var known in new[]
                      {
-                         link.Outbound?.PeerIp, link.Inbound?.PeerIp,
-                         link.OutboundBulk?.PeerIp, link.InboundBulk?.PeerIp
+                         link.Inbound?.PeerIp, link.Outbound?.PeerIp,
+                         link.InboundBulk?.PeerIp, link.OutboundBulk?.PeerIp
                      })
             {
                 if (DiscoveryService.IsUsableLanIpv4(known))
-                    return [(known!, _settings.TcpPort)];
+                    Add(known, defaultPort);
             }
         }
 
-        var dns = await NicService.ResolveHostAsync(peerName, ct).ConfigureAwait(false);
-        if (DiscoveryService.IsUsableLanIpv4(dns))
-            return [(dns!, _settings.TcpPort)];
-        return [];
+        // 用户验证过的远程地址（Tailscale 等）；发现到的局域网 IP 可能 SYN 通不了仍要回退
+        foreach (var t in EnumerateConfiguredEndpointTargets(peerName))
+            await AddHostAsync(t.Host, t.Port).ConfigureAwait(false);
+
+        if (_discovery.TryGetConnectTargets(peerName, defaultPort, out var found))
+        {
+            foreach (var t in found)
+                Add(t.Ip, t.Port);
+        }
+
+        // 发现表 FindIp 兜底（与 TryGetConnectTargets 同源，防止漏收）
+        var discIp = _discovery.FindIp(peerName);
+        if (!string.IsNullOrWhiteSpace(discIp))
+            Add(discIp, defaultPort);
+
+        // 切勿把 Windows 计算机名拿去 DNS（会「不知道这样的主机」刷屏）；仅 FQDN 才回退解析
+        if (list.Count == 0 && LooksLikeDnsHost(peerName))
+        {
+            var dns = await NicService.ResolveHostAsync(peerName, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(dns))
+                Add(dns, defaultPort);
+        }
+
+        return list;
+    }
+
+    /// <summary>含点且非纯 IP → 才可能是 DNS 主机名；NetBIOS 计算机名不含点。</summary>
+    private static bool LooksLikeDnsHost(string? host)
+        => !string.IsNullOrWhiteSpace(host)
+           && host.Contains('.')
+           && !IPAddress.TryParse(host, out _);
+
+    private IEnumerable<(string Host, int Port)> EnumerateConfiguredEndpointTargets(string peerName)
+    {
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (!string.Equals(b.RemoteName, peerName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (TryParseConnectEndpoint(b.Endpoint, out var host, out var port))
+                yield return (host, port);
+
+            // 绑定 Endpoint 为空时，仍用 EndpointId 找回已测通的连接配置地址
+            if (string.IsNullOrWhiteSpace(b.EndpointId))
+                continue;
+            var byId = (_settings.ConnectionEndpoints ?? [])
+                .FirstOrDefault(e => string.Equals(e.Id, b.EndpointId, StringComparison.OrdinalIgnoreCase));
+            if (byId != null && TryParseConnectEndpoint(byId.Address, out host, out port))
+                yield return (host, port);
+        }
+
+        foreach (var ep in _settings.ConnectionEndpoints ?? [])
+        {
+            if (ep.Kind != ConnectionEndpoint.KindRemote)
+                continue;
+            if (!string.Equals(ep.VerifiedPeerName, peerName, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (TryParseConnectEndpoint(ep.Address, out var host, out var port))
+                yield return (host, port);
+        }
+    }
+
+    private bool TryParseConnectEndpoint(string? raw, out string host, out int port)
+    {
+        host = "";
+        port = _settings.TcpPort > 0 ? _settings.TcpPort : 15155;
+        if (string.IsNullOrWhiteSpace(raw) || raw.Trim() is "—" or "-")
+            return false;
+        if (!ConnectionEndpointProbe.TryParseHostPort(raw.Trim(), out host, out port, port))
+            return false;
+        // Tailscale 100.x / 公网等：不能只用 IsUsableLanIpv4
+        return IPAddress.TryParse(host, out _) || !string.IsNullOrWhiteSpace(host);
     }
 
     private bool TryAcceptAck(string peerName, HandshakePayload? ack, out string? failStatus)
@@ -737,7 +1482,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         Interlocked.Exchange(ref _lastDialTick, now);
         try
         {
-            await _discovery.RequestDialAsync(_bindIp, _settings.TcpPort).ConfigureAwait(false);
+            await _discovery.RequestDialAsync(AdvertisedLocalIp, _settings.TcpPort).ConfigureAwait(false);
         }
         catch
         {
@@ -768,9 +1513,10 @@ public sealed class ConnectionManager : IAsyncDisposable
 
             if (completed != connectTask)
             {
-                // 超时或外部取消：关掉 socket，让 ConnectAsync 尽快结束
+                // 超时或外部取消：关掉 socket，让 ConnectAsync 尽快结束。
+                // 不 await 失败任务，避免 HostUnreachable 等在调试器里刷一阶异常栈。
                 try { client.Close(); } catch { /* ignore */ }
-                try { await connectTask.ConfigureAwait(false); } catch { /* ignore */ }
+                ObserveConnectFault(connectTask);
                 return false;
             }
 
@@ -782,11 +1528,31 @@ public sealed class ConnectionManager : IAsyncDisposable
             try { client.Close(); } catch { /* ignore */ }
             return false;
         }
+        catch (SocketException)
+        {
+            try { client.Close(); } catch { /* ignore */ }
+            return false;
+        }
         catch
         {
             try { client.Close(); } catch { /* ignore */ }
             return false;
         }
+    }
+
+    private static void ObserveConnectFault(Task connectTask)
+    {
+        if (connectTask.IsCompleted)
+        {
+            _ = connectTask.Exception;
+            return;
+        }
+
+        _ = connectTask.ContinueWith(
+            static t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private void WireSession(PeerSession session)
@@ -886,7 +1652,26 @@ public sealed class ConnectionManager : IAsyncDisposable
             return;
         }
 
-        if (_settings.SameSubnetOnly)
+        // 刷新发现 / 连接配置探测：只回身份，不建链、不占布局
+        if (hs.ProbeOnly && hs.Channel != PeerChannel.Bulk)
+        {
+            var probeAck = MessageCodec.EncodeJson(MessageType.HandshakeAck, LocalPeerIdentity.Enrich(new HandshakePayload
+            {
+                MachineName = LocalMachine,
+                SecurityKey = _settings.SecurityKey,
+                LocalIp = AdvertisedLocalIp,
+                Channel = PeerChannel.Control,
+                IsReply = true,
+                ProbeOnly = true
+            }));
+            await session.SendRawAndWaitAsync(probeAck).ConfigureAwait(false);
+            RememberPeerAddress(hs.MachineName, session.PeerIp, hs.LocalIp);
+            await session.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        // 中继管道从本机回环接入，对端真实地址不在同网段时仍应完成握手
+        if (_settings.SameSubnetOnly && !IsLocalSocket(session.PeerIp))
         {
             var nic = NicService.ResolvePreferred(_settings.PreferredNicId, _settings.PreferredLocalIp);
             if (nic != null && !string.IsNullOrEmpty(hs.LocalIp) &&
@@ -899,9 +1684,17 @@ public sealed class ConnectionManager : IAsyncDisposable
 
         var isBulk = hs.Channel == PeerChannel.Bulk;
 
-        // 仅接受已在布局槽位中的电脑；禁止入站自动占空槽（否则移除后会被对端重连加回）
-        // bulk 通道不得触发布局加入
+        // 布局成员 / 临时投影保活 / 布局加入请求；禁止无关主机入站占槽
+        // bulk 不得触发布局加入；临时投影不写布局
+        // AdHocConnect：仅放行本次握手，不写入 _adHocPeers（保活由发起方 EnsureAdHoc 负责），
+        // 否则停投后本机 MaintainLoop 仍会经中继拨回对端。
         var configured = ConfiguredPeers().Contains(hs.MachineName, StringComparer.OrdinalIgnoreCase);
+        if (!configured && hs.AdHocConnect)
+        {
+            configured = true;
+            if (!isBulk)
+                StatusMessage?.Invoke($"已接受临时连接 ← {hs.MachineName}（投影/直连，不进布局）");
+        }
         if (!configured && !isBulk && hs.RequestLayoutJoin && TryAcceptLayoutJoin != null)
         {
             if (TryAcceptLayoutJoin(hs.MachineName))
@@ -932,7 +1725,7 @@ public sealed class ConnectionManager : IAsyncDisposable
         {
             MachineName = LocalMachine,
             SecurityKey = _settings.SecurityKey,
-            LocalIp = _bindIp,
+            LocalIp = AdvertisedLocalIp,
             Channel = isBulk ? PeerChannel.Bulk : PeerChannel.Control,
             IsReply = true
         }));
@@ -956,8 +1749,11 @@ public sealed class ConnectionManager : IAsyncDisposable
             StatusMessage?.Invoke(string.Format(
                 Helpers.Localization.Loc.T("Status.Inbound"), hs.MachineName) + $" · {remote}");
 
+            // 立刻尝试回拨，缩短「仅入站」窗口（MaintainLoop 最多再等 ~2s）
+            var reverseCt = _cts?.Token ?? CancellationToken.None;
+            _ = EnsureOutboundAsync(hs.MachineName, reverseCt);
             if (RemoteAdvertisesBulk(remote))
-                _ = EnsureOutboundBulkAsync(hs.MachineName, _cts?.Token ?? CancellationToken.None);
+                _ = EnsureOutboundBulkAsync(hs.MachineName, reverseCt);
         }
     }
 
@@ -1014,7 +1810,13 @@ public sealed class ConnectionManager : IAsyncDisposable
         var observed = DiscoveryService.IsUsableLanIpv4(socketIp) ? socketIp : null;
         var advertised = DiscoveryService.IsUsableLanIpv4(advertisedIp) ? advertisedIp : observed;
         if (string.IsNullOrWhiteSpace(advertised)) return;
-        _discovery.RememberPeer(peerName, advertised, _settings.TcpPort, observed);
+        var origin = NicService.IsTailscaleCgNat(advertised)
+                     || NicService.IsTailscaleCgNat(observed)
+                     || (!NicService.IsOnLocalPhysicalSubnet(advertised)
+                         && !NicService.IsOnLocalPhysicalSubnet(observed))
+            ? DiscoveryOrigin.Remote
+            : DiscoveryOrigin.Lan;
+        _discovery.RememberPeer(peerName, advertised, _settings.TcpPort, observed, origin: origin);
     }
 
     private static async Task<NetMessage?> WaitMessageAsync(
@@ -1208,11 +2010,8 @@ public sealed class ConnectionManager : IAsyncDisposable
         {
             var a = outbound is { IsAlive: true } ? outbound : null;
             var b = inbound is { IsAlive: true } ? inbound : null;
-            PeerSession? primary;
-            if (a != null && b != null)
-                primary = a.LastRecvUtc >= b.LastRecvUtc ? a : b;
-            else
-                primary = a ?? b;
+            // 优先入站回写：远程影子投影常见「仅对端连入本机」，出站 bulk 虽 Alive 但大帧发不出
+            var primary = b ?? a;
             primary?.SendLatest(type, payload);
         }
 
@@ -1223,11 +2022,18 @@ public sealed class ConnectionManager : IAsyncDisposable
             try { sessions = [Outbound, Inbound, OutboundBulk, InboundBulk]; }
             finally { _gate.Release(); }
 
+            var bulkAlive = OutboundBulk is { IsAlive: true, Authenticated: true }
+                            || InboundBulk is { IsAlive: true, Authenticated: true };
             foreach (var s in sessions)
             {
                 if (s is not { IsAlive: true, Authenticated: true }) continue;
 
-                // bulk 传输中心跳可能排在分块之后；用收发活动时间 + 更宽超时，避免传文件时被误拆
+                // 复制投影的画面走文件通道。控制面暂时没有新包时不能拆，否则播放器会在出画前被关掉。
+                if (!s.IsBulkChannel && bulkAlive)
+                    continue;
+
+                // bulk 传输中心跳可能排在分块之后；用收发活动时间 + 更宽超时，避免传文件时被误拆。
+                // 控制面仍只看收包：本机一直在发不能掩盖对端已不再回话。
                 var idleLimitSec = s.IsBulkChannel ? 90 : 12;
                 var lastActivity = s.IsBulkChannel && s.LastSendUtc > s.LastRecvUtc
                     ? s.LastSendUtc

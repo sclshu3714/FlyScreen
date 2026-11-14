@@ -59,11 +59,12 @@ public sealed class ConnectionDiagnostics
             {
                 var ip = string.IsNullOrEmpty(st.DiscoveredIp) ? "未发现 IP" : st.DiscoveredIp;
                 if (st.Bidirectional)
-                    report.Add($"对端 {st.Name}", $"双向已连接，发现 IP {ip}", DiagnosticLevel.Ok);
-                else if (st.AnyAlive)
-                    report.Add($"对端 {st.Name}",
-                        $"仅{(st.Outbound ? "出站" : "入站")}连通，发现 IP {ip}（需补齐另一方向）",
-                        DiagnosticLevel.Warn);
+                {
+                    var detail = st.DualLinked
+                        ? $"双向已连接（双 TCP），发现 IP {ip}"
+                        : $"已连接（{(st.Outbound ? "出站" : "入站")} TCP，全双工可用），发现 IP {ip}";
+                    report.Add($"对端 {st.Name}", detail, DiagnosticLevel.Ok);
+                }
                 else if (string.IsNullOrEmpty(st.DiscoveredIp))
                     report.Add($"对端 {st.Name}", "未连接且局域网未发现（检查网卡/防火墙/密钥/对方是否启动）",
                         DiagnosticLevel.Error);
@@ -143,11 +144,9 @@ public sealed class ConnectionDiagnostics
                 foreach (var st in statuses)
                 {
                     if (st.Bidirectional)
-                        Log($"对端 {st.Name}", "双向已连接", DiagnosticLevel.Ok);
-                    else if (st.AnyAlive)
                         Log($"对端 {st.Name}",
-                            $"仍为单方向（{(st.Outbound ? "出站" : "入站")}）。请确认对方版本一致、密钥相同，并在对方也执行一键修复。",
-                            DiagnosticLevel.Warn);
+                            st.DualLinked ? "双向已连接（双 TCP）" : $"已连接（{(st.Outbound ? "出站" : "入站")} TCP，全双工可用）",
+                            DiagnosticLevel.Ok);
                     else
                         Log($"对端 {st.Name}", "仍未连通。请确认对方已启动玄鸟且网卡/密钥一致。",
                             DiagnosticLevel.Error);
@@ -155,9 +154,9 @@ public sealed class ConnectionDiagnostics
             }
 
             report.Summary = statuses.Count > 0 && statuses.All(x => x.Bidirectional)
-                ? "修复完成：全部对端已双向连接"
+                ? "修复完成：全部对端已连接"
                 : statuses.Any(x => x.AnyAlive)
-                    ? "修复已执行：部分链路仍非双向，请在对端同步操作"
+                    ? "修复已执行：部分对端仍未连通"
                     : "修复已执行：仍未连通，请对照检查报告排查";
         }
         catch (Exception ex)

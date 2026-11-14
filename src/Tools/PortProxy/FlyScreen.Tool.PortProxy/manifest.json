@@ -1,0 +1,29 @@
+{
+  "id": "port-proxy",
+  "kind": "enhancement",
+  "crossScreen": false,
+  "group": "utilities",
+  "nameKey": "Tool.PortProxy.Name",
+  "summaryKey": "Tool.PortProxy.Summary",
+  "schemaVersion": 1,
+  "minAppVersion": "1.0.0",
+  "deviceClasses": ["Desktop"],
+  "platforms": ["Windows"],
+  "featuresByDeviceClass": {
+    "Desktop": ["portproxy-manage"]
+  },
+  "roles": ["local"],
+  "supportsRepair": false,
+  "capNames": [],
+  "titleBar": false,
+  "hasWorkspace": true,
+  "icon": "tool-port-proxy",
+  "permissions": [],
+  "package": {
+    "version": "1.0.7",
+    "format": "flytool",
+    "formatVersion": 1
+  },
+  "entryAssembly": "FlyScreen.Tool.PortProxy.dll",
+  "entryType": "FlyScreen.Tool.PortProxy.Module"
+}

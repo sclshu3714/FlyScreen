@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FlyScreen.Native;
 using FlyScreen.ScreenExtend;
 using FlyScreen.Services.Network;
@@ -24,8 +25,12 @@ public sealed class MauiScreenExtendController : IDisposable
     private bool _hostSessionActive;
     private bool _disposed;
     private readonly ProjectionAudioBridge _audio;
-    private readonly LatestFrameSlot _frames = new();
+    private readonly ConcurrentDictionary<string, LatestFrameSlot> _framesByPeer =
+        new(StringComparer.OrdinalIgnoreCase);
     private int _decodePosted;
+
+    public Func<IReadOnlyList<string>>? ListAddablePeers { get; set; }
+    public Func<string, Task>? StartExtraProjection { get; set; }
 
     public MauiScreenExtendController(ScreenExtendService service)
     {
@@ -45,6 +50,11 @@ public sealed class MauiScreenExtendController : IDisposable
     }
 
     public void SetProjectionMode(DisplayProjectionMode mode) => _mode = mode;
+
+    /// <summary>设备管理的远程投影固定复制主屏，不占用虚拟副屏。</summary>
+    private bool UsesExtendDisplay
+        => _mode == DisplayProjectionMode.Extend
+           && _display.Source != ProjectionDisplaySource.HostPrimary;
 
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
         => _display = choice?.Clone() ?? new ProjectionDisplayChoice();
@@ -114,7 +124,7 @@ public sealed class MauiScreenExtendController : IDisposable
 
     private async Task OnHostReadyAsync()
     {
-        if (_mode == DisplayProjectionMode.Extend)
+        if (UsesExtendDisplay)
         {
             try
             {
@@ -132,7 +142,7 @@ public sealed class MauiScreenExtendController : IDisposable
     {
         await StopCaptureAsync(releaseDisplay: false).ConfigureAwait(false);
 
-        if (_mode == DisplayProjectionMode.Extend)
+        if (UsesExtendDisplay)
         {
             if (_vdd?.Target == null && DisplayMonitorEnum.FindBestExtendTarget() == null)
             {
@@ -164,6 +174,7 @@ public sealed class MauiScreenExtendController : IDisposable
                 var started = Environment.TickCount64;
                 try
                 {
+                    var capturedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     var picture = ProjectionDisplayPresets.DescribeQuality(display.JpegQuality);
                     var maxEdge = picture.Passthrough ? 0 : Math.Max(display.Width, display.Height);
                     if (!picture.Passthrough && picture.ExtraLongEdgeCap > 0)
@@ -171,7 +182,8 @@ public sealed class MauiScreenExtendController : IDisposable
                     var frame = ScreenCaptureJpeg.Capture(target.Value, picture.EncodeQuality, maxEdge);
                     if (frame is { Jpeg.Length: > 0 })
                     {
-                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height, token)
+                        await _service.SendFrameAsync(frame.Value.Jpeg, frame.Value.Width, frame.Value.Height,
+                                capturedAt, token)
                             .ConfigureAwait(false);
                     }
                 }
@@ -187,7 +199,7 @@ public sealed class MauiScreenExtendController : IDisposable
 
     private MonitorRect? ResolveCaptureTarget()
     {
-        if (_mode == DisplayProjectionMode.Clone)
+        if (!UsesExtendDisplay)
             return DisplayMonitorEnum.FindPrimary();
 
         var secondary = DisplayMonitorEnum.FindBestExtendTarget();
@@ -258,19 +270,30 @@ public sealed class MauiScreenExtendController : IDisposable
         catch { /* ignore inject errors */ }
     }
 
-    private void OnSinkReady()
+    private void EnsureSinkWindow()
+    {
+        _sink ??= new MauiScreenExtendSinkWindow(
+            peer => _ = _service.StopSessionAsync(peer, "sink-close"),
+            () => _ = _service.StopAsync("sink-close"),
+            () => ListAddablePeers?.Invoke() ?? [],
+            remote => StartExtraProjection?.Invoke(remote) ?? Task.CompletedTask);
+    }
+
+    private void OnSinkReady(string peer)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _sink ??= new MauiScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
-            _sink.BindSession(_service);
+            EnsureSinkWindow();
+            _sink!.AddOrActivateTab(peer, _service);
             _sink.ShowFullscreen();
         });
     }
 
-    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h)
+    private void OnFrame(ReadOnlyMemory<byte> jpeg, int w, int h, long capturedUnixMs, string peer)
     {
-        if (!_frames.Offer(jpeg, w, h)) return;
+        if (string.IsNullOrWhiteSpace(peer)) return;
+        var slot = _framesByPeer.GetOrAdd(peer.Trim(), _ => new LatestFrameSlot());
+        if (!slot.Offer(jpeg, w, h, capturedUnixMs, peer.Trim())) return;
         KickDecode();
     }
 
@@ -281,49 +304,74 @@ public sealed class MauiScreenExtendController : IDisposable
         _ = DecodeLoopAsync();
     }
 
+    private bool AnyFramePending()
+    {
+        foreach (var slot in _framesByPeer.Values)
+        {
+            if (slot.HasPending) return true;
+        }
+
+        return false;
+    }
+
     private async Task DecodeLoopAsync()
     {
         try
         {
-            while (!_disposed && _frames.TryTake(out var jpeg, out _, out _, out var gen))
+            while (!_disposed)
             {
-                DecodedBgra? frame = null;
-                try
+                var progressed = false;
+                foreach (var kv in _framesByPeer.ToArray())
                 {
-                    frame = await DecodeBgraAsync(jpeg).ConfigureAwait(false);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (frame == null) continue;
-                if (!_frames.IsCurrent(gen) || _service.Role != ScreenExtendRole.Sink)
-                    continue;
-
-                var shown = frame.Value;
-                var g = gen;
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    if (_disposed || _service.Role != ScreenExtendRole.Sink || !_frames.IsCurrent(g))
-                        return;
-
-                    try
+                    var slot = kv.Value;
+                    var peerKey = kv.Key;
+                    while (!_disposed && slot.TryTake(out var jpeg, out _, out _, out var capturedAt, out var gen, out _))
                     {
-                        _sink ??= new MauiScreenExtendSinkWindow(() => _ = _service.StopAsync("sink-close"));
-                        _sink.BindSession(_service);
-                        if (!_sink.IsVisible)
-                            _sink.ShowFullscreen();
-                        _sink.PresentBgra(shown.Width, shown.Height, shown.Pixels);
+                        progressed = true;
+                        DecodedBgra? frame = null;
+                        try
+                        {
+                            frame = await DecodeBgraAsync(jpeg).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            continue;
+                        }
+
+                        if (frame == null) continue;
+                        if (!slot.IsCurrent(gen) || _service.Role != ScreenExtendRole.Sink)
+                            continue;
+
+                        var shown = frame.Value;
+                        var g = gen;
+                        var capturedUnixMs = capturedAt;
+                        var peer = peerKey;
+                        var frameSlot = slot;
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            if (_disposed || _service.Role != ScreenExtendRole.Sink || !frameSlot.IsCurrent(g))
+                                return;
+
+                            try
+                            {
+                                EnsureSinkWindow();
+                                _sink!.EnsureTab(peer, _service);
+                                if (!_sink.IsVisible)
+                                    _sink.ShowFullscreen();
+                                _sink.Present(peer, shown.Width, shown.Height, shown.Pixels, capturedUnixMs);
+                            }
+                            catch { /* ignore */ }
+                        });
                     }
-                    catch { /* ignore */ }
-                });
+                }
+
+                if (!progressed) break;
             }
         }
         finally
         {
             Interlocked.Exchange(ref _decodePosted, 0);
-            if (!_disposed && _frames.HasPending)
+            if (!_disposed && AnyFramePending())
                 KickDecode();
         }
     }
@@ -350,19 +398,43 @@ public sealed class MauiScreenExtendController : IDisposable
         return new DecodedBgra(w, h, pixels);
     }
 
-    private void OnSessionEnded()
+    private void OnSessionEnded(string? peer)
     {
         MainThread.BeginInvokeOnMainThread(ProjectionHostCursor.EndSessionOnHookThread);
-        var releaseHost = _hostSessionActive || _wantDisplay || _vdd != null;
-        _hostSessionActive = false;
-        _wantDisplay = false;
-        _frames.Clear();
-        _ = FinalizeAfterSessionEndedAsync(releaseHost);
+
+        if (!string.IsNullOrWhiteSpace(peer)
+            && _framesByPeer.TryRemove(peer.Trim(), out var removed))
+            removed.Clear();
+
+        var wasHost = _hostSessionActive;
+        var hostEnded = wasHost && _service.Role != ScreenExtendRole.Host;
+        if (hostEnded)
+        {
+            var releaseHost = wasHost || _wantDisplay || _vdd != null;
+            _hostSessionActive = false;
+            _wantDisplay = false;
+            foreach (var s in _framesByPeer.Values) s.Clear();
+            _framesByPeer.Clear();
+            _ = FinalizeAfterSessionEndedAsync(releaseHost);
+        }
+
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            try { _sink?.CloseFromSession(); } catch { /* ignore */ }
-            _sink = null;
-            MauiProjectionTitleBar.SetProjecting(false);
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(peer))
+                    _sink?.RemoveTab(peer);
+
+                if (_sink != null && !_sink.HasTabs)
+                {
+                    _sink.CloseFromSession();
+                    _sink = null;
+                }
+            }
+            catch { /* ignore */ }
+
+            if (!_hostSessionActive && _sink == null)
+                MauiProjectionTitleBar.SetProjecting(false);
         });
     }
 
@@ -430,28 +502,74 @@ public sealed class MauiScreenExtendController : IDisposable
     }
 }
 
-/// <summary>WinUI 全屏从机窗。</summary>
+/// <summary>WinUI 投影播放器：自定义标题栏 + 多 Tab 信号延迟。</summary>
 public sealed class MauiScreenExtendSinkWindow
 {
-    private readonly Action _onUserClose;
+    private readonly Action<string> _onStopTab;
+    private readonly Action _onCloseWindow;
+    private readonly Func<IReadOnlyList<string>> _listAddablePeers;
+    private readonly Func<string, Task> _startProjection;
     private readonly SinkLocalCursorIdleHide _cursorIdle = new();
     private readonly ScreenExtendReverseMoveGate _reverseGate = new();
+    private readonly List<SinkTabState> _tabs = [];
+    private string? _activePeer;
     private readonly Microsoft.UI.Xaml.Window _window;
-    private readonly Microsoft.UI.Xaml.Controls.Grid _root;
+    private readonly Microsoft.UI.Xaml.Controls.Grid _shell;
+    private readonly Microsoft.UI.Xaml.Controls.Border _titleBar;
+    private readonly Microsoft.UI.Xaml.Controls.StackPanel _tabsHost;
+    private readonly Microsoft.UI.Xaml.Controls.Button _addTabBtn;
+    private readonly Microsoft.UI.Xaml.Controls.Grid _contentHost;
     private readonly Microsoft.UI.Xaml.Controls.Image _image;
     private readonly Microsoft.UI.Xaml.Controls.TextBlock _waiting;
+    private readonly Microsoft.UI.Xaml.Controls.Button _fullscreenBtn;
+    private readonly Microsoft.UI.Xaml.Controls.Canvas _fsToolbarLayer;
+    private readonly Microsoft.UI.Xaml.Controls.Border _fsToolbar;
+    private readonly Microsoft.UI.Xaml.Controls.StackPanel _fsToolbarExtra;
+    private readonly Microsoft.UI.Xaml.Controls.Button _fsGripBtn;
     private bool _closingFromSession;
     private bool _userCloseRaised;
     private int _showCursorHideDepth;
     private ScreenExtendService? _session;
     private bool _captureBound;
     private bool _windowActive;
-    private int _contentW;
-    private int _contentH;
+    private bool _chromeFullscreen;
+    private bool _fsToolbarExpanded = true;
+    private bool _fsToolbarDragging;
+    private bool _fsToolbarMoved;
+    private double _fsDragStartX;
+    private double _fsDragStartY;
+    private double _fsToolbarOriginX;
+    private double _fsToolbarOriginY;
+    private string _latencyTip = "";
 
-    public MauiScreenExtendSinkWindow(Action onUserClose)
+    private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush TabActiveBg = HexBrushStatic("#2C2C30");
+    private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush TabInactiveBg = HexBrushStatic("#18181B");
+
+    private sealed class SinkTabState
     {
-        _onUserClose = onUserClose;
+        public required string Peer { get; init; }
+        public required Microsoft.UI.Xaml.Controls.Border TabBorder { get; init; }
+        public required Microsoft.UI.Xaml.Controls.StackPanel SignalPanel { get; init; }
+        public required Microsoft.UI.Xaml.Controls.TextBlock NameText { get; init; }
+        public Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? FrameBitmap;
+        public int ContentW;
+        public int ContentH;
+        public double LatencyEma;
+        public long LatencySkewBaseline = long.MinValue;
+        public ProjectionLatency.Signal LastSignal;
+        public string LatencyTip = "";
+    }
+
+    public MauiScreenExtendSinkWindow(
+        Action<string> onStopTab,
+        Action onCloseWindow,
+        Func<IReadOnlyList<string>> listAddablePeers,
+        Func<string, Task> startProjection)
+    {
+        _onStopTab = onStopTab;
+        _onCloseWindow = onCloseWindow;
+        _listAddablePeers = listAddablePeers;
+        _startProjection = startProjection;
         _image = new Microsoft.UI.Xaml.Controls.Image
         {
             Stretch = Microsoft.UI.Xaml.Media.Stretch.None,
@@ -467,12 +585,98 @@ public sealed class MauiScreenExtendSinkWindow
             HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
         };
-        _root = new Microsoft.UI.Xaml.Controls.Grid
+
+        _tabsHost = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal
+        };
+        _addTabBtn = new Microsoft.UI.Xaml.Controls.Button
+        {
+            Content = new Microsoft.UI.Xaml.Controls.TextBlock
+            {
+                Text = "+",
+                FontSize = 16,
+                Foreground = HexBrush("#9CA3AF"),
+                HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
+                VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center
+            },
+            Width = 28,
+            Height = 28,
+            Margin = new Microsoft.UI.Xaml.Thickness(0, 0, 4, 4),
+            Padding = new Microsoft.UI.Xaml.Thickness(0),
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Microsoft.UI.Xaml.Thickness(0),
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Bottom
+        };
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_addTabBtn, "添加投影");
+        _addTabBtn.Click += (_, _) => ShowAddTabMenu();
+
+        var titleTabRow = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Bottom,
+            Margin = new Microsoft.UI.Xaml.Thickness(8, 4, 0, 0),
+            Children =
+            {
+                _tabsHost,
+                new Microsoft.UI.Xaml.Controls.Border
+                {
+                    Width = 1,
+                    Height = 18,
+                    Background = HexBrush("#3F3F46"),
+                    Margin = new Microsoft.UI.Xaml.Thickness(6, 0, 4, 4),
+                    VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Bottom
+                },
+                _addTabBtn
+            }
+        };
+
+        _fullscreenBtn = ChromeGlyphBtn("⛶", 46, ToggleFullscreen);
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "全屏");
+        var chrome = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            Children =
+            {
+                _fullscreenBtn,
+                ChromeGlyphBtn("─", 46, () => SetWindowState(minimized: true)),
+                ChromeGlyphBtn("□", 46, ToggleMaximize),
+                ChromeGlyphBtn("✕", 46, CloseWindow)
+            }
+        };
+
+        var titleGrid = new Microsoft.UI.Xaml.Controls.Grid();
+        titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto });
+        titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = new Microsoft.UI.Xaml.GridLength(1, Microsoft.UI.Xaml.GridUnitType.Star) });
+        titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto });
+        titleGrid.Children.Add(titleTabRow);
+        // 中间空白：显式命中层，拖动整窗（空列无背景时 WinUI 点不中）
+        var titleDragFill = new Microsoft.UI.Xaml.Controls.Border
+        {
+            Background = HexBrush("#01000000")
+        };
+        Microsoft.UI.Xaml.Controls.Grid.SetColumn(titleDragFill, 1);
+        titleGrid.Children.Add(titleDragFill);
+        Microsoft.UI.Xaml.Controls.Grid.SetColumn(chrome, 2);
+        titleGrid.Children.Add(chrome);
+
+        _titleBar = new Microsoft.UI.Xaml.Controls.Border
+        {
+            Background = HexBrush("#1A1A1D"),
+            Height = 36,
+            Child = titleGrid
+        };
+        _titleBar.PointerPressed += TitleBar_PointerPressed;
+        _titleBar.PointerMoved += TitleBar_PointerMoved;
+        _titleBar.PointerReleased += TitleBar_PointerReleased;
+        _titleBar.PointerCaptureLost += TitleBar_PointerCaptureLost;
+
+        _contentHost = new Microsoft.UI.Xaml.Controls.Grid
         {
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Black)
         };
-        // Viewbox 按窗口等比放大/缩小。Image 自身在部分 WinUI 版本上会停在像素尺寸，高和宽都填不满。
-        _root.Children.Add(new Microsoft.UI.Xaml.Controls.Viewbox
+        _contentHost.Children.Add(new Microsoft.UI.Xaml.Controls.Viewbox
         {
             Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
             StretchDirection = Microsoft.UI.Xaml.Controls.StretchDirection.Both,
@@ -480,31 +684,109 @@ public sealed class MauiScreenExtendSinkWindow
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch,
             Child = _image
         });
-        _root.Children.Add(_waiting);
-        var tip = new Microsoft.UI.Xaml.Controls.TextBlock
+        _contentHost.Children.Add(_waiting);
+        _contentHost.PointerMoved += (_, _) => _cursorIdle.NotifyLocalMouseMoved();
+
+        _latencyTip = FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTipWait");
+        _fsGripBtn = new Microsoft.UI.Xaml.Controls.Button
         {
-            Text = "Esc 退出投影",
-            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White),
-            Opacity = 0.55,
-            Margin = new Microsoft.UI.Xaml.Thickness(16),
-            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left,
-            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Top
+            Content = "◂▸",
+            Width = 28,
+            Height = 28,
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Microsoft.UI.Xaml.Thickness(0),
+            Foreground = HexBrush("#C8C8CE"),
+            FontSize = 11,
+            Padding = new Microsoft.UI.Xaml.Thickness(0)
         };
-        _root.Children.Add(tip);
-        _root.IsTabStop = true;
-        _root.KeyDown += Root_KeyDown;
-        _root.KeyUp += Root_KeyUp;
-        _root.PointerMoved += (_, _) => _cursorIdle.NotifyLocalMouseMoved();
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsGripBtn, _latencyTip);
+        _fsGripBtn.PointerPressed += FsGrip_PointerPressed;
+        _fsGripBtn.PointerMoved += FsGrip_PointerMoved;
+        _fsGripBtn.PointerReleased += FsGrip_PointerReleased;
+        _fsGripBtn.PointerCaptureLost += (_, _) =>
+        {
+            _fsToolbarDragging = false;
+            _fsToolbarMoved = false;
+        };
+
+        _fsToolbarExtra = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            Children =
+            {
+                FsToolBtn("⇄", SelectNextTab),
+                FsToolBtn("⛶", ToggleFullscreen),
+                FsToolBtn("⊗", CloseCurrentTab)
+            }
+        };
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsToolbarExtra.Children[0], "切换标签");
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsToolbarExtra.Children[1], "退出全屏");
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsToolbarExtra.Children[2], "结束投影");
+
+        _fsToolbar = new Microsoft.UI.Xaml.Controls.Border
+        {
+            Background = HexBrush("#E01A1A1D"),
+            CornerRadius = new Microsoft.UI.Xaml.CornerRadius(6),
+            BorderBrush = HexBrush("#33FFFFFF"),
+            BorderThickness = new Microsoft.UI.Xaml.Thickness(1),
+            Padding = new Microsoft.UI.Xaml.Thickness(2),
+            Child = new Microsoft.UI.Xaml.Controls.StackPanel
+            {
+                Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+                Children = { _fsGripBtn, _fsToolbarExtra }
+            }
+        };
+        _fsToolbar.PointerEntered += (_, _) =>
+        {
+            _cursorIdle.NotifyLocalMouseMoved();
+            ForceShowLocalCursor();
+        };
+        _fsToolbar.PointerExited += (_, _) =>
+        {
+            if (_chromeFullscreen && !_fsToolbarDragging)
+                ForceHideLocalCursor();
+        };
+
+        _fsToolbarLayer = new Microsoft.UI.Xaml.Controls.Canvas
+        {
+            Visibility = Microsoft.UI.Xaml.Visibility.Collapsed,
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch
+        };
+        _fsToolbarLayer.Children.Add(_fsToolbar);
+        _fsToolbarLayer.PointerMoved += FsGrip_PointerMoved;
+        _fsToolbarLayer.PointerReleased += FsGrip_PointerReleased;
+        _fsToolbarLayer.SizeChanged += (_, _) =>
+        {
+            if (_chromeFullscreen)
+                ResetFsToolbarToTopCenter();
+        };
+
+        _shell = new Microsoft.UI.Xaml.Controls.Grid
+        {
+            Background = HexBrush("#0B0B0C")
+        };
+        _shell.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = new Microsoft.UI.Xaml.GridLength(36) });
+        _shell.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = new Microsoft.UI.Xaml.GridLength(1, Microsoft.UI.Xaml.GridUnitType.Star) });
+        _shell.Children.Add(_titleBar);
+        Microsoft.UI.Xaml.Controls.Grid.SetRow(_contentHost, 1);
+        _shell.Children.Add(_contentHost);
+        Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(_fsToolbarLayer, 2);
+        Microsoft.UI.Xaml.Controls.Canvas.SetZIndex(_fsToolbarLayer, 100);
+        _shell.Children.Add(_fsToolbarLayer);
+        _shell.IsTabStop = true;
+        _shell.KeyDown += Root_KeyDown;
+        _shell.KeyUp += Root_KeyUp;
         _cursorIdle.ShowLocalCursorChanged += ApplyLocalCursor;
 
-        _window = new Microsoft.UI.Xaml.Window { Title = "玄鸟投影", Content = _root };
+        _window = new Microsoft.UI.Xaml.Window { Title = "玄鸟投影", Content = _shell };
         _window.Activated += (_, args) =>
         {
             _windowActive = args.WindowActivationState
                 != Microsoft.UI.Xaml.WindowActivationState.Deactivated;
             if (_windowActive)
             {
-                try { _root.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
+                try { _shell.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
                 TryAttachCapture();
             }
             else
@@ -518,7 +800,7 @@ public sealed class MauiScreenExtendSinkWindow
             ForceShowLocalCursor();
             _cursorIdle.EndSession();
             _cursorIdle.Dispose();
-            NotifyUserClose();
+            NotifyWindowClose();
         };
         try
         {
@@ -528,19 +810,528 @@ public sealed class MauiScreenExtendSinkWindow
             appWindow.Closing += (_, args) =>
             {
                 if (_closingFromSession) return;
-                NotifyUserClose();
+                NotifyWindowClose();
             };
         }
         catch { /* Activate 后再绑 Closing 亦可 */ }
     }
 
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush HexBrush(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 6) hex = "FF" + hex;
+        var v = Convert.ToUInt32(hex, 16);
+        return new(global::Windows.UI.Color.FromArgb(
+            (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v));
+    }
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush HexBrushStatic(string hex) => HexBrush(hex);
+
+    private static Microsoft.UI.Xaml.Controls.Button ChromeGlyphBtn(string glyph, double width, Action click)
+    {
+        var btn = new Microsoft.UI.Xaml.Controls.Button
+        {
+            Content = glyph,
+            Width = width,
+            Height = 32,
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Microsoft.UI.Xaml.Thickness(0),
+            Foreground = HexBrush("#D1D5DB"),
+            FontSize = 12,
+            Padding = new Microsoft.UI.Xaml.Thickness(0)
+        };
+        btn.Click += (_, _) => click();
+        return btn;
+    }
+
+    private static Microsoft.UI.Xaml.Controls.Button FsToolBtn(string glyph, Action click)
+    {
+        var btn = new Microsoft.UI.Xaml.Controls.Button
+        {
+            Content = glyph,
+            Width = 28,
+            Height = 28,
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Microsoft.UI.Xaml.Thickness(0),
+            Foreground = HexBrush("#C8C8CE"),
+            FontSize = 12,
+            Padding = new Microsoft.UI.Xaml.Thickness(0)
+        };
+        btn.Click += (_, _) => click();
+        return btn;
+    }
+
+    public bool HasTabs => _tabs.Count > 0;
+
+    public void EnsureTab(string peer, ScreenExtendService? service = null)
+    {
+        if (service != null)
+            _session = service;
+        peer = peer.Trim();
+        if (string.IsNullOrEmpty(peer)) return;
+        if (FindTab(peer) != null) return;
+
+        var created = CreateTabUi(peer);
+        _tabs.Add(created);
+        _tabsHost.Children.Add(created.TabBorder);
+        if (string.IsNullOrEmpty(_activePeer))
+            SetActiveTab(peer);
+        else
+            RefreshTabChrome();
+    }
+
+    public void AddOrActivateTab(string peer, ScreenExtendService? service = null)
+    {
+        EnsureTab(peer, service);
+        if (HasTab(peer))
+            SetActiveTab(peer);
+    }
+
+    public void RemoveTab(string? peer)
+    {
+        if (string.IsNullOrWhiteSpace(peer)) return;
+        peer = peer.Trim();
+        var idx = _tabs.FindIndex(t => string.Equals(t.Peer, peer, StringComparison.OrdinalIgnoreCase));
+        if (idx < 0) return;
+
+        var removed = _tabs[idx];
+        _tabsHost.Children.Remove(removed.TabBorder);
+        _tabs.RemoveAt(idx);
+
+        if (_tabs.Count == 0)
+        {
+            _activePeer = null;
+            _image.Source = null;
+            _waiting.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+            return;
+        }
+
+        if (string.Equals(_activePeer, peer, StringComparison.OrdinalIgnoreCase))
+            SetActiveTab(_tabs[Math.Min(idx, _tabs.Count - 1)].Peer);
+        else
+            RefreshTabChrome();
+    }
+
+    private SinkTabState CreateTabUi(string peer)
+    {
+        var signalPanel = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            Spacing = 1.3,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            Width = 14,
+            Height = 12
+        };
+        var nameText = new Microsoft.UI.Xaml.Controls.TextBlock
+        {
+            Text = peer,
+            Foreground = HexBrush("#F3F4F6"),
+            FontSize = 12,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            MaxWidth = 180,
+            TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis
+        };
+        var closeBtn = ChromeGlyphBtn("×", 18, () => RequestStopTab(peer));
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(closeBtn, "结束投影");
+
+        var tabBody = new Microsoft.UI.Xaml.Controls.StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            Children = { signalPanel, nameText, closeBtn }
+        };
+
+        var tabBorder = new Microsoft.UI.Xaml.Controls.Border
+        {
+            Background = TabInactiveBg,
+            CornerRadius = new Microsoft.UI.Xaml.CornerRadius(6, 6, 0, 0),
+            Margin = new Microsoft.UI.Xaml.Thickness(0, 0, 4, 0),
+            Padding = new Microsoft.UI.Xaml.Thickness(10, 0, 6, 0),
+            MinWidth = 120,
+            Height = 28,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Bottom,
+            Child = tabBody,
+            Tag = peer
+        };
+        tabBorder.PointerPressed += (_, e) =>
+        {
+            if (tabBorder.Tag is string p && e.GetCurrentPoint(tabBorder).Properties.IsLeftButtonPressed)
+            {
+                SetActiveTab(p);
+                e.Handled = true;
+            }
+        };
+
+        var state = new SinkTabState
+        {
+            Peer = peer,
+            TabBorder = tabBorder,
+            SignalPanel = signalPanel,
+            NameText = nameText,
+            LatencyTip = FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTipWait")
+        };
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(tabBorder, state.LatencyTip);
+        DrawSignalOn(signalPanel, ref state.LastSignal, new ProjectionLatency.Signal(0, 0));
+        return state;
+    }
+
+    private void SetActiveTab(string peer)
+    {
+        peer = peer.Trim();
+        if (!HasTab(peer)) return;
+        var same = string.Equals(_activePeer, peer, StringComparison.OrdinalIgnoreCase);
+        _activePeer = peer;
+        _session?.SetActiveSinkPeer(peer);
+        RefreshTabChrome();
+        RefreshTitle();
+        ShowActiveTabFrame();
+        ApplyActiveLatencyTip();
+        if (same) return;
+        DetachCapture();
+        TryAttachCapture();
+    }
+
+    private void SelectNextTab()
+    {
+        if (_tabs.Count <= 1) return;
+        var idx = _tabs.FindIndex(t => string.Equals(t.Peer, _activePeer, StringComparison.OrdinalIgnoreCase));
+        if (idx < 0) idx = 0;
+        SetActiveTab(_tabs[(idx + 1) % _tabs.Count].Peer);
+    }
+
+    private void RefreshTabChrome()
+    {
+        foreach (var t in _tabs)
+        {
+            var active = string.Equals(t.Peer, _activePeer, StringComparison.OrdinalIgnoreCase);
+            t.TabBorder.Background = active ? TabActiveBg : TabInactiveBg;
+        }
+    }
+
+    private void RefreshTitle()
+    {
+        var peer = _activePeer?.Trim();
+        _window.Title = string.IsNullOrWhiteSpace(peer) ? "玄鸟投影" : $"玄鸟投影 · {peer}";
+    }
+
+    private void ShowActiveTabFrame()
+    {
+        var tab = FindTab(_activePeer);
+        if (tab?.FrameBitmap != null)
+        {
+            _image.Source = tab.FrameBitmap;
+            _waiting.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        }
+        else
+        {
+            _image.Source = null;
+            _waiting.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+        }
+    }
+
+    private SinkTabState? FindTab(string? peer)
+    {
+        if (string.IsNullOrWhiteSpace(peer)) return null;
+        return _tabs.Find(t => string.Equals(t.Peer, peer.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool HasTab(string peer) => FindTab(peer) != null;
+
+    private int ActiveContentW => FindTab(_activePeer)?.ContentW ?? 0;
+    private int ActiveContentH => FindTab(_activePeer)?.ContentH ?? 0;
+
+    private void RequestStopTab(string peer)
+    {
+        try { _onStopTab(peer.Trim()); } catch { /* ignore */ }
+    }
+
+    private void CloseCurrentTab()
+    {
+        if (!string.IsNullOrWhiteSpace(_activePeer))
+            RequestStopTab(_activePeer);
+    }
+
+    private void CloseWindow()
+    {
+        NotifyWindowClose();
+        try { _window.Close(); } catch { /* ignore */ }
+    }
+
+    private void ShowAddTabMenu()
+    {
+        IReadOnlyList<string> items;
+        try { items = _listAddablePeers(); }
+        catch { items = []; }
+
+        var flyout = new Microsoft.UI.Xaml.Controls.MenuFlyout();
+        if (items.Count == 0)
+        {
+            var disabled = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
+            {
+                Text = "无可用设备",
+                IsEnabled = false,
+                Icon = CreateAddMenuDeviceIcon(muted: true)
+            };
+            flyout.Items.Add(disabled);
+        }
+        else
+        {
+            foreach (var name in items)
+            {
+                var remote = name;
+                var mi = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
+                {
+                    Text = remote,
+                    Tag = remote,
+                    Icon = CreateAddMenuDeviceIcon(muted: false)
+                };
+                mi.Click += async (_, _) =>
+                {
+                    if (mi.Tag is string r)
+                    {
+                        try { await _startProjection(r); }
+                        catch { /* ignore */ }
+                    }
+                };
+                flyout.Items.Add(mi);
+            }
+        }
+
+        flyout.ShowAt(_addTabBtn);
+    }
+
+    private static Microsoft.UI.Xaml.Controls.FontIcon CreateAddMenuDeviceIcon(bool muted)
+        => new()
+        {
+            // Segoe Fluent: 电脑显示器
+            Glyph = "\uE7F8",
+            FontSize = 14,
+            Foreground = HexBrush(muted ? "#6B7280" : "#D1D5DB")
+        };
+
+    private long _titleBarLastClickTick;
+    private const long TitleBarDoubleClickMs = 400;
+    private const double TitleDragThreshold = 4;
+    private bool _titleDragArmed;
+    private bool _titleDragging;
+    private global::Windows.Foundation.Point _titlePressScreen;
+    private global::Windows.Graphics.PointInt32 _titleWinOrigin;
+    private uint _titlePointerId;
+
+    private static bool IsTitleBarChromeHit(Microsoft.UI.Xaml.DependencyObject? src)
+    {
+        for (Microsoft.UI.Xaml.DependencyObject? cur = src; cur != null;
+             cur = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(cur))
+        {
+            if (cur is Microsoft.UI.Xaml.Controls.Border { Tag: string }) return true;
+            if (cur is Microsoft.UI.Xaml.Controls.Button) return true;
+        }
+
+        return false;
+    }
+
+    private void TitleBar_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (_chromeFullscreen) return;
+        var pt = e.GetCurrentPoint(_titleBar);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        if (IsTitleBarChromeHit(e.OriginalSource as Microsoft.UI.Xaml.DependencyObject)) return;
+
+        var now = Environment.TickCount64;
+        if (now - _titleBarLastClickTick <= TitleBarDoubleClickMs)
+        {
+            _titleBarLastClickTick = 0;
+            EndTitleBarDrag();
+            ToggleMaximize();
+            e.Handled = true;
+            return;
+        }
+
+        _titleBarLastClickTick = now;
+        // 仅武装：按住并移动超过阈值后再移窗（避免单击进入「跟随鼠标」移窗模式）
+        _titleDragArmed = true;
+        _titleDragging = false;
+        _titlePointerId = e.Pointer.PointerId;
+        _titlePressScreen = e.GetCurrentPoint(null).Position;
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            _titleWinOrigin = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id).Position;
+        }
+        catch
+        {
+            _titleDragArmed = false;
+            return;
+        }
+
+        _titleBar.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void TitleBar_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_titleDragArmed || e.Pointer.PointerId != _titlePointerId) return;
+        var pt = e.GetCurrentPoint(null);
+        if (!pt.Properties.IsLeftButtonPressed)
+        {
+            EndTitleBarDrag();
+            return;
+        }
+
+        var dx = pt.Position.X - _titlePressScreen.X;
+        var dy = pt.Position.Y - _titlePressScreen.Y;
+        if (!_titleDragging)
+        {
+            if (Math.Abs(dx) + Math.Abs(dy) < TitleDragThreshold) return;
+            _titleDragging = true;
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+                var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+                var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+                if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op
+                    && op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
+                {
+                    var screen = pt.Position;
+                    var size = appWindow.Size;
+                    op.Restore();
+                    // 还原后按光标比例落到标题栏附近
+                    var w = appWindow.Size.Width > 80 ? appWindow.Size.Width : Math.Max(640, size.Width * 7 / 10);
+                    var h = appWindow.Size.Height > 80 ? appWindow.Size.Height : Math.Max(400, size.Height * 7 / 10);
+                    var x = (int)Math.Max(0, screen.X - w / 2.0);
+                    var y = (int)Math.Max(0, screen.Y - 18);
+                    appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(x, y, w, h));
+                    _titleWinOrigin = appWindow.Position;
+                    _titlePressScreen = screen;
+                    dx = 0;
+                    dy = 0;
+                }
+            }
+            catch { /* ignore */ }
+        }
+
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            appWindow.Move(new global::Windows.Graphics.PointInt32(
+                _titleWinOrigin.X + (int)Math.Round(dx),
+                _titleWinOrigin.Y + (int)Math.Round(dy)));
+        }
+        catch { /* ignore */ }
+    }
+
+    private void TitleBar_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Pointer.PointerId != _titlePointerId) return;
+        EndTitleBarDrag();
+        e.Handled = true;
+    }
+
+    private void TitleBar_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        => EndTitleBarDrag();
+
+    private void EndTitleBarDrag()
+    {
+        _titleDragArmed = false;
+        _titleDragging = false;
+        try { _titleBar.ReleasePointerCaptures(); } catch { /* ignore */ }
+    }
+
+    private void ToggleFullscreen()
+    {
+        _chromeFullscreen = !_chromeFullscreen;
+        ApplyChromeFullscreen();
+    }
+
+    private void ToggleMaximize()
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
+            {
+                if (op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
+                    op.Restore();
+                else
+                    op.Maximize();
+            }
+        }
+        catch { /* ignore */ }
+    }
+
+    private void SetWindowState(bool minimized)
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op && minimized)
+                op.Minimize();
+        }
+        catch { /* ignore */ }
+    }
+
+    private void ApplyChromeFullscreen()
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            if (_chromeFullscreen)
+            {
+                // 全屏：盖住任务栏 + 浮动工具条
+                _titleBar.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+                _shell.RowDefinitions[0].Height = new Microsoft.UI.Xaml.GridLength(0);
+                _fsToolbarExpanded = true;
+                _fsToolbarExtra.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+                _fsToolbarLayer.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+                var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                    id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+                if (area != null)
+                    appWindow.MoveAndResize(area.OuterBounds);
+                appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+                _cursorIdle.BeginSession();
+                ForceHideLocalCursor();
+                Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "退出全屏");
+                _ = _fsToolbarLayer.DispatcherQueue.TryEnqueue(
+                    Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal,
+                    ResetFsToolbarToTopCenter);
+            }
+            else
+            {
+                // 最大化：工作区，不盖任务栏
+                _titleBar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+                _shell.RowDefinitions[0].Height = new Microsoft.UI.Xaml.GridLength(36);
+                _fsToolbarLayer.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+                _fsToolbarDragging = false;
+                appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
+                if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
+                {
+                    op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+                    op.Maximize();
+                }
+                _cursorIdle.EndSession();
+                ForceShowLocalCursor();
+                Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "全屏");
+            }
+        }
+        catch { /* ignore */ }
+    }
+
     public void BindSession(ScreenExtendService service)
     {
         _session = service;
-        if (_windowActive)
-            TryAttachCapture();
-        else
-            DetachCapture();
+        var peer = service.Peer?.Trim();
+        if (!string.IsNullOrWhiteSpace(peer))
+            AddOrActivateTab(peer, service);
     }
 
     private void TryAttachCapture()
@@ -549,10 +1340,10 @@ public sealed class MauiScreenExtendSinkWindow
         if (_session?.CanSendReverseInput != true) return;
         _captureBound = true;
         _reverseGate.OnCaptureAttached();
-        _root.PointerMoved += OnPointerMoved;
-        _root.PointerPressed += OnPointerPressed;
-        _root.PointerReleased += OnPointerReleased;
-        _root.PointerWheelChanged += OnPointerWheel;
+        _contentHost.PointerMoved += OnPointerMoved;
+        _contentHost.PointerPressed += OnPointerPressed;
+        _contentHost.PointerReleased += OnPointerReleased;
+        _contentHost.PointerWheelChanged += OnPointerWheel;
     }
 
     private void DetachCapture()
@@ -560,17 +1351,17 @@ public sealed class MauiScreenExtendSinkWindow
         if (!_captureBound) return;
         _captureBound = false;
         _reverseGate.OnCaptureDetached();
-        _root.PointerMoved -= OnPointerMoved;
-        _root.PointerPressed -= OnPointerPressed;
-        _root.PointerReleased -= OnPointerReleased;
-        _root.PointerWheelChanged -= OnPointerWheel;
+        _contentHost.PointerMoved -= OnPointerMoved;
+        _contentHost.PointerPressed -= OnPointerPressed;
+        _contentHost.PointerReleased -= OnPointerReleased;
+        _contentHost.PointerWheelChanged -= OnPointerWheel;
     }
 
     private bool TryMap(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e, out double nx, out double ny)
     {
-        var pt = e.GetCurrentPoint(_root).Position;
+        var pt = e.GetCurrentPoint(_contentHost).Position;
         return ScreenExtendReverseInput.TryMapUniformContent(
-            _root.ActualWidth, _root.ActualHeight, _contentW, _contentH, pt.X, pt.Y, out nx, out ny);
+            _contentHost.ActualWidth, _contentHost.ActualHeight, ActiveContentW, ActiveContentH, pt.X, pt.Y, out nx, out ny);
     }
 
     private void OnPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -605,7 +1396,7 @@ public sealed class MauiScreenExtendSinkWindow
     {
         if (_session == null || !TryMap(e, out var nx, out var ny)) return;
         if (!_reverseGate.ShouldSendPointer(nx, ny)) return;
-        var props = e.GetCurrentPoint(_root).Properties;
+        var props = e.GetCurrentPoint(_contentHost).Properties;
         var delta = props.MouseWheelDelta;
         if (delta == 0) return;
         e.Handled = true;
@@ -661,20 +1452,34 @@ public sealed class MauiScreenExtendSinkWindow
         while (NativeMethods.ShowCursor(true) < 0) { /* restore display count */ }
     }
 
-    private void NotifyUserClose()
+    private void NotifyWindowClose()
     {
         if (_closingFromSession || _userCloseRaised) return;
         _userCloseRaised = true;
-        try { _onUserClose(); } catch { /* ignore */ }
+        try { _onCloseWindow(); } catch { /* ignore */ }
     }
 
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (e.Key == global::Windows.System.VirtualKey.Tab && _chromeFullscreen)
+        {
+            SelectNextTab();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == global::Windows.System.VirtualKey.Escape)
         {
             e.Handled = true;
-            NotifyUserClose();
-            try { _window.Close(); } catch { /* ignore */ }
+            if (_chromeFullscreen)
+            {
+                _chromeFullscreen = false;
+                ApplyChromeFullscreen();
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_activePeer))
+                RequestStopTab(_activePeer);
             return;
         }
 
@@ -716,66 +1521,212 @@ public sealed class MauiScreenExtendSinkWindow
 
     public void ShowFullscreen()
     {
-        _cursorIdle.BeginSession();
-        ForceHideLocalCursor();
+        // 默认：最大化到工作区（不盖任务栏）+ 标题栏
+        _chromeFullscreen = false;
+        _cursorIdle.EndSession();
+        ForceShowLocalCursor();
+        _titleBar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+        _fsToolbarLayer.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        _shell.RowDefinitions[0].Height = new Microsoft.UI.Xaml.GridLength(36);
         _window.Activate();
-        try { _root.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
+        try { _shell.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
         try
         {
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
             var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
-            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
-                id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
-            if (area != null)
-                appWindow.MoveAndResize(area.OuterBounds);
-            appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+            appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
+            {
+                op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+                op.Maximize();
+            }
             appWindow.Show();
         }
         catch
         {
-            try
-            {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
-                var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-                var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
-                if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
-                    op.Maximize();
-                appWindow.Show();
-            }
-            catch
-            {
-                _window.Activate();
-            }
+            _window.Activate();
         }
 
         _windowActive = true;
         TryAttachCapture();
     }
 
-    private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _bitmap;
-
-    public void PresentBgra(int width, int height, byte[] pixels)
+    public void Present(string peer, int width, int height, byte[] pixels, long capturedUnixMs = 0)
     {
         if (width <= 0 || height <= 0 || pixels.Length < width * 4 * height)
             return;
 
-        _contentW = width;
-        _contentH = height;
-        if (_bitmap == null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
-        {
-            _bitmap = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(width, height);
-            _image.Source = _bitmap;
-        }
+        peer = peer.Trim();
+        EnsureTab(peer);
+        var tab = FindTab(peer);
+        if (tab == null) return;
 
-        using (var stream = _bitmap.PixelBuffer.AsStream())
+        tab.ContentW = width;
+        tab.ContentH = height;
+        if (tab.FrameBitmap == null || tab.FrameBitmap.PixelWidth != width || tab.FrameBitmap.PixelHeight != height)
+            tab.FrameBitmap = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(width, height);
+
+        using (var stream = tab.FrameBitmap.PixelBuffer.AsStream())
         {
             stream.Position = 0;
             stream.Write(pixels, 0, width * 4 * height);
         }
 
-        _bitmap.Invalidate();
-        _waiting.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        tab.FrameBitmap.Invalidate();
+        UpdateLatencyForTab(tab, capturedUnixMs);
+
+        if (!string.Equals(_activePeer, peer, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _image.Source = tab.FrameBitmap;
+        if (_waiting.Visibility != Microsoft.UI.Xaml.Visibility.Collapsed)
+            _waiting.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+    }
+
+    private void UpdateLatencyForTab(SinkTabState tab, long capturedUnixMs)
+    {
+        var sample = ProjectionLatency.ComputeMs(capturedUnixMs, ref tab.LatencySkewBaseline);
+        if (sample == null)
+        {
+            if (tab.LatencyEma <= 0)
+            {
+                ApplyLatencyTipForTab(tab, FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTipWait"));
+                DrawSignalOn(tab.SignalPanel, ref tab.LastSignal, new ProjectionLatency.Signal(0, 0));
+            }
+            return;
+        }
+
+        var ms = ProjectionLatency.Smooth(sample, ref tab.LatencyEma);
+        ApplyLatencyTipForTab(tab, string.Format(FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTip"), ms));
+        DrawSignalOn(tab.SignalPanel, ref tab.LastSignal, ProjectionLatency.ToSignal(ms));
+    }
+
+    private void ApplyLatencyTipForTab(SinkTabState tab, string tip)
+    {
+        tab.LatencyTip = tip;
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(tab.TabBorder, tip);
+        if (string.Equals(tab.Peer, _activePeer, StringComparison.OrdinalIgnoreCase))
+            ApplyActiveLatencyTip();
+    }
+
+    private void ApplyActiveLatencyTip()
+    {
+        var tab = FindTab(_activePeer);
+        _latencyTip = tab?.LatencyTip ?? FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTipWait");
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsGripBtn, _latencyTip);
+    }
+
+    private void ResetFsToolbarToTopCenter()
+    {
+        if (!_chromeFullscreen) return;
+        _fsToolbar.UpdateLayout();
+        var tw = _fsToolbar.ActualWidth > 0 ? _fsToolbar.ActualWidth : 90;
+        var layerW = _fsToolbarLayer.ActualWidth;
+        if (layerW <= 0) return;
+        var x = Math.Max(8, (layerW - tw) / 2);
+        Microsoft.UI.Xaml.Controls.Canvas.SetLeft(_fsToolbar, x);
+        Microsoft.UI.Xaml.Controls.Canvas.SetTop(_fsToolbar, 10);
+    }
+
+    private void ToggleFsToolbarExpanded()
+    {
+        _fsToolbarExpanded = !_fsToolbarExpanded;
+        _fsToolbarExtra.Visibility = _fsToolbarExpanded
+            ? Microsoft.UI.Xaml.Visibility.Visible
+            : Microsoft.UI.Xaml.Visibility.Collapsed;
+        PlaceFsToolbar(
+            Microsoft.UI.Xaml.Controls.Canvas.GetLeft(_fsToolbar),
+            Microsoft.UI.Xaml.Controls.Canvas.GetTop(_fsToolbar));
+    }
+
+    private void PlaceFsToolbar(double x, double y)
+    {
+        _fsToolbar.UpdateLayout();
+        var tw = Math.Max(28, _fsToolbar.ActualWidth);
+        var th = Math.Max(28, _fsToolbar.ActualHeight);
+        var maxX = Math.Max(0, _fsToolbarLayer.ActualWidth - tw);
+        var maxY = Math.Max(0, _fsToolbarLayer.ActualHeight - th);
+        if (double.IsNaN(x)) x = 0;
+        if (double.IsNaN(y)) y = 0;
+        Microsoft.UI.Xaml.Controls.Canvas.SetLeft(_fsToolbar, Math.Clamp(x, 0, maxX));
+        Microsoft.UI.Xaml.Controls.Canvas.SetTop(_fsToolbar, Math.Clamp(y, 0, maxY));
+    }
+
+    private void FsGrip_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var pt = e.GetCurrentPoint(_fsToolbarLayer);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        _fsToolbarDragging = true;
+        _fsToolbarMoved = false;
+        _fsDragStartX = pt.Position.X;
+        _fsDragStartY = pt.Position.Y;
+        var left = Microsoft.UI.Xaml.Controls.Canvas.GetLeft(_fsToolbar);
+        var top = Microsoft.UI.Xaml.Controls.Canvas.GetTop(_fsToolbar);
+        _fsToolbarOriginX = double.IsNaN(left) ? 0 : left;
+        _fsToolbarOriginY = double.IsNaN(top) ? 0 : top;
+        _fsGripBtn.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void FsGrip_PointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_fsToolbarDragging) return;
+        var pt = e.GetCurrentPoint(_fsToolbarLayer);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        var dx = pt.Position.X - _fsDragStartX;
+        var dy = pt.Position.Y - _fsDragStartY;
+        if (!_fsToolbarMoved && dx * dx + dy * dy < 16) return;
+        _fsToolbarMoved = true;
+        PlaceFsToolbar(_fsToolbarOriginX + dx, _fsToolbarOriginY + dy);
+        _cursorIdle.NotifyLocalMouseMoved();
+        e.Handled = true;
+    }
+
+    private void FsGrip_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_fsToolbarDragging) return;
+        try { _fsGripBtn.ReleasePointerCapture(e.Pointer); } catch { /* ignore */ }
+        var wasDrag = _fsToolbarMoved;
+        _fsToolbarDragging = false;
+        _fsToolbarMoved = false;
+        if (!wasDrag)
+            ToggleFsToolbarExpanded();
+        e.Handled = true;
+    }
+
+    private static void DrawSignalOn(
+        Microsoft.UI.Xaml.Controls.StackPanel panel,
+        ref ProjectionLatency.Signal last,
+        ProjectionLatency.Signal signal)
+    {
+        if (last.Equals(signal) && panel.Children.Count > 0)
+            return;
+        last = signal;
+        panel.Children.Clear();
+        var color = HexBrush(signal.Tier switch
+        {
+            1 => "#22C55E",
+            2 => "#EAB308",
+            3 => "#EF4444",
+            _ => "#6B7280"
+        });
+        var muted = HexBrush("#6B7280");
+        var active = Math.Clamp(signal.Bars, 0, 4);
+        double[] heights = [3, 5.5, 8, 11];
+        for (var i = 0; i < 4; i++)
+        {
+            var on = i < active;
+            panel.Children.Add(new Microsoft.UI.Xaml.Controls.Border
+            {
+                Width = 2.2,
+                Height = heights[i],
+                CornerRadius = new Microsoft.UI.Xaml.CornerRadius(0.6),
+                Background = on ? color : muted,
+                Opacity = on ? 1 : 0.35,
+                VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Bottom
+            });
+        }
     }
 
     public void CloseFromSession()

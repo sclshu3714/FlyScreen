@@ -371,6 +371,31 @@ public sealed class ToolCatalog
                 PackageVersion = "1.0.0",
                 EntryAssembly = "FlyScreen.Tool.ColorPicker",
                 EntryType = "FlyScreen.Tool.ColorPicker.Module"
+            },
+            new ToolManifest
+            {
+                Id = ToolIds.PortProxy,
+                Kind = "enhancement",
+                CrossScreen = false,
+                Group = "utilities",
+                NameKey = "Tool.PortProxy.Name",
+                SummaryKey = "Tool.PortProxy.Summary",
+                SchemaVersion = 1,
+                DeviceClasses = ["Desktop"],
+                Platforms = ["Windows"],
+                FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desktop"] = ["portproxy-manage"]
+                },
+                Roles = ["local"],
+                CapNames = [],
+                TitleBar = false,
+                HasWorkspace = true,
+                Icon = "tool-port-proxy",
+                Permissions = [],
+                PackageVersion = "1.0.3",
+                EntryAssembly = "FlyScreen.Tool.PortProxy",
+                EntryType = "FlyScreen.Tool.PortProxy.Module"
             }
         ];
 }

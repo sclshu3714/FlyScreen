@@ -18,6 +18,7 @@ public interface IDesktopShellHost
     event Action<string>? StatusMessage;
     event Action<string>? LayoutSyncedFromPeer;
     event Action<string>? BehaviorSyncedFromPeer;
+    event Action<string>? RemoteBindingSyncedFromPeer;
     event Action<string>? SecurityKeySyncedFromPeer;
 
     /// <summary>侧栏底部附加状态（如会话类型、辅助功能）。</summary>
@@ -44,9 +45,12 @@ public interface IDesktopShellHost
     Task BroadcastLayoutSyncAsync();
     Task BroadcastLayoutMergeAsync();
     Task BroadcastBehaviorSyncAsync();
+    Task BroadcastRemoteBindingSyncAsync(string? statusHint = null);
     Task<(bool Ok, string Message)> SyncSecurityKeyAsync(CancellationToken ct = default);
 
     ScreenExtendService ScreenExtend { get; }
+
+    ScreenExtendDesktopController ScreenExtendUi { get; }
 
     /// <summary>本端能否作为投影主机推流。Mac 可以；Linux 仍只接收。</summary>
     bool CanStartProjection => false;

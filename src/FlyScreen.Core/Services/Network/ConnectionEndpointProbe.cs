@@ -6,9 +6,10 @@ using FlyScreen.Models;
 namespace FlyScreen.Services.Network;
 
 /// <summary>
-/// 连接配置「测试 / 刷新验证」：不改现有局域网握手与发现协议。
-/// 远程一对一：TCP 可达且解析到对端名 → 可进设备管理。
-/// 中转一对多：需扫到真实注册设备才进设备管理（中继协议未接入前不造假名）。
+/// 连接配置「测试 / 刷新验证」：仅探测可达性与延迟，不把远程配置写入设备管理。
+/// 远程一对一：TCP 可达即可；对端进设备管理靠「刷新发现」的 UDP/ProbeOnly 握手。
+/// 中转一对多：设备列表经 <see cref="ConnectionManager.ConnectRelayEndpointAsync"/> WebSocket 注册获取；
+/// 本类 <see cref="TestAsync"/> 对 KindRelay 仅做 TCP/地址形态探测（不含 WS hello）。
 /// </summary>
 public static class ConnectionEndpointProbe
 {
@@ -24,6 +25,7 @@ public static class ConnectionEndpointProbe
 
     public static async Task<Result> TestAsync(
         ConnectionEndpoint endpoint,
+        int defaultTcpPort = 15155,
         CancellationToken ct = default)
     {
         var raw = (endpoint.Address ?? "").Trim();
@@ -38,15 +40,15 @@ public static class ConnectionEndpointProbe
             endpoint.Kind = ConnectionEndpoint.KindRemote;
 
         if (endpoint.Kind == ConnectionEndpoint.KindRelay)
-            return await TestRelayAsync(endpoint, raw, ct).ConfigureAwait(false);
+            return await TestRelayAsync(endpoint, raw, defaultTcpPort, ct).ConfigureAwait(false);
 
-        return await TestRemoteAsync(raw, ct).ConfigureAwait(false);
+        return await TestRemoteAsync(raw, defaultTcpPort, ct).ConfigureAwait(false);
     }
 
-    private static async Task<Result> TestRemoteAsync(string raw, CancellationToken ct)
+    private static async Task<Result> TestRemoteAsync(string raw, int defaultTcpPort, CancellationToken ct)
     {
-        if (!TryParseHostPort(raw, out var host, out var port))
-            return new Result(false, null, "远程请填写 host:port 或 IP（默认端口 15155）");
+        if (!TryParseHostPort(raw, out var host, out var port, defaultTcpPort))
+            return new Result(false, null, $"远程请填写 host:port 或 IP（未写端口则用 TCP {defaultTcpPort}）");
 
         var target = $"{host}:{port}";
         var tcp = await ProbeTcpAsync(host, port, RemoteConnectTimeout, ct).ConfigureAwait(false);
@@ -58,14 +60,14 @@ public static class ConnectionEndpointProbe
     }
 
     private static async Task<Result> TestRelayAsync(
-        ConnectionEndpoint endpoint, string raw, CancellationToken ct)
+        ConnectionEndpoint endpoint, string raw, int defaultTcpPort, CancellationToken ct)
     {
         if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri)
             || (uri.Scheme != "wss" && uri.Scheme != "ws" && uri.Scheme != "http" && uri.Scheme != "https")
             || string.IsNullOrWhiteSpace(uri.Host))
         {
-            if (!TryParseHostPort(raw, out var host, out var port))
-                return new Result(false, null, "中转请填写 wss://… 或 host:port");
+            if (!TryParseHostPort(raw, out var host, out var port, defaultTcpPort))
+                return new Result(false, null, $"中转请填写 wss://… 或 host:port（未写端口则用 TCP {defaultTcpPort}）");
 
             var tcp = await ProbeTcpAsync(host, port, RemoteConnectTimeout, ct).ConfigureAwait(false);
             if (!tcp.Ok)
@@ -158,18 +160,23 @@ public static class ConnectionEndpointProbe
         return host;
     }
 
-    public static bool TryParseHostPort(string raw, out string host, out int port)
+    /// <summary>
+    /// 解析 host[:port]。已带端口用地址端口；未带端口用 <paramref name="defaultPort"/>（通常为设置里的 TCP 端口）。
+    /// </summary>
+    public static bool TryParseHostPort(string raw, out string host, out int port, int defaultPort = 15155)
     {
         host = "";
-        port = 15155;
-        raw = raw.Trim();
+        port = defaultPort > 0 ? defaultPort : 15155;
+        raw = (raw ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+
         if (raw.StartsWith("["))
         {
             var end = raw.IndexOf(']');
             if (end <= 1) return false;
             host = raw[1..end];
             var rest = raw[(end + 1)..];
-            if (rest.StartsWith(':') && int.TryParse(rest[1..], out var p6))
+            if (rest.StartsWith(':') && int.TryParse(rest[1..], out var p6) && p6 is > 0 and <= 65535)
             {
                 port = p6;
                 return !string.IsNullOrWhiteSpace(host);
@@ -177,8 +184,13 @@ public static class ConnectionEndpointProbe
             return !string.IsNullOrWhiteSpace(host);
         }
 
+        // IPv4 / host:port —— 末段为纯数字才视为端口（避免把 IPv6 无括号形式误判）
         var idx = raw.LastIndexOf(':');
-        if (idx > 0 && int.TryParse(raw[(idx + 1)..], out var p))
+        if (idx > 0
+            && idx < raw.Length - 1
+            && int.TryParse(raw[(idx + 1)..], out var p)
+            && p is > 0 and <= 65535
+            && raw.IndexOf(':') == idx) // 仅一个冒号：IPv4/主机名；多冒号留给上面的 [IPv6]
         {
             host = raw[..idx];
             port = p;

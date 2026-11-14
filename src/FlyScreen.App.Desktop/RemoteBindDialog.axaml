@@ -1,0 +1,94 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.RemoteBindDialog"
+        Title="投影到电脑"
+        Width="440"
+        MinWidth="380"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13">
+  <!-- 对齐 Win RemoteBindDialog：本窗自带样式（主窗 Styles 不会传到独立对话框） -->
+  <Window.Styles>
+    <Style Selector="ComboBox">
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="Padding" Value="10,0,8,0"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+    </Style>
+    <Style Selector="ComboBox:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="MinHeight" Value="34"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style Selector="Button.dlgNormal">
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="MinWidth" Value="88"/>
+    </Style>
+    <Style Selector="Button.dlgNormal:pointerover">
+      <Setter Property="Background" Value="{DynamicResource ControlHover}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+    </Style>
+    <Style Selector="Button.dlgPrimary">
+      <Setter Property="Background" Value="{DynamicResource Blue}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="MinWidth" Value="96"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Button.dlgPrimary:pointerover">
+      <Setter Property="Background" Value="{DynamicResource BluePress}"/>
+    </Style>
+  </Window.Styles>
+
+  <Border Padding="20" Background="{DynamicResource WinBg}">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+      <TextBlock x:Name="TitleText" Text="投影到电脑" FontSize="15" FontWeight="SemiBold"
+                 TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <TextBlock x:Name="HintText" Grid.Row="1" TextWrapping="Wrap"
+                 Foreground="{DynamicResource Muted}" LineHeight="20" Margin="0,0,0,14"/>
+      <TextBlock x:Name="TargetLabel" Grid.Row="2" Text="布局电脑" FontWeight="SemiBold" Margin="0,0,0,6"/>
+      <!-- ToString()=Label；主题色走 DynamicResource，避免系统浅底深字错位 -->
+      <ComboBox x:Name="TargetCombo" Grid.Row="3" Margin="0,0,0,14"/>
+
+      <Grid Grid.Row="4" Margin="0,0,0,18" ColumnDefinitions="*,10,*" RowDefinitions="Auto,Auto,10,Auto,Auto">
+        <TextBlock x:Name="ResolutionLabel" Text="投影分辨率" FontSize="11"
+                   Foreground="{DynamicResource Muted}" Grid.Row="0" Grid.Column="0" Margin="0,0,0,3"/>
+        <TextBlock x:Name="BitrateLabel" Text="码率" FontSize="11"
+                   Foreground="{DynamicResource Muted}" Grid.Row="0" Grid.Column="2" Margin="0,0,0,3"/>
+        <ComboBox x:Name="ResolutionCombo" Grid.Row="1" Grid.Column="0"/>
+        <ComboBox x:Name="BitrateCombo" Grid.Row="1" Grid.Column="2"/>
+        <TextBlock x:Name="QualityLabel" Text="质量" FontSize="11"
+                   Foreground="{DynamicResource Muted}" Grid.Row="3" Grid.Column="0" Margin="0,0,0,3"/>
+        <ComboBox x:Name="QualityCombo" Grid.Row="4" Grid.Column="0"/>
+      </Grid>
+
+      <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="CancelBtn" Classes="dlgNormal" Content="取消" Click="Cancel_Click"/>
+        <Button x:Name="OkBtn" Classes="dlgPrimary" Content="投影" Click="Ok_Click"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>
