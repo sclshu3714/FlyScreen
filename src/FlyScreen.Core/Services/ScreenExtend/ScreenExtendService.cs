@@ -362,7 +362,8 @@ public sealed class ScreenExtendService : IDisposable
                     _hostPeer ?? _activeSinkPeer));
         }
 
-        if (!_connections.PeerSupports(peer, PeerCaps.ScreenExtendSink)
+        // 看对端自身 Caps，勿用 PeerSupports/Intersect（手机无 Sink 会把电脑 Sink 交掉）
+        if (!_connections.PeerAdvertises(peer, PeerCaps.ScreenExtendSink)
             && !ScreenExtendTargets.IsEligiblePeer(_connections, peer))
             return (false, "对端不支持投影接收");
         if (!_connections.IsPeerReachable(peer))

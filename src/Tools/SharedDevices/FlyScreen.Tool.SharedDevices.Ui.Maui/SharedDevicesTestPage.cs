@@ -6,12 +6,12 @@ using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.Tool.SharedDevices.Ui.Maui;
 
-/// <summary>测试对端共享设备：摄像头画面 / 扬声器试音 / 麦克风电平。</summary>
+/// <summary>测试对端共享设备：摄像头画面 / 扬声器试音 / 麦克风电平（居中卡片弹层）。</summary>
 public sealed class SharedDevicesTestPage : ContentPage
 {
     private readonly TaskCompletionSource _closed = new();
     private readonly SharedDevicesService? _sd = ToolService.Instance.GetToolService<SharedDevicesService>();
-    private readonly Image _camPreview = new() { Aspect = Aspect.AspectFit, HeightRequest = 220 };
+    private readonly Image _camPreview = new() { Aspect = Aspect.AspectFit, HeightRequest = 200 };
     private readonly Label _camStatus;
     private readonly Label _camHint;
     private readonly Label _speakerHint;
@@ -24,6 +24,8 @@ public sealed class SharedDevicesTestPage : ContentPage
     private readonly Button _speakerBtn;
     private readonly Button _micStart;
     private readonly Button _micStop;
+    private readonly Button _startSessionBtn;
+    private readonly Border _dialogCard;
     private bool _camOn;
     private bool _micOn;
     private bool _speakerBusy;
@@ -36,21 +38,26 @@ public sealed class SharedDevicesTestPage : ContentPage
     {
         Title = Loc.T("Tool.SharedDevices.TestTitle");
         NavigationPage.SetHasNavigationBar(this, false);
-        
+        BackgroundColor = Color.FromRgba(0, 0, 0, 0.35);
 
         var text = ColorOf("Text") ?? Colors.Black;
         var muted = ColorOf("Muted") ?? Colors.Gray;
         var line = ColorOf("Line") ?? Color.FromArgb("#E5E7EB");
         var card = ColorOf("CardBg") ?? Colors.White;
         var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
-        var winBg = ColorOf("WinBg") ?? Color.FromArgb("#F7F8FA");
 
-        _camStatus = new Label { FontSize = 12, TextColor = muted };
+        _camStatus = new Label
+        {
+            FontSize = 12,
+            TextColor = muted,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center
+        };
         _camHint = new Label { FontSize = 12, TextColor = muted, LineBreakMode = LineBreakMode.WordWrap };
         _speakerHint = new Label { FontSize = 12, TextColor = muted, LineBreakMode = LineBreakMode.WordWrap };
-        _speakerStatus = new Label { FontSize = 12, TextColor = muted };
+        _speakerStatus = new Label { FontSize = 12, TextColor = muted, VerticalOptions = LayoutOptions.Center };
         _micHint = new Label { FontSize = 12, TextColor = muted, LineBreakMode = LineBreakMode.WordWrap };
-        _micStatus = new Label { FontSize = 12, TextColor = muted };
+        _micStatus = new Label { FontSize = 12, TextColor = muted, VerticalOptions = LayoutOptions.Center };
 
         _camStart = PrimaryBtn(Loc.T("Tool.SharedDevices.TestStart"), blue);
         _camStop = OutlineBtn(Loc.T("Tool.SharedDevices.TestStop"), text, line);
@@ -67,67 +74,93 @@ public sealed class SharedDevicesTestPage : ContentPage
         _micStart.Clicked += async (_, _) => await StartMicAsync();
         _micStop.Clicked += async (_, _) => await StopMicAsync();
 
-        var close = OutlineBtn(Loc.T("Tool.SharedDevices.TestClose"), text, line);
-        close.Clicked += async (_, _) =>
-        {
-            await CleanupAsync();
-            _closed.TrySetResult();
-            await Navigation.PopModalAsync();
-        };
+        _startSessionBtn = PrimaryBtn(Loc.T("Tool.SharedDevices.TestGoStart"), blue);
+        _startSessionBtn.IsVisible = false;
+        _startSessionBtn.Clicked += async (_, _) => await EnsureSessionThenRefreshAsync();
 
-        Content = new ScrollView
+        var close = OutlineBtn(Loc.T("Tool.SharedDevices.TestClose"), text, line);
+        close.Clicked += async (_, _) => await CloseAsync();
+
+        var body = new VerticalStackLayout
         {
-            BackgroundColor = winBg,
-            Content = new VerticalStackLayout
+            Spacing = 12,
+            Children =
             {
-                Padding = 16,
-                Spacing = 12,
-                Children =
+                new Label
                 {
-                    new Label
+                    Text = Loc.T("Tool.SharedDevices.TestTitle"),
+                    FontSize = 15,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = text
+                },
+                _startSessionBtn,
+                Section(card, line, Loc.T("Tool.SharedDevices.TestCamera"), _camHint, text,
+                    new VerticalStackLayout
                     {
-                        Text = Loc.T("Tool.SharedDevices.TestTitle"),
-                        FontSize = 15,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = text
-                    },
-                    Section(card, line, Loc.T("Tool.SharedDevices.TestCamera"), _camHint, text,
-                        new VerticalStackLayout
+                        Spacing = 8,
+                        Children =
                         {
-                            Spacing = 8,
-                            Children =
+                            new HorizontalStackLayout { Spacing = 8, Children = { _camStart, _camStop } },
+                            new Border
                             {
-                                new HorizontalStackLayout { Spacing = 8, Children = { _camStart, _camStop } },
-                                new Border
+                                Stroke = line,
+                                StrokeThickness = 1,
+                                StrokeShape = new RoundRectangle { CornerRadius = 8 },
+                                BackgroundColor = ColorOf("SubtleBg") ?? Color.FromArgb("#F3F4F6"),
+                                HeightRequest = 200,
+                                Content = new Grid
                                 {
-                                    Stroke = line,
-                                    StrokeThickness = 1,
-                                    StrokeShape = new RoundRectangle { CornerRadius = 8 },
-                                    BackgroundColor = ColorOf("SubtleBg") ?? Color.FromArgb("#F3F4F6"),
-                                    HeightRequest = 220,
-                                    Content = new Grid
-                                    {
-                                        Children = { _camPreview, _camStatus }
-                                    }
+                                    Children = { _camPreview, _camStatus }
                                 }
                             }
-                        }),
-                    Section(card, line, Loc.T("Tool.SharedDevices.TestSpeaker"), _speakerHint, text,
-                        new HorizontalStackLayout { Spacing = 8, Children = { _speakerBtn, _speakerStatus } }),
-                    Section(card, line, Loc.T("Tool.SharedDevices.TestMicrophone"), _micHint, text,
-                        new VerticalStackLayout
+                        }
+                    }),
+                Section(card, line, Loc.T("Tool.SharedDevices.TestSpeaker"), _speakerHint, text,
+                    new HorizontalStackLayout { Spacing = 8, Children = { _speakerBtn, _speakerStatus } }),
+                Section(card, line, Loc.T("Tool.SharedDevices.TestMicrophone"), _micHint, text,
+                    new VerticalStackLayout
+                    {
+                        Spacing = 8,
+                        Children =
                         {
-                            Spacing = 8,
-                            Children =
-                            {
-                                new HorizontalStackLayout { Spacing = 8, Children = { _micStart, _micStop, _micStatus } },
-                                _micLevel
-                            }
-                        }),
-                    close
+                            new HorizontalStackLayout { Spacing = 8, Children = { _micStart, _micStop, _micStatus } },
+                            _micLevel
+                        }
+                    }),
+                new HorizontalStackLayout
+                {
+                    Spacing = 8,
+                    HorizontalOptions = LayoutOptions.End,
+                    Children = { close }
                 }
             }
         };
+
+        _dialogCard = new Border
+        {
+            Stroke = line,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 12 },
+            BackgroundColor = card,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Padding = 16,
+            Content = new ScrollView
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Default,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Never,
+                Content = body
+            }
+        };
+
+        var host = new Grid
+        {
+            Padding = new Thickness(16),
+            Children = { _dialogCard }
+        };
+        // 点遮罩不关闭，避免误触中断测试；仅右下角关闭
+        Content = host;
+        SizeChanged += (_, _) => ApplyCardSize();
 
         if (_sd != null)
         {
@@ -142,6 +175,26 @@ public sealed class SharedDevicesTestPage : ContentPage
         _uiTimer.Start();
 
         RefreshSessionUi();
+        ApplyCardSize();
+    }
+
+    private void ApplyCardSize()
+    {
+        var pageW = Width > 1 ? Width : 520;
+        var pageH = Height > 1 ? Height : 640;
+        var cardW = Math.Min(520, Math.Max(300, pageW - 48));
+        var cardH = Math.Min(640, Math.Max(360, pageH - 48));
+        _dialogCard.WidthRequest = cardW;
+        _dialogCard.MaximumWidthRequest = cardW;
+        _dialogCard.MaximumHeightRequest = cardH;
+    }
+
+    private async Task CloseAsync()
+    {
+        await CleanupAsync();
+        _closed.TrySetResult();
+        if (Navigation.ModalStack.Count > 0)
+            await Navigation.PopModalAsync();
     }
 
     protected override async void OnDisappearing()
@@ -176,17 +229,30 @@ public sealed class SharedDevicesTestPage : ContentPage
             _camStatus.Text = need;
             _camStatus.IsVisible = true;
             _micStatus.Text = "";
+            _startSessionBtn.IsVisible = snap is not
+                { Phase: SharedDevicesSessionPhase.Requesting, IsApplicant: true };
+            if (snap is { Phase: SharedDevicesSessionPhase.Requesting, IsApplicant: true })
+            {
+                var wait = string.Format(Loc.T("Tool.SharedDevices.TestWaitingAccept"), snap.PeerName);
+                _camHint.Text = wait;
+                _speakerHint.Text = wait;
+                _micHint.Text = wait;
+                _camStatus.Text = wait;
+            }
+
             return;
         }
 
+        _startSessionBtn.IsVisible = false;
+        var kinds = snap!.Kinds;
         _camHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteCameraHint"), peer);
         _speakerHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteSpeakerHint"), peer);
         _micHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteMicHint"), peer);
-        _camStart.IsEnabled = !_camOn && snap!.Kinds.Any(k =>
+        _camStart.IsEnabled = !_camOn && kinds.Any(k =>
             k.Equals(SharedDeviceKinds.Camera, StringComparison.OrdinalIgnoreCase));
-        _speakerBtn.IsEnabled = !_speakerBusy && snap.Kinds.Any(k =>
+        _speakerBtn.IsEnabled = !_speakerBusy && kinds.Any(k =>
             k.Equals(SharedDeviceKinds.Speaker, StringComparison.OrdinalIgnoreCase));
-        _micStart.IsEnabled = !_micOn && snap.Kinds.Any(k =>
+        _micStart.IsEnabled = !_micOn && kinds.Any(k =>
             k.Equals(SharedDeviceKinds.Microphone, StringComparison.OrdinalIgnoreCase));
         if (!_camOn)
         {
@@ -197,9 +263,38 @@ public sealed class SharedDevicesTestPage : ContentPage
         }
     }
 
+    private async Task EnsureSessionThenRefreshAsync()
+    {
+        if (_sd == null) return;
+        if (_sd.CurrentSession is { Phase: SharedDevicesSessionPhase.Active, IsApplicant: true })
+        {
+            RefreshSessionUi();
+            return;
+        }
+
+        // 弹出启动页叠在本测试卡之上；完成后刷新
+        var page = new SharedDevicesStartPage(_sd.ListApplicantTargets());
+        await Navigation.PushModalAsync(page, animated: true);
+        var (peer, kinds) = await page.Result;
+        if (string.IsNullOrEmpty(peer) || kinds.Length == 0)
+        {
+            RefreshSessionUi();
+            return;
+        }
+
+        var (ok, msg) = await _sd.StartRequestAsync(peer!, kinds);
+        if (!ok)
+        {
+            _camStatus.Text = msg;
+            _camStatus.IsVisible = true;
+        }
+
+        RefreshSessionUi();
+    }
+
     private void OnCameraJpeg(byte[] jpeg)
     {
-        MainThread.BeginInvokeOnMainThread(async () =>
+        MainThread.BeginInvokeOnMainThread(() =>
         {
             if (!_camOn) return;
             try
@@ -213,8 +308,6 @@ public sealed class SharedDevicesTestPage : ContentPage
                 _camStatus.Text = Loc.T("Tool.SharedDevices.TestCameraFail");
                 _camStatus.IsVisible = true;
             }
-
-            await Task.CompletedTask;
         });
     }
 
@@ -338,7 +431,7 @@ public sealed class SharedDevicesTestPage : ContentPage
             Stroke = line,
             StrokeThickness = 1,
             StrokeShape = new RoundRectangle { CornerRadius = 10 },
-            BackgroundColor = card,
+            BackgroundColor = ColorOf("SubtleBg") ?? Color.FromArgb("#F9FAFB"),
             Padding = 12,
             Content = new VerticalStackLayout
             {
@@ -380,4 +473,3 @@ public sealed class SharedDevicesTestPage : ContentPage
         return null;
     }
 }
-

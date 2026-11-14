@@ -67,18 +67,35 @@ public partial class SharedDevicesTestDialog : Window
             CameraStopBtn.IsEnabled = false;
             MicStopBtn.IsEnabled = false;
             MicLevel.Value = 0;
-            CameraHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
-            SpeakerHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
-            MicHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             CameraStartBtn.IsEnabled = false;
             SpeakerPlayBtn.IsEnabled = false;
             MicStartBtn.IsEnabled = false;
             CameraStatus.Visibility = Visibility.Visible;
-            CameraStatus.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             MicStatus.Text = "";
+            if (snap is { Phase: SharedDevicesSessionPhase.Requesting, IsApplicant: true })
+            {
+                var wait = string.Format(Loc.T("Tool.SharedDevices.TestWaitingAccept"), snap.PeerName);
+                CameraHint.Text = wait;
+                SpeakerHint.Text = wait;
+                MicHint.Text = wait;
+                CameraStatus.Text = wait;
+                GoStartBtn.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                var need = Loc.T("Tool.SharedDevices.TestNeedSession");
+                CameraHint.Text = need;
+                SpeakerHint.Text = need;
+                MicHint.Text = need;
+                CameraStatus.Text = need;
+                GoStartBtn.Content = Loc.T("Tool.SharedDevices.TestGoStart");
+                GoStartBtn.Visibility = Visibility.Visible;
+            }
+
             return;
         }
 
+        GoStartBtn.Visibility = Visibility.Collapsed;
         CameraHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteCameraHint"), peer);
         SpeakerHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteSpeakerHint"), peer);
         MicHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteMicHint"), peer);
@@ -215,6 +232,27 @@ public partial class SharedDevicesTestDialog : Window
             await _sd.RequestPeerTestAsync(SharedDeviceKinds.Microphone, start: false);
         RefreshSessionUi();
         MicStatus.Text = "";
+    }
+
+    private async void GoStart_Click(object sender, RoutedEventArgs e)
+    {
+        if (_sd == null) return;
+        var owner = Owner;
+        var dlg = new SharedDevicesStartDialog(_sd.ListApplicantTargets()) { Owner = owner ?? this };
+        if (dlg.ShowDialog() != true || string.IsNullOrEmpty(dlg.SelectedPeer))
+        {
+            RefreshSessionUi();
+            return;
+        }
+
+        var (ok, msg) = await _sd.StartRequestAsync(dlg.SelectedPeer!, dlg.SelectedKinds);
+        if (!ok)
+        {
+            CameraStatus.Visibility = Visibility.Visible;
+            CameraStatus.Text = msg;
+        }
+
+        RefreshSessionUi();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

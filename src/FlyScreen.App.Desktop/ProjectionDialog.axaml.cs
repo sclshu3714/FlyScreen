@@ -65,7 +65,11 @@ public partial class ProjectionDialog : Window
             RefreshTargets();
             RefreshDisplayPresets();
             UpdateHints();
-            RefreshEnvCheck();
+            ApplyEnvChrome();
+            if (ReadMode() == DisplayProjectionMode.Clone)
+                ApplyCloneEnvReady();
+            else
+                RefreshEnvCheck();
             SetOptionsExpanded(false);
         };
     }
@@ -190,12 +194,13 @@ public partial class ProjectionDialog : Window
 
     private void RefreshTargets()
     {
-        var prefer = _host.Settings.ScreenExtendPeer;
-        var items = ProjectionTargets.ListForPicker(_host.Connections, null, prefer);
+        var prefer = (_host.Settings.ScreenExtendPeer ?? "").Trim();
+        var items = ProjectionTargets.ListForPicker(_host.Connections, null, null);
         TargetCombo.Items.Clear();
         foreach (var t in items)
             TargetCombo.Items.Add(t);
 
+        // 仅当上次选择仍在本次列表中时才预选（列表本身已排除远程/中转）
         if (!string.IsNullOrWhiteSpace(prefer))
         {
             for (var i = 0; i < TargetCombo.Items.Count; i++)
@@ -222,14 +227,45 @@ public partial class ProjectionDialog : Window
     private void Mode_Changed(object? sender, SelectionChangedEventArgs e)
     {
         UpdateHints();
+        ApplyEnvChrome();
         RefreshDisplayPresets();
-        RefreshEnvCheck();
+        if (ReadMode() == DisplayProjectionMode.Clone)
+            ApplyCloneEnvReady();
+        else
+            RefreshEnvCheck();
     }
 
     private void Target_Changed(object? sender, SelectionChangedEventArgs e)
     {
         UpdateHints();
-        RefreshEnvCheck();
+        if (ReadMode() == DisplayProjectionMode.Clone)
+            ApplyCloneEnvReady();
+        else
+            RefreshEnvCheck();
+    }
+
+    private void ApplyEnvChrome()
+    {
+        var showEnv = ReadMode() == DisplayProjectionMode.Extend;
+        if (EnvTitleStatus != null)
+            EnvTitleStatus.IsVisible = showEnv;
+        if (EnvPanel != null)
+            EnvPanel.IsVisible = showEnv;
+    }
+
+    private void ApplyCloneEnvReady()
+    {
+        ApplyEnvChrome();
+        if (_host == null) return;
+        var t = ReadTarget();
+        if (t == null)
+            _envReady = false;
+        else if (t.Kind == ProjectionTargetKind.Peer
+                 && !_host.Connections.GetPeerStatus(t.Id).Bidirectional)
+            _envReady = false;
+        else
+            _envReady = true;
+        UpdateStartEnabled();
     }
 
     private void UpdateHints()
@@ -240,7 +276,10 @@ public partial class ProjectionDialog : Window
 
         var t = ReadTarget();
         if (t == null)
-            TargetHint.Text = "暂无双向已连接电脑。";
+            TargetHint.Text = "暂无布局内电脑。请先把局域网电脑加入「电脑布局」（远程/中转请用设备管理投影）。";
+        else if (t.Kind == ProjectionTargetKind.Peer
+                 && !_host.Connections.GetPeerStatus(t.Id).Bidirectional)
+            TargetHint.Text = "该电脑在布局中但尚未连通，请等待连接后再投影。";
         else if (_host.CanStartProjection && mode == DisplayProjectionMode.Extend)
             TargetHint.Text = "扩展：采集虚拟副屏或已连接的第二块屏幕，推到所选电脑。";
         else if (_host.CanStartProjection)
@@ -253,8 +292,11 @@ public partial class ProjectionDialog : Window
 
     private void UpdateStartEnabled()
     {
-        if (StartBtn == null) return;
-        StartBtn.IsEnabled = !_busy && _envReady;
+        if (StartBtn == null || _host == null) return;
+        var t = ReadTarget();
+        var peerReady = t is not { Kind: ProjectionTargetKind.Peer }
+                        || _host.Connections.GetPeerStatus(t.Id).Bidirectional;
+        StartBtn.IsEnabled = !_busy && _envReady && peerReady;
         StartBtn.Opacity = StartBtn.IsEnabled ? 1 : 0.5;
     }
 
@@ -346,15 +388,22 @@ public partial class ProjectionDialog : Window
     {
         if (EnvPanel == null || _host == null) return;
         var seq = ++_envSeq;
-        SetEnvUi("正在检查环境…", ready: false);
-
         var mode = ReadMode();
         var t = ReadTarget();
+
+        if (mode == DisplayProjectionMode.Clone)
+        {
+            if (seq != _envSeq) return;
+            ApplyCloneEnvReady();
+            return;
+        }
+
+        SetEnvUi("正在检查环境…", ready: false);
 
         if (t == null)
         {
             if (seq != _envSeq) return;
-            SetEnvUi("请选择投影目标（双向已连接电脑）。", false);
+            SetEnvUi("请选择电脑布局中的目标电脑。", false);
             return;
         }
 
@@ -362,17 +411,14 @@ public partial class ProjectionDialog : Window
             && !_host.Connections.GetPeerStatus(t.Id).Bidirectional)
         {
             if (seq != _envSeq) return;
-            SetEnvUi($"「{t.DisplayName}」尚未双向连接，无法投影。", false);
+            SetEnvUi($"「{t.DisplayName}」尚未连通，无法投影。", false);
             return;
         }
 
         if (seq != _envSeq) return;
         if (!_host.CanStartProjection)
         {
-            if (mode == DisplayProjectionMode.Extend)
-                SetEnvUi("本端不发起扩展投影；请在 Windows 或 Mac 主机操作。", false);
-            else
-                SetEnvUi("本端不发起复制投影；可接收来自 Windows 或 Mac 的画面。", false);
+            SetEnvUi("本端不发起扩展投影；请在 Windows 或 Mac 主机操作。", false);
             return;
         }
 

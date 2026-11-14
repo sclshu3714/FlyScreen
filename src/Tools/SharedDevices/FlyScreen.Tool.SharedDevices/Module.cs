@@ -177,6 +177,26 @@ public class SharedDevicesToolModule : IToolModule
 
         if (string.Equals(actionId, MenuTest, StringComparison.OrdinalIgnoreCase))
         {
+            // 未启动会话时先走启动申请；否则测试页无法操作对端设备
+            if (_service.CurrentSession is not { Phase: SharedDevicesSessionPhase.Active, IsApplicant: true })
+            {
+                if (_service.CurrentSession is { Phase: SharedDevicesSessionPhase.Requesting, IsApplicant: true })
+                {
+                    // 已申请、等待对端同意：仍打开测试页，同意后按钮自动可用
+                }
+                else
+                {
+                    var started = await StartViaUiAsync(ct).ConfigureAwait(true);
+                    if (!started.Ok)
+                        return;
+                    // 用户取消启动对话框
+                    if (_service.CurrentSession is not
+                        { Phase: SharedDevicesSessionPhase.Requesting or SharedDevicesSessionPhase.Active,
+                          IsApplicant: true })
+                        return;
+                }
+            }
+
             await _host.Ui.RequestAsync(Id, MenuTest, null, ct).ConfigureAwait(true);
             return;
         }

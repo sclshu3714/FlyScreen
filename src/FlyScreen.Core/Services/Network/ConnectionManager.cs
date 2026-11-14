@@ -199,15 +199,33 @@ public sealed class ConnectionManager : IAsyncDisposable
         _links.Clear();
     }
 
+    /// <summary>电脑布局槽位中的对端（不含远程绑定 / 临时会话）。标题栏投影只用这些。</summary>
+    public IEnumerable<string> LayoutPeers()
+    {
+        _settings.EnsureLocalMachineSlot();
+        return (_settings.MachineSlots ?? [])
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Where(m => !string.Equals(m, LocalMachine, StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>是否已在电脑布局槽位中（不含本机）。</summary>
+    public bool IsLayoutPeer(string? peerName)
+    {
+        var name = (peerName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return LayoutPeers().Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public IReadOnlyList<PeerConnectionStatus> GetLayoutPeerStatuses()
+        => LayoutPeers().Select(GetPeerStatus).ToList();
+
     public IEnumerable<string> ConfiguredPeers()
     {
         _settings.EnsureLocalMachineSlot();
         // 布局槽位 + 远程绑定 + 临时投影保活对端
-        var names = _settings.MachineSlots
-            .Where(m => !string.IsNullOrWhiteSpace(m))
-            .Where(m => !string.Equals(m, LocalMachine, StringComparison.OrdinalIgnoreCase))
-            .Select(m => m.Trim())
-            .ToList();
+        var names = LayoutPeers().ToList();
 
         foreach (var b in _settings.RemoteBindings ?? [])
         {
@@ -320,7 +338,7 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// 远程/中转来源不可进电脑布局（布局仅局域网；远程用设备管理投影）。
+    /// 远程/中转来源不可进电脑布局，也不可作主窗「投影」目标（那些走设备管理投影）。
     /// </summary>
     public bool IsLayoutIneligiblePeer(string? peerName)
     {
@@ -328,6 +346,14 @@ public sealed class ConnectionManager : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(name)) return true;
         if (string.Equals(name, LocalMachine, StringComparison.OrdinalIgnoreCase))
             return false;
+
+        // 已在设备管理里绑定的远程/中转名：主窗投影不得选用
+        foreach (var b in _settings.RemoteBindings ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(b.RemoteName)
+                && string.Equals(b.RemoteName.Trim(), name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
 
         foreach (var p in _discovery.GetPeers())
         {
@@ -387,6 +413,27 @@ public sealed class ConnectionManager : IAsyncDisposable
     public bool PeerSupports(string peerName, string cap)
         => GetEffectiveCaps(peerName)
             .Contains(cap, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>对端握手宣告的能力（不要用 Intersect：本机缺某能力时会把对端能力误判为无）。</summary>
+    public bool PeerAdvertises(string peerName, string cap)
+    {
+        var info = GetPeerRemoteInfo(peerName);
+        if (info?.Caps is not { Length: > 0 } caps) return false;
+        return caps.Contains(cap, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>当前控制面仍存活的对端名。</summary>
+    public IReadOnlyList<string> ListLivePeerNames()
+    {
+        var list = new List<string>();
+        foreach (var kv in _links)
+        {
+            if (kv.Value.ControlAlive && !string.IsNullOrWhiteSpace(kv.Key))
+                list.Add(kv.Key);
+        }
+
+        return list;
+    }
 
     /// <summary>边缘切换要求对端可达且双方均具备 EdgeMouse。</summary>
     public bool IsPeerEdgeMouseCapable(string peerName)

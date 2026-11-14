@@ -11,8 +11,8 @@
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj" />
-    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj" />
   </ItemGroup>
 </Project>

@@ -714,25 +714,81 @@ public partial class ScreenExtendSinkWindow : Window
         Canvas.SetTop(FsToolbar, Math.Clamp(y, 0, maxY));
     }
 
+    private System.Windows.Point? _titlePressPos;
+    private const double TitleDragThreshold = 4;
+
+    private bool IsTitleBarChromeHit(DependencyObject? src)
+        => src != null
+           && (FindAncestor<Border>(src) is { Tag: string }
+               || FindAncestor<System.Windows.Controls.Button>(src) != null);
+
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.Handled) return;
         // Tab / + / 窗控上的点击不要拖窗
-        if (e.OriginalSource is DependencyObject src
-            && (FindAncestor<Border>(src) is { Tag: string }
-                || FindAncestor<System.Windows.Controls.Button>(src) != null))
+        if (e.OriginalSource is DependencyObject src && IsTitleBarChromeHit(src))
             return;
 
         if (e.ClickCount == 2)
         {
+            _titlePressPos = null;
             Maximize_Click(sender, e);
             return;
         }
 
-        if (e.ChangedButton == MouseButton.Left)
+        if (e.ChangedButton != MouseButton.Left) return;
+
+        // 仅武装：按住并移动超过阈值后再 DragMove（单击不进入移窗）
+        _titlePressPos = e.GetPosition(this);
+        TitleBar.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void TitleBar_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_titlePressPos is not { } start) return;
+        if (e.LeftButton != MouseButtonState.Pressed) return;
+
+        var p = e.GetPosition(this);
+        if (Math.Abs(p.X - start.X) + Math.Abs(p.Y - start.Y) < TitleDragThreshold)
+            return;
+
+        _titlePressPos = null;
+        if (TitleBar.IsMouseCaptured)
+            TitleBar.ReleaseMouseCapture();
+
+        try
         {
-            try { DragMove(); } catch { /* ignore */ }
+            if (WindowState == WindowState.Maximized)
+            {
+                var screen = PointToScreen(e.GetPosition(this));
+                var restore = RestoreBounds;
+                var w = restore.Width > 80 ? restore.Width : Math.Max(640, ActualWidth * 0.7);
+                var h = restore.Height > 80 ? restore.Height : Math.Max(400, ActualHeight * 0.7);
+                WindowState = WindowState.Normal;
+                Width = w;
+                Height = h;
+                Left = Math.Max(0, screen.X - w / 2);
+                Top = Math.Max(0, screen.Y - 18);
+            }
+
+            // 左键仍按住：系统拖窗直到松开
+            DragMove();
         }
+        catch { /* ignore */ }
+    }
+
+    private void TitleBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        => EndTitleBarPressArm();
+
+    private void TitleBar_LostMouseCapture(object sender, MouseEventArgs e)
+        => _titlePressPos = null;
+
+    private void EndTitleBarPressArm()
+    {
+        _titlePressPos = null;
+        if (TitleBar.IsMouseCaptured)
+            TitleBar.ReleaseMouseCapture();
     }
 
     private void ContentHost_MouseMove(object sender, MouseEventArgs e)

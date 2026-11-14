@@ -651,6 +651,13 @@ public sealed class MauiScreenExtendSinkWindow
         titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = new Microsoft.UI.Xaml.GridLength(1, Microsoft.UI.Xaml.GridUnitType.Star) });
         titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto });
         titleGrid.Children.Add(titleTabRow);
+        // 中间空白：显式命中层，拖动整窗（空列无背景时 WinUI 点不中）
+        var titleDragFill = new Microsoft.UI.Xaml.Controls.Border
+        {
+            Background = HexBrush("#01000000")
+        };
+        Microsoft.UI.Xaml.Controls.Grid.SetColumn(titleDragFill, 1);
+        titleGrid.Children.Add(titleDragFill);
         Microsoft.UI.Xaml.Controls.Grid.SetColumn(chrome, 2);
         titleGrid.Children.Add(chrome);
 
@@ -660,6 +667,10 @@ public sealed class MauiScreenExtendSinkWindow
             Height = 36,
             Child = titleGrid
         };
+        _titleBar.PointerPressed += TitleBar_PointerPressed;
+        _titleBar.PointerMoved += TitleBar_PointerMoved;
+        _titleBar.PointerReleased += TitleBar_PointerReleased;
+        _titleBar.PointerCaptureLost += TitleBar_PointerCaptureLost;
 
         _contentHost = new Microsoft.UI.Xaml.Controls.Grid
         {
@@ -1098,6 +1109,137 @@ public sealed class MauiScreenExtendSinkWindow
             FontSize = 14,
             Foreground = HexBrush(muted ? "#6B7280" : "#D1D5DB")
         };
+
+    private long _titleBarLastClickTick;
+    private const long TitleBarDoubleClickMs = 400;
+    private const double TitleDragThreshold = 4;
+    private bool _titleDragArmed;
+    private bool _titleDragging;
+    private global::Windows.Foundation.Point _titlePressScreen;
+    private global::Windows.Graphics.PointInt32 _titleWinOrigin;
+    private uint _titlePointerId;
+
+    private static bool IsTitleBarChromeHit(Microsoft.UI.Xaml.DependencyObject? src)
+    {
+        for (Microsoft.UI.Xaml.DependencyObject? cur = src; cur != null;
+             cur = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(cur))
+        {
+            if (cur is Microsoft.UI.Xaml.Controls.Border { Tag: string }) return true;
+            if (cur is Microsoft.UI.Xaml.Controls.Button) return true;
+        }
+
+        return false;
+    }
+
+    private void TitleBar_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (_chromeFullscreen) return;
+        var pt = e.GetCurrentPoint(_titleBar);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        if (IsTitleBarChromeHit(e.OriginalSource as Microsoft.UI.Xaml.DependencyObject)) return;
+
+        var now = Environment.TickCount64;
+        if (now - _titleBarLastClickTick <= TitleBarDoubleClickMs)
+        {
+            _titleBarLastClickTick = 0;
+            EndTitleBarDrag();
+            ToggleMaximize();
+            e.Handled = true;
+            return;
+        }
+
+        _titleBarLastClickTick = now;
+        // 仅武装：按住并移动超过阈值后再移窗（避免单击进入「跟随鼠标」移窗模式）
+        _titleDragArmed = true;
+        _titleDragging = false;
+        _titlePointerId = e.Pointer.PointerId;
+        _titlePressScreen = e.GetCurrentPoint(null).Position;
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            _titleWinOrigin = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id).Position;
+        }
+        catch
+        {
+            _titleDragArmed = false;
+            return;
+        }
+
+        _titleBar.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void TitleBar_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_titleDragArmed || e.Pointer.PointerId != _titlePointerId) return;
+        var pt = e.GetCurrentPoint(null);
+        if (!pt.Properties.IsLeftButtonPressed)
+        {
+            EndTitleBarDrag();
+            return;
+        }
+
+        var dx = pt.Position.X - _titlePressScreen.X;
+        var dy = pt.Position.Y - _titlePressScreen.Y;
+        if (!_titleDragging)
+        {
+            if (Math.Abs(dx) + Math.Abs(dy) < TitleDragThreshold) return;
+            _titleDragging = true;
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+                var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+                var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+                if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op
+                    && op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
+                {
+                    var screen = pt.Position;
+                    var size = appWindow.Size;
+                    op.Restore();
+                    // 还原后按光标比例落到标题栏附近
+                    var w = appWindow.Size.Width > 80 ? appWindow.Size.Width : Math.Max(640, size.Width * 7 / 10);
+                    var h = appWindow.Size.Height > 80 ? appWindow.Size.Height : Math.Max(400, size.Height * 7 / 10);
+                    var x = (int)Math.Max(0, screen.X - w / 2.0);
+                    var y = (int)Math.Max(0, screen.Y - 18);
+                    appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(x, y, w, h));
+                    _titleWinOrigin = appWindow.Position;
+                    _titlePressScreen = screen;
+                    dx = 0;
+                    dy = 0;
+                }
+            }
+            catch { /* ignore */ }
+        }
+
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            appWindow.Move(new global::Windows.Graphics.PointInt32(
+                _titleWinOrigin.X + (int)Math.Round(dx),
+                _titleWinOrigin.Y + (int)Math.Round(dy)));
+        }
+        catch { /* ignore */ }
+    }
+
+    private void TitleBar_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Pointer.PointerId != _titlePointerId) return;
+        EndTitleBarDrag();
+        e.Handled = true;
+    }
+
+    private void TitleBar_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        => EndTitleBarDrag();
+
+    private void EndTitleBarDrag()
+    {
+        _titleDragArmed = false;
+        _titleDragging = false;
+        try { _titleBar.ReleasePointerCaptures(); } catch { /* ignore */ }
+    }
 
     private void ToggleFullscreen()
     {

@@ -128,12 +128,17 @@ public partial class ProjectionDialog : Window
         RemoteControlCheck.IsChecked = _host.Settings.ScreenExtendRemoteControl;
         CropBlackBarsCheck.IsChecked = _host.Settings.ScreenExtendCropBlackBars;
         RefreshTargets();
+        UpdateHints();
+        ApplyEnvChrome();
         _ = RefreshDisplayDefaultsAsync();
         RefreshUninstallPanel();
 
         MttVddRepairSession.AttachProgress(_repairProgress);
         MttVddRepairSession.Changed += OnRepairSessionChanged;
-        _ = BootstrapEnvAsync();
+        if (ReadMode() == DisplayProjectionMode.Clone)
+            ApplyCloneEnvReady();
+        else
+            _ = BootstrapEnvAsync();
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -181,13 +186,14 @@ public partial class ProjectionDialog : Window
 
     private void RefreshTargets()
     {
-        var prefer = _host.Settings.ScreenExtendPeer;
-        var locals = MttVddEnvironment.ListLocalSecondaryLabels();
-        var items = ProjectionTargets.ListForPicker(_host.Connections, locals, prefer);
+        var prefer = (_host.Settings.ScreenExtendPeer ?? "").Trim();
+        // 主窗投影：只列电脑布局局域网电脑（不含设备管理远程/中转）
+        var items = ProjectionTargets.ListForPicker(_host.Connections, null, null);
         TargetCombo.Items.Clear();
         foreach (var t in items)
             TargetCombo.Items.Add(t);
 
+        // 仅当上次选择仍在本次列表中时才预选（列表本身已排除远程/中转）
         if (!string.IsNullOrWhiteSpace(prefer))
         {
             for (var i = 0; i < TargetCombo.Items.Count; i++)
@@ -211,8 +217,12 @@ public partial class ProjectionDialog : Window
     private void Mode_Changed(object sender, SelectionChangedEventArgs e)
     {
         UpdateHints();
+        ApplyEnvChrome();
         _ = RefreshDisplayDefaultsAsync();
-        if (!_host.IsProjectionEnvironmentRepairing)
+        if (_host.IsProjectionEnvironmentRepairing) return;
+        if (ReadMode() == DisplayProjectionMode.Clone)
+            ApplyCloneEnvReady();
+        else
             _ = RefreshEnvCheckAsync();
     }
 
@@ -220,8 +230,34 @@ public partial class ProjectionDialog : Window
     {
         UpdateHints();
         _ = RefreshDisplayDefaultsAsync();
-        if (!_host.IsProjectionEnvironmentRepairing)
+        if (_host.IsProjectionEnvironmentRepairing) return;
+        if (ReadMode() == DisplayProjectionMode.Clone)
+            ApplyCloneEnvReady();
+        else
             _ = RefreshEnvCheckAsync();
+    }
+
+    private void ApplyEnvChrome()
+    {
+        var showEnv = ReadMode() == DisplayProjectionMode.Extend;
+        if (EnvTitleStatus != null)
+            EnvTitleStatus.Visibility = showEnv ? Visibility.Visible : Visibility.Collapsed;
+        if (EnvPanel != null)
+            EnvPanel.Visibility = showEnv ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ApplyCloneEnvReady()
+    {
+        ApplyEnvChrome();
+        var t = ReadTarget();
+        if (t == null)
+            _envReady = false;
+        else if (t.Kind == ProjectionTargetKind.Peer
+                 && !_host.Connections.GetPeerStatus(t.Id).Bidirectional)
+            _envReady = false;
+        else
+            _envReady = true;
+        UpdateStartEnabled();
     }
 
     private void Display_Changed(object sender, SelectionChangedEventArgs e)
@@ -487,11 +523,10 @@ public partial class ProjectionDialog : Window
 
         var t = ReadTarget();
         if (t == null)
-            TargetHint.Text = "暂无目标。请连接电脑，或接入副屏后刷新。";
-        else if (t.Kind == ProjectionTargetKind.LocalSecondaryMonitor)
-            TargetHint.Text = "将采集本机副屏画面，并推送到一台双向已连接电脑。";
-        else if (!_host.Connections.GetPeerStatus(t.Id).Bidirectional)
-            TargetHint.Text = $"「{t.DisplayName}」尚未双向连接。";
+            TargetHint.Text = "暂无布局内电脑。请先把局域网电脑加入「电脑布局」（远程/中转请用设备管理投影）。";
+        else if (t.Kind == ProjectionTargetKind.Peer
+                 && !_host.Connections.GetPeerStatus(t.Id).Bidirectional)
+            TargetHint.Text = "该电脑在布局中但尚未连通，请等待连接后再投影。";
         else if (mode == DisplayProjectionMode.Extend)
             TargetHint.Text = "扩展到该电脑：需本机真副屏或虚拟显示驱动。";
         else
@@ -550,7 +585,10 @@ public partial class ProjectionDialog : Window
     private void UpdateStartEnabled()
     {
         if (StartBtn == null) return;
-        StartBtn.IsEnabled = !_busy && _envReady && !_host.IsProjectionEnvironmentRepairing;
+        var t = ReadTarget();
+        var peerReady = t is not { Kind: ProjectionTargetKind.Peer }
+                        || _host.Connections.GetPeerStatus(t.Id).Bidirectional;
+        StartBtn.IsEnabled = !_busy && _envReady && peerReady && !_host.IsProjectionEnvironmentRepairing;
     }
 
     private void UpdateRepairActionButtons()
@@ -615,15 +653,22 @@ public partial class ProjectionDialog : Window
         }
 
         var seq = ++_envSeq;
-        SetEnvUi("正在检查环境…", ready: false, showRepair: false);
-
         var mode = ReadMode();
         var t = ReadTarget();
+
+        if (mode == DisplayProjectionMode.Clone)
+        {
+            if (seq != _envSeq) return;
+            ApplyCloneEnvReady();
+            return;
+        }
+
+        SetEnvUi("正在检查环境…", ready: false, showRepair: false);
 
         if (t == null)
         {
             if (seq != _envSeq) return;
-            SetEnvUi("请选择投影目标（本机副屏或双向已连接电脑）。", false, false);
+            SetEnvUi("请选择电脑布局中的目标电脑。", false, false);
             return;
         }
 
@@ -631,30 +676,7 @@ public partial class ProjectionDialog : Window
             && !_host.Connections.GetPeerStatus(t.Id).Bidirectional)
         {
             if (seq != _envSeq) return;
-            SetEnvUi($"「{t.DisplayName}」尚未双向连接，无法投影。", false, false);
-            return;
-        }
-
-        if (mode == DisplayProjectionMode.Clone)
-        {
-            if (seq != _envSeq) return;
-            SetEnvUi("复制模式无需虚拟显示驱动。", true, false);
-            return;
-        }
-
-        if (t.Kind == ProjectionTargetKind.LocalSecondaryMonitor)
-        {
-            var hasPeer = ScreenExtendTargets.ListEligible(_host.Connections).Count > 0
-                          || (!string.IsNullOrWhiteSpace(_host.Settings.ScreenExtendPeer)
-                              && _host.Connections.GetPeerStatus(_host.Settings.ScreenExtendPeer).Bidirectional);
-            if (seq != _envSeq) return;
-            if (!hasPeer)
-            {
-                SetEnvUi("已选本机副屏，但仍需至少一台双向已连接电脑作为接收端。", false, false);
-                return;
-            }
-
-            SetEnvUi("本机副屏可用。", true, false);
+            SetEnvUi($"「{t.DisplayName}」尚未连通，无法投影。", false, false);
             return;
         }
 

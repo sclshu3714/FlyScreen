@@ -12,8 +12,8 @@
     <PackageReference Include="Avalonia" Version="11.3.23" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj" />
-    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\FlyScreen.Tool.SharedDevices\FlyScreen.Tool.SharedDevices.csproj" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using FlyScreen.Models;
+using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen.Services.Network;
 
@@ -327,10 +328,32 @@ public sealed class LayoutSyncHelper
     {
         if (!(outbound || inbound)) return;
         if (Volatile.Read(ref _applyingRemoteLayout) != 0) return;
+
+        // 手机在电脑布局中连通后：把对端电脑写回本机布局，才能主窗「投影到电脑」
+        EnsureMobileHasLayoutComputer(name);
+
         // 仅当对端仍在本机布局中才推送，避免已移除机器的幽灵链路触发同步
         if (!LayoutSlotMerge.ContainsName(_settings.MachineSlots, name)) return;
         _ = SendToPeerAsync(name);
     }
+
+    /// <summary>
+    /// 手机/平板作为布局成员时，电脑侧加入并建链后本机槽位可能还没有电脑名；
+    /// 连通后自动回加可接收投影的局域网电脑（不含远程/中转）。
+    /// </summary>
+    private void EnsureMobileHasLayoutComputer(string name)
+    {
+        if (!IsMobileClient()) return;
+        if (string.IsNullOrWhiteSpace(name) || IsLocalName(name)) return;
+        if (_connections.IsLayoutIneligiblePeer(name)) return;
+        if (!ScreenExtendTargets.IsEligiblePeer(_connections, name)) return;
+        if (LayoutSlotMerge.ContainsName(_settings.MachineSlots, name)) return;
+        TryAcceptLayoutJoin(name);
+    }
+
+    private static bool IsMobileClient()
+        => string.Equals(LocalPeerIdentity.DeviceClass, PeerDeviceClass.Phone, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(LocalPeerIdentity.DeviceClass, PeerDeviceClass.Tablet, StringComparison.OrdinalIgnoreCase);
 
     private static string DisplayName(LayoutSyncPayload sync, string peer)
         => string.IsNullOrWhiteSpace(sync.SourceMachine) ? peer : sync.SourceMachine;

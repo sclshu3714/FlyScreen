@@ -94,7 +94,10 @@
 
     <!-- 自定义标题栏（向日葵式 Tab + 窗控） -->
     <Border x:Name="TitleBar" Grid.Row="0" Background="#1A1A1D"
-            MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
+            MouseMove="TitleBar_MouseMove"
+            MouseLeftButtonUp="TitleBar_MouseLeftButtonUp"
+            LostMouseCapture="TitleBar_LostMouseCapture">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -127,6 +130,9 @@
             </Button.Template>
           </Button>
         </StackPanel>
+
+        <!-- 中间空白：显式命中层（Grid 空列无背景时拖窗不稳） -->
+        <Border Grid.Column="1" Background="#01000000"/>
 
         <!-- 窗控：全屏 | 最小化 | 最大化 | 关闭 -->
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">

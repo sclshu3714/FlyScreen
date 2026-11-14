@@ -314,6 +314,9 @@ public sealed class AppHost : IAsyncDisposable
                 return ProjectionStartResult.Fail("请选择目标电脑");
             if (!Connections.GetPeerStatus(peer).Bidirectional)
                 return ProjectionStartResult.Fail($"「{peer}」未双向连接，无法投影");
+            // 已在布局内：以槽位为准，发现来源误标 Remote 不再挡主窗投影
+            if (!Connections.IsLayoutPeer(peer) && Connections.IsLayoutIneligiblePeer(peer))
+                return ProjectionStartResult.Fail($"「{peer}」是远程/中转设备，请在设备管理中投影");
             if (!ScreenExtendTargets.IsEligiblePeer(Connections, peer))
                 return ProjectionStartResult.Fail($"「{peer}」不是可投影的电脑/大屏");
             Settings.ScreenExtendPeer = peer;

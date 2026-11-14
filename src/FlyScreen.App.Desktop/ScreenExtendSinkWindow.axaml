@@ -32,6 +32,9 @@
           </Button>
         </StackPanel>
 
+        <!-- 中间空白：显式命中层，拖动整窗 -->
+        <Border Grid.Column="1" Background="#01000000"/>
+
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
           <Button x:Name="FullscreenBtn" Width="46" Height="32" Background="Transparent"
                   BorderThickness="0" Click="Fullscreen_Click" ToolTip.Tip="全屏"

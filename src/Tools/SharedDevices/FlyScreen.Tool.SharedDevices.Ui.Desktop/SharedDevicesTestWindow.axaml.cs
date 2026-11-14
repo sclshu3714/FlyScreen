@@ -36,6 +36,7 @@ public partial class SharedDevicesTestWindow : Window
         MicStartBtn.Content = Loc.T("Tool.SharedDevices.TestStart");
         MicStopBtn.Content = Loc.T("Tool.SharedDevices.TestStop");
         CloseBtn.Content = Loc.T("Tool.SharedDevices.TestClose");
+        GoStartBtn.Content = Loc.T("Tool.SharedDevices.TestGoStart");
 
         RefreshSessionUi();
         if (_sd != null)
@@ -63,18 +64,34 @@ public partial class SharedDevicesTestWindow : Window
             CameraPreview.Source = null;
             CameraStopBtn.IsEnabled = false;
             MicStopBtn.IsEnabled = false;
-            CameraHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
-            SpeakerHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
-            MicHint.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             CameraStartBtn.IsEnabled = false;
             SpeakerPlayBtn.IsEnabled = false;
             MicStartBtn.IsEnabled = false;
             CameraStatus.IsVisible = true;
-            CameraStatus.Text = Loc.T("Tool.SharedDevices.TestNeedSession");
             MicStatus.Text = "";
+            if (snap is { Phase: SharedDevicesSessionPhase.Requesting, IsApplicant: true })
+            {
+                var wait = string.Format(Loc.T("Tool.SharedDevices.TestWaitingAccept"), snap.PeerName);
+                CameraHint.Text = wait;
+                SpeakerHint.Text = wait;
+                MicHint.Text = wait;
+                CameraStatus.Text = wait;
+                GoStartBtn.IsVisible = false;
+            }
+            else
+            {
+                var need = Loc.T("Tool.SharedDevices.TestNeedSession");
+                CameraHint.Text = need;
+                SpeakerHint.Text = need;
+                MicHint.Text = need;
+                CameraStatus.Text = need;
+                GoStartBtn.IsVisible = true;
+            }
+
             return;
         }
 
+        GoStartBtn.IsVisible = false;
         CameraHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteCameraHint"), peer);
         SpeakerHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteSpeakerHint"), peer);
         MicHint.Text = string.Format(Loc.T("Tool.SharedDevices.TestRemoteMicHint"), peer);
@@ -207,6 +224,27 @@ public partial class SharedDevicesTestWindow : Window
             await _sd.RequestPeerTestAsync(SharedDeviceKinds.Microphone, start: false);
         RefreshSessionUi();
         MicStatus.Text = "";
+    }
+
+    private async void GoStart_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_sd == null) return;
+        var target = _sd.ListApplicantTargets().FirstOrDefault(t => t.CanProvide);
+        if (target == null || target.ProvidableKinds.Count == 0)
+        {
+            CameraStatus.Text = Loc.T("Tool.SharedDevices.NoTargets");
+            CameraStatus.IsVisible = true;
+            return;
+        }
+
+        var (ok, msg) = await _sd.StartRequestAsync(target.PeerName, target.ProvidableKinds);
+        if (!ok)
+        {
+            CameraStatus.Text = msg;
+            CameraStatus.IsVisible = true;
+        }
+
+        RefreshSessionUi();
     }
 
     private void Close_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();

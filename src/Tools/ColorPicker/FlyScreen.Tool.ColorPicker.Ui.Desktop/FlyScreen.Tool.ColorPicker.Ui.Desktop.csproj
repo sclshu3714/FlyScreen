@@ -13,8 +13,8 @@
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\FlyScreen.Tool.ColorPicker\FlyScreen.Tool.ColorPicker.csproj" />
-    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\FlyScreen.Tool.ColorPicker\FlyScreen.Tool.ColorPicker.csproj" />
   </ItemGroup>
 </Project>
