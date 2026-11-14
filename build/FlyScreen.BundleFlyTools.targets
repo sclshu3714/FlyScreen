@@ -1,5 +1,6 @@
 <!--
-  将 artifacts/flytools/*.flytool 复制到宿主输出 Tools/Bundled，不 ProjectReference 工具工程。
+  将 artifacts/flytools/*.flytool 复制到宿主输出目录 $(TargetDir)Tools/Bundled，
+  不 ProjectReference 工具工程，也绝不写入 src/**/Tools/Bundled（源码树禁止落包）。
   若产物缺失则先跑 Pack-FlyTools.ps1（组包逻辑/UI DLL）。
   设 FlyScreenSkipFlyTools=true 可跳过。
 -->
@@ -17,6 +18,8 @@
       <_FsFlyToolsNeedPack>false</_FsFlyToolsNeedPack>
       <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\color-picker.flytool')">true</_FsFlyToolsNeedPack>
       <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\shared-devices.flytool')">true</_FsFlyToolsNeedPack>
+      <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\port-proxy.flytool')">true</_FsFlyToolsNeedPack>
+      <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\video-wall.flytool')">true</_FsFlyToolsNeedPack>
     </PropertyGroup>
     <Message Importance="High"
              Text="打包 .flytool → $(_FsFlyToolsOut)"

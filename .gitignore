@@ -2,6 +2,9 @@ bin/
 obj/
 .vs/
 artifacts/
+
+# .flytool 只产出到 artifacts/flytools 与各 App 的 bin/.../Tools/Bundled，禁止落源码树
+src/**/Tools/Bundled/
 src/FlyScreen.Relay/out/
 src/FlyScreen.Relay/data/
 *.user
