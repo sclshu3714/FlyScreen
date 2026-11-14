@@ -1,11 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>玄鸟 · 管理</title>
   <link rel="icon" href="/appicon.png" />
-  <link rel="stylesheet" href="/style.css?v=8" />
+  <link rel="stylesheet" href="/style.css?v=11" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("flyrelay.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+        var l = localStorage.getItem("flyrelay.lang") || "zh";
+        document.documentElement.lang = l === "zh" ? "zh-CN" : l;
+        if (l === "ar") document.documentElement.dir = "rtl";
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
 </head>
 <body>
   <div class="shell">
@@ -13,28 +24,46 @@
       <div class="brand">
         <img class="logo" src="/appicon.png" alt="" />
         <div>
-          <strong>玄鸟</strong>
-          <small>中继管理</small>
+          <strong data-i18n="brand.name">玄鸟</strong>
+          <small data-i18n="brand.sub">中继管理</small>
         </div>
       </div>
       <nav class="nav">
         <a href="#/" data-nav="home">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#F59E0B" d="M12,5.69L17,10.19V18H15V12H9V18H7V10.19L12,5.69M12,3L2,12H5V20H11V14H13V20H19V12H22L12,3Z"/></svg>
-          <span>首页</span>
+          <span data-i18n="nav.home">首页</span>
         </a>
         <a href="#/rooms" data-nav="rooms">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2563EB" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M17.9,17.39C17.64,16.59 16.89,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39Z"/></svg>
-          <span>房间</span>
+          <span data-i18n="nav.rooms">房间</span>
         </a>
         <a href="#/signals" data-nav="signals">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#C4B5FD" d="M18,16.08C17.24,16.08 16.56,16.38 16.04,16.85L8.91,12.7C8.96,12.47 9,12.24 9,12C9,11.76 8.96,11.53 8.91,11.3L15.96,7.19C16.5,7.69 17.21,8 18,8A3,3 0 0,0 21,5A3,3 0 0,0 18,2A3,3 0 0,0 15,5C15,5.24 15.04,5.47 15.09,5.7L8.04,9.81C7.5,9.31 6.79,9 6,9A3,3 0 0,0 3,12A3,3 0 0,0 6,15C6.79,15 7.5,14.69 8.04,14.19L15.16,18.34C15.11,18.55 15.08,18.77 15.08,19C15.08,20.61 16.39,21.91 18,21.91C19.61,21.91 20.92,20.61 20.92,19A2.92,2.92 0 0,0 18,16.08Z"/></svg>
-          <span>信令</span>
+          <span data-i18n="nav.signals">信令</span>
         </a>
       </nav>
     </aside>
-    <main class="main" id="view"></main>
+    <main class="main">
+      <div class="chrome-actions" role="toolbar" aria-label="preferences">
+        <div class="chrome-lang">
+          <button type="button" class="chrome-btn" id="btn-lang" title="Language" aria-haspopup="listbox" aria-expanded="false">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.87,15.07L10.33,12.56L10.36,12.53C12.1,10.59 13.34,8.36 14.07,6H17V4H10V2H8V4H1V6H12.17C11.5,7.92 10.44,9.75 9,11.35C8.07,10.32 7.3,9.19 6.69,8H4.69C5.42,9.63 6.42,11.17 7.67,12.56L2.58,17.58L4,19L9,14L12.11,17.11L12.87,15.07M18.5,10H16.5L12,22H14L15.12,19H19.87L21,22H23L18.5,10M15.88,17L17.5,12.67L19.12,17H15.88Z"/></svg>
+            <span id="btn-lang-label">简体中文</span>
+          </button>
+          <div class="chrome-dropdown" id="lang-dropdown" role="listbox" hidden></div>
+        </div>
+        <span class="chrome-sep" aria-hidden="true"></span>
+        <button type="button" class="chrome-btn" id="btn-theme" title="Theme">
+          <svg class="ico" id="btn-theme-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12,18C11.11,18 10.26,17.8 9.5,17.45C11.56,16.5 13,14.42 13,12C13,9.58 11.56,7.5 9.5,6.55C10.26,6.2 11.11,6 12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18M20,8.69V4H15.31L12,0.69L8.69,4H4V8.69L0.69,12L4,15.31V20H8.69L12,23.31L15.31,20H20V15.31L23.31,12L20,8.69Z"/></svg>
+          <span id="btn-theme-label">深色</span>
+        </button>
+      </div>
+      <div id="toast" class="toast-host" hidden></div>
+      <div id="view"></div>
+    </main>
   </div>
   <div id="modal" class="modal" hidden></div>
-  <script src="/app.js?v=14"></script>
+  <script src="/locales.js?v=1"></script>
+  <script src="/app.js?v=16"></script>
 </body>
 </html>
