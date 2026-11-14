@@ -10,8 +10,106 @@
     <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
     <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
     <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
+    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
     <SolidColorBrush x:Key="Warn" Color="#DC2626"/>
     <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
+    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+
+    <Style x:Key="FilterComboItem" TargetType="ComboBoxItem">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                TextBlock.Foreground="{StaticResource Text}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{StaticResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBd" Property="Background" Value="{StaticResource BlueSoft}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 对齐主程序 / 视频墙工具条：圆角描边 + 下拉箭头 -->
+    <Style x:Key="ToolBarCombo" TargetType="ComboBox">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinWidth" Value="108"/>
+      <Setter Property="Padding" Value="10,0,32,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Background" Value="{StaticResource ControlBg}"/>
+      <Setter Property="Foreground" Value="{StaticResource Text}"/>
+      <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+      <Setter Property="ItemContainerStyle" Value="{StaticResource FilterComboItem}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="6"/>
+              <ToggleButton Focusable="False" ClickMode="Press"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="32"/>
+                      </Grid.ColumnDefinitions>
+                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{StaticResource Muted}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                IsHitTestVisible="False"/>
+              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource ControlBorder}"
+                        BorderThickness="1" CornerRadius="6"
+                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                  <ScrollViewer>
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Blue}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
 
     <Style x:Key="ToolBarBtn" TargetType="Button">
       <Setter Property="MinHeight" Value="32"/>
@@ -96,18 +194,8 @@
                 Click="ResetBtn_Click"/>
         <Button x:Name="DumpBtn" Style="{StaticResource ToolBarBtn}" Margin="0"
                 Click="DumpBtn_Click"/>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <RadioButton x:Name="FilterAll" GroupName="KindFilter" IsChecked="True"
-                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
-          <RadioButton x:Name="FilterV4ToV4" GroupName="KindFilter" Content="v4tov4"
-                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
-          <RadioButton x:Name="FilterV4ToV6" GroupName="KindFilter" Content="v4tov6"
-                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
-          <RadioButton x:Name="FilterV6ToV4" GroupName="KindFilter" Content="v6tov4"
-                       Margin="0,0,10,0" VerticalAlignment="Center" Checked="Filter_Checked"/>
-          <RadioButton x:Name="FilterV6ToV6" GroupName="KindFilter" Content="v6tov6"
-                       VerticalAlignment="Center" Checked="Filter_Checked"/>
-        </StackPanel>
+        <ComboBox x:Name="FilterCombo" DockPanel.Dock="Right" Style="{StaticResource ToolBarCombo}"
+                  Width="120" SelectionChanged="FilterCombo_SelectionChanged"/>
       </DockPanel>
     </Border>
 

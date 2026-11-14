@@ -14,6 +14,7 @@ public partial class PortProxyPanel : UserControl
     private readonly ObservableCollection<PortProxyRuleRow> _rows = new();
     private bool _busy;
     private bool _suppressSelectAll;
+    private bool _suppressFilter;
 
     public Action<string>? StatusReporter { get; set; }
 
@@ -75,7 +76,6 @@ public partial class PortProxyPanel : UserControl
         DeleteBtn.Content = Loc.T("Tool.PortProxy.Delete");
         ResetBtn.Content = Loc.T("Tool.PortProxy.Reset");
         DumpBtn.Content = Loc.T("Tool.PortProxy.Dump");
-        FilterAll.Content = Loc.T("Tool.PortProxy.TabAll");
         ColKind.Header = Loc.T("Tool.PortProxy.ColKind");
         ColListenAddress.Header = Loc.T("Tool.PortProxy.ColListenAddress");
         ColListenPort.Header = Loc.T("Tool.PortProxy.ColListenPort");
@@ -83,6 +83,44 @@ public partial class PortProxyPanel : UserControl
         ColConnectPort.Header = Loc.T("Tool.PortProxy.ColConnectPort");
         ColProtocol.Header = Loc.T("Tool.PortProxy.ColProtocol");
         ColActions.Header = Loc.T("Tool.PortProxy.ColActions");
+        FilterCombo.ToolTip = Loc.T("Tool.PortProxy.Filter");
+        PopulateFilterCombo();
+    }
+
+    private void PopulateFilterCombo()
+    {
+        _suppressFilter = true;
+        try
+        {
+            var selectedTag = (FilterCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+            FilterCombo.Items.Clear();
+            FilterCombo.Items.Add(new ComboBoxItem
+            {
+                Content = Loc.T("Tool.PortProxy.TabAll"),
+                Tag = ""
+            });
+            foreach (var token in new[] { "v4tov4", "v4tov6", "v6tov4", "v6tov6" })
+                FilterCombo.Items.Add(new ComboBoxItem { Content = token, Tag = token });
+
+            if (!string.IsNullOrEmpty(selectedTag))
+            {
+                for (var i = 0; i < FilterCombo.Items.Count; i++)
+                {
+                    if (FilterCombo.Items[i] is ComboBoxItem { Tag: string t }
+                        && string.Equals(t, selectedTag, StringComparison.OrdinalIgnoreCase))
+                    {
+                        FilterCombo.SelectedIndex = i;
+                        return;
+                    }
+                }
+            }
+
+            FilterCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _suppressFilter = false;
+        }
     }
 
     private void UpdateAdminBanner()
@@ -123,11 +161,16 @@ public partial class PortProxyPanel : UserControl
 
     private PortProxyMappingKind? CurrentFilter()
     {
-        if (FilterV4ToV4.IsChecked == true) return PortProxyMappingKind.V4ToV4;
-        if (FilterV4ToV6.IsChecked == true) return PortProxyMappingKind.V4ToV6;
-        if (FilterV6ToV4.IsChecked == true) return PortProxyMappingKind.V6ToV4;
-        if (FilterV6ToV6.IsChecked == true) return PortProxyMappingKind.V6ToV6;
-        return null;
+        var tag = (FilterCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        if (string.IsNullOrWhiteSpace(tag)) return null;
+        return tag.ToLowerInvariant() switch
+        {
+            "v4tov4" => PortProxyMappingKind.V4ToV4,
+            "v4tov6" => PortProxyMappingKind.V4ToV6,
+            "v6tov4" => PortProxyMappingKind.V6ToV4,
+            "v6tov6" => PortProxyMappingKind.V6ToV6,
+            _ => null
+        };
     }
 
     private async Task RefreshAsync()
@@ -159,6 +202,7 @@ public partial class PortProxyPanel : UserControl
         DeleteBtn.IsEnabled = enable;
         ResetBtn.IsEnabled = enable;
         DumpBtn.IsEnabled = enable;
+        FilterCombo.IsEnabled = enable;
     }
 
     private void Report(string msg)
@@ -172,9 +216,9 @@ public partial class PortProxyPanel : UserControl
     private IReadOnlyList<PortProxyRuleInfo> SelectedRules()
         => _rows.Where(r => r.IsSelected).Select(r => r.Rule).ToList();
 
-    private void Filter_Checked(object sender, RoutedEventArgs e)
+    private void FilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || _service == null) return;
+        if (_suppressFilter || !IsLoaded || _service == null) return;
         BindRules();
     }
 
