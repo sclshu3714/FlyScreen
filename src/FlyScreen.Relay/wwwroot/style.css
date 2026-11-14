@@ -159,6 +159,16 @@ a { color: inherit; text-decoration: none; }
   padding: 1.1rem 1.4rem 1.1rem;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* 页面本体不滚动 */
+}
+
+/* 页面容器铺满主区；只有表格数据区滚动 */
+#view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -261,13 +271,20 @@ html[dir="rtl"] .crumb { padding-right: 0; padding-left: 11rem; }
 .toast-host .notice { pointer-events: auto; box-shadow: var(--shadow); }
 
 .page {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  overflow: hidden;
+  overflow: hidden; /* 禁止整页滚动 */
   padding-top: 0.15rem;
+}
+
+/* 单表页（房间/信令/房间详情）：面板吃掉标题以外全部高度 */
+.page > .panel {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .page-h {
   flex: none;
@@ -343,6 +360,7 @@ html[dir="rtl"] .crumb { padding-right: 0; padding-left: 11rem; }
 
 .kpis {
   flex: none;
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.65rem;
@@ -352,7 +370,7 @@ html[dir="rtl"] .crumb { padding-right: 0; padding-left: 11rem; }
   position: relative;
   overflow: hidden;
   border-radius: 12px;
-  padding: 0.7rem 0.9rem 0.75rem;
+  padding: 0.55rem 0.85rem 0.6rem;
   min-height: 0;
   border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   background: linear-gradient(145deg, #1a2740, #121a2a);
@@ -377,13 +395,13 @@ html[dir="rtl"] .crumb { padding-right: 0; padding-left: 11rem; }
 .kpi.g { background: linear-gradient(145deg, #1a2030, #243044); }
 .kpi-k { color: rgba(232, 238, 247, 0.78); font-size: 0.78rem; }
 .kpi-v {
-  margin-top: 0.3rem;
-  font-size: 1.45rem;
+  margin-top: 0.2rem;
+  font-size: 1.28rem;
   font-weight: 650;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
-.kpi-s { margin-top: 0.2rem; color: rgba(232, 238, 247, 0.62); font-size: 0.72rem; }
+.kpi-s { margin-top: 0.15rem; color: rgba(232, 238, 247, 0.62); font-size: 0.7rem; }
 .kpi .ico { position: absolute; right: 0.75rem; top: 0.7rem; width: 18px; height: 18px; opacity: 0.95; }
 
 /* 浅色：柔和色卡 + 深色文字，避免深色渐变刺眼 */
@@ -459,7 +477,7 @@ html[data-theme="light"] .chrome-btn:hover {
 }
 
 .page-blocks {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
@@ -469,6 +487,7 @@ html[data-theme="light"] .chrome-btn:hover {
 .block {
   margin: 0;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -476,7 +495,7 @@ html[data-theme="light"] .chrome-btn:hover {
 .block h2 { margin: 0 0 0.4rem; font-size: 0.95rem; font-weight: 650; flex: none; }
 .panel,
 .table-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -485,8 +504,9 @@ html[data-theme="light"] .chrome-btn:hover {
   border-radius: 14px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
 }
+/* 仅表格数据区滚动 */
 .table-scroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -561,13 +581,22 @@ tr.link:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent)
 }
 .pill.on { color: #083226; background: var(--ok); }
 .pill.off { color: #fff; background: #e25b66; }
+/* 无数据时同样占满工具栏与分页之间的剩余高度，不撑开整页 */
 .empty {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   padding: 0.85rem;
   overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
 }
-.empty .notice { border-radius: 8px; border: 1px solid var(--notice-line); }
+.empty .notice {
+  flex: none;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--notice-line);
+}
 .err {
   /* 兼容旧 class，统一成 notice 外观 */
   display: flex;

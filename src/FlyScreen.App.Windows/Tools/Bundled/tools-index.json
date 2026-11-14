@@ -5,19 +5,19 @@
                       "id":  "color-picker",
                       "version":  "1.0.1",
                       "fileName":  "color-picker.flytool",
-                      "sha256":  "c98620b57d47806d525deba455ff617fbc9f1e226899ac1b6ed53edd206f6c5b"
+                      "sha256":  "4ea82223befc582b9af685b03893ccd9ed385f62634c1ab99a3e4bc83ad277bc"
                   },
                   {
                       "id":  "shared-devices",
                       "version":  "1.0.5",
                       "fileName":  "shared-devices.flytool",
-                      "sha256":  "35215aa936f638e1560401c6c0f49b19411b00c794db969a273fe39d8a736aaf"
+                      "sha256":  "4398aa35c6eb4fb65396c58945150c81966e528aa64366b682989968b0fc7a00"
                   },
                   {
                       "id":  "port-proxy",
-                      "version":  "1.0.3",
+                      "version":  "1.0.7",
                       "fileName":  "port-proxy.flytool",
-                      "sha256":  "2b2794a11812d473686d012096c96d4eab8404c8f88e0747b33db1c96622d721"
+                      "sha256":  "44b4cd4419decf8a870c87160b4025fc2e9f2252d3703b5ee86f6e6d2e6a7b60"
                   }
               ]
 }
