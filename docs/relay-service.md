@@ -7,6 +7,7 @@
 | 对标 | Tailscale 控制面式管理 + DERP 式边缘中继 |
 | 房间 | 客户端用「安全密钥」作 `hello.roomKey`（同钥同房）。管理页房间号是该房间第一台注册电脑的名称，注册记录默认存内嵌 SQLite |
 | Docker 打包 | `src/FlyScreen.Relay/tools/pack-docker.ps1`（Windows）/ `pack-docker.sh`（Linux）；详见工程 `README.md` |
+| Setup 一键打包 | `FlyScreen.Setup` 目标「中继服务 (Relay)」：本机 RID 打 zip，或运行时选 `docker` 导出 `FlyScreen-{ver}-relay-docker.tar` |
 
 ## 端口
 

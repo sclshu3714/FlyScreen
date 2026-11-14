@@ -3908,10 +3908,37 @@ public partial class MainWindow : Window
             var activeId = ws.ActiveToolId;
             if (!string.IsNullOrEmpty(activeId))
             {
-                var content = ToolService.Instance.CreateWorkspaceContent(activeId);
-                if (content != null
-                    && (ToolsWorkspaceHost.Content == null
-                        || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+                object? content = null;
+                try
+                {
+                    content = ToolService.Instance.CreateWorkspaceContent(activeId);
+                }
+                catch (Exception ex)
+                {
+                    content = new System.Windows.Controls.TextBlock
+                    {
+                        Text = Loc.T("Tool.Workspace.LoadFailed", ex.Message),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(8),
+                        FontSize = 13,
+                        Foreground = (System.Windows.Media.Brush)FindResource("Muted")
+                    };
+                }
+
+                if (content == null)
+                {
+                    content = new System.Windows.Controls.TextBlock
+                    {
+                        Text = Loc.T("Tool.Workspace.NoUi"),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(8),
+                        FontSize = 13,
+                        Foreground = (System.Windows.Media.Brush)FindResource("Muted")
+                    };
+                }
+
+                if (ToolsWorkspaceHost.Content == null
+                    || ToolsWorkspaceHost.Content.GetType() != content.GetType())
                     ToolsWorkspaceHost.Content = content;
             }
         }

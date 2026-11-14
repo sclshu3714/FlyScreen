@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>FlyScreen.Tool.PortProxy.Ui.Win</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.PortProxy.Ui.Win</AssemblyName>
+    <Description>端口代理 WPF UI（Windows 专版工具包）</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Tool.PortProxy\FlyScreen.Tool.PortProxy.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+  </ItemGroup>
+</Project>

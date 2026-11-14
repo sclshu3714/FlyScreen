@@ -62,7 +62,19 @@ public sealed class PublishService
                     continue;
                 }
 
-                if (options.PackageMode == PackageMode.Installer)
+                if (target.IsFlyTools)
+                {
+                    await PublishFlyToolsAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                }
+                else if (target.IsRelayDocker)
+                {
+                    await PublishRelayDockerAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                }
+                else if (target.IsRelay)
+                {
+                    await PublishRelayAsync(target, options, log, slice, ct).ConfigureAwait(false);
+                }
+                else if (options.PackageMode == PackageMode.Installer)
                 {
                     if (!target.SupportsInstaller)
                     {
@@ -157,6 +169,220 @@ public sealed class PublishService
         segs[0] = _workRoot;
         Array.Copy(parts, 0, segs, 1, parts.Length);
         return Path.Combine(segs);
+    }
+
+    private async Task PublishFlyToolsAsync(
+        PublishTargetItem target,
+        PublishOptions options,
+        Action<string> log,
+        IProgress<PublishProgress>? progress,
+        CancellationToken ct)
+    {
+        EnsureReleaseConfiguration(options, log);
+        var version = ResolvePublishVersion(options, log);
+        var script = Path.Combine(_repoRoot, "build", "Pack-FlyTools.ps1");
+        if (!File.Exists(script))
+            throw new InvalidOperationException("未找到 build/Pack-FlyTools.ps1");
+
+        var staging = JobPath("flytools");
+        PrepareCleanDir(staging);
+
+        Report(progress, 10, $"{target.DisplayName}：组包 .flytool…");
+        var packArgs =
+            $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
+            $"-Configuration Release -OutRoot \"{staging}\" -SkipAppCopy";
+        var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, _jobEnv)
+            .ConfigureAwait(false);
+        if (exit != 0)
+            throw new InvalidOperationException("Pack-FlyTools 失败");
+
+        var flytools = Directory.GetFiles(staging, "*.flytool");
+        if (flytools.Length == 0)
+            throw new InvalidOperationException("未生成任何 .flytool 文件");
+
+        Directory.CreateDirectory(options.OutputRoot);
+        Report(progress, 70, $"{target.DisplayName}：输出产物…");
+
+        // 安装包 / 独立应用均交付单文件 zip，便于发版上传；目录副本便于本地调试拷贝
+        var zipName = $"FlyScreen-{version}-flytools.zip";
+        var zipPath = Path.Combine(options.OutputRoot, zipName);
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(staging, zipPath, CompressionLevel.Optimal, includeBaseDirectory: false);
+        log($"插件工具包已输出: {zipPath}（{flytools.Length} 个 .flytool）");
+
+        if (options.PackageMode == PackageMode.Standalone)
+        {
+            var dirOut = Path.Combine(options.OutputRoot, $"FlyScreen-{version}-flytools");
+            PrepareCleanDir(dirOut);
+            foreach (var f in Directory.EnumerateFiles(staging))
+                File.Copy(f, Path.Combine(dirOut, Path.GetFileName(f)), overwrite: true);
+            log($"插件工具目录已输出: {dirOut}");
+        }
+
+        // 同步到仓库 artifacts/flytools，供后续 App 发布复用 Bundled
+        var sharedOut = Path.Combine(_repoRoot, "artifacts", "flytools");
+        Directory.CreateDirectory(sharedOut);
+        foreach (var f in Directory.EnumerateFiles(staging))
+            File.Copy(f, Path.Combine(sharedOut, Path.GetFileName(f)), overwrite: true);
+        log($"已同步到 {sharedOut}");
+    }
+
+    private async Task PublishRelayAsync(
+        PublishTargetItem target,
+        PublishOptions options,
+        Action<string> log,
+        IProgress<PublishProgress>? progress,
+        CancellationToken ct)
+    {
+        var rid = target.ResolveDotnetRid()
+                  ?? throw new InvalidOperationException("中继服务未选择有效运行时（请勿选 docker，或改用 Docker 分支）。");
+
+        EnsureReleaseConfiguration(options, log);
+        var version = ResolvePublishVersion(options, log);
+        var staging = JobPath("relay");
+        PrepareCleanDir(staging);
+
+        Report(progress, 8, $"{target.DisplayName}：dotnet publish ({rid})…");
+        var exit = await RunDotnetPublishAsync(target, options, staging, singleFile: true, log, ct)
+            .ConfigureAwait(false);
+        if (exit != 0)
+            throw new InvalidOperationException($"dotnet publish 失败 (relay/{rid})，退出码 {exit}");
+
+        Report(progress, 72, $"{target.DisplayName}：清理调试符号…");
+        StripDebugSymbols(staging, log);
+
+        Directory.CreateDirectory(options.OutputRoot);
+        Report(progress, 85, $"{target.DisplayName}：整理产物…");
+
+        if (options.PackageMode == PackageMode.Installer || !LooksLikeSingleFilePublish(staging, rid))
+        {
+            var archiveName = $"FlyScreen-{version}-relay-{rid}.zip";
+            var archivePath = Path.Combine(options.OutputRoot, archiveName);
+            if (File.Exists(archivePath)) File.Delete(archivePath);
+            ZipFile.CreateFromDirectory(staging, archivePath, CompressionLevel.Optimal, includeBaseDirectory: false);
+            log($"中继服务安装包已输出: {archivePath}");
+            CopyRelayComposeBeside(options.OutputRoot, log);
+            return;
+        }
+
+        // 独立应用：优先单文件可执行，否则整目录 zip
+        var primary = FindRelayPrimaryFile(staging, rid);
+        if (primary != null)
+        {
+            var ext = Path.GetExtension(primary);
+            if (string.IsNullOrEmpty(ext) && !rid.StartsWith("win-", StringComparison.OrdinalIgnoreCase))
+                ext = "";
+            var destName = $"FlyScreen-{version}-relay-{rid}{ext}";
+            var destPath = Path.Combine(options.OutputRoot, destName);
+            File.Copy(primary, destPath, overwrite: true);
+            log($"中继服务已输出: {destPath}");
+        }
+        else
+        {
+            var archiveName = $"FlyScreen-{version}-relay-{rid}.zip";
+            var archivePath = Path.Combine(options.OutputRoot, archiveName);
+            if (File.Exists(archivePath)) File.Delete(archivePath);
+            ZipFile.CreateFromDirectory(staging, archivePath, CompressionLevel.Optimal, includeBaseDirectory: false);
+            log($"中继服务（目录包）已输出: {archivePath}");
+        }
+
+        CopyRelayComposeBeside(options.OutputRoot, log);
+    }
+
+    private async Task PublishRelayDockerAsync(
+        PublishTargetItem target,
+        PublishOptions options,
+        Action<string> log,
+        IProgress<PublishProgress>? progress,
+        CancellationToken ct)
+    {
+        EnsureReleaseConfiguration(options, log);
+        var version = ResolvePublishVersion(options, log);
+        var script = Path.Combine(_repoRoot, "src", "FlyScreen.Relay", "tools", "pack-docker.ps1");
+        if (!File.Exists(script))
+            throw new InvalidOperationException("未找到 src/FlyScreen.Relay/tools/pack-docker.ps1");
+
+        Directory.CreateDirectory(options.OutputRoot);
+        Report(progress, 10, $"{target.DisplayName}：Docker 构建镜像…");
+        log("需要本机已安装并启动 Docker Desktop；国内默认启用 -Mirror。");
+
+        var packArgs =
+            $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
+            $"-Mirror -Tag \"{version}\" -Save -OutDir \"{options.OutputRoot}\"";
+        var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, _jobEnv)
+            .ConfigureAwait(false);
+        if (exit != 0)
+            throw new InvalidOperationException("Relay Docker 打包失败（请确认 Docker 已启动）");
+
+        Report(progress, 85, $"{target.DisplayName}：整理镜像产物…");
+        var produced = Path.Combine(options.OutputRoot, $"flyscreen-relay-{version}.tar");
+        if (!File.Exists(produced))
+        {
+            produced = Directory.EnumerateFiles(options.OutputRoot, "flyscreen-relay-*.tar")
+                .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
+                .FirstOrDefault()
+                ?? throw new InvalidOperationException("未找到 docker save 导出的 .tar 文件");
+        }
+
+        var destName = $"FlyScreen-{version}-relay-docker.tar";
+        var destPath = Path.Combine(options.OutputRoot, destName);
+        if (!string.Equals(produced, destPath, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Copy(produced, destPath, overwrite: true);
+            log($"已按发版命名复制: {destPath}");
+        }
+        else
+        {
+            log($"Docker 镜像已导出: {destPath}");
+        }
+
+        CopyRelayComposeBeside(options.OutputRoot, log);
+        log("服务器导入: docker load -i " + destName);
+        log($"然后: docker tag flyscreen-relay:{version} flyscreen-relay:latest && docker compose up -d");
+    }
+
+    private void CopyRelayComposeBeside(string outputRoot, Action<string> log)
+    {
+        var compose = Path.Combine(_repoRoot, "src", "FlyScreen.Relay", "docker-compose.yml");
+        if (!File.Exists(compose)) return;
+        var dest = Path.Combine(outputRoot, "docker-compose.relay.yml");
+        File.Copy(compose, dest, overwrite: true);
+        log($"已附带 compose: {dest}");
+    }
+
+    private static bool LooksLikeSingleFilePublish(string dir, string rid)
+    {
+        if (!Directory.Exists(dir)) return false;
+        var files = Directory.GetFiles(dir);
+        if (rid.StartsWith("win-", StringComparison.OrdinalIgnoreCase))
+            return files.Count(f => f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) == 1
+                   && files.Length <= 3;
+        return files.Any(f =>
+        {
+            var name = Path.GetFileName(f);
+            return !name.Contains('.') && new FileInfo(f).Length > 1_000_000;
+        });
+    }
+
+    private static string? FindRelayPrimaryFile(string dir, string rid)
+    {
+        if (!Directory.Exists(dir)) return null;
+        if (rid.StartsWith("win-", StringComparison.OrdinalIgnoreCase))
+        {
+            return Directory.EnumerateFiles(dir, "*.exe")
+                .OrderByDescending(f => new FileInfo(f).Length)
+                .FirstOrDefault(f => Path.GetFileName(f).Contains("FlyScreen", StringComparison.OrdinalIgnoreCase)
+                                     || Path.GetFileName(f).Contains("Relay", StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Directory.EnumerateFiles(dir)
+            .Where(f =>
+            {
+                var name = Path.GetFileName(f);
+                return !name.Contains('.') && new FileInfo(f).Length > 1_000_000;
+            })
+            .OrderByDescending(f => new FileInfo(f).Length)
+            .FirstOrDefault();
     }
 
     private async Task PublishStandaloneAsync(
@@ -408,17 +634,25 @@ public sealed class PublishService
         // Android 不使用 -r；Maui Win / Maui Mac 的 RID 在 ExtraArgs / Framework 中处理
         if (target.Id is "win" or "linux" or "mac")
             args.Add($"-r {target.Rid}");
+        else if (target.IsRelay)
+        {
+            var rid = target.ResolveDotnetRid();
+            if (!string.IsNullOrWhiteSpace(rid))
+                args.Add($"-r {rid}");
+        }
 
         if (target.SupportsSelfContained)
             args.Add(selfContained ? "--self-contained true" : "--self-contained false");
 
-        if (singleFile && target.Kind != "Apk")
+        if (singleFile && target.Kind is not ("Apk" or "FlyTools" or "Docker"))
         {
             args.Add("-p:PublishSingleFile=true");
             args.Add("-p:IncludeNativeLibrariesForSelfExtract=true");
             args.Add("-p:EnableCompressionInSingleFile=true");
+            if (target.IsRelay)
+                args.Add("-p:UseAppHost=true");
         }
-        else if (!singleFile && target.Kind != "Apk")
+        else if (!singleFile && target.Kind is not ("Apk" or "FlyTools" or "Docker"))
         {
             args.Add("-p:PublishSingleFile=false");
         }

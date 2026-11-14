@@ -153,6 +153,12 @@ public sealed class PublishTargetItem : INotifyPropertyChanged
                 case "maui-mac":
                     Rid = "maui-" + rt.Replace("maccatalyst-", "osx-", StringComparison.OrdinalIgnoreCase);
                     break;
+                case "flytools":
+                    Rid = "flytools";
+                    break;
+                case "relay":
+                    Rid = IsDockerRuntime(rt) ? "relay-docker" : $"relay-{rt}";
+                    break;
             }
 
             if (!string.IsNullOrWhiteSpace(choice.ExtraArgsTemplate))
@@ -170,8 +176,40 @@ public sealed class PublishTargetItem : INotifyPropertyChanged
     {
         if (Id == "maui-win" && Rid.StartsWith("maui-", StringComparison.OrdinalIgnoreCase))
             return Rid["maui-".Length..];
+        if (Id == "relay" && Rid.StartsWith("relay-", StringComparison.OrdinalIgnoreCase))
+            return Rid["relay-".Length..];
         return Rid;
     }
+
+    /// <summary>插件工具组包（Pack-FlyTools.ps1 → .flytool）。</summary>
+    public bool IsFlyTools => string.Equals(Id, "flytools", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>自托管中继服务（dotnet publish 或 Docker 镜像）。</summary>
+    public bool IsRelay => string.Equals(Id, "relay", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>当前选中的运行时为 Docker 镜像打包。</summary>
+    public bool IsRelayDocker => IsRelay && IsDockerRuntime(SelectedRuntime ?? Rid);
+
+    /// <summary>dotnet publish 用的真实 RID（去掉 relay- 前缀）；Docker 时为空。</summary>
+    public string? ResolveDotnetRid()
+    {
+        if (IsFlyTools || IsRelayDocker) return null;
+        if (!IsRelay) return Rid;
+        var rt = SelectedRuntime;
+        if (!string.IsNullOrWhiteSpace(rt) && !IsDockerRuntime(rt))
+            return rt;
+        if (Rid.StartsWith("relay-", StringComparison.OrdinalIgnoreCase))
+        {
+            var suffix = Rid["relay-".Length..];
+            return IsDockerRuntime(suffix) ? null : suffix;
+        }
+        return Rid;
+    }
+
+    public static bool IsDockerRuntime(string? runtime)
+        => !string.IsNullOrWhiteSpace(runtime)
+           && (string.Equals(runtime, "docker", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(runtime, "relay-docker", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>入队时快照，避免后续改 UI 影响已排队任务。</summary>
     public PublishTargetItem CloneForPublish()

@@ -21,7 +21,7 @@ public static class BundledFlyToolsSeeder
         if (Directory.EnumerateFiles(destDir, "*.flytool").Any())
             return;
 
-        foreach (var name in new[] { "color-picker.flytool", "shared-devices.flytool", "tools-index.json" })
+        foreach (var name in new[] { "color-picker.flytool", "shared-devices.flytool", "port-proxy.flytool", "tools-index.json" })
         {
             ct.ThrowIfCancellationRequested();
             var logical = $"Tools/Bundled/{name}";

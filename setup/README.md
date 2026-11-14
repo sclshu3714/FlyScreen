@@ -18,10 +18,22 @@ dotnet run --project setup\FlyScreen.Setup\FlyScreen.Setup.csproj -c Release
 
 ## 界面选项
 
-- **打包目标**：Win WPF / MAUI Win / MAUI Android / Linux / Mac / MAUI Mac（可单选、多选、全选）
-- **打包方式**：独立应用（沿用 `artifacts/release` 命名）或 **安装包**（仅 Win / MAUI Win）
-- **部署模式**：Self-contained 或 依赖框架
+- **打包目标**：Win WPF / MAUI Win / MAUI Android / Linux / Mac / MAUI Mac / **插件工具 (.flytool)** / **中继服务 (Relay)**（单选）
+- **打包方式**：独立应用（沿用 `artifacts/release` 命名）或 **安装包**（Win Setup / Android APK / Linux tar.gz / 插件 zip / 中继 zip）
+- **部署模式**：Self-contained 或 依赖框架（插件工具与 Docker 镜像不受此选项影响）
 - **安装包选项**：产品名、默认路径、许可链接、轮播图目录、快捷方式等（均有默认值）
+
+### 插件工具
+
+调用 `build/Pack-FlyTools.ps1`，产出：
+
+- `artifacts/release/FlyScreen-{ver}-flytools.zip`
+- 独立应用模式另有同名目录副本；并同步到 `artifacts/flytools/` 供 App 发布复用
+
+### 中继服务 (Relay)
+
+- **运行时**选 `win-x64` / `linux-x64` 等：`dotnet publish` → `FlyScreen-{ver}-relay-{rid}.zip`（或单文件）
+- **运行时**选 `docker`：调用 `src/FlyScreen.Relay/tools/pack-docker.ps1 -Mirror -Save`，产出 `FlyScreen-{ver}-relay-docker.tar`，并附带 `docker-compose.relay.yml`（需本机 Docker Desktop）
 
 ## 安装包默认 UI
 

@@ -27,6 +27,15 @@ $tools = @(
             "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Desktop/FlyScreen.Tool.SharedDevices.Ui.Desktop.csproj",
             "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Maui/FlyScreen.Tool.SharedDevices.Ui.Maui.csproj"
         )
+    },
+    @{
+        Id = "port-proxy"
+        Proj = "src/Tools/PortProxy/FlyScreen.Tool.PortProxy/FlyScreen.Tool.PortProxy.csproj"
+        Manifest = "src/Tools/PortProxy/FlyScreen.Tool.PortProxy/manifest.json"
+        UiProjs = @(
+            "src/Tools/PortProxy/FlyScreen.Tool.PortProxy.Ui.Win/FlyScreen.Tool.PortProxy.Ui.Win.csproj",
+            "src/Tools/PortProxy/FlyScreen.Tool.PortProxy.Ui.Maui/FlyScreen.Tool.PortProxy.Ui.Maui.csproj"
+        )
     }
 )
 
