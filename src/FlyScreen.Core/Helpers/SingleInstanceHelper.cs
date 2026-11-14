@@ -4,11 +4,18 @@ namespace FlyScreen.Helpers;
 
 /// <summary>
 /// 单实例：已有进程则发信号激活其窗口；否则持有互斥量并监听激活请求。
+/// Windows / Unix 共用逻辑（命名同步对象名按平台区分）。
 /// </summary>
 public sealed class SingleInstanceHelper : IDisposable
 {
-    private const string MutexName = @"Local\FlyScreen.SingleInstance.Mutex";
-    private const string EventName = @"Local\FlyScreen.SingleInstance.Show";
+    // Windows：会话本地；Unix：落到 /tmp 下的命名对象，勿用 Local\ 前缀
+    private static readonly string MutexName = OperatingSystem.IsWindows()
+        ? @"Local\FlyScreen.SingleInstance.Mutex"
+        : "FlyScreen.SingleInstance.Mutex";
+
+    private static readonly string EventName = OperatingSystem.IsWindows()
+        ? @"Local\FlyScreen.SingleInstance.Show"
+        : "FlyScreen.SingleInstance.Show";
 
     private readonly Mutex _mutex;
     private readonly EventWaitHandle _showEvent;
@@ -61,6 +68,7 @@ public sealed class SingleInstanceHelper : IDisposable
             {
                 try { mutex.ReleaseMutex(); } catch { /* ignore */ }
             }
+
             mutex.Dispose();
             instance = null;
             return false;
@@ -124,6 +132,7 @@ public sealed class SingleInstanceHelper : IDisposable
             try { _mutex.ReleaseMutex(); } catch { /* ignore */ }
             _owned = false;
         }
+
         try { _mutex.Dispose(); } catch { /* ignore */ }
     }
 }

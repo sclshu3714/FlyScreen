@@ -1,8 +1,9 @@
 <Project>
   <!--
     各端统一版本规则（与 Win 端一致）：
-    Version = 最新 Git tag vX.Y.Z 的 patch + 1；与提交次数无关。
-    可覆盖：dotnet build/publish -p:Version=1.1.0
+    Version = 最新 Git tag vX.Y.Z 自动 +1；minor/patch 大于 9 向高位进位
+    （1.0.9→1.1.0，1.9.9→2.0.0）；与提交次数无关。
+    可覆盖：dotnet build/publish -p:Version=1.1.0 -p:IgnoreGitVersion=true
     禁用：-p:IgnoreGitVersion=true
 
     Android 注意：Microsoft.Android.Sdk 在 _GenerateJavaStubs → GenerateMainAndroidManifest
@@ -34,26 +35,40 @@
   <Target Name="ResolveVersionFromGitTag"
           BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild;_GetAndroidPackageName"
           Condition="'$(IgnoreGitVersion)' != 'true'">
-    <Exec Command="git tag -l v*.*.* --sort=-v:refname"
+    <!-- 与 Resolve-FlyScreenVersion.ps1 同源：+1 且各段 >9 进位 -->
+    <PropertyGroup>
+      <_FsResolveScript>$(MSBuildThisFileDirectory)Resolve-FlyScreenVersion.ps1</_FsResolveScript>
+      <_FsRepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_FsRepoRoot>
+      <_FsVersionJsonOut>$(MSBuildThisFileDirectory)version.json</_FsVersionJsonOut>
+    </PropertyGroup>
+
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsResolveScript)&quot; -RepoRoot &quot;$(_FsRepoRoot)&quot; -WriteVersionJson &quot;$(_FsVersionJsonOut)&quot; -MachineReadable"
           ConsoleToMSBuild="true"
           IgnoreExitCode="true"
           StandardOutputImportance="Low"
-          WorkingDirectory="$(MSBuildThisFileDirectory)..\">
-      <Output TaskParameter="ConsoleOutput" ItemName="_GitTagLines" />
+          WorkingDirectory="$(_FsRepoRoot)">
+      <Output TaskParameter="ConsoleOutput" ItemName="_FsVerOutLines" />
     </Exec>
 
     <PropertyGroup>
-      <_LatestTagRaw>@(_GitTagLines->'%(Identity)', '|')</_LatestTagRaw>
-      <_LatestTag>$([System.Text.RegularExpressions.Regex]::Match($(_LatestTagRaw), 'v\d+\.\d+\.\d+').Value)</_LatestTag>
+      <_FsVerRaw>@(_FsVerOutLines->'%(Identity)', ' ')</_FsVerRaw>
+      <_FsMrVer>$([System.Text.RegularExpressions.Regex]::Match('$(_FsVerRaw)', '(\d+\.\d+\.\d+)\|(\d+)\|([^\s|]*)').Groups[1].Value)</_FsMrVer>
+      <_FsMrCode>$([System.Text.RegularExpressions.Regex]::Match('$(_FsVerRaw)', '(\d+\.\d+\.\d+)\|(\d+)\|([^\s|]*)').Groups[2].Value)</_FsMrCode>
+      <_FsMrTag>$([System.Text.RegularExpressions.Regex]::Match('$(_FsVerRaw)', '(\d+\.\d+\.\d+)\|(\d+)\|([^\s|]*)').Groups[3].Value)</_FsMrTag>
+      <Version Condition="'$(_FsMrVer)' != ''">$(_FsMrVer)</Version>
+      <FlyScreenVersionCode Condition="'$(_FsMrCode)' != ''">$(_FsMrCode)</FlyScreenVersionCode>
+      <_LatestTag>$(_FsMrTag)</_LatestTag>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(_LatestTag)' != ''">
-      <_TagBody>$(_LatestTag.Substring(1))</_TagBody>
-      <_TagMajor>$([System.Version]::Parse($(_TagBody)).Major)</_TagMajor>
-      <_TagMinor>$([System.Version]::Parse($(_TagBody)).Minor)</_TagMinor>
-      <_TagPatch>$([System.Version]::Parse($(_TagBody)).Build)</_TagPatch>
-      <_NextPatch>$([MSBuild]::Add($(_TagPatch), 1))</_NextPatch>
-      <Version>$(_TagMajor).$(_TagMinor).$(_NextPatch)</Version>
+    <!-- 解析失败时回退读刚写入的 version.json -->
+    <PropertyGroup Condition="'$(_FsMrVer)' == '' And Exists('$(_FsVersionJsonOut)')">
+      <_FsVersionJson>$([System.IO.File]::ReadAllText('$(_FsVersionJsonOut)'))</_FsVersionJson>
+      <_FsJsonVer>$([System.Text.RegularExpressions.Regex]::Match('$(_FsVersionJson)', '"version"\s*:\s*"([^"]+)"').Groups[1].Value)</_FsJsonVer>
+      <_FsJsonCode>$([System.Text.RegularExpressions.Regex]::Match('$(_FsVersionJson)', '"versionCode"\s*:\s*(\d+)').Groups[1].Value)</_FsJsonCode>
+      <_FsJsonTag>$([System.Text.RegularExpressions.Regex]::Match('$(_FsVersionJson)', '"latestTag"\s*:\s*"([^"]*)"').Groups[1].Value)</_FsJsonTag>
+      <Version Condition="'$(_FsJsonVer)' != ''">$(_FsJsonVer)</Version>
+      <FlyScreenVersionCode Condition="'$(_FsJsonCode)' != ''">$(_FsJsonCode)</FlyScreenVersionCode>
+      <_LatestTag>$(_FsJsonTag)</_LatestTag>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -61,7 +76,7 @@
       <_VerMinor>$([System.Version]::Parse('$(Version)').Minor)</_VerMinor>
       <_VerPatch>$([System.Version]::Parse('$(Version)').Build)</_VerPatch>
       <_VerCodePart>$([MSBuild]::Add($([MSBuild]::Multiply($(_VerMajor), 10000)), $([MSBuild]::Multiply($(_VerMinor), 100))))</_VerCodePart>
-      <FlyScreenVersionCode>$([MSBuild]::Add($(_VerCodePart), $(_VerPatch)))</FlyScreenVersionCode>
+      <FlyScreenVersionCode Condition="'$(FlyScreenVersionCode)' == ''">$([MSBuild]::Add($(_VerCodePart), $(_VerPatch)))</FlyScreenVersionCode>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -74,13 +89,30 @@
       <_AndroidVersionCode Condition="'$(UseMaui)' == 'true'">$(FlyScreenVersionCode)</_AndroidVersionCode>
     </PropertyGroup>
 
-    <WriteLinesToFile File="$(MSBuildThisFileDirectory)version.json"
-                      Lines="{&#xD;&#xA;  &quot;version&quot;: &quot;$(Version)&quot;,&#xD;&#xA;  &quot;versionCode&quot;: $(FlyScreenVersionCode),&#xD;&#xA;  &quot;latestTag&quot;: &quot;$(_LatestTag)&quot;&#xD;&#xA;}"
-                      Overwrite="true"
-                      Encoding="UTF-8" />
-
     <Message Importance="High"
-             Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（code=$(FlyScreenVersionCode)；提交不改变此版本）" />
+             Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（code=$(FlyScreenVersionCode)；&gt;9 进位；提交不改变此版本）" />
+  </Target>
+
+  <!-- Setup / 命令行显式 -p:Version + IgnoreGitVersion：强制对齐程序集与 MAUI/Android 清单字段 -->
+  <Target Name="ApplyExplicitVersion"
+          BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild;_GetAndroidPackageName"
+          Condition="'$(IgnoreGitVersion)' == 'true' And '$(Version)' != ''">
+    <PropertyGroup>
+      <_VerMajor>$([System.Version]::Parse('$(Version)').Major)</_VerMajor>
+      <_VerMinor>$([System.Version]::Parse('$(Version)').Minor)</_VerMinor>
+      <_VerPatch>$([System.Version]::Parse('$(Version)').Build)</_VerPatch>
+      <_VerCodePart>$([MSBuild]::Add($([MSBuild]::Multiply($(_VerMajor), 10000)), $([MSBuild]::Multiply($(_VerMinor), 100))))</_VerCodePart>
+      <FlyScreenVersionCode Condition="'$(FlyScreenVersionCode)' == ''">$([MSBuild]::Add($(_VerCodePart), $(_VerPatch)))</FlyScreenVersionCode>
+      <AssemblyVersion>$(Version).0</AssemblyVersion>
+      <FileVersion>$(Version).0</FileVersion>
+      <InformationalVersion>$(Version)</InformationalVersion>
+      <ApplicationDisplayVersion Condition="'$(UseMaui)' == 'true'">$(Version)</ApplicationDisplayVersion>
+      <ApplicationVersion Condition="'$(UseMaui)' == 'true'">$(FlyScreenVersionCode)</ApplicationVersion>
+      <_AndroidVersionName Condition="'$(UseMaui)' == 'true'">$(Version)</_AndroidVersionName>
+      <_AndroidVersionCode Condition="'$(UseMaui)' == 'true'">$(FlyScreenVersionCode)</_AndroidVersionCode>
+    </PropertyGroup>
+    <Message Importance="High"
+             Text="版本来自显式覆盖：Version=$(Version)（code=$(FlyScreenVersionCode)；IgnoreGitVersion=true）" />
   </Target>
 
   <!-- 生成 AndroidManifest 前强制写入 VersionName/Code（钩到 SDK 的 BeforeGenerateAndroidManifest） -->
@@ -92,7 +124,7 @@
   </PropertyGroup>
 
   <Target Name="FlyScreen_SetAndroidManifestVersion"
-          DependsOnTargets="ResolveVersionFromGitTag"
+          DependsOnTargets="ResolveVersionFromGitTag;ApplyExplicitVersion"
           Condition="'$(UseMaui)' == 'true' And $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <PropertyGroup>
       <ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
@@ -108,7 +140,7 @@
     增量：清单版本与当前 Version 不一致时清 stamp，迫使 _GenerateJavaStubs 重跑。
   -->
   <Target Name="FlyScreen_AndroidVersionInput"
-          AfterTargets="ResolveVersionFromGitTag"
+          AfterTargets="ResolveVersionFromGitTag;ApplyExplicitVersion"
           Condition="'$(UseMaui)' == 'true' And $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(Version)' != '' And '$(IntermediateOutputPath)' != ''">
     <PropertyGroup>
       <_FsAndroidVersionFile>$(IntermediateOutputPath)flyscreen.version</_FsAndroidVersionFile>

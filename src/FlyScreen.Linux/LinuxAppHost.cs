@@ -41,6 +41,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public EdgeFileDragService EdgeDrag { get; }
     public bool CanFollowEdgeFileDrag => Injector is X11InputInjector x11 && x11.IsAvailable;
 
+    private FlyScreen.ToolSdk.ISharedDevicesRuntime? _sharedDevices;
+
     public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
     {
         IEdgeDragPointer? follow = Injector is X11InputInjector x11 && x11.IsAvailable
@@ -86,12 +88,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
-        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
-        sharedDevices.AttachHardware(FlyScreen.Services.Tools.SharedDevices.DefaultSharedDevicesHardware.Instance);
-        sharedDevices.StatusMessage += msg =>
-        {
-            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
-        };
+        FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        TryWireSharedDevices();
+        FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
@@ -147,6 +146,28 @@ public sealed class LinuxAppHost : IAsyncDisposable
         Connections.MessageReceived += OnPeerMessage;
     }
 
+    private void TryWireSharedDevices()
+    {
+        var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<FlyScreen.ToolSdk.ISharedDevicesRuntime>();
+        if (sd == null)
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            _sharedDevices = null;
+            return;
+        }
+
+        if (!ReferenceEquals(sd, _sharedDevices))
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            _sharedDevices = sd;
+            sd.StatusMessage += PublishStatus;
+        }
+
+        sd.AttachHardware(FlyScreen.ToolSdk.DefaultSharedDevicesHardware.Instance);
+    }
+
     private void PublishStatus(string message)
     {
         AppLog.RecordStatus(message);
@@ -182,7 +203,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
             || previousUdpPort != Settings.UdpPort
             || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal)
+            || Connections.NeedsListenRebind();
 
         if (needRestart || !Connections.IsRunning)
             await Connections.StartAsync().ConfigureAwait(false);

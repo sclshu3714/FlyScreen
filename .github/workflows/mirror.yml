@@ -1,0 +1,16 @@
+name: 自动同步到gitee
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror repo to Gitee
+        uses: wearerequired/git-mirror-action@master
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.GITEE_PRIVATE_KEY }}
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
+        with:
+          source-repo: https://github.com/sclshu3714/FlyScreen.git
+          destination-repo: git@gitee.com:sclshu3714/FlyScreen.git

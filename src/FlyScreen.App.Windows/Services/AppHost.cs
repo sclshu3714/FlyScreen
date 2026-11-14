@@ -7,7 +7,7 @@ using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 
 namespace FlyScreen.Services;
 
@@ -38,21 +38,21 @@ public sealed class AppHost : IAsyncDisposable
     private BehaviorSyncHelper? _behaviorSync;
     private LayoutSyncHelper? _layoutSync;
     private SecurityKeySyncHelper? _securityKeySync;
+    private FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
     private DisplayInfoService? _displayInfo;
-    private SharedDevicesAudioBridge? _sharedDevicesAudio;
-
+    private ISharedDevicesRuntime? _sharedDevices;
     private AppHost()
     {
         Settings = AppSettings.Load();
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
-        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
-        sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
-        sharedDevices.StatusMessage += PublishStatus;
+        FlyScreen.Services.Tools.ToolService.Instance.AttachExecutableIconExtractor(
+            new FlyScreen.Tools.WindowsToolExecutableIconExtractor());
+        FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        TryWireSharedDevices();
+        FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
         FlyScreen.Services.Tools.ToolService.Instance.AttachColorSampler(new FlyScreen.Tools.WinScreenColorSampler());
-        _sharedDevicesAudio = new SharedDevicesAudioBridge(
-            sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
         Input = new InputRouter(Settings, Connections);
         Transfers = new FileTransferService(Settings, Connections, new WindowsClipboardApplySink());
         EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, WindowsDropFolder.Resolve);
@@ -134,6 +134,38 @@ public sealed class AppHost : IAsyncDisposable
             if (Input.IsFocusOnLocalMachine)
                 Clipboard.ArmRemoteClipboardForPaste();
         };
+    }
+
+    /// <summary>共享设备可为未安装；安装/卸载后经 ModulesChanged 再挂接硬件。</summary>
+    private void TryWireSharedDevices()
+    {
+        var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<ISharedDevicesRuntime>();
+        if (sd == null)
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            WinSharedDevicesCamera.Unregister();
+            try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+            _sharedDevicesProviderMedia = null;
+            _sharedDevices = null;
+            return;
+        }
+
+        if (!ReferenceEquals(sd, _sharedDevices))
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+            WinSharedDevicesCamera.Unregister();
+            _sharedDevices = sd;
+            sd.StatusMessage += PublishStatus;
+        }
+
+        // 同实例也重新挂硬件：卸载再装后 ALC 新服务必须再 Attach
+        sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
+        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio("共享扬声器"));
+        WinSharedDevicesCamera.Register();
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = new FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia(sd);
     }
 
     private static Task<EdgeDragConflictAction> ConfirmEdgeDragConflict(EdgeDragConflictRequest request)
@@ -227,7 +259,8 @@ public sealed class AppHost : IAsyncDisposable
             || previousUdpPort != Settings.UdpPort
             || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal)
+            || Connections.NeedsListenRebind();
 
         if (needRestart || !Connections.IsRunning)
             await Connections.StartAsync().ConfigureAwait(false);
@@ -631,8 +664,9 @@ public sealed class AppHost : IAsyncDisposable
         _securityKeySync = null;
         _displayInfo?.Dispose();
         _displayInfo = null;
-        try { _sharedDevicesAudio?.Dispose(); } catch { /* ignore */ }
-        _sharedDevicesAudio = null;
+        WinSharedDevicesCamera.Unregister();
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = null;
         ScreenExtendUi.Dispose();
         ScreenExtend.Dispose();
         Clipboard.Dispose();

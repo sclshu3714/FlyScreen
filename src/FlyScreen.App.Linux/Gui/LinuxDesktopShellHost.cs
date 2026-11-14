@@ -69,8 +69,8 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
         }
     }
 
-    public IReadOnlyList<(string Label, Action Invoke)> PlatformActions { get; } =
-        Array.Empty<(string, Action)>();
+    public IReadOnlyList<(string Label, string Icon, Action Invoke)> PlatformActions { get; } =
+        Array.Empty<(string, string, Action)>();
 
     public bool SupportsTray => true;
     public bool SupportsAutoStart => false;

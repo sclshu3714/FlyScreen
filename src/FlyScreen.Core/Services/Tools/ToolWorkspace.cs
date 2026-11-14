@@ -1,3 +1,5 @@
+using FlyScreen.ToolSdk;
+
 namespace FlyScreen.Services.Tools;
 
 /// <summary>工具页内嵌工作区的一个页签（不含「工具」目录项）。</summary>
@@ -11,7 +13,7 @@ public sealed class ToolWorkspaceTab
 /// 工具页内嵌宿主状态：目录 + 已打开工具页签。
 /// UI 订阅 <see cref="Changed"/> 刷新导航条与内容区。
 /// </summary>
-public sealed class ToolWorkspace
+public sealed class ToolWorkspace : IToolWorkspace
 {
     private readonly object _gate = new();
     private readonly List<ToolWorkspaceTab> _tabs = [];
@@ -83,6 +85,8 @@ public sealed class ToolWorkspace
 
         Changed?.Invoke();
     }
+
+    void IToolWorkspace.Close(string toolId) => Close(toolId);
 
     public bool Close(string toolId)
     {

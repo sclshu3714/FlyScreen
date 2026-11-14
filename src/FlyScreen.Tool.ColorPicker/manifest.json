@@ -1,0 +1,29 @@
+{
+  "id": "color-picker",
+  "kind": "enhancement",
+  "crossScreen": false,
+  "group": "utilities",
+  "nameKey": "Tool.ColorPicker.Name",
+  "summaryKey": "Tool.ColorPicker.Summary",
+  "schemaVersion": 1,
+  "minAppVersion": "1.0.0",
+  "deviceClasses": ["Desktop"],
+  "platforms": ["Windows", "macOS", "Linux"],
+  "featuresByDeviceClass": {
+    "Desktop": ["local-pick"]
+  },
+  "roles": ["local"],
+  "supportsRepair": false,
+  "capNames": [],
+  "titleBar": false,
+  "hasWorkspace": true,
+  "icon": "tool-color-picker",
+  "permissions": ["screenSample"],
+  "package": {
+    "version": "1.0.1",
+    "format": "flytool",
+    "formatVersion": 1
+  },
+  "entryAssembly": "FlyScreen.Tool.ColorPicker.dll",
+  "entryType": "FlyScreen.Tool.ColorPicker.Module"
+}

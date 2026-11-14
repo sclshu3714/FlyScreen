@@ -13,10 +13,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <PackageReference Include="System.Net.Http.WinHttpHandler" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

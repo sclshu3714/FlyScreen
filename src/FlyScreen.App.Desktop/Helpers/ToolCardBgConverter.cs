@@ -19,6 +19,7 @@ public sealed class ToolCardBgConverter : IValueConverter
         {
             ToolVisualStates.Running => dark ? "#1E3A5F" : "#DBEAFE",
             ToolVisualStates.Installed => dark ? "#0F3D2E" : "#ECFDF5",
+            ToolVisualStates.LocalProgram => dark ? "#0F3D2E" : "#ECFDF5",
             ToolVisualStates.Installing => dark ? "#243447" : "#EFF6FF",
             _ => dark ? "#1E293B" : "#F3F4F6"
         };

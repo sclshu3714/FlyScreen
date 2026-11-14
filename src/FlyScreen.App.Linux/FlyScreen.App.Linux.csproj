@@ -15,11 +15,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.2.5" />
-    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.1.0" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.2.5" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.5" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.5" />
+    <!-- 11.3.14+ 修复传递依赖 Tmds.DBus.Protocol 高危漏洞 GHSA-xrw6-gwf8-vvr9 -->
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.3.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.23" />
   </ItemGroup>
 
   <ItemGroup>
@@ -62,5 +63,6 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
 
 </Project>

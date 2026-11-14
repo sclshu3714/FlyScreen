@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using FlyScreen.AppMaui.Controls;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
-using FlyScreen.Assets;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
@@ -10,7 +10,7 @@ using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.Tools;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
 using Microsoft.Maui.Controls.Shapes;
 
@@ -20,6 +20,13 @@ public partial class MainPage : ContentPage
 {
     private readonly MauiAppHost _host;
     private ObservableCollection<DiscoveredPeer> _discovery = [];
+    private readonly ObservableCollection<ConnectionEndpoint> _endpoints = [];
+    private readonly ObservableCollection<DeviceInventoryItem> _deviceInventory = [];
+    private string _networkSubPage = "conn";
+    private readonly FlyBreadcrumbBar _networkBreadcrumb = new();
+    private readonly FlyBreadcrumbBar _toolsBreadcrumb = new();
+    private bool _toolsBreadcrumbWired;
+    private bool _networkBreadcrumbWired;
     private readonly ObservableCollection<MachineSlot> _slots = [];
     private int _pageIndex;
     private bool _initialPageChosen;
@@ -27,6 +34,7 @@ public partial class MainPage : ContentPage
     private MachineSlot? _selected;
     private IDispatcherTimer? _statusTimer;
     private const string DragSlotKey = "FlyScreen.MachineSlot";
+    private MachineSlot? _nativeDragSource;
     private readonly MauiUpdateChecker _helpUpdater = new();
     private UpdateCheckResult? _helpLastCheck;
     private bool _helpUpdateReady;
@@ -41,7 +49,6 @@ public partial class MainPage : ContentPage
     private DateTime? _logFrom;
     private DateTime? _logTo;
     private readonly ObservableCollection<LogListItem> _logItems = new();
-    private static readonly Color LogRowSelectedBg = Color.FromArgb("#DBEAFE");
     private static readonly Color LogRowNormalBg = Colors.Transparent;
     private bool _logStickToBottom = true;
     private bool _logFilterReady;
@@ -58,6 +65,8 @@ public partial class MainPage : ContentPage
     private bool _notifyInjectUpdating;
     private int _a11yRefreshGen;
     private bool _pageAlive = true;
+    private bool _optionsScrollHooked;
+    private bool _edgeCrossTipWidthHooked;
 
     // 具名委托，便于 Unloaded 时反订阅，避免关闭窗体后断线回调再上主线程崩溃
     private Action<string>? _onStatusMessage;
@@ -68,6 +77,8 @@ public partial class MainPage : ContentPage
     private Action<string>? _onSecurityKeySynced;
     private Action<IReadOnlyList<DiscoveredPeer>>? _onPeersUpdated;
     private Action<string, bool, bool>? _onPeerLinkChanged;
+    private Action? _onToolModuleStateChanged;
+    private bool _toolUiBridgeRegistered;
 
     /// <summary>触控板可在空闲时调用，把重 UI 初始化提前做完。</summary>
     public bool IsUiPrepared => _uiPrepared;
@@ -78,6 +89,11 @@ public partial class MainPage : ContentPage
     private Border? _matrixTouchBorder;
     private Point _matrixTouchOrigin;
     private bool _matrixDragging;
+#if WINDOWS
+    /// <summary>主动结束指针捕获时忽略 CaptureLost，否则会把松手误判为取消。</summary>
+    private bool _matrixPointerEnding;
+    private Point _matrixLastPos;
+#endif
     private bool _matrixMoved;
     private const double PanDragThreshold = 12;
 
@@ -118,6 +134,13 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
         PlatformLabel.Text = _host.PlatformBanner;
         WireHostOnce();
+        EnsureNetworkBreadcrumb();
+        EndpointList.ItemsSource = _endpoints;
+        DeviceInventoryList.ItemsSource = _deviceInventory;
+        _endpoints.Clear();
+        foreach (var ep in _host.Settings.ConnectionEndpoints ?? [])
+            _endpoints.Add(ep);
+        RefreshNetworkBreadcrumb();
         RefreshNics();
         RefreshDiscovery();
         RefreshSlotStatuses();
@@ -152,6 +175,8 @@ public partial class MainPage : ContentPage
         });
         _onLayoutSynced = _ => RunOnUi(() =>
         {
+            // LoadUi 会重建槽位对象，必须先丢掉进行中的拖拽引用
+            AbortMatrixDragVisual();
             LoadUi();
             ApplyLocalizedUi();
             RebuildMatrix();
@@ -180,17 +205,14 @@ public partial class MainPage : ContentPage
         _host.Connections.PeerLinkChanged += _onPeerLinkChanged;
         _host.ScreenExtend.HostSessionReady += OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
+        RegisterToolUiBridge();
         ToolService.Instance.Catalog.Changed += OnToolsCatalogChanged;
         ToolService.Instance.InstallProgress.Changed += OnToolsCatalogChanged;
         ToolService.Instance.Workspace.Changed += OnToolsWorkspaceChanged;
-        ToolService.Instance.ColorPicker.SessionChanged += OnToolsCatalogChanged;
+        _onToolModuleStateChanged = OnToolsCatalogChanged;
+        foreach (var module in ToolService.Instance.Host.All)
+            module.StateChanged += _onToolModuleStateChanged;
         DeviceDisplay.MainDisplayInfoChanged += OnToolsDisplayInfoChanged;
-        var shared = ToolService.Instance.SharedDevices;
-        if (shared != null)
-        {
-            shared.SessionChanged += OnToolsCatalogChanged;
-            shared.IncomingRequest += OnSharedDevicesIncomingRequest;
-        }
 
         _statusTimer = Dispatcher.CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(2);
@@ -234,14 +256,13 @@ public partial class MainPage : ContentPage
         ToolService.Instance.Catalog.Changed -= OnToolsCatalogChanged;
         ToolService.Instance.InstallProgress.Changed -= OnToolsCatalogChanged;
         ToolService.Instance.Workspace.Changed -= OnToolsWorkspaceChanged;
-        ToolService.Instance.ColorPicker.SessionChanged -= OnToolsCatalogChanged;
-        DeviceDisplay.MainDisplayInfoChanged -= OnToolsDisplayInfoChanged;
-        var shared = ToolService.Instance.SharedDevices;
-        if (shared != null)
+        if (_onToolModuleStateChanged != null)
         {
-            shared.SessionChanged -= OnToolsCatalogChanged;
-            shared.IncomingRequest -= OnSharedDevicesIncomingRequest;
+            foreach (var module in ToolService.Instance.Host.All)
+                module.StateChanged -= _onToolModuleStateChanged;
+            _onToolModuleStateChanged = null;
         }
+        DeviceDisplay.MainDisplayInfoChanged -= OnToolsDisplayInfoChanged;
 
         _onStatusMessage = null;
         _onProjectionNotice = null;
@@ -312,24 +333,82 @@ public partial class MainPage : ContentPage
                     project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
                     about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
                     exit: RequestAppExit,
-                    projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
+                    projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend),
+                    toolShortcuts: BuildTrayToolShortcutActions);
             }
 #endif
         }
 
         _statusTimer?.Start();
+
+        if (_host.Settings.CheckUpdatesOnStartup)
+            _ = CheckUpdatesOnStartupQuietAsync();
+    }
+
+    private async Task CheckUpdatesOnStartupQuietAsync()
+    {
+        try
+        {
+            var result = await _helpUpdater.CheckAsync().ConfigureAwait(true);
+            if (result is { Success: true, UpdateAvailable: true })
+            {
+                StatusLabel.Text = $"发现新版本 {result.RemoteVersion}，可在「帮助」中自动更新";
+                _helpLastCheck = result;
+                _helpUpdateReady = true;
+                RefreshHelpToolbarLabels();
+            }
+        }
+        catch
+        {
+            // 静默忽略
+        }
     }
 
     private void EnsureDesktopTray()
     {
         if (!_host.Platform.SupportsTray) return;
+#if WINDOWS
+        if (_host.Platform is Platforms.Windows.WindowsMauiPlatformServices winPlat)
+        {
+            winPlat.AfterSwitchHotkeyModeChanged = () =>
+            {
+                var mode = _host.Settings.SwitchHotkeyMode;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    HotF.IsChecked = mode == 0;
+                    HotNum.IsChecked = mode == 1;
+                    HotOff.IsChecked = mode == 2;
+                });
+                _ = _host.BroadcastBehaviorSyncAsync();
+            };
+        }
+#endif
         _host.Platform.EnsureTray(
             showMain: () => { },
             reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
             project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: RequestAppExit,
-            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend),
+            toolShortcuts: BuildTrayToolShortcutActions);
+    }
+
+    private IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> BuildTrayToolShortcutActions()
+    {
+        var list = new List<(string Label, Action Action, byte[]? IconPng)>();
+        foreach (var item in TrayToolsMenu.BuildItems())
+        {
+            var toolId = item.ToolId;
+            list.Add((item.Label, () => MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ShowPage(9);
+                var row = TrayToolsMenu.ResolveRow(toolId);
+                if (row != null)
+                    _ = HandleToolActionAsync(row, primary: true);
+            }), TrayToolsMenu.TryGetIconPng(item.IconKey)));
+        }
+
+        return list;
     }
 
     /// <summary>托盘「关于」：显示关于页。</summary>
@@ -388,6 +467,7 @@ public partial class MainPage : ContentPage
 
         ApplyLayoutActionsPlacement(compact);
         ApplyOptionsPlacement(compact);
+        EnsureOptionsScrollPolicy();
         ApplyProgToolbarLabels(iconOnly: compact || width < 560);
         ApplyLogToolbarLabels(iconOnly: compact || width < 720);
         ApplyXferToolbarLabels(iconOnly: compact || width < 640);
@@ -1045,6 +1125,8 @@ public partial class MainPage : ContentPage
         NavToolsText.Text = Loc.T("Nav.Tools");
         ToolsTitleText.Text = Loc.T("Tool.Title");
         ToolsHintText.Text = Loc.T("Tool.Hint");
+        if (ToolsImportBtn != null)
+            ToolsImportBtn.Text = Loc.T("Tool.Import");
         NavLogText.Text = Loc.T("Nav.Log");
         AboutBtnText.Text = Loc.T("Btn.About");
         LogTitleText.Text = Loc.T("Log.Title");
@@ -1110,6 +1192,9 @@ public partial class MainPage : ContentPage
 
         TcpPortEntry.Text = s.TcpPort.ToString();
         UdpPortEntry.Text = s.UdpPort.ToString();
+        _endpoints.Clear();
+        foreach (var ep in s.ConnectionEndpoints ?? [])
+            _endpoints.Add(ep);
 
         SyncSlotsFromSettings();
     }
@@ -1171,6 +1256,7 @@ public partial class MainPage : ContentPage
         MauiRadioTheme.SetContent(EdgeCrossBarrierRadio, Loc.T("Opt.EdgeCross.BarrierFree"));
         MauiRadioTheme.SetContent(EdgeCrossDoubleRadio, Loc.T("Opt.EdgeCross.DoubleTap"));
         MauiRadioTheme.SetContent(EdgeCrossSpeedRadio, Loc.T("Opt.EdgeCross.SpeedBurst"));
+        MauiRadioTheme.SetContent(EdgeCrossHotkeyRadio, Loc.T("Opt.EdgeCross.HotkeyOnly"));
         RefreshEdgeCrossTip();
         WireNotifyInjectUi();
         SyncNotifyInjectCheck();
@@ -1194,13 +1280,23 @@ public partial class MainPage : ContentPage
         MauiRadioTheme.SetContent(ThemeDark, Loc.T("Sys.StyleDark"));
 
         NicTitleText.Text = Loc.T("Net.NicTitle");
-        NicHintText.Text = Loc.T("Net.NicHint");
-        RefreshNicsBtn.Text = Loc.T("Net.RefreshNics");
-        TcpPortLabel.Text = Loc.T("Net.TcpPort");
-        UdpPortLabel.Text = Loc.T("Net.UdpPort");
-        DiscoveryTitleText.Text = Loc.T("Net.DiscoveryTitle");
-        DiscoveryHintText.Text = Loc.T("Net.DiscoveryHint");
-        RefreshDiscoveryBtn.Text = Loc.T("Net.RefreshDiscovery");
+        if (NicHintText != null) NicHintText.Text = Loc.T("Net.NicHint");
+        RefreshNicsBtn.Text = "↻";
+        TcpPortLabel.Text = Loc.T("Net.TcpPortShort");
+        UdpPortLabel.Text = Loc.T("Net.UdpPortShort");
+        if (ConnConfigTitleText != null) ConnConfigTitleText.Text = Loc.T("Net.ConnConfigTitle");
+        if (ConnConfigHintText != null) ConnConfigHintText.Text = Loc.T("Net.ConnConfigHint");
+        if (ConnColType != null) ConnColType.Text = Loc.T("Net.Col.Type");
+        if (ConnColAddr != null) ConnColAddr.Text = Loc.T("Net.Col.Address");
+        if (ConnColOp != null) ConnColOp.Text = Loc.T("Net.Col.Action");
+        DiscoveryTitleText.Text = Loc.T("Net.DeviceMgmtTitle");
+        DiscoveryHintText.Text = Loc.T("Net.DeviceMgmtHint");
+        RefreshDiscoveryBtn.Text = "↻";
+        if (DevFilterAll != null) DevFilterAll.Content = Loc.T("Net.Filter.All");
+        if (DevFilterLocal != null) DevFilterLocal.Content = Loc.T("Net.Filter.Local");
+        if (DevFilterRemote != null) DevFilterRemote.Content = Loc.T("Net.Filter.Remote");
+        if (DevFilterService != null) DevFilterService.Content = Loc.T("Net.Filter.Service");
+        RefreshNetworkBreadcrumb();
 
         XferTitleText.Text = Loc.T("Xfer.Title");
         XferHintText.Text = Loc.T("Xfer.Hint");
@@ -1271,6 +1367,14 @@ public partial class MainPage : ContentPage
 
     private void RebuildMatrix()
     {
+        var dragSlot = _matrixTouchSlot;
+        var dragging = _matrixDragging;
+#if WINDOWS
+        var dragPos = _matrixLastPos;
+#else
+        var dragPos = _matrixTouchOrigin;
+#endif
+
         // 与 Win UniformGrid 一致：1×4 或 2×2，卡片拉伸填满
         MachineMatrix.IsClippedToBounds = false;
         // 透明底也要能命中触摸（子卡片 InputTransparent 时事件落到矩阵）
@@ -1290,7 +1394,7 @@ public partial class MainPage : ContentPage
         {
             var slot = _slots[i];
             var border = CreateSlotCard(slot);
-            // 非 Win 原生拖放：卡片透明给矩阵，由矩阵级触摸完成拖拽（否则移出卡片边界就断）
+            // 非系统 DnD：卡片透明给矩阵，由矩阵级指针/触摸完成拖拽（否则移出卡片边界就断）
             if (!SupportsNativeDragDrop)
                 border.InputTransparent = true;
             Grid.SetRow(border, i / cols);
@@ -1299,32 +1403,146 @@ public partial class MainPage : ContentPage
         }
 
         EnsureMatrixDragInput();
+
+        // 状态刷新等路径重建矩阵时，把拖拽视觉挂回同一槽位的新卡片
+        if (dragSlot != null)
+            RestoreMatrixDragVisual(dragSlot, dragging, dragPos);
+    }
+
+    private void AbortMatrixDragVisual()
+    {
+        if (_matrixTouchBorder != null)
+        {
+            _matrixTouchBorder.TranslationX = 0;
+            _matrixTouchBorder.TranslationY = 0;
+            _matrixTouchBorder.Opacity = 1;
+            _matrixTouchBorder.ZIndex = 0;
+        }
+
+        ClearMatrixDropTargets();
+        _matrixTouchBorder = null;
+        _matrixTouchSlot = null;
+        _matrixDragging = false;
+        _matrixMoved = false;
+    }
+
+    private void ClearMatrixDropTargets()
+    {
+        foreach (var s in _slots)
+            s.IsDropTarget = false;
+        RefreshMatrixCardChrome();
+    }
+
+    private void UpdateMatrixDropHighlight(Point pos)
+    {
+        if (!_matrixDragging || _matrixTouchSlot == null)
+            return;
+
+        var target = HitTestSlotAt(pos);
+        if (target != null && ReferenceEquals(target, _matrixTouchSlot))
+            target = null;
+
+        var changed = false;
+        foreach (var s in _slots)
+        {
+            var on = target != null && ReferenceEquals(s, target);
+            if (s.IsDropTarget == on) continue;
+            s.IsDropTarget = on;
+            changed = true;
+        }
+
+        if (changed)
+            RefreshMatrixCardChrome(preserveDragVisual: true);
+    }
+
+    private void RefreshMatrixCardChrome(bool preserveDragVisual = false)
+    {
+        foreach (var child in MachineMatrix.Children.OfType<Border>())
+        {
+            if (child.BindingContext is not MachineSlot slot)
+                continue;
+            ApplySlotCardChrome(child, slot);
+        }
+
+        if (preserveDragVisual && _matrixDragging && _matrixTouchBorder != null)
+        {
+            _matrixTouchBorder.Opacity = 0.88;
+            _matrixTouchBorder.ZIndex = 100;
+        }
+    }
+
+    private static void ApplySlotCardChrome(Border border, MachineSlot slot)
+    {
+        var resources = Application.Current!.Resources;
+        if (slot.IsDropTarget)
+        {
+            border.StrokeThickness = 3;
+            border.Stroke = (Color)resources["Blue"];
+            border.BackgroundColor = (Color)resources["BlueSoft"];
+            border.Opacity = 1;
+            return;
+        }
+
+        if (slot.IsSelected)
+        {
+            border.StrokeThickness = 2;
+            border.Stroke = (Color)resources["Blue"];
+            border.BackgroundColor = (Color)resources["BlueHover"];
+            border.Opacity = 1;
+            return;
+        }
+
+        if (slot.IsLocal)
+        {
+            border.StrokeThickness = 2;
+            border.Stroke = (Color)resources["Success"];
+            border.BackgroundColor = resources.ContainsKey("SuccessSoft")
+                ? (Color)resources["SuccessSoft"]
+                : Color.FromArgb("#ECFDF5");
+            border.Opacity = slot.Enabled ? 1 : 0.9;
+            return;
+        }
+
+        border.StrokeThickness = 1;
+        border.Stroke = (Color)resources["Line"];
+        border.BackgroundColor = slot.Enabled
+            ? (Color)resources["CardBg"]
+            : (Color)resources["MatrixBg"];
+        border.Opacity = slot.Enabled ? 1 : 0.9;
+    }
+
+    private void RestoreMatrixDragVisual(MachineSlot slot, bool dragging, Point pos)
+    {
+        _matrixTouchSlot = slot;
+        _matrixTouchBorder = MachineMatrix.Children.OfType<Border>()
+            .FirstOrDefault(b => ReferenceEquals(b.BindingContext, slot));
+        _matrixDragging = dragging && _matrixTouchBorder != null;
+        if (_matrixTouchBorder == null || !_matrixDragging)
+            return;
+
+        var dx = pos.X - _matrixTouchOrigin.X;
+        var dy = pos.Y - _matrixTouchOrigin.Y;
+        _matrixTouchBorder.Opacity = 0.88;
+        _matrixTouchBorder.ZIndex = 100;
+        _matrixTouchBorder.TranslationX = dx;
+        _matrixTouchBorder.TranslationY = dy;
+        StatusLabel.Text = $"拖动 {slot.DisplayName}，放到目标格松开";
     }
 
     private Border CreateSlotCard(MachineSlot slot)
     {
-        var selected = slot.IsLocal || slot.IsSelected;
         // 与 Win 一致：默认 Margin=4；2×2 时 Margin=3；内边距由内容模板自身 Margin 承担
         var margin = _twoRow ? new Thickness(3) : new Thickness(4);
         var border = new Border
         {
             Margin = margin,
             Padding = 0,
-            StrokeThickness = selected ? 2 : 1,
-            Stroke = selected
-                ? (Color)Application.Current!.Resources["Blue"]
-                : (Color)Application.Current!.Resources["Line"],
-            BackgroundColor = selected
-                ? (Color)Application.Current!.Resources["BlueHover"]
-                : slot.Enabled
-                    ? (Color)Application.Current!.Resources["CardBg"]
-                    : (Color)Application.Current!.Resources["MatrixBg"],
             StrokeShape = new RoundRectangle { CornerRadius = 8 },
             HorizontalOptions = LayoutOptions.Fill,
             VerticalOptions = LayoutOptions.Fill,
-            Opacity = slot.Enabled || selected ? 1 : 0.9,
             BindingContext = slot
         };
+        ApplySlotCardChrome(border, slot);
 
         var statusColor = slot.IsLocal || slot.OutboundOk || slot.InboundOk
             ? (Color)Application.Current!.Resources["Success"]
@@ -1420,15 +1638,18 @@ public partial class MainPage : ContentPage
         return border;
     }
 
-    /// <summary>WinUI/MacCatalyst：原生拖放。Android/iOS：矩阵级触摸拖拽。</summary>
+    /// <summary>
+    /// 仅 MacCatalyst 用系统拖放。
+    /// WinUI 清单为 requireAdministrator（穿边钩子），提权进程下 OLE/WinUI DnD 会
+    /// 「Drag start failed… elevated process」灾难性故障，故矩阵与工具→快捷栏均走指针拖拽。
+    /// </summary>
     private static bool SupportsNativeDragDrop =>
-        DeviceInfo.Platform == DevicePlatform.WinUI
-        || DeviceInfo.Platform == DevicePlatform.MacCatalyst;
+        DeviceInfo.Platform == DevicePlatform.MacCatalyst;
 
     private void AttachSlotGestures(Border border, MachineSlot slot)
     {
         if (!SupportsNativeDragDrop)
-            return; // 触摸端由 EnsureMatrixDragInput 统一处理
+            return; // Win / 触摸端由 EnsureMatrixDragInput 统一处理
 
         var tap = new TapGestureRecognizer();
         tap.Tapped += (_, _) => OnSlotTapped(slot);
@@ -1437,27 +1658,84 @@ public partial class MainPage : ContentPage
         var drag = new DragGestureRecognizer();
         drag.DragStarting += (_, e) =>
         {
-            e.Data.Properties[DragSlotKey] = slot;
+            var idx = _slots.IndexOf(slot);
+            if (idx < 0) return;
+            e.Data.Properties[DragSlotKey] = idx;
+            _nativeDragSource = slot;
             SelectSlotOnly(slot);
         };
         border.GestureRecognizers.Add(drag);
 
         var drop = new DropGestureRecognizer { AllowDrop = true };
-        drop.DragOver += (_, e) => e.AcceptedOperation = DataPackageOperation.Copy;
+        drop.DragOver += (_, e) =>
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            var src = _nativeDragSource;
+            var on = src != null && !ReferenceEquals(src, slot);
+            if (slot.IsDropTarget == on) return;
+            foreach (var s in _slots)
+                s.IsDropTarget = ReferenceEquals(s, slot) && on;
+            RefreshMatrixCardChrome();
+        };
+        drop.DragLeave += (_, _) =>
+        {
+            if (!slot.IsDropTarget) return;
+            slot.IsDropTarget = false;
+            ApplySlotCardChrome(border, slot);
+        };
         drop.Drop += (_, e) =>
         {
             e.Handled = true;
-            if (!e.Data.Properties.TryGetValue(DragSlotKey, out var obj) || obj is not MachineSlot src)
-                return;
-            if (ReferenceEquals(src, slot)) return;
+            try
+            {
+                if (!TryResolveDragSourceSlot(e.Data, out var src) || src == null)
+                    src = _nativeDragSource;
+                if (src == null || ReferenceEquals(src, slot)) return;
 
-            SwapSlotData(src, slot);
-            SyncSlotLocalFlags();
-            SelectSlotOnly(slot);
-            RebuildMatrix();
-            StatusLabel.Text = "已互换位置（请点「应用」同步）";
+                SwapSlotData(src, slot);
+                SyncSlotLocalFlags();
+                SelectSlotOnly(slot);
+                ClearMatrixDropTargets();
+                _nativeDragSource = null;
+                RebuildMatrix();
+                StatusLabel.Text = "已互换位置（请点「应用」同步）";
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("布局拖拽互换失败: " + ex.Message);
+            }
+            finally
+            {
+                _nativeDragSource = null;
+                ClearMatrixDropTargets();
+            }
         };
         border.GestureRecognizers.Add(drop);
+    }
+
+    private bool TryResolveDragSourceSlot(DataPackageView data, out MachineSlot? src)
+    {
+        src = null;
+        if (!data.Properties.TryGetValue(DragSlotKey, out var obj) || obj == null)
+            return false;
+
+        switch (obj)
+        {
+            case int idx when idx >= 0 && idx < _slots.Count:
+                src = _slots[idx];
+                return true;
+            case long l when l >= 0 && l < _slots.Count:
+                src = _slots[(int)l];
+                return true;
+            case MachineSlot slot:
+                src = slot;
+                return true;
+            case string s when int.TryParse(s, out var parsed) && parsed >= 0 && parsed < _slots.Count:
+                src = _slots[parsed];
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void EnsureMatrixDragInput()
@@ -1469,6 +1747,10 @@ public partial class MainPage : ContentPage
 #if ANDROID
         MachineMatrix.HandlerChanged += (_, _) => WireAndroidMatrixTouch();
         WireAndroidMatrixTouch();
+#elif WINDOWS
+        // 提权进程不能用 WinUI DnD；原生指针 + Capture，鼠标拖出卡片也不丢
+        MachineMatrix.HandlerChanged += (_, _) => WireWindowsMatrixPointer();
+        WireWindowsMatrixPointer();
 #else
         var pointer = new PointerGestureRecognizer();
         pointer.PointerPressed += (_, e) =>
@@ -1489,6 +1771,147 @@ public partial class MainPage : ContentPage
         MachineMatrix.GestureRecognizers.Add(pointer);
 #endif
     }
+
+#if WINDOWS
+    private void WireWindowsMatrixPointer()
+    {
+        if (MachineMatrix.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        native.PointerPressed -= OnWindowsMatrixPointerPressed;
+        native.PointerMoved -= OnWindowsMatrixPointerMoved;
+        native.PointerReleased -= OnWindowsMatrixPointerReleased;
+        native.PointerCanceled -= OnWindowsMatrixPointerCanceled;
+        native.PointerCaptureLost -= OnWindowsMatrixPointerCaptureLost;
+
+        native.PointerPressed += OnWindowsMatrixPointerPressed;
+        native.PointerMoved += OnWindowsMatrixPointerMoved;
+        native.PointerReleased += OnWindowsMatrixPointerReleased;
+        native.PointerCanceled += OnWindowsMatrixPointerCanceled;
+        native.PointerCaptureLost += OnWindowsMatrixPointerCaptureLost;
+    }
+
+    private static Point ToMatrixPoint(
+        Microsoft.UI.Xaml.FrameworkElement native,
+        Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var p = e.GetCurrentPoint(native).Position;
+        return new Point(p.X, p.Y);
+    }
+
+    /// <summary>以物理左键为准；WinUI 在捕获/钩子干扰下会冒虚假 Released。</summary>
+    private static bool IsPhysicalLeftButtonDown()
+        => (FlyScreen.Native.NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+
+    private void FinishWindowsMatrixDrag(
+        Microsoft.UI.Xaml.FrameworkElement native,
+        Microsoft.UI.Xaml.Input.Pointer pointer,
+        Point pos,
+        bool cancelled)
+    {
+        if (_matrixPointerEnding || _matrixTouchSlot == null)
+            return;
+
+        _matrixPointerEnding = true;
+        try
+        {
+            MatrixTouchEnded(pos, cancelled);
+            try { native.ReleasePointerCapture(pointer); } catch { /* ignore */ }
+        }
+        finally
+        {
+            _matrixPointerEnding = false;
+        }
+    }
+
+    private void OnWindowsMatrixPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (!e.GetCurrentPoint(native).Properties.IsLeftButtonPressed)
+            return;
+
+        native.CapturePointer(e.Pointer);
+        var pos = ToMatrixPoint(native, e);
+        _matrixLastPos = pos;
+        MatrixTouchBegan(pos);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_matrixTouchSlot == null)
+            return;
+
+        var pos = ToMatrixPoint(native, e);
+        _matrixLastPos = pos;
+
+        // Released 被吞时，在移动中发现物理键已抬起再提交
+        if (!IsPhysicalLeftButtonDown())
+        {
+            FinishWindowsMatrixDrag(native, e.Pointer, pos, cancelled: false);
+            e.Handled = true;
+            return;
+        }
+
+        MatrixTouchMoved(pos);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        // 拖拽途中的虚假 Released：物理左键仍按下则绝不提交互换
+        if (IsPhysicalLeftButtonDown())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var pos = ToMatrixPoint(native, e);
+        _matrixLastPos = pos;
+        FinishWindowsMatrixDrag(native, e.Pointer, pos, cancelled: false);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerCanceled(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        // 取消时若键仍按下，多半是捕获被抢，夺回后继续拖
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            e.Handled = true;
+            return;
+        }
+
+        FinishWindowsMatrixDrag(native, e.Pointer, ToMatrixPoint(native, e), cancelled: true);
+        e.Handled = true;
+    }
+
+    private void OnWindowsMatrixPointerCaptureLost(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_matrixPointerEnding || _matrixTouchSlot == null)
+            return;
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            return;
+        }
+
+        // 键已松开但只收到 CaptureLost：按最后位置提交
+        FinishWindowsMatrixDrag(native, e.Pointer, _matrixLastPos, cancelled: false);
+    }
+#endif
 
 #if ANDROID
     private void WireAndroidMatrixTouch()
@@ -1547,8 +1970,17 @@ public partial class MainPage : ContentPage
 
     private void MatrixTouchMoved(Point pos)
     {
-        if (_matrixTouchSlot == null || _matrixTouchBorder == null)
+        if (_matrixTouchSlot == null)
             return;
+
+        // 定时 RebuildMatrix 会换掉 Border；按槽位重新挂上，避免拖影突然消失
+        if (_matrixTouchBorder?.Parent == null)
+        {
+            _matrixTouchBorder = MachineMatrix.Children.OfType<Border>()
+                .FirstOrDefault(b => ReferenceEquals(b.BindingContext, _matrixTouchSlot));
+            if (_matrixTouchBorder == null)
+                return;
+        }
 
         var dx = pos.X - _matrixTouchOrigin.X;
         var dy = pos.Y - _matrixTouchOrigin.Y;
@@ -1557,6 +1989,7 @@ public partial class MainPage : ContentPage
             _matrixDragging = true;
             _matrixMoved = true;
             SelectSlotOnly(_matrixTouchSlot);
+            RefreshMatrixCardChrome(preserveDragVisual: true);
             _matrixTouchBorder.Opacity = 0.88;
             _matrixTouchBorder.ZIndex = 100;
             StatusLabel.Text = $"拖动 {_matrixTouchSlot.DisplayName}，放到目标格松开";
@@ -1572,6 +2005,7 @@ public partial class MainPage : ContentPage
         {
             _matrixTouchBorder.TranslationX = dx;
             _matrixTouchBorder.TranslationY = dy;
+            UpdateMatrixDropHighlight(pos);
         }
     }
 
@@ -1589,6 +2023,7 @@ public partial class MainPage : ContentPage
             border.ZIndex = 0;
         }
 
+        ClearMatrixDropTargets();
         _matrixTouchBorder = null;
         _matrixTouchSlot = null;
         _matrixDragging = false;
@@ -1599,7 +2034,15 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (wasDragging && !cancelled)
+        if (wasDragging && cancelled)
+        {
+            _matrixMoved = false;
+            StatusLabel.Text = "已取消互换";
+            SelectSlotOnly(slot);
+            return;
+        }
+
+        if (wasDragging)
         {
             var target = HitTestSlotAt(pos);
             _matrixMoved = false;
@@ -1607,7 +2050,6 @@ public partial class MainPage : ContentPage
             {
                 StatusLabel.Text = "未放到其它格子，已取消互换";
                 SelectSlotOnly(slot);
-                RebuildMatrix();
                 return;
             }
 
@@ -1639,7 +2081,23 @@ public partial class MainPage : ContentPage
     }
 
     private MachineSlot? HitTestSlotAt(Point pos)
-        => HitTestBorderAt(pos)?.BindingContext as MachineSlot;
+    {
+        if (HitTestBorderAt(pos)?.BindingContext is MachineSlot hit)
+            return hit;
+
+        // Bounds 偶发未就绪时，按矩阵几何兜底（与 1×4 / 2×2 一致）
+        var w = MachineMatrix.Width;
+        var h = MachineMatrix.Height;
+        if (w <= 0 || h <= 0 || _slots.Count == 0)
+            return null;
+
+        var cols = _twoRow ? 2 : 4;
+        var rows = _twoRow ? 2 : 1;
+        var col = (int)Math.Clamp(Math.Floor(pos.X * cols / w), 0, cols - 1);
+        var row = (int)Math.Clamp(Math.Floor(pos.Y * rows / h), 0, rows - 1);
+        var idx = row * cols + col;
+        return idx >= 0 && idx < _slots.Count ? _slots[idx] : null;
+    }
 
     private static void SwapSlotData(MachineSlot a, MachineSlot b)
     {
@@ -1760,6 +2218,10 @@ public partial class MainPage : ContentPage
             slot.RefreshStatus();
         }
 
+        // 拖拽中重建会清掉 Translation，表现为「按住一会儿拖影没了」
+        if (_matrixTouchSlot != null)
+            return;
+
         RebuildMatrix();
     }
 
@@ -1825,6 +2287,13 @@ public partial class MainPage : ContentPage
         {
             RefreshOptionsRadioChrome();
             SyncA11yInjectCheck();
+            EnsureOptionsScrollPolicy();
+            RelayoutOptionsPage();
+            Dispatcher.Dispatch(() =>
+            {
+                RelayoutOptionsPage();
+                UpdateOptionsScrollPolicy();
+            });
         }
 
         if (index == 5)
@@ -1894,32 +2363,32 @@ public partial class MainPage : ContentPage
     }
 
     // 共享设备：摄像头 + 麦克风 + 扬声器 + 分享
-    private const string ToolIconSharedDevices =
-        "M2,6.3H5.2L6,4.9H10L10.8,6.3H14V11.8H2ZM8,7.6A1.9,1.9 0 0,0 6.1,9.5A1.9,1.9 0 0,0 8,11.4A1.9,1.9 0 0,0 9.9,9.5A1.9,1.9 0 0,0 8,7.6M16.4,3.2A1.9,2.5 0 0,1 20.2,3.2V8A1.9,2.5 0 0,1 16.4,8ZM18.3,10.3V12M15.2,8.6C16.5,10.3 20.1,10.3 21.4,8.6M15.4,12H21.2M2.2,15.4H5.2L9.2,12.8V21.2L5.2,18.6H2.2ZM10.5,14.6C11.8,16 11.8,19.2 10.5,20.6M12.4,13.4C14.4,15.4 14.4,19.8 12.4,21.8M16.8,14.2L20.2,16.2M16.8,20.2L20.2,16.2";
-    private const string ToolIconSharedDevicesAccent =
-        "M16.5,13A1.15,1.15 0 0,0 15.35,14.15A1.15,1.15 0 0,0 16.5,15.3A1.15,1.15 0 0,0 17.65,14.15A1.15,1.15 0 0,0 16.5,13M21,15.05A1.15,1.15 0 0,0 19.85,16.2A1.15,1.15 0 0,0 21,17.35A1.15,1.15 0 0,0 22.15,16.2A1.15,1.15 0 0,0 21,15.05M16.5,19A1.15,1.15 0 0,0 15.35,20.15A1.15,1.15 0 0,0 16.5,21.3A1.15,1.15 0 0,0 17.65,20.15A1.15,1.15 0 0,0 16.5,19Z";
+    private static readonly Dictionary<string, ImageSource> ToolIconCache = new(StringComparer.OrdinalIgnoreCase);
 
-    private static ImageSource? _toolColorPickerIcon;
-    private static bool _toolColorPickerIconTried;
-
-    private static ImageSource? GetToolColorPickerIcon()
+    private static ImageSource? GetToolIconImage(string? iconKey)
     {
-        if (_toolColorPickerIconTried) return _toolColorPickerIcon;
-        _toolColorPickerIconTried = true;
+        if (string.IsNullOrWhiteSpace(iconKey)) return null;
+        var key = iconKey.Trim();
+        lock (ToolIconCache)
+        {
+            if (ToolIconCache.TryGetValue(key, out var hit))
+                return hit;
+        }
+
+        ToolBundledCatalogAssets.Ensure();
+        ToolIconRegistry.EnsureFromLoadedAssemblies();
+        var bytes = ToolIconRegistry.TryReadBitmapBytes(key);
+        if (bytes == null || bytes.Length == 0) return null;
         try
         {
-            using var stream = BrandAssets.Open(BrandAssets.ToolColorPickerJpg);
-            using var ms = new MemoryStream();
-            stream.CopyTo(ms);
-            var bytes = ms.ToArray();
-            _toolColorPickerIcon = ImageSource.FromStream(() => new MemoryStream(bytes));
+            var src = ImageSource.FromStream(() => new MemoryStream(bytes));
+            lock (ToolIconCache) ToolIconCache[key] = src;
+            return src;
         }
         catch
         {
-            _toolColorPickerIcon = null;
+            return null;
         }
-
-        return _toolColorPickerIcon;
     }
 
     private const double ToolCardMinSlot = 240;
@@ -1927,6 +2396,24 @@ public partial class MainPage : ContentPage
     private double _toolsHostWidthTracked;
     private bool _toolsRefreshQueued;
     private int _toolsColumnsTracked;
+#if WINDOWS
+    /// <summary>提权 WinUI 不能用 DragGestureRecognizer；工具→快捷栏走指针命中。</summary>
+    private readonly List<(Border Border, int? ReplaceIndex)> _toolShortcutDropTargets = new();
+    private Border? _toolWinDragSource;
+    private Border? _toolWinDragGhost;
+    private ToolCardRow? _toolWinDragRow;
+    private Windows.Foundation.Point _toolWinDragOrigin;
+    private Windows.Foundation.Point _toolWinLastPos;
+    private bool _toolWinDragging;
+    private bool _toolWinPointerEnding;
+    private const double ToolDragGhostSize = 40;
+
+    private sealed class ToolWinDragTag
+    {
+        public required Border Border { get; init; }
+        public required ToolCardRow Row { get; init; }
+    }
+#endif
 
     private void RefreshToolsPage()
     {
@@ -1934,6 +2421,9 @@ public partial class MainPage : ContentPage
         EnsureToolsStackLayoutHook();
         try
         {
+            ToolIconRegistry.EnsureFromLoadedAssemblies();
+            lock (ToolIconCache) ToolIconCache.Clear();
+
             var host = ResolveToolsHostWidth();
             var cols = ResolveToolColumns(host);
             _toolsColumnsTracked = cols;
@@ -1945,9 +2435,8 @@ public partial class MainPage : ContentPage
             for (var c = 0; c < cols; c++)
                 ToolsStack.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
 
-            var running = ToolService.Instance.SharedDevices?.IsRunning == true;
-            var colorRunning = ToolService.Instance.ColorPicker.IsRunning;
-            var rows = ToolCardRows.Build(running, colorRunning);
+            var rows = ToolCardRows.Build();
+            RefreshToolsShortcuts(rows);
             var cardW = ResolveToolCardWidth(host, cols);
             for (var i = 0; i < rows.Count; i++)
             {
@@ -1992,20 +2481,63 @@ public partial class MainPage : ContentPage
         ToolsHintText.IsVisible = !hasTabs || ws.IsShowingCatalog;
         ToolsTitleText.IsVisible = !hasTabs;
 
+        if (!_toolsBreadcrumbWired)
+        {
+            _toolsBreadcrumb.SegmentClicked += seg =>
+            {
+                if (string.IsNullOrEmpty(seg.Id))
+                    ToolService.Instance.Workspace.ShowCatalog();
+                else
+                    ToolService.Instance.Workspace.Activate(seg.Id);
+            };
+            _toolsBreadcrumb.SegmentCloseClicked += async seg =>
+            {
+                if (string.IsNullOrEmpty(seg.Id)) return;
+                var module = ToolService.Instance.Host.Get(seg.Id);
+                if (module != null)
+                    await module.StopAsync();
+                else
+                    ToolService.Instance.Workspace.Close(seg.Id);
+                RefreshToolsPage();
+            };
+            _toolsBreadcrumbWired = true;
+        }
+
         ToolsWorkspaceNavPanel.Children.Clear();
         if (hasTabs)
         {
-            ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(
-                Loc.T("Tool.Workspace.Catalog"), ws.IsShowingCatalog, null, showSep: false));
+            var crumbs = new List<BreadcrumbSegment>
+            {
+                new()
+                {
+                    Id = "",
+                    Title = Loc.T("Tool.Workspace.Catalog"),
+                    IsActive = ws.IsShowingCatalog,
+                    IsClickable = true
+                }
+            };
             foreach (var tab in ws.OpenTabs)
             {
                 var active = !ws.IsShowingCatalog
                     && string.Equals(ws.ActiveToolId, tab.ToolId, StringComparison.OrdinalIgnoreCase);
-                ToolsWorkspaceNavPanel.Children.Add(CreateWorkspaceCrumb(tab.Title, active, tab.ToolId, showSep: true));
+                crumbs.Add(new BreadcrumbSegment
+                {
+                    Id = tab.ToolId,
+                    Title = tab.Title,
+                    IsActive = active,
+                    IsClickable = true,
+                    ShowClose = true
+                });
             }
+            _toolsBreadcrumb.SetItems(crumbs);
+            ToolsWorkspaceNavPanel.Children.Add(_toolsBreadcrumb);
         }
 
-        if (ws.IsShowingCatalog || !hasTabs)
+        var showCatalog = ws.IsShowingCatalog || !hasTabs;
+        if (ToolsShortcutHost != null)
+            ToolsShortcutHost.IsVisible = showCatalog;
+
+        if (showCatalog)
         {
             ToolsScroll.IsVisible = true;
             ToolsWorkspaceHost.IsVisible = false;
@@ -2015,97 +2547,13 @@ public partial class MainPage : ContentPage
         {
             ToolsScroll.IsVisible = false;
             ToolsWorkspaceHost.IsVisible = true;
-            if (string.Equals(ws.ActiveToolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase)
-                && ToolsWorkspaceHost.Content is not ColorPickerPanel)
-                ToolsWorkspaceHost.Content = new ColorPickerPanel();
+            var activeId = ws.ActiveToolId;
+            if (!string.IsNullOrEmpty(activeId)
+                && ToolService.Instance.CreateWorkspaceContent(activeId) is View content
+                && (ToolsWorkspaceHost.Content == null
+                    || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+                ToolsWorkspaceHost.Content = content;
         }
-    }
-
-    private View CreateWorkspaceCrumb(string title, bool isActive, string? toolId, bool showSep)
-    {
-        var dark = MauiThemeService.IsDark(MauiThemeService.Current);
-        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
-        var muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
-        var blue = Color.FromArgb("#2563EB");
-
-        var row = new HorizontalStackLayout { Spacing = 0, VerticalOptions = LayoutOptions.Center };
-        if (showSep)
-        {
-            row.Children.Add(new Label
-            {
-                Text = "»",
-                FontSize = 15,
-                FontAttributes = FontAttributes.Bold,
-                TextColor = muted,
-                VerticalOptions = LayoutOptions.Center,
-                Margin = new Thickness(10, 0)
-            });
-        }
-
-        var link = new Label
-        {
-            Text = title,
-            FontSize = 15,
-            FontAttributes = isActive ? FontAttributes.Bold : FontAttributes.None,
-            TextColor = isActive ? blue : text,
-            VerticalOptions = LayoutOptions.Center,
-            Margin = new Thickness(0, 0, 4, 0)
-        };
-        var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) =>
-        {
-            if (string.IsNullOrEmpty(toolId))
-                ToolService.Instance.Workspace.ShowCatalog();
-            else
-                ToolService.Instance.Workspace.Activate(toolId);
-        };
-        link.GestureRecognizers.Add(tap);
-        row.Children.Add(link);
-
-        if (toolId != null)
-        {
-            var line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
-            var blueSoft = Color.FromArgb(dark ? "#1E3A5F" : "#DBEAFE");
-            var close = new Button
-            {
-                Text = "×",
-                WidthRequest = 28,
-                HeightRequest = 28,
-                Margin = new Thickness(8, 0, 0, 0),
-                Padding = 0,
-                FontSize = 13,
-                BackgroundColor = Colors.Transparent,
-                TextColor = muted,
-                BorderColor = line,
-                BorderWidth = 1,
-                CornerRadius = 4
-            };
-            var ptr = new PointerGestureRecognizer();
-            ptr.PointerEntered += (_, _) =>
-            {
-                close.BackgroundColor = blueSoft;
-                close.TextColor = blue;
-                close.BorderColor = blue;
-            };
-            ptr.PointerExited += (_, _) =>
-            {
-                close.BackgroundColor = Colors.Transparent;
-                close.TextColor = muted;
-                close.BorderColor = line;
-            };
-            close.GestureRecognizers.Add(ptr);
-            close.Clicked += (_, _) =>
-            {
-                if (string.Equals(toolId, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
-                    ToolService.Instance.StopColorPickerWorkspace();
-                else
-                    ToolService.Instance.Workspace.Close(toolId);
-                RefreshToolsPage();
-            };
-            row.Children.Add(close);
-        }
-
-        return row;
     }
 
     private void EnsureToolsStackLayoutHook()
@@ -2217,54 +2665,25 @@ public partial class MainPage : ContentPage
         };
 
         View iconContent;
-        try
+        if (GetToolIconImage(row.IconKey) is { } toolIcon)
         {
-            var isColor = string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase);
-            if (isColor && GetToolColorPickerIcon() is { } colorIcon)
+            iconContent = new Image
             {
-                iconContent = new Image
-                {
-                    Source = colorIcon,
-                    WidthRequest = 36,
-                    HeightRequest = 36,
-                    Aspect = Aspect.AspectFit,
-                    HorizontalOptions = LayoutOptions.Center,
-                    VerticalOptions = LayoutOptions.Center
-                };
-            }
-            else
-            {
-                var iconBody = new Microsoft.Maui.Controls.Shapes.Path
-                {
-                    Data = (Geometry?)new PathGeometryConverter().ConvertFromInvariantString(ToolIconSharedDevices),
-                    Stroke = text,
-                    StrokeThickness = 1.4,
-                    Aspect = Stretch.Uniform,
-                    WidthRequest = 28,
-                    HeightRequest = 28,
-                    HorizontalOptions = LayoutOptions.Center,
-                    VerticalOptions = LayoutOptions.Center
-                };
-                var iconAccent = new Microsoft.Maui.Controls.Shapes.Path
-                {
-                    Data = (Geometry?)new PathGeometryConverter().ConvertFromInvariantString(ToolIconSharedDevicesAccent),
-                    Fill = Color.FromArgb("#F59E0B"),
-                    Aspect = Stretch.Uniform,
-                    WidthRequest = 28,
-                    HeightRequest = 28,
-                    HorizontalOptions = LayoutOptions.Center,
-                    VerticalOptions = LayoutOptions.Center,
-                    InputTransparent = true
-                };
-                iconContent = new Grid { Children = { iconBody, iconAccent } };
-            }
+                Source = toolIcon,
+                WidthRequest = 36,
+                HeightRequest = 36,
+                Aspect = Aspect.AspectFit,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center
+            };
         }
-        catch
+        else
         {
             iconContent = new Label
             {
-                Text = "🎙",
+                Text = "◆",
                 FontSize = 22,
+                TextColor = text,
                 HorizontalOptions = LayoutOptions.Center,
                 VerticalOptions = LayoutOptions.Center
             };
@@ -2380,13 +2799,51 @@ public partial class MainPage : ContentPage
         }
         // 工具卡片不显示悬停说明（状态已在卡片内展示）
 
-        var tap = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
-        tap.Tapped += async (_, _) =>
+        // Win 提权指针拖拽会自己处理单击，避免与 Capture/Handled 双触发
+#if WINDOWS
+        var usePointerToolDrag = row.IsInstalled && !SupportsNativeDragDrop;
+#else
+        const bool usePointerToolDrag = false;
+#endif
+        if (!usePointerToolDrag)
         {
-            // 已打开则跳转工作区；停止仍走 ⋯ 菜单
-            await HandleToolActionAsync(row, primary: true);
-        };
-        border.GestureRecognizers.Add(tap);
+            var tap = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+            tap.Tapped += async (_, _) =>
+            {
+                // 已打开则跳转工作区；停止仍走 ⋯ 菜单
+                await HandleToolActionAsync(row, primary: true);
+            };
+            border.GestureRecognizers.Add(tap);
+        }
+
+        if (row.IsInstalled)
+        {
+#if WINDOWS
+            // 提权进程禁用 WinUI DnD；指针 + Capture 拖到快捷栏
+            if (SupportsNativeDragDrop)
+            {
+                var drag = new DragGestureRecognizer();
+                drag.DragStarting += (_, e) =>
+                {
+                    e.Data.Properties["toolId"] = row.Id;
+                    e.Data.Text = row.Id;
+                };
+                border.GestureRecognizers.Add(drag);
+            }
+            else
+            {
+                WireWindowsToolCardDrag(border, row);
+            }
+#else
+            var drag = new DragGestureRecognizer();
+            drag.DragStarting += (_, e) =>
+            {
+                e.Data.Properties["toolId"] = row.Id;
+                e.Data.Text = row.Id;
+            };
+            border.GestureRecognizers.Add(drag);
+#endif
+        }
 
         var pointer = new PointerGestureRecognizer();
         pointer.PointerEntered += (_, _) =>
@@ -2409,11 +2866,12 @@ public partial class MainPage : ContentPage
             swipe.Swiped += async (_, _) =>
             {
                 if (!row.IsInstalled) return;
+                var action = row.IsLocalProgram ? Loc.T("Tool.Remove") : Loc.T("Tool.Uninstall");
                 var ok = await DisplayAlertAsync(
-                    Loc.T("Tool.Uninstall"),
+                    action,
                     row.Name,
-                    Loc.T("Tool.Uninstall"),
-                    Loc.T("Tool.SharedDevices.Cancel"));
+                    action,
+                    Loc.T("Tool.Cancel"));
                 if (ok)
                     await HandleToolActionAsync(row, primary: false);
             };
@@ -2425,6 +2883,14 @@ public partial class MainPage : ContentPage
 
     private static IEnumerable<(string Text, string Action)> EnumerateToolMenuActions(ToolCardRow row)
     {
+        if (row.IsLocalProgram)
+        {
+            if (row.CanStart)
+                yield return (Loc.T("Tool.Start"), "primary");
+            yield return (Loc.T("Tool.Remove"), "uninstall");
+            yield break;
+        }
+
         if (!row.IsInstalled)
         {
             yield return (Loc.T("Tool.Install"), "primary");
@@ -2433,15 +2899,9 @@ public partial class MainPage : ContentPage
 
         if (row.CanStart)
             yield return (Loc.T("Tool.Start"), "primary");
-        if (row.IsRunning)
-            yield return (Loc.T("Tool.Stop"), "stop");
-        if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
-        {
-            if (row.CanConsume)
-                yield return (Loc.T("Tool.Test"), "test");
-            if (row.CanProvide)
-                yield return (Loc.T("Tool.Manage"), "manage");
-        }
+
+        foreach (var contrib in ToolService.Instance.GetMenuContributions(row))
+            yield return (contrib.Label, "menu:" + contrib.ActionId);
 
         if (row.SecondaryEnabled || row.IsInstalled)
             yield return (Loc.T("Tool.Uninstall"), "uninstall");
@@ -2470,10 +2930,10 @@ public partial class MainPage : ContentPage
         if (actions.Length == 0) return;
         var pick = await DisplayActionSheetAsync(
             row.Name,
-            Loc.T("Tool.SharedDevices.Cancel"),
+            Loc.T("Tool.Cancel"),
             null,
             actions);
-        if (string.IsNullOrEmpty(pick) || pick == Loc.T("Tool.SharedDevices.Cancel"))
+        if (string.IsNullOrEmpty(pick) || pick == Loc.T("Tool.Cancel"))
             return;
         foreach (var (text, action) in EnumerateToolMenuActions(row))
         {
@@ -2487,27 +2947,10 @@ public partial class MainPage : ContentPage
 
     private async Task InvokeToolMenuActionAsync(ToolCardRow row, string action)
     {
-        if (action == "test")
+        if (action.StartsWith("menu:", StringComparison.Ordinal))
         {
-            var page = new SharedDevicesTestPage();
-            await Navigation.PushModalAsync(page, animated: true);
-            await page.Closed;
-            return;
-        }
-
-        if (action == "manage")
-        {
-            var sd = ToolService.Instance.SharedDevices;
-            if (sd == null) return;
-            var page = new SharedDevicesManagePage(sd);
-            await Navigation.PushModalAsync(page, animated: true);
-            await page.Closed;
-            return;
-        }
-
-        if (action == "stop")
-        {
-            await HandleToolActionAsync(row, primary: true, fromMenu: true);
+            await ToolService.Instance.InvokeMenuAsync(row.Id, action["menu:".Length..]);
+            RefreshToolsPage();
             return;
         }
 
@@ -2526,14 +2969,647 @@ public partial class MainPage : ContentPage
         {
             ToolVisualStates.Running => dark ? "#1E3A5F" : "#DBEAFE",
             ToolVisualStates.Installed => dark ? "#0F3D2E" : "#ECFDF5",
+            ToolVisualStates.LocalProgram => dark ? "#0F3D2E" : "#ECFDF5",
             ToolVisualStates.Installing => dark ? "#243447" : "#EFF6FF",
             _ => dark ? "#1E293B" : "#F3F4F6"
         };
+
+    private void RefreshToolsShortcuts(IReadOnlyList<ToolCardRow>? rows = null)
+    {
+        if (ToolsShortcutBar == null) return;
+        ToolsShortcutBar.Children.Clear();
+#if WINDOWS
+        _toolShortcutDropTargets.Clear();
+#endif
+        rows ??= ToolCardRows.Build();
+        var occupied = ToolService.Instance.Shortcuts.Occupied;
+        var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+        var muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
+        var line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
+        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
+        var subtle = ResolveThemeColor("SubtleBg") ?? Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
+
+        for (var i = 0; i < occupied.Count; i++)
+        {
+            var index = i;
+            var id = occupied[i];
+            var row = rows.FirstOrDefault(r => string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (row == null) continue;
+
+            var border = new Border
+            {
+                WidthRequest = 64,
+                BackgroundColor = Colors.Transparent,
+                VerticalOptions = LayoutOptions.Start
+            };
+            border.Content = new VerticalStackLayout
+            {
+                Spacing = 4,
+                HorizontalOptions = LayoutOptions.Center,
+                Children =
+                {
+                    new Border
+                    {
+                        WidthRequest = 40,
+                        HeightRequest = 40,
+                        Stroke = line,
+                        StrokeThickness = 1,
+                        StrokeShape = new RoundRectangle { CornerRadius = 8 },
+                        BackgroundColor = subtle,
+                        HorizontalOptions = LayoutOptions.Center,
+                        Content = CreateToolShortcutIcon(row.IconKey, text, size: 28)
+                    },
+                    new Label
+                    {
+                        Text = row.Name,
+                        FontSize = 11,
+                        TextColor = text,
+                        HorizontalTextAlignment = TextAlignment.Center,
+                        LineBreakMode = LineBreakMode.TailTruncation,
+                        MaxLines = 1
+                    }
+                }
+            };
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += async (_, _) => await HandleToolActionAsync(row, primary: true);
+            border.GestureRecognizers.Add(tap);
+#if WINDOWS
+            // 对齐 Win 桌面右键移除；原先只有上滑，鼠标右键无效
+            WireWindowsToolShortcutContextMenu(border, index);
+#else
+            var longPress = new SwipeGestureRecognizer { Direction = SwipeDirection.Up };
+            longPress.Swiped += (_, _) =>
+            {
+                ToolService.Instance.Shortcuts.SetSlot(index, null);
+                RefreshToolsShortcuts();
+            };
+            border.GestureRecognizers.Add(longPress);
+#endif
+            WireToolsShortcutDrop(border, rows, replaceIndex: index);
+            ToolsShortcutBar.Children.Add(border);
+        }
+
+        if (!ToolService.Instance.Shortcuts.IsFull)
+        {
+            var placeholder = new Border
+            {
+                WidthRequest = 64,
+                BackgroundColor = Colors.Transparent,
+                VerticalOptions = LayoutOptions.Start
+            };
+            placeholder.Content = new VerticalStackLayout
+            {
+                Spacing = 4,
+                HorizontalOptions = LayoutOptions.Center,
+                Children =
+                {
+                    new Border
+                    {
+                        WidthRequest = 40,
+                        HeightRequest = 40,
+                        Stroke = muted,
+                        StrokeThickness = 1.5,
+                        StrokeDashArray = [3, 2],
+                        StrokeShape = new RoundRectangle { CornerRadius = 8 },
+                        BackgroundColor = Colors.Transparent,
+                        HorizontalOptions = LayoutOptions.Center
+                    },
+                    new Label
+                    {
+                        Text = Loc.T("Tool.Shortcut.DragHere"),
+                        FontSize = 11,
+                        TextColor = muted,
+                        HorizontalTextAlignment = TextAlignment.Center
+                    }
+                }
+            };
+            WireToolsShortcutDrop(placeholder, rows, replaceIndex: null);
+            ToolsShortcutBar.Children.Add(placeholder);
+        }
+    }
+
+    private static View CreateToolShortcutIcon(string? iconKey, Color text, double size)
+    {
+        if (GetToolIconImage(iconKey) is { } toolIcon)
+        {
+            return new Image
+            {
+                Source = toolIcon,
+                WidthRequest = size,
+                HeightRequest = size,
+                Aspect = Aspect.AspectFit,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center
+            };
+        }
+
+        return new Label
+        {
+            Text = "◆",
+            FontSize = size * 0.7,
+            TextColor = text,
+            HorizontalTextAlignment = TextAlignment.Center,
+            VerticalTextAlignment = TextAlignment.Center
+        };
+    }
+
+    private void WireToolsShortcutDrop(Border border, IReadOnlyList<ToolCardRow> rows, int? replaceIndex)
+    {
+#if WINDOWS
+        if (!SupportsNativeDragDrop)
+        {
+            // 提权下无 OLE Drop；松手时按屏幕坐标命中此槽
+            _toolShortcutDropTargets.Add((border, replaceIndex));
+            return;
+        }
+#endif
+        var drop = new DropGestureRecognizer { AllowDrop = true };
+        drop.DragOver += (_, e) => e.AcceptedOperation = DataPackageOperation.Copy;
+        drop.Drop += (_, e) =>
+        {
+            if (!e.Data.Properties.TryGetValue("toolId", out var v) || v is not string toolId)
+                return;
+            if (!rows.Any(r => string.Equals(r.Id, toolId, StringComparison.OrdinalIgnoreCase) && r.IsInstalled))
+                return;
+            ApplyToolShortcutDrop(toolId, replaceIndex);
+        };
+        border.GestureRecognizers.Add(drop);
+    }
+
+#if WINDOWS
+    private void WireWindowsToolShortcutContextMenu(Border border, int index)
+    {
+        border.HandlerChanged += (_, _) => AttachWindowsToolShortcutContextMenu(border, index);
+        AttachWindowsToolShortcutContextMenu(border, index);
+    }
+
+    private void AttachWindowsToolShortcutContextMenu(Border border, int index)
+    {
+        if (border.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        native.Tag = index;
+        native.RightTapped -= OnWindowsToolShortcutRightTapped;
+        native.RightTapped += OnWindowsToolShortcutRightTapped;
+    }
+
+    private void OnWindowsToolShortcutRightTapped(
+        object sender,
+        Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (native.Tag is not int index)
+            return;
+
+        e.Handled = true;
+        var flyout = new Microsoft.UI.Xaml.Controls.MenuFlyout();
+        var clear = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem
+        {
+            Text = Loc.T("Tool.Shortcut.Clear")
+        };
+        var slotIndex = index;
+        clear.Click += (_, _) =>
+        {
+            ToolService.Instance.Shortcuts.SetSlot(slotIndex, null);
+            RefreshToolsShortcuts();
+        };
+        flyout.Items.Add(clear);
+        var pos = e.GetPosition(native);
+        flyout.ShowAt(
+            native,
+            new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Position = pos });
+    }
+#endif
+
+    private void ApplyToolShortcutDrop(string toolId, int? replaceIndex)
+    {
+        if (replaceIndex is int idx)
+            ToolService.Instance.Shortcuts.SetSlot(idx, toolId);
+        else
+            ToolService.Instance.Shortcuts.TryAppend(toolId);
+        RefreshToolsShortcuts();
+    }
+
+#if WINDOWS
+    private void WireWindowsToolCardDrag(Border border, ToolCardRow row)
+    {
+        border.HandlerChanged += (_, _) => AttachWindowsToolCardPointer(border, row);
+        AttachWindowsToolCardPointer(border, row);
+    }
+
+    private void AttachWindowsToolCardPointer(Border border, ToolCardRow row)
+    {
+        if (border.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        native.Tag = new ToolWinDragTag { Border = border, Row = row };
+        native.PointerPressed -= OnWindowsToolCardPointerPressed;
+        native.PointerMoved -= OnWindowsToolCardPointerMoved;
+        native.PointerReleased -= OnWindowsToolCardPointerReleased;
+        native.PointerCanceled -= OnWindowsToolCardPointerCanceled;
+        native.PointerCaptureLost -= OnWindowsToolCardPointerCaptureLost;
+
+        native.PointerPressed += OnWindowsToolCardPointerPressed;
+        native.PointerMoved += OnWindowsToolCardPointerMoved;
+        native.PointerReleased += OnWindowsToolCardPointerReleased;
+        native.PointerCanceled += OnWindowsToolCardPointerCanceled;
+        native.PointerCaptureLost += OnWindowsToolCardPointerCaptureLost;
+    }
+
+    private static bool IsWinUiButtonSource(object? source)
+    {
+        for (var d = source as Microsoft.UI.Xaml.DependencyObject;
+             d != null;
+             d = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(d))
+        {
+            if (d is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetWinElementBounds(VisualElement ve, out Rect bounds)
+    {
+        bounds = default;
+        if (ve.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement fe)
+            return false;
+        if (fe.ActualWidth <= 0 || fe.ActualHeight <= 0)
+            return false;
+        var origin = fe.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
+        bounds = new Rect(origin.X, origin.Y, fe.ActualWidth, fe.ActualHeight);
+        return true;
+    }
+
+    private bool TryHitToolShortcut(Windows.Foundation.Point screenPos, out int? replaceIndex)
+    {
+        replaceIndex = null;
+        foreach (var (slot, idx) in _toolShortcutDropTargets)
+        {
+            if (!TryGetWinElementBounds(slot, out var b))
+                continue;
+            if (screenPos.X >= b.Left && screenPos.X <= b.Right
+                && screenPos.Y >= b.Top && screenPos.Y <= b.Bottom)
+            {
+                replaceIndex = idx;
+                return true;
+            }
+        }
+
+        // 松在快捷栏空白处：未满则追加
+        if (!ToolService.Instance.Shortcuts.IsFull
+            && ToolsShortcutHost != null
+            && TryGetWinElementBounds(ToolsShortcutHost, out var host)
+            && screenPos.X >= host.Left && screenPos.X <= host.Right
+            && screenPos.Y >= host.Top && screenPos.Y <= host.Bottom)
+        {
+            replaceIndex = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    private Border CreateToolDragGhost(ToolCardRow row)
+    {
+        var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+        var line = ResolveThemeColor("Line") ?? Color.FromArgb(dark ? "#334155" : "#E5E7EB");
+        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
+        var subtle = ResolveThemeColor("SubtleBg") ?? Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
+        return new Border
+        {
+            WidthRequest = ToolDragGhostSize,
+            HeightRequest = ToolDragGhostSize,
+            Stroke = line,
+            StrokeThickness = 1,
+            StrokeShape = new RoundRectangle { CornerRadius = 8 },
+            BackgroundColor = subtle,
+            Opacity = 0.96,
+            InputTransparent = true,
+            Shadow = new Shadow
+            {
+                Brush = Colors.Black,
+                Offset = new Point(0, 2),
+                Radius = 6,
+                Opacity = 0.28f
+            },
+            Content = CreateToolShortcutIcon(row.IconKey, text, size: 28)
+        };
+    }
+
+    private void EnsureToolDragGhost(ToolCardRow row)
+    {
+        if (ToolsDragGhostLayer == null)
+            return;
+
+        if (_toolWinDragGhost == null)
+        {
+            _toolWinDragGhost = CreateToolDragGhost(row);
+            ToolsDragGhostLayer.Children.Clear();
+            ToolsDragGhostLayer.Children.Add(_toolWinDragGhost);
+        }
+
+        ToolsDragGhostLayer.IsVisible = true;
+        ToolsDragGhostLayer.InputTransparent = true;
+        ToolsDragGhostLayer.ZIndex = 1000;
+    }
+
+    private void MoveToolDragGhost(Windows.Foundation.Point screenPos)
+    {
+        if (_toolWinDragGhost == null || ToolsDragGhostLayer == null)
+            return;
+        if (!TryGetWinElementBounds(ToolsDragGhostLayer, out var layer))
+            return;
+
+        var x = screenPos.X - layer.X - ToolDragGhostSize / 2;
+        var y = screenPos.Y - layer.Y - ToolDragGhostSize / 2;
+        AbsoluteLayout.SetLayoutFlags(_toolWinDragGhost, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
+        AbsoluteLayout.SetLayoutBounds(
+            _toolWinDragGhost,
+            new Rect(x, y, ToolDragGhostSize, ToolDragGhostSize));
+    }
+
+    private void ResetWindowsToolCardDragVisual()
+    {
+        if (_toolWinDragSource != null)
+        {
+            _toolWinDragSource.Opacity = 1;
+            _toolWinDragSource = null;
+        }
+
+        if (ToolsDragGhostLayer != null)
+        {
+            ToolsDragGhostLayer.Children.Clear();
+            ToolsDragGhostLayer.IsVisible = false;
+        }
+
+        _toolWinDragGhost = null;
+    }
+
+    private async void FinishWindowsToolCardDrag(
+        Microsoft.UI.Xaml.FrameworkElement native,
+        Microsoft.UI.Xaml.Input.Pointer pointer,
+        Windows.Foundation.Point screenPos,
+        bool cancelled)
+    {
+        if (_toolWinPointerEnding || _toolWinDragRow == null)
+            return;
+
+        _toolWinPointerEnding = true;
+        var row = _toolWinDragRow;
+        var wasDragging = _toolWinDragging;
+        try
+        {
+            ResetWindowsToolCardDragVisual();
+            try { native.ReleasePointerCapture(pointer); } catch { /* ignore */ }
+
+            _toolWinDragRow = null;
+            _toolWinDragging = false;
+
+            if (cancelled || row == null)
+                return;
+
+            if (wasDragging)
+            {
+                if (TryHitToolShortcut(screenPos, out var replaceIndex)
+                    && row.IsInstalled)
+                {
+                    ApplyToolShortcutDrop(row.Id, replaceIndex);
+                    if (StatusLabel != null)
+                        StatusLabel.Text = "已加入快捷操作";
+                }
+                else if (StatusLabel != null)
+                {
+                    StatusLabel.Text = "未放到快捷栏，已取消";
+                }
+                return;
+            }
+
+            // 未拖过阈值：当作单击主操作（原生指针已 Handled，Tap 不会再来）
+            await HandleToolActionAsync(row, primary: true);
+        }
+        finally
+        {
+            _toolWinPointerEnding = false;
+        }
+    }
+
+    private void OnWindowsToolCardPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (native.Tag is not ToolWinDragTag tag || !tag.Row.IsInstalled)
+            return;
+        if (!e.GetCurrentPoint(native).Properties.IsLeftButtonPressed)
+            return;
+        if (IsWinUiButtonSource(e.OriginalSource))
+            return;
+
+        native.CapturePointer(e.Pointer);
+        var screen = e.GetCurrentPoint(null).Position;
+        _toolWinDragOrigin = screen;
+        _toolWinLastPos = screen;
+        _toolWinDragSource = tag.Border;
+        _toolWinDragRow = tag.Row;
+        _toolWinDragging = false;
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_toolWinDragRow == null)
+            return;
+
+        var screen = e.GetCurrentPoint(null).Position;
+        _toolWinLastPos = screen;
+
+        if (!IsPhysicalLeftButtonDown())
+        {
+            FinishWindowsToolCardDrag(native, e.Pointer, screen, cancelled: false);
+            e.Handled = true;
+            return;
+        }
+
+        var dx = screen.X - _toolWinDragOrigin.X;
+        var dy = screen.Y - _toolWinDragOrigin.Y;
+        if (!_toolWinDragging && (Math.Abs(dx) >= PanDragThreshold || Math.Abs(dy) >= PanDragThreshold))
+        {
+            _toolWinDragging = true;
+            if (_toolWinDragSource != null)
+                _toolWinDragSource.Opacity = 0.55;
+            EnsureToolDragGhost(_toolWinDragRow);
+            if (StatusLabel != null)
+                StatusLabel.Text = "拖到快捷操作栏松开";
+        }
+
+        if (_toolWinDragging)
+            MoveToolDragGhost(screen);
+
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_toolWinDragRow == null)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var screen = e.GetCurrentPoint(null).Position;
+        _toolWinLastPos = screen;
+        FinishWindowsToolCardDrag(native, e.Pointer, screen, cancelled: false);
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerCanceled(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+        if (_toolWinDragRow == null)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            e.Handled = true;
+            return;
+        }
+
+        FinishWindowsToolCardDrag(native, e.Pointer, e.GetCurrentPoint(null).Position, cancelled: true);
+        e.Handled = true;
+    }
+
+    private void OnWindowsToolCardPointerCaptureLost(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_toolWinPointerEnding || _toolWinDragRow == null)
+            return;
+        if (sender is not Microsoft.UI.Xaml.FrameworkElement native)
+            return;
+
+        if (IsPhysicalLeftButtonDown())
+        {
+            try { native.CapturePointer(e.Pointer); } catch { /* ignore */ }
+            return;
+        }
+
+        FinishWindowsToolCardDrag(native, e.Pointer, _toolWinLastPos, cancelled: false);
+    }
+#endif
+
+    private async void ToolsImport_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            string? path;
+#if WINDOWS
+            // unpackaged / 管理员下 MAUI FilePicker 常 COMException，并弹出空警告框
+            path = await MainThread.InvokeOnMainThreadAsync(() =>
+                Platforms.Windows.Win32PathPicker.PickSingleFile(
+                    title: Loc.T("Tool.ImportTitle"),
+                    filter: "玄鸟工具包 (*.flytool)\0*.flytool\0可执行程序 (*.exe;*.bat;*.cmd)\0*.exe;*.bat;*.cmd\0所有文件 (*.*)\0*.*\0\0"));
+#else
+            var result = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = Loc.T("Tool.ImportTitle"),
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    { DevicePlatform.Android, new[] { "application/octet-stream", "*/*" } },
+                    { DevicePlatform.iOS, new[] { "public.data" } },
+                    { DevicePlatform.MacCatalyst, new[] { "public.data", "public.unix-executable" } }
+                })
+            });
+            if (result == null) return;
+
+            path = result.FullPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                await using var stream = await result.OpenReadAsync();
+                path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), result.FileName);
+                await using (var fs = File.Create(path))
+                    await stream.CopyToAsync(fs);
+            }
+#endif
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return;
+
+            var plan = ToolService.Instance.AnalyzeImport(path);
+            if (!plan.Ok)
+            {
+                await DisplayAlertAsync(Loc.T("Tool.ImportTitle"),
+                    string.IsNullOrWhiteSpace(plan.Message) ? "无法导入所选文件" : plan.Message, "OK");
+                return;
+            }
+
+            var overwrite = true;
+            if (plan.HasConflict)
+            {
+                overwrite = await DisplayAlertAsync(
+                    Loc.T("Tool.ImportTitle"),
+                    string.Format(Loc.T("Tool.ImportOverwrite"), plan.DisplayName),
+                    Loc.T("Tool.Overwrite"),
+                    Loc.T("Tool.Discard"));
+                if (!overwrite)
+                {
+                    StatusLabel.Text = Loc.T("Tool.ImportDiscarded");
+                    return;
+                }
+            }
+
+            var r = await ToolService.Instance.CommitImportAsync(plan, overwrite);
+            StatusLabel.Text = r.Message;
+            if (!r.Success)
+            {
+                await DisplayAlertAsync(Loc.T("Tool.ImportTitle"),
+                    string.IsNullOrWhiteSpace(r.Message) ? "导入失败" : r.Message, "OK");
+            }
+            RefreshToolsPage();
+        }
+        catch (Exception ex)
+        {
+            var msg = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+            await DisplayAlertAsync(Loc.T("Tool.ImportTitle"), msg, "OK");
+        }
+    }
+
+    private void RegisterToolUiBridge()
+    {
+        if (_toolUiBridgeRegistered) return;
+        _toolUiBridgeRegistered = true;
+        FlyScreen.AppMaui.Tools.Ui.ToolUiBootstrap.RegisterAll(() => Navigation);
+    }
 
     private async Task HandleToolActionAsync(ToolCardRow row, bool primary, bool fromMenu = false)
     {
         try
         {
+            if (row.IsLocalProgram)
+            {
+                if (primary)
+                {
+                    var (ok, message) = ToolService.Instance.LaunchLocalProgram(row.Id);
+                    if (!string.IsNullOrWhiteSpace(message))
+                        StatusLabel.Text = message;
+                    if (!ok && !string.IsNullOrWhiteSpace(message))
+                        await DisplayAlertAsync(Loc.T("Tool.Title"), message, "OK");
+                }
+                else
+                {
+                    var r = ToolService.Instance.RemoveLocalProgram(row.Id);
+                    StatusLabel.Text = r.Message;
+                    RefreshToolsPage();
+                }
+                return;
+            }
+
             if (!row.IsInstalled && primary)
             {
                 if (row.IsInstalling) return;
@@ -2545,71 +3621,21 @@ public partial class MainPage : ContentPage
                 return;
             }
 
-            if (string.Equals(row.Id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase))
-            {
-                if (primary && row.IsRunning)
-                {
-                    if (!fromMenu)
-                    {
-                        // 目录页再次点卡片 → 跳回已打开的工作区
-                        ToolService.Instance.OpenColorPickerWorkspace();
-                        RefreshToolsPage();
-                        return;
-                    }
-
-                    ToolService.Instance.StopColorPickerWorkspace();
-                    RefreshToolsPage();
-                    return;
-                }
-
-                if (primary && row.CanStart)
-                {
-                    ToolService.Instance.OpenColorPickerWorkspace();
-                    RefreshToolsPage();
-                    return;
-                }
-
-                if (!primary && row.IsInstalled)
-                {
-                    var r = await ToolService.Instance.UninstallAsync(row.Id);
-                    StatusLabel.Text = r.Message;
-                    RefreshToolsPage();
-                }
-
-                return;
-            }
-
-            if (string.Equals(row.Id, ToolIds.SharedDevices, StringComparison.OrdinalIgnoreCase))
-            {
-                if (primary && row.IsRunning)
-                {
-                    if (!fromMenu) return; // 仅 ⋯ 菜单可停止
-                    var sd = ToolService.Instance.SharedDevices;
-                    if (sd != null) await sd.StopAsync();
-                    RefreshToolsPage();
-                    return;
-                }
-
-                if (primary && row.CanStart)
-                {
-                    await StartSharedDevicesAsync();
-                    return;
-                }
-
-                if (!primary && row.IsInstalled)
-                {
-                    var r = await ToolService.Instance.UninstallAsync(row.Id);
-                    StatusLabel.Text = r.Message;
-                    RefreshToolsPage();
-                }
-
-                return;
-            }
-
             if (!primary && row.IsInstalled)
             {
-                var ur = await ToolService.Instance.UninstallAsync(row.Id);
-                StatusLabel.Text = ur.Message;
+                var r = await ToolService.Instance.UninstallAsync(row.Id);
+                StatusLabel.Text = r.Message;
+                RefreshToolsPage();
+                return;
+            }
+
+            if (primary)
+            {
+                var (ok, message) = await ToolService.Instance.PrimaryAsync(row, fromMenu);
+                if (!string.IsNullOrWhiteSpace(message))
+                    StatusLabel.Text = message;
+                if (!ok && !string.IsNullOrWhiteSpace(message))
+                    await DisplayAlertAsync(Loc.T("Tool.Title"), message, "OK");
                 RefreshToolsPage();
             }
         }
@@ -2617,45 +3643,6 @@ public partial class MainPage : ContentPage
         {
             await DisplayAlertAsync(Loc.T("Tool.Title"), ex.Message, "OK");
         }
-    }
-
-    private async Task StartSharedDevicesAsync()
-    {
-        var sd = ToolService.Instance.SharedDevices;
-        if (sd == null)
-        {
-            await DisplayAlertAsync(Loc.T("Tool.Title"), "共享设备服务未就绪", "OK");
-            return;
-        }
-
-        var page = new SharedDevicesStartPage(sd.ListApplicantTargets());
-        await Navigation.PushModalAsync(page, animated: true);
-        var (peer, kinds) = await page.Result;
-        if (string.IsNullOrEmpty(peer) || kinds.Length == 0)
-            return;
-
-        var (ok, message) = await sd.StartRequestAsync(peer, kinds);
-        StatusLabel.Text = message;
-        if (!ok)
-            await DisplayAlertAsync(Loc.T("Tool.SharedDevices.StartTitle"), message, "OK");
-        RefreshToolsPage();
-    }
-
-    private void OnSharedDevicesIncomingRequest(SharedDevicesIncomingRequest req)
-    {
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            var sd = ToolService.Instance.SharedDevices;
-            if (sd == null) return;
-            var page = new SharedDevicesIncomingPage(sd, req);
-            await Navigation.PushModalAsync(page, animated: true);
-            var (accept, remember, devices) = await page.Result;
-            if (!accept)
-                await sd.RejectIncomingAsync(req);
-            else
-                await sd.AcceptIncomingAsync(req, remember, devices);
-            RefreshToolsPage();
-        });
     }
 
     private void RefreshProgramsPage()
@@ -3489,11 +4476,20 @@ public partial class MainPage : ContentPage
         if (tcp <= 0) tcp = 15155;
         if (udp <= 0) udp = 15156;
 
+        // 必须先采 prev，再写偏好网卡；否则 ApplyNetworking 永远认为网卡未变、不重绑监听
+        var prevTcp = _host.Settings.TcpPort;
+        var prevUdp = _host.Settings.UdpPort;
+        var prevNic = _host.Settings.PreferredNicId ?? "";
+        var prevIp = _host.Settings.PreferredLocalIp ?? "";
+        var prevKey = _host.Settings.SecurityKey ?? "";
+
         if (NicPicker.SelectedItem is NicInfo nic)
         {
             _host.Settings.PreferredNicId = nic.Id;
             _host.Settings.PreferredLocalIp = nic.IPv4;
         }
+
+        _host.Settings.ConnectionEndpoints = _endpoints.ToList();
 
         var switchMode = HotF.IsChecked == true ? 0 : HotNum.IsChecked == true ? 1 : 2;
         var theme = ThemeDark.IsChecked == true ? MauiThemeService.Dark : MauiThemeService.Light;
@@ -3507,12 +4503,6 @@ public partial class MainPage : ContentPage
             LayoutSlotMerge.NonEmptyNames(newSlots), StringComparer.OrdinalIgnoreCase);
         var removedAny = prevSet.Any(n => !newSet.Contains(n));
         var layoutMerge = !removedAny && newSet.Count >= prevSet.Count;
-
-        var prevTcp = _host.Settings.TcpPort;
-        var prevUdp = _host.Settings.UdpPort;
-        var prevNic = _host.Settings.PreferredNicId ?? "";
-        var prevIp = _host.Settings.PreferredLocalIp ?? "";
-        var prevKey = _host.Settings.SecurityKey ?? "";
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
         _host.ApplyFromUi(
@@ -3631,11 +4621,58 @@ public partial class MainPage : ContentPage
 #endif
     }
 
+    /// <summary>
+    /// Maui-Win：内容放得下时禁用高级页滚动，避免滚轮橡皮筋「微压缩」；
+    /// 窗口过矮仍允许纵向滚动。手机端保持默认可滚。
+    /// </summary>
+    private void EnsureOptionsScrollPolicy()
+    {
+#if WINDOWS
+        if (PageOptions == null) return;
+        if (!_optionsScrollHooked)
+        {
+            _optionsScrollHooked = true;
+            PageOptions.SizeChanged += (_, _) => UpdateOptionsScrollPolicy();
+            PageOptions.HandlerChanged += (_, _) => Dispatcher.Dispatch(UpdateOptionsScrollPolicy);
+            if (OptionsContentRoot != null)
+                OptionsContentRoot.SizeChanged += (_, _) => UpdateOptionsScrollPolicy();
+            // 默认先关滚动，布局后再按需打开
+            PageOptions.Orientation = ScrollOrientation.Neither;
+        }
+
+        UpdateOptionsScrollPolicy();
+#endif
+    }
+
+    private void UpdateOptionsScrollPolicy()
+    {
+#if WINDOWS
+        if (PageOptions == null) return;
+        var viewport = PageOptions.Height;
+        var contentH = OptionsContentRoot?.Height ?? 0;
+        var needScroll = PageOptions.IsVisible
+                         && viewport > 1
+                         && contentH > viewport + 2;
+        PageOptions.Orientation = needScroll ? ScrollOrientation.Vertical : ScrollOrientation.Neither;
+        if (PageOptions.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.ScrollViewer sv)
+        {
+            sv.VerticalScrollMode = needScroll
+                ? Microsoft.UI.Xaml.Controls.ScrollMode.Enabled
+                : Microsoft.UI.Xaml.Controls.ScrollMode.Disabled;
+            sv.VerticalScrollBarVisibility = needScroll
+                ? Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Auto
+                : Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Hidden;
+            sv.IsScrollInertiaEnabled = needScroll;
+        }
+#endif
+    }
+
     private void LoadEdgeCrossModeUi(int mode)
     {
-        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 2;
+        EdgeCrossBarrierRadio.IsChecked = mode is < 1 or > 3;
         EdgeCrossDoubleRadio.IsChecked = mode == 1;
         EdgeCrossSpeedRadio.IsChecked = mode == 2;
+        EdgeCrossHotkeyRadio.IsChecked = mode == 3;
         RefreshEdgeCrossTip();
     }
 
@@ -3643,6 +4680,7 @@ public partial class MainPage : ContentPage
     {
         if (EdgeCrossDoubleRadio.IsChecked == true) return 1;
         if (EdgeCrossSpeedRadio.IsChecked == true) return 2;
+        if (EdgeCrossHotkeyRadio.IsChecked == true) return 3;
         return 0;
     }
 
@@ -3652,15 +4690,94 @@ public partial class MainPage : ContentPage
         RefreshEdgeCrossTip();
     }
 
+    private void EnsureEdgeCrossTipWidthHook()
+    {
+        if (_edgeCrossTipWidthHooked) return;
+        _edgeCrossTipWidthHooked = true;
+        if (EdgeCrossColumn != null)
+            EdgeCrossColumn.SizeChanged += (_, _) => ConstrainEdgeCrossTipWidth();
+        if (OptionsFeatGrid != null)
+            OptionsFeatGrid.SizeChanged += (_, _) => ConstrainEdgeCrossTipWidth();
+        if (EdgeCrossTipText != null)
+            EdgeCrossTipText.HandlerChanged += (_, _) => ConstrainEdgeCrossTipWidth();
+    }
+
+    /// <summary>
+    /// Maui-Win Label 在 VerticalStack 里常按无限宽测量，WordWrap 无效；
+    /// 必须把列宽写进 WidthRequest，并同步原生 TextBlock.TextWrapping。
+    /// </summary>
+    private void ConstrainEdgeCrossTipWidth()
+    {
+        if (EdgeCrossTipText == null) return;
+        EnsureEdgeCrossTipWidthHook();
+
+        double w = 0;
+        if (EdgeCrossColumn is { Width: > 1 })
+            w = EdgeCrossColumn.Width;
+        else if (OptionsFeatGrid is { Width: > 1 })
+            w = (OptionsFeatGrid.Width - OptionsFeatGrid.ColumnSpacing * 2) / 3.0;
+
+        if (w < 8)
+            return;
+
+        // 略留余量，避免贴边裁切
+        var tipW = Math.Max(40, w - 2);
+        if (Math.Abs(EdgeCrossTipText.WidthRequest - tipW) > 0.5)
+            EdgeCrossTipText.WidthRequest = tipW;
+
+        EdgeCrossTipText.LineBreakMode = LineBreakMode.WordWrap;
+        EdgeCrossTipText.MaxLines = 8;
+
+#if WINDOWS
+        if (EdgeCrossTipText.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBlock tb)
+        {
+            tb.TextWrapping = Microsoft.UI.Xaml.TextWrapping.WrapWholeWords;
+            tb.Width = tipW;
+            tb.MaxWidth = tipW;
+        }
+#endif
+        EdgeCrossTipText.InvalidateMeasure();
+    }
+
     private void RefreshEdgeCrossTip()
     {
+        if (EdgeCrossTipText == null) return;
         var key = ReadEdgeCrossModeUi() switch
         {
             1 => "Tip.EdgeCross.DoubleTap",
             2 => "Tip.EdgeCross.SpeedBurst",
+            3 => "Tip.EdgeCross.HotkeyOnly",
             _ => "Tip.EdgeCross.BarrierFree"
         };
         EdgeCrossTipText.Text = Loc.T(key);
+        ConstrainEdgeCrossTipWidth();
+    }
+
+    /// <summary>高级页显隐后强制重测：穿边说明换行、快捷键行高。</summary>
+    private void RelayoutOptionsPage()
+    {
+        EnsureEdgeCrossTipWidthHook();
+        RefreshEdgeCrossTip();
+        HotSwitchRow?.InvalidateMeasure();
+        HotCard?.InvalidateMeasure();
+        EdgeCrossColumn?.InvalidateMeasure();
+        OptionsContentRoot?.InvalidateMeasure();
+        PageOptions?.InvalidateMeasure();
+#if WINDOWS
+        // 列宽往往在下一帧才稳定，连补两帧
+        foreach (var ms in new[] { 16, 50 })
+        {
+            var delay = ms;
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(delay), () =>
+            {
+                if (PageOptions?.IsVisible != true) return;
+                ConstrainEdgeCrossTipWidth();
+                HotSwitchRow?.InvalidateMeasure();
+                OptionsContentRoot?.InvalidateMeasure();
+                UpdateOptionsScrollPolicy();
+            });
+        }
+#endif
     }
 
     /// <summary>
@@ -3672,7 +4789,10 @@ public partial class MainPage : ContentPage
 
     private async void Reconnect_Clicked(object? sender, EventArgs e)
     {
-        await _host.Connections.ReconnectNowAsync();
+        if (_host.Connections.NeedsListenRebind())
+            await _host.RestartNetworkingAsync();
+        else
+            await _host.Connections.ReconnectNowAsync();
         StatusLabel.Text = "正在重新连接…";
     }
 
@@ -3725,7 +4845,7 @@ public partial class MainPage : ContentPage
 
     private void RefreshNics()
     {
-        var nics = NicService.ListUsableIpv4Nics().ToList();
+        var nics = NicService.ListSelectableIpv4Nics().ToList();
         NicPicker.ItemsSource = nics;
         NicPicker.ItemDisplayBinding = new Binding(nameof(NicInfo.ShortDisplay));
         var preferred = NicService.ResolvePreferred(_host.Settings.PreferredNicId, _host.Settings.PreferredLocalIp);
@@ -3734,10 +4854,42 @@ public partial class MainPage : ContentPage
             : nics.FirstOrDefault();
     }
 
-    private void RefreshDiscovery_Clicked(object? sender, EventArgs e) => RefreshDiscovery();
+    private async void RefreshDiscovery_Clicked(object? sender, EventArgs e)
+    {
+        await RevalidateEndpointsAsync().ConfigureAwait(true);
+        RefreshDiscovery();
+    }
 
     private void RefreshDiscovery()
     {
+        foreach (var slot in _slots.Where(s => s.Enabled && !s.IsLocal))
+        {
+            var ip = _host.Connections.Discovery.FindIp(slot.Name);
+            if (ip != null) slot.ResolvedIp = ip;
+        }
+
+        var items = DeviceInventoryBuilder.Build(
+            _host.Connections.Discovery.GetPeers(),
+            _slots.ToList(),
+            _endpoints.ToList(),
+            _host.Settings.RemoteBindings,
+            LocalPeerIdentity.MachineName);
+
+        var filter = DevFilterRemote?.IsChecked == true ? DeviceInventoryItem.KindRemote
+            : DevFilterService?.IsChecked == true ? DeviceInventoryItem.KindService
+            : DevFilterLocal?.IsChecked == true ? DeviceInventoryItem.KindLocal
+            : (int?)null;
+
+        // WinUI：避免对已绑定集合 Clear() 触发 COM 崩溃，整体替换 ItemsSource
+        var filtered = filter is int kind
+            ? items.Where(i => i.Kind == kind).ToList()
+            : items;
+        _deviceInventory.Clear();
+        foreach (var item in filtered)
+            _deviceInventory.Add(item);
+        DeviceInventoryList.ItemsSource = null;
+        DeviceInventoryList.ItemsSource = _deviceInventory;
+
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             LocalPeerIdentity.MachineName,
@@ -3749,25 +4901,188 @@ public partial class MainPage : ContentPage
         var peers = _host.Connections.Discovery.GetPeers()
             .Where(p => !string.IsNullOrWhiteSpace(p.MachineName) && !used.Contains(p.MachineName))
             .ToList();
-
-        // WinUI：对已绑定 CollectionView 的 ObservableCollection 调用 Clear() 会发 Reset，
-        // 进而在 NotifyCollectionChanged 封送时 COM 崩溃；改为整体替换 ItemsSource。
         _discovery = new ObservableCollection<DiscoveredPeer>(peers);
-        DiscoveryList.ItemsSource = _discovery;
+        if (DiscoveryList != null)
+            DiscoveryList.ItemsSource = _discovery;
     }
 
-    private void AddDiscovered_Clicked(object? sender, EventArgs e)
+    private void EnsureNetworkBreadcrumb()
     {
-        if (sender is not Button { CommandParameter: DiscoveredPeer peer }) return;
-        TryAddPeer(peer.MachineName);
+        if (_networkBreadcrumbWired || NetworkBreadcrumbHost == null) return;
+        NetworkBreadcrumbHost.Children.Clear();
+        NetworkBreadcrumbHost.Children.Add(_networkBreadcrumb);
+        _networkBreadcrumb.SegmentClicked += seg =>
+        {
+            if (seg.Id is "network" or "conn")
+                ShowNetworkSubPage("conn");
+            else if (seg.Id == "devices")
+                ShowNetworkSubPage("devices");
+        };
+        _networkBreadcrumbWired = true;
     }
 
-    private void DiscoveryItem_DoubleTapped(object? sender, TappedEventArgs e)
+    private void RefreshNetworkBreadcrumb()
     {
-        var peer = e.Parameter as DiscoveredPeer
-                   ?? (sender as Element)?.BindingContext as DiscoveredPeer;
-        if (peer == null) return;
-        TryAddPeer(peer.MachineName);
+        EnsureNetworkBreadcrumb();
+        var onDevices = _networkSubPage == "devices";
+        _networkBreadcrumb.SetItems(
+        [
+            new BreadcrumbSegment { Id = "network", Title = Loc.T("Nav.Network"), IsActive = false, IsClickable = true },
+            new BreadcrumbSegment { Id = "conn", Title = Loc.T("Net.ConnConfigTitle"), IsActive = !onDevices, IsClickable = true },
+            new BreadcrumbSegment { Id = "devices", Title = Loc.T("Net.DeviceMgmtTitle"), IsActive = onDevices, IsClickable = true }
+        ]);
+    }
+
+    private void ShowNetworkSubPage(string page)
+    {
+        _networkSubPage = page == "devices" ? "devices" : "conn";
+        if (PanelConnConfig != null)
+            PanelConnConfig.IsVisible = _networkSubPage == "conn";
+        if (PanelDeviceMgmt != null)
+            PanelDeviceMgmt.IsVisible = _networkSubPage == "devices";
+        RefreshNetworkBreadcrumb();
+        if (_networkSubPage == "devices")
+            RefreshDiscovery();
+    }
+
+    private void DevFilter_Changed(object? sender, CheckedChangedEventArgs e)
+    {
+        if (e.Value) RefreshDiscovery();
+    }
+
+    private void AddEndpoint_Clicked(object? sender, EventArgs e)
+    {
+        _endpoints.Add(new ConnectionEndpoint { Kind = ConnectionEndpoint.KindRemote });
+        EndpointList.ItemsSource = null;
+        EndpointList.ItemsSource = _endpoints;
+    }
+
+    private async void TestEndpoint_Clicked(object? sender, EventArgs e)
+    {
+        var ep = (sender as Button)?.CommandParameter as ConnectionEndpoint
+                 ?? (sender as Button)?.BindingContext as ConnectionEndpoint;
+        if (ep == null) return;
+        await TestEndpointAsync(ep).ConfigureAwait(true);
+    }
+
+    private async Task RevalidateEndpointsAsync()
+    {
+        foreach (var ep in _endpoints.ToList())
+        {
+            if (string.IsNullOrWhiteSpace(ep.Address)) continue;
+            await TestEndpointAsync(ep, updateStatusBar: false).ConfigureAwait(true);
+        }
+    }
+
+    private async Task TestEndpointAsync(ConnectionEndpoint ep, bool updateStatusBar = true)
+    {
+        if (updateStatusBar)
+            StatusLabel.Text = Loc.T("Net.TestingEndpoint");
+        var result = await ConnectionEndpointProbe.TestAsync(ep).ConfigureAwait(true);
+        if (result.Ok)
+        {
+            ep.LastError = "";
+            ep.LastRttMs = result.RttMs;
+            if (ep.Kind == ConnectionEndpoint.KindRemote)
+            {
+                ep.DiscoveredDevices = [];
+                ep.VerifiedPeerName = result.VerifiedPeerName?.Trim() ?? "";
+            }
+            else
+            {
+                ep.VerifiedPeerName = "";
+                ep.DiscoveredDevices = result.DiscoveredDevices?.ToList() ?? [];
+            }
+            ep.State = ConnectionEndpoint.StateConnected;
+        }
+        else
+        {
+            ep.ClearVerification();
+            ep.LastError = result.Message;
+            ep.State = ConnectionEndpoint.StateError;
+        }
+
+        if (updateStatusBar)
+            StatusLabel.Text = result.Ok ? $"{Loc.T("Net.TestOk")}: {result.Message}" : $"{Loc.T("Net.TestFail")}: {result.Message}";
+        EndpointList.ItemsSource = null;
+        EndpointList.ItemsSource = _endpoints;
+        RefreshDiscovery();
+    }
+
+    private void DeleteEndpoint_Clicked(object? sender, EventArgs e)
+    {
+        var ep = (sender as Button)?.CommandParameter as ConnectionEndpoint
+                 ?? (sender as Button)?.BindingContext as ConnectionEndpoint;
+        if (ep == null) return;
+        _endpoints.Remove(ep);
+        EndpointList.ItemsSource = null;
+        EndpointList.ItemsSource = _endpoints;
+        RefreshDiscovery();
+    }
+
+    private void DevicePrimaryAction_Clicked(object? sender, EventArgs e)
+    {
+        var item = (sender as Button)?.CommandParameter as DeviceInventoryItem
+                   ?? (sender as Button)?.BindingContext as DeviceInventoryItem;
+        if (item == null) return;
+        switch (item.Kind)
+        {
+            case DeviceInventoryItem.KindLocal:
+                if (item.LayoutSlotIndex >= 0)
+                {
+                    ShowPage(0);
+                    if (item.LayoutSlotIndex < _slots.Count)
+                    {
+                        foreach (var s in _slots) s.IsSelected = false;
+                        _slots[item.LayoutSlotIndex].IsSelected = true;
+                        _selected = _slots[item.LayoutSlotIndex];
+                    }
+                    StatusLabel.Text = string.Format(Loc.T("Net.LocatedSlot"), item.LayoutPositionLabel);
+                }
+                else if (item.Peer != null)
+                    TryAddPeer(item.Peer.MachineName);
+                break;
+            case DeviceInventoryItem.KindRemote:
+                StatusLabel.Text = Loc.T("Net.RemoteBindSoon");
+                break;
+            case DeviceInventoryItem.KindService:
+            {
+                var ep = _endpoints.FirstOrDefault(x => x.Id == item.EndpointId);
+                if (ep != null)
+                    _ = TestEndpointAsync(ep);
+                break;
+            }
+        }
+    }
+
+    private void DeviceSecondaryAction_Clicked(object? sender, EventArgs e)
+    {
+        var item = (sender as Button)?.CommandParameter as DeviceInventoryItem
+                   ?? (sender as Button)?.BindingContext as DeviceInventoryItem;
+        if (item == null) return;
+        if (item.Kind == DeviceInventoryItem.KindLocal && item.LayoutSlotIndex >= 0 && !item.IsLocalMachine)
+        {
+            var slot = _slots.ElementAtOrDefault(item.LayoutSlotIndex);
+            if (slot != null) RemoveSlot(slot);
+        }
+        else if (item.Kind == DeviceInventoryItem.KindService)
+        {
+            var ep = _endpoints.FirstOrDefault(x => x.Id == item.EndpointId);
+            if (ep != null)
+            {
+                _endpoints.Remove(ep);
+                EndpointList.ItemsSource = null;
+                EndpointList.ItemsSource = _endpoints;
+                RefreshDiscovery();
+            }
+        }
+        else if (item.Kind == DeviceInventoryItem.KindRemote)
+        {
+            _host.Settings.RemoteBindings.RemoveAll(b =>
+                string.Equals("remote:" + b.RemoteId, item.Id, StringComparison.OrdinalIgnoreCase));
+            _host.Settings.Save();
+            RefreshDiscovery();
+        }
     }
 
     private void AddPeer_Clicked(object? sender, EventArgs e)
@@ -3776,6 +5091,7 @@ public partial class MainPage : ContentPage
         if (_discovery.Count == 0)
         {
             ShowPage(2);
+            ShowNetworkSubPage("devices");
             StatusLabel.Text = "暂无新发现的电脑，请先刷新发现";
             return;
         }
@@ -4020,7 +5336,8 @@ public partial class MainPage : ContentPage
             project: () => MainThread.BeginInvokeOnMainThread(() => _ = OpenProjectionFromTrayAsync()),
             about: () => MainThread.BeginInvokeOnMainThread(() => ShowPage(5)),
             exit: RequestAppExit,
-            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend));
+            projectPhase: () => ProjectionUi.Resolve(_host.ScreenExtend),
+            toolShortcuts: BuildTrayToolShortcutActions);
     }
 
     private void RefreshAboutPage()
@@ -4155,7 +5472,7 @@ public partial class MainPage : ContentPage
             var url = string.IsNullOrWhiteSpace(_helpLastCheck.ReleaseUrl)
                 ? MauiUpdateChecker.ReleasesUrl
                 : _helpLastCheck.ReleaseUrl;
-            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url);
+            ShowHelpLog(_helpLastCheck.Message + "\n\n" + url + "\n" + MauiUpdateChecker.GiteeReleasesUrl);
             try { await Launcher.Default.OpenAsync(url); } catch { /* ignore */ }
             return;
         }
@@ -4280,6 +5597,7 @@ public partial class MainPage : ContentPage
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Update")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.U1")));
         HelpContent.Children.Add(HelpPara(MauiUpdateChecker.ReleasesUrl));
+        HelpContent.Children.Add(HelpPara(MauiUpdateChecker.GiteeReleasesUrl));
         HelpContent.Children.Add(HelpHeading(Loc.T("Help.Doc.Diag")));
         HelpContent.Children.Add(HelpPara(Loc.T("Help.Doc.D1")));
     }
@@ -4353,7 +5671,17 @@ public partial class MainPage : ContentPage
         public string Message => Entry.Message;
         public AppLogLevel Level => Entry.Level;
         public string Display => Entry.Display;
-        public Color RowBg => _isSelected ? LogRowSelectedBg : LogRowNormalBg;
+        public Color RowBg
+        {
+            get
+            {
+                if (!_isSelected) return LogRowNormalBg;
+                var dark = MauiThemeService.IsDark(MauiThemeService.Current);
+                if (Application.Current?.Resources.TryGetValue("BlueSoft", out var v) == true && v is Color c)
+                    return c;
+                return Color.FromArgb(dark ? "#1E3A5F" : "#DBEAFE");
+            }
+        }
 
         public bool IsSelected
         {

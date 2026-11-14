@@ -2,6 +2,7 @@ using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers;
 using FlyScreen.Input;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.ScreenExtend;
@@ -53,6 +54,12 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     public event Action<string?>? ControlTargetChanged;
 
+    /// <summary>托盘切换热键模式变更后回调（用于跨机 BehaviorSync）。</summary>
+    public Action? AfterSwitchHotkeyModeChanged { get; set; }
+
+    public bool TrySwitchToMachine(string machineName)
+        => _router?.TrySwitchToMachine(machineName) == true;
+
     public void SetRemotePointerSuppressed(bool suppressed) { /* 桌面不需要触控板屏蔽 */ }
 
     public void AttachEdgeFileDrag(EdgeFileDragService drag)
@@ -91,13 +98,14 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         };
         _router.RequestShowUi += () => MainThread.BeginInvokeOnMainThread(ShowMainWindow);
         _router.Start();
+        if (!_router.HooksInstalled)
+        {
+            AppLog.Warn("Maui-Win 键鼠钩子未装上：轻松鼠标穿边不可用。请以管理员运行（清单已要求 requireAdministrator）。");
+        }
     }
 
     private static void ShowMainWindow()
-    {
-        var window = Application.Current?.Windows.FirstOrDefault();
-        MauiAutostartUi.TryShowNative(window);
-    }
+        => MauiAutostartUi.ActivateMainWindow();
 
     private static void HideMainWindow()
     {
@@ -172,7 +180,8 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null)
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
     {
         _tray ??= new MauiTrayService();
         _tray.Ensure(
@@ -197,7 +206,35 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 if (exit != null) exit();
                 else MauiCloseToTray.RequestExit();
             },
-            projectPhase: projectPhase);
+            projectPhase: projectPhase,
+            switchMachines: () =>
+            {
+                var list = new List<(string Label, Action Action)>();
+                foreach (var item in TraySwitchMenu.BuildItems(_settings))
+                {
+                    var machine = item.MachineName;
+                    var label = item.Label;
+                    list.Add((label, () =>
+                    {
+                        if (TraySwitchMenu.EnsureSwitchHotkeyEnabled(_settings))
+                            AfterSwitchHotkeyModeChanged?.Invoke();
+                        if (_router == null)
+                            AppLog.Warn("托盘切换失败：输入路由未启动");
+                        else if (!_router.TrySwitchToMachine(machine))
+                            AppLog.Warn($"托盘切换未成功：{machine}");
+                    }));
+                }
+
+                return list;
+            },
+            switchDisable: () => (
+                TraySwitchMenu.DisableLabel(_settings.SwitchHotkeyMode == 2),
+                (Action)(() =>
+                {
+                    TraySwitchMenu.ToggleSwitchHotkeyDisabled(_settings);
+                    AfterSwitchHotkeyModeChanged?.Invoke();
+                })),
+            toolShortcuts: toolShortcuts);
     }
 
     public void HideToBackground(
@@ -206,9 +243,10 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null)
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
     {
-        EnsureTray(showMain, reconnect, project, about, exit, projectPhase);
+        EnsureTray(showMain, reconnect, project, about, exit, projectPhase, toolShortcuts);
         HideMainWindow();
     }
 

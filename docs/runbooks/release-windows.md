@@ -3,7 +3,7 @@
 ## 1. 发版前
 
 1. 确认改动已合并；跑通 [regression-windows.md](regression-windows.md)。  
-2. 查看当前构建版本（最新 tag 的 patch+1）：
+2. 查看当前构建版本（最新 tag 自动 +1，大于 9 进位）：
    ```powershell
    cd <repo>
    git tag -l "v*.*.*" --sort=-v:refname | Select-Object -First 1
@@ -47,6 +47,7 @@ git push origin v1.0.2
 ```
 
 在 GitHub 创建 Release **v1.0.2**，上传上述 exe。  
+同步到 Gitee（`https://gitee.com/sclshu3714/FlyScreen`）时，请把**同一批安装包**也挂到对应 Gitee Release；国内 GitHub 失败会自动改用 Gitee 下载。  
 Release 说明中注明：
 
 - 协议版本（1 / 2…）
@@ -56,7 +57,7 @@ Release 说明中注明：
 ## 4. 发版后
 
 1. 用上一 stable 与本版交叉连接冒烟。  
-2. 确认自动更新能检测到新版本（标签版本 > 用户本地程序集版本）。  
+2. 确认自动更新能检测到新版本（标签版本 > 用户本地程序集版本；可断 GitHub 验证 Gitee 回退）。  
 3. 若替换失败，查 `%TEMP%\xuanniao-update.log`。
 
 ## 5. 热修

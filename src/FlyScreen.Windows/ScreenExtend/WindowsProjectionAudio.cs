@@ -5,10 +5,11 @@ using FlyScreen.Services.ScreenExtend;
 namespace FlyScreen.ScreenExtend;
 
 /// <summary>
-/// Windows 投影声音：进程回环采集（静音扬声器后仍能采到），waveOut 播放对端 PCM。
+/// Windows 投影/共享扬声器声音：进程回环采集（静音扬声器后仍能采到），waveOut 播放对端 PCM。
 /// </summary>
 public sealed class WindowsProjectionAudio : IProjectionAudioEngine
 {
+    private readonly string _logLabel;
     private readonly object _capGate = new();
     private readonly object _playGate = new();
     private Thread? _thread;
@@ -24,6 +25,14 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
     private readonly List<PlayBuf> _pool = [];
     private const uint WhdrPrepared = 0x2;
     private const uint WhdrInQueue = 0x10;
+
+    /// <param name="logLabel">日志前缀，如「投影声音」或「共享扬声器」。</param>
+    public WindowsProjectionAudio(string logLabel = "投影声音")
+    {
+        _logLabel = string.IsNullOrWhiteSpace(logLabel) ? "投影声音" : logLabel.Trim();
+    }
+
+    private string L(string detail) => _logLabel + "：" + detail;
 
     public bool TryStartCapture(Action<byte[], int, int> onPcm, out string? error)
     {
@@ -103,7 +112,7 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
             {
                 if (_pool.Count >= 12)
                 {
-                    LogPlayFail("投影声音：播放队列已满，丢掉一段");
+                    LogPlayFail(L("播放队列已满，丢掉一段"));
                     return;
                 }
 
@@ -131,20 +140,20 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
             var hdrSize = Marshal.SizeOf<WAVEHDR>();
             if (waveOutPrepareHeader(_wave, slot.Header, hdrSize) != 0)
             {
-                LogPlayFail("投影声音：播放缓冲准备失败");
+                LogPlayFail(L("播放缓冲准备失败"));
                 return;
             }
 
             var wr = waveOutWrite(_wave, slot.Header, hdrSize);
             if (wr != 0)
             {
-                LogPlayFail($"投影声音：播放写入失败（{wr}）");
+                LogPlayFail(L($"播放写入失败（{wr}）"));
                 return;
             }
 
             if (_loggedPlayOk) return;
             _loggedPlayOk = true;
-            AppLog.Info("投影声音：开始播放对端声音");
+            AppLog.Info(L("开始播放对端声音"));
         }
     }
 
@@ -181,9 +190,9 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
             }
 
             if (!processLoopback)
-                AppLog.Warn("投影声音：进程回环不可用，本机扬声器仍会出声");
+                AppLog.Warn(L("进程回环不可用，本机扬声器仍会出声"));
             else
-                AppLog.Info($"投影声音：采集 {format.SampleRate} Hz / {format.Channels} 声道 / {(format.IsFloat ? "浮点" : "PCM")} {format.Bits} bit");
+                AppLog.Info(L($"采集 {format.SampleRate} Hz / {format.Channels} 声道 / {(format.IsFloat ? "浮点" : "PCM")} {format.Bits} bit"));
 
             _openTcs?.TrySetResult(_captureRun ? null : "已取消");
             var acc = new List<byte>(8192);
@@ -226,7 +235,7 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
                     if (peak < 0 && !loggedFormat)
                     {
                         loggedFormat = true;
-                        AppLog.Warn($"投影声音：采样格式无法转换（{format.Bits} bit），对端没有声音");
+                        AppLog.Warn(L($"采样格式无法转换（{format.Bits} bit），对端没有声音"));
                     }
                     else if (peak > packetPeak)
                     {
@@ -236,7 +245,7 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
                     if (acc.Count == before && peak >= 0 && bytes > 0 && !loggedFormat)
                     {
                         loggedFormat = true;
-                        AppLog.Warn($"投影声音：采样格式没有产出数据（{format.Bits} bit {(format.IsFloat ? "float" : "pcm")}）");
+                        AppLog.Warn(L($"采样格式没有产出数据（{format.Bits} bit {(format.IsFloat ? "float" : "pcm")}）"));
                     }
                 }
                 else if ((flags & 2) != 0 && got > 0)
@@ -249,7 +258,7 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
                 if (packetPeak > 400 && !loggedSound)
                 {
                     loggedSound = true;
-                    AppLog.Info("投影声音：已采集到有声数据");
+                    AppLog.Info(L("已采集到有声数据"));
                 }
 
                 while (acc.Count >= chunk)
@@ -317,11 +326,11 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
                         _mute = null;
                     }
 
-                    AppLog.Warn("投影声音：静音扬声器后采集变成无声，已恢复本机出声，声音仍发往对端");
+                    AppLog.Warn(L("静音扬声器后采集变成无声，已恢复本机出声，声音仍发往对端"));
                     return;
                 }
 
-                AppLog.Info("投影声音：本机扬声器已静音");
+                AppLog.Info(L("本机扬声器已静音"));
             }
         }
 
@@ -414,7 +423,7 @@ public sealed class WindowsProjectionAudio : IProjectionAudioEngine
         if (mm != 0)
         {
             _wave = IntPtr.Zero;
-            LogPlayFail($"投影声音：无法打开播放设备（{mm}，{sampleRate} Hz {channels} 声道）");
+            LogPlayFail(L($"无法打开播放设备（{mm}，{sampleRate} Hz {channels} 声道）"));
             return false;
         }
 

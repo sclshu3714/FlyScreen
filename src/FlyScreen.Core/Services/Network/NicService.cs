@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 
 namespace FlyScreen.Services.Network;
@@ -19,6 +20,28 @@ public static class NicService
     /// <summary>平台注入的优先 IPv4（如 Android WifiManager），在枚举网卡之前采用。</summary>
     public static Func<string?>? PreferredIpv4Hint { get; set; }
 
+    public static bool IsAutomaticPreference(string? nicId, string? ip)
+        => string.Equals(nicId, NicInfo.AutomaticId, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(ip, "0.0.0.0", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsAutomatic(NicInfo? nic)
+        => nic != null && nic.IsAutomatic;
+
+    /// <summary>「自动」：监听所有网卡（TCP/UDP bind 0.0.0.0），适合 Tailscale/多网卡。</summary>
+    public static NicInfo CreateAutomatic()
+    {
+        var label = Loc.T("Net.NicAuto");
+        return new NicInfo
+        {
+            Id = NicInfo.AutomaticId,
+            Name = label,
+            Description = label,
+            IPv4 = "0.0.0.0",
+            SubnetMask = "0.0.0.0",
+            IsUp = true
+        };
+    }
+
     public static IReadOnlyList<NicInfo> ListIpv4Nics()
         => EnumerateIpv4Nics(usableOnly: false);
 
@@ -31,6 +54,14 @@ public static class NicService
         return EnumerateIpv4Nics(usableOnly: false)
             .Where(n => n.IsUp && !IsApipa(n.IPv4))
             .ToList();
+    }
+
+    /// <summary>设置页下拉：自动 + 可用物理/无线网卡（不含 Tailscale 等虚拟适配器）。</summary>
+    public static IReadOnlyList<NicInfo> ListSelectableIpv4Nics()
+    {
+        var list = new List<NicInfo> { CreateAutomatic() };
+        list.AddRange(ListUsableIpv4Nics());
+        return list;
     }
 
     private static IReadOnlyList<NicInfo> EnumerateIpv4Nics(bool usableOnly)
@@ -156,6 +187,10 @@ public static class NicService
 
     public static NicInfo? ResolvePreferred(string? nicId, string? ip)
     {
+        // 显式选择「自动」时绑定所有网卡；空配置仍回退物理网卡（兼容旧设置）
+        if (IsAutomaticPreference(nicId, ip))
+            return CreateAutomatic();
+
         var all = ListUsableIpv4Nics();
         if (all.Count == 0) all = ListIpv4Nics();
 

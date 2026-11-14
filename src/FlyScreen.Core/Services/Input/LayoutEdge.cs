@@ -77,6 +77,7 @@ public static class LayoutEdge
         }
         else
         {
+            // 未开环形：到头即止，不回绕（与设置「环形鼠标」严格一致）
             nextPos = myPos + dir;
             if (nextPos < 0 || nextPos >= occupied.Count) return null;
         }

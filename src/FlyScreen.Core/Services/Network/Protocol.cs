@@ -188,7 +188,13 @@ public static class PeerCaps
     /// <summary>已安装共享设备工具（扬声器/麦克风/摄像头）。</summary>
     public const string ToolSharedDevices = "Tool:shared-devices";
 
+    /// <summary>对端会按实机枚举宣告 <c>Tool:shared-devices:speaker|microphone|camera</c>。</summary>
+    public const string ToolSharedDevicesKindsV1 = "Tool:shared-devices:kinds-v1";
+
     public static string ToolCap(string toolId) => "Tool:" + toolId;
+
+    public static string ToolSharedDevicesKindCap(string kind)
+        => ToolSharedDevices + ":" + kind.Trim().ToLowerInvariant();
 
     public static readonly string[] DesktopFull =
     [
@@ -548,7 +554,7 @@ public sealed class LayoutSyncPayload
     public int Mode { get; set; }
 }
 
-/// <summary>高级页「功能 / 行为」跨机同步（不含开机自启、热键、主题语言等本机项）。</summary>
+/// <summary>高级页「功能 / 行为」跨机同步（不含开机自启、本机快捷键字母、主题语言等）。</summary>
 public sealed class BehaviorSyncPayload
 {
     public string SourceMachine { get; set; } = "";
@@ -566,8 +572,10 @@ public sealed class BehaviorSyncPayload
     public bool MoveMouseRelatively { get; set; }
     public bool BlockMouseAtCorners { get; set; }
     public bool EasyMouse { get; set; } = true;
-    /// <summary>0 无障碍 / 1 双击 / 2 极速。</summary>
+    /// <summary>0 无障碍 / 1 双击 / 2 极速 / 3 快捷键。</summary>
     public int EdgeCrossMode { get; set; }
+    /// <summary>0=F1–F4 / 1=1–4 / 2=禁用；托盘「切换机器→禁用」需跨机一致。</summary>
+    public int SwitchHotkeyMode { get; set; }
 }
 
 public sealed class CursorOwnerPayload

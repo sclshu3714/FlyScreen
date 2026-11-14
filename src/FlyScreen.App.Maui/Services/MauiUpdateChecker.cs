@@ -7,6 +7,7 @@ namespace FlyScreen.AppMaui.Services;
 public sealed class MauiUpdateChecker
 {
     public static string ReleasesUrl => GitHubReleaseClient.ReleasesUrl;
+    public static string GiteeReleasesUrl => GitHubReleaseClient.GiteeReleasesUrl;
 
     private readonly GitHubReleaseClient _client = new();
 

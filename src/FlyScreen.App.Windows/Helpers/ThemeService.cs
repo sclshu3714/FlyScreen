@@ -37,6 +37,7 @@ public static class ThemeService
         Set(rd, "Muted", dark ? "#94A3B8" : "#6B7280");
         Set(rd, "Text", dark ? "#E2E8F0" : "#111827");
         Set(rd, "Success", dark ? "#34D399" : "#059669");
+        Set(rd, "SuccessSoft", dark ? "#0F3D2E" : "#ECFDF5");
         Set(rd, "Warn", dark ? "#FBBF24" : "#D97706");
         Set(rd, "WarnSoft", dark ? "#422006" : "#FEF3C7");
         Set(rd, "WinBg", dark ? "#0F172A" : "#F7F8FA");
@@ -63,8 +64,8 @@ public static class ThemeService
 
         // 覆盖窗口级 SystemColors，避免 ListView/ScrollViewer 默认白底
         OverrideSystemColorsOn(rd, dark);
-        // Application 级样式里的 DynamicResource 也要跟着变
-        SyncAppScrollBrushes(dark);
+        // Application 级：未入树控件 / App 级 DynamicResource 也能解析到同套主题色
+        SyncAppThemeBrushes(dark);
 
         if (root is Window win)
         {
@@ -187,10 +188,36 @@ public static class ThemeService
     /// <summary>将当前主题应用到子窗口。</summary>
     public static void ApplyToChildWindow(Window child) => Apply(Current, child);
 
-    private static void SyncAppScrollBrushes(bool dark)
+    private static void SyncAppThemeBrushes(bool dark)
     {
         var app = Application.Current?.Resources;
         if (app == null) return;
+        Set(app, "Blue", dark ? "#3B82F6" : "#2563EB");
+        Set(app, "BlueSoft", dark ? "#1E3A5F" : "#DBEAFE");
+        Set(app, "BlueHover", dark ? "#243447" : "#EFF6FF");
+        Set(app, "BluePress", dark ? "#1D4ED8" : "#1D4ED8");
+        Set(app, "Line", dark ? "#334155" : "#E5E7EB");
+        Set(app, "Muted", dark ? "#94A3B8" : "#6B7280");
+        Set(app, "Text", dark ? "#E2E8F0" : "#111827");
+        Set(app, "Success", dark ? "#34D399" : "#059669");
+        Set(app, "SuccessSoft", dark ? "#0F3D2E" : "#ECFDF5");
+        Set(app, "Warn", dark ? "#FBBF24" : "#D97706");
+        Set(app, "WarnSoft", dark ? "#422006" : "#FEF3C7");
+        Set(app, "WinBg", dark ? "#0F172A" : "#F7F8FA");
+        Set(app, "CardBg", dark ? "#1E293B" : "#FFFFFF");
+        Set(app, "PaneBg", dark ? "#111827" : "#FFFFFF");
+        Set(app, "SubtleBg", dark ? "#1E293B" : "#F3F4F6");
+        Set(app, "ControlBg", dark ? "#0F172A" : "#FFFFFF");
+        Set(app, "ControlBorder", dark ? "#475569" : "#D1D5DB");
+        Set(app, "ControlHover", dark ? "#334155" : "#F9FAFB");
+        Set(app, "Placeholder", dark ? "#64748B" : "#9CA3AF");
+        Set(app, "MatrixBg", dark ? "#0B1220" : "#F8FAFC");
+        Set(app, "ListBg", dark ? "#0B1220" : "#F9FAFB");
+        Set(app, "ToolCardNotInstalledBg", dark ? "#1E293B" : "#F3F4F6");
+        Set(app, "ToolCardInstalledBg", dark ? "#0F3D2E" : "#ECFDF5");
+        Set(app, "ToolCardRunningBg", dark ? "#1E3A5F" : "#DBEAFE");
+        Set(app, "ToolCardInstallingBg", dark ? "#243447" : "#EFF6FF");
+        Set(app, "ToolCardProgress", dark ? "#3B82F6" : "#93C5FD");
         Set(app, "ScrollTrack", "#00000000");
         Set(app, "ScrollThumb", dark ? "#64748B" : "#CBD5E1");
         Set(app, "ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");

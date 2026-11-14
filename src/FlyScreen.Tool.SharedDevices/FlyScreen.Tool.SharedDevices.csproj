@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Tool.SharedDevices</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.SharedDevices</AssemblyName>
+    <Description>玄鸟共享设备工具包入口</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\tool-shared-devices.png" LogicalName="FlyScreen.Tool.SharedDevices.Icons.tool-shared-devices.png" />
+  </ItemGroup>
+</Project>

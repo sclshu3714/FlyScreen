@@ -68,7 +68,8 @@ public sealed class BehaviorSyncHelper
         MoveMouseRelatively = _settings.MoveMouseRelatively,
         BlockMouseAtCorners = _settings.BlockMouseAtCorners,
         EasyMouse = _settings.EasyMouse,
-        EdgeCrossMode = _settings.EdgeCrossMode is >= 0 and <= 2 ? _settings.EdgeCrossMode : 0
+        EdgeCrossMode = _settings.EdgeCrossMode is >= 0 and <= 3 ? _settings.EdgeCrossMode : 0,
+        SwitchHotkeyMode = _settings.SwitchHotkeyMode is >= 0 and <= 2 ? _settings.SwitchHotkeyMode : 0
     };
 
     private void OnMessageReceived(string peer, NetMessage msg)
@@ -122,7 +123,15 @@ public sealed class BehaviorSyncHelper
         _settings.MoveMouseRelatively = sync.MoveMouseRelatively;
         _settings.BlockMouseAtCorners = sync.BlockMouseAtCorners;
         _settings.EasyMouse = sync.EasyMouse;
-        _settings.EdgeCrossMode = sync.EdgeCrossMode is >= 0 and <= 2 ? sync.EdgeCrossMode : 0;
+        _settings.EdgeCrossMode = sync.EdgeCrossMode is >= 0 and <= 3 ? sync.EdgeCrossMode : 0;
+        if (sync.SwitchHotkeyMode is >= 0 and <= 2)
+        {
+            if (sync.SwitchHotkeyMode == 2 && _settings.SwitchHotkeyMode is 0 or 1)
+                _settings.SwitchHotkeyModeBeforeOff = _settings.SwitchHotkeyMode;
+            else if (sync.SwitchHotkeyMode is 0 or 1)
+                _settings.SwitchHotkeyModeBeforeOff = sync.SwitchHotkeyMode;
+            _settings.SwitchHotkeyMode = sync.SwitchHotkeyMode;
+        }
     }
 
     private void OnPeerLinkChanged(string name, bool outbound, bool inbound)

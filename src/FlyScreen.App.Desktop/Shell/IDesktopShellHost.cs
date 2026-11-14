@@ -23,11 +23,14 @@ public interface IDesktopShellHost
     /// <summary>侧栏底部附加状态（如会话类型、辅助功能）。</summary>
     string PlatformStatusLine { get; }
 
-    /// <summary>平台专属按钮（如「打开辅助功能设置」）；无则空。</summary>
-    IReadOnlyList<(string Label, Action Invoke)> PlatformActions { get; }
+    /// <summary>平台专属操作（如 Mac 辅助功能/屏幕录制）；无则空。Icon 为标题栏图标按钮文案。</summary>
+    IReadOnlyList<(string Label, string Icon, Action Invoke)> PlatformActions { get; }
 
     bool SupportsTray { get; }
     bool SupportsAutoStart { get; }
+
+    /// <summary>托盘「切换机器」：跳到布局中的本机/对端；无穿边路由时返回 false。</summary>
+    bool TrySwitchToMachine(string machineName) => false;
 
     Task StartAsync();
     Task RestartNetworkingAsync();

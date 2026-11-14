@@ -12,7 +12,8 @@ namespace FlyScreen.Setup;
 
 public partial class MainWindow : Window
 {
-    private const int MaxConcurrentJobs = 2;
+    private readonly int _maxConcurrentJobs;
+    private readonly PublishConcurrency.Decision _concurrency;
 
     private readonly string _repoRoot;
     private readonly ObservableCollection<PublishTargetItem> _targets;
@@ -29,6 +30,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _concurrency = PublishConcurrency.Resolve();
+        _maxConcurrentJobs = _concurrency.MaxJobs;
         _repoRoot = RepoPaths.FindRepoRoot();
         _targets = new ObservableCollection<PublishTargetItem>(TargetCatalog.CreateDefaults());
         foreach (var t in _targets)
@@ -51,6 +54,7 @@ public partial class MainWindow : Window
         _jobs.CollectionChanged += Jobs_CollectionChanged;
 
         OutputDirBox.Text = RepoPaths.ArtifactsRelease(_repoRoot);
+        VersionBox.Text = VersionResolver.ReadCurrent(_repoRoot);
         InstallDirBox.Text = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao");
         LicenseUrlBox.Text = "https://github.com/sclshu3714/FlyScreen";
@@ -69,7 +73,9 @@ public partial class MainWindow : Window
         }
 
         AppendSystemLog($"仓库根目录: {_repoRoot}");
-        AppendSystemLog("打包固定使用 Release，发布产物将去除 .pdb。最多同时执行 2 个打包任务。");
+        AppendSystemLog($"当前版本: {VersionBox.Text}");
+        AppendSystemLog("打包固定使用 Release，发布产物将去除 .pdb。");
+        AppendSystemLog(_concurrency.Summary);
         ApplyMutexRules();
         RefreshCascadeFromSelection();
         UpdateQueueEmptyHint();
@@ -301,6 +307,12 @@ public partial class MainWindow : Window
             OutputDirBox.Text = dlg.FolderName;
     }
 
+    private void ResetVersion_Click(object sender, RoutedEventArgs e)
+    {
+        VersionBox.Text = VersionResolver.ReadCurrent(_repoRoot);
+        AppendSystemLog($"版本号已重置为当前版本: {VersionBox.Text}");
+    }
+
     private void OpenOutput_Click(object sender, RoutedEventArgs e)
     {
         // 优先打开最近一次入队任务的输出目录，否则用当前配置的输出目录
@@ -368,14 +380,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        string version;
+        try
+        {
+            version = VersionResolver.Normalize(VersionBox.Text);
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Alert(this, "提示", ex.Message, MessageDialogKind.Info);
+            VersionBox.Focus();
+            return;
+        }
+
         selected.ApplySelectedFrameworkRuntime();
         var snapshot = selected.CloneForPublish();
-        var options = BuildOptions().Clone();
+        var options = BuildOptions(version).Clone();
 
         var job = new PublishJobItem
         {
             Title = snapshot.DisplayName,
-            Subtitle = $"{snapshot.Rid} · {snapshot.SelectedFramework ?? snapshot.Framework}",
+            Subtitle = $"v{options.Version} · {snapshot.Rid} · {snapshot.SelectedFramework ?? snapshot.Framework}",
             Target = snapshot,
             Options = options,
             Message = "等待执行",
@@ -395,20 +419,33 @@ public partial class MainWindow : Window
         List<PublishJobItem> toStart;
         lock (_schedulerLock)
         {
-            var slots = MaxConcurrentJobs - _runningIds.Count;
+            var slots = _maxConcurrentJobs - _runningIds.Count;
             if (slots <= 0) return;
 
-            toStart = _jobs
-                .Where(j => j.Status == PublishJobStatus.Waiting)
-                .Take(slots)
-                .ToList();
+            // 同一 csproj（如 maui-win / maui-android）不可并行：WinAppSDK MsixContent、Android obj 都落在工程目录。
+            var busyProjects = _jobs
+                .Where(j => j.Status == PublishJobStatus.Running || _runningIds.Contains(j.Id))
+                .Select(j => NormalizeProjectKey(j.Target.ProjectPath))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var job in toStart)
+            toStart = [];
+            foreach (var job in _jobs.Where(j => j.Status == PublishJobStatus.Waiting))
             {
+                if (slots <= 0) break;
+                var key = NormalizeProjectKey(job.Target.ProjectPath);
+                if (!busyProjects.Add(key))
+                {
+                    if (string.IsNullOrWhiteSpace(job.Message) || job.Message == "等待执行")
+                        job.Message = "等待同工程任务结束…";
+                    continue;
+                }
+
                 job.Status = PublishJobStatus.Running;
                 job.Message = "准备中…";
                 job.Percent = 0;
                 _runningIds.Add(job.Id);
+                toStart.Add(job);
+                slots--;
             }
         }
 
@@ -417,6 +454,9 @@ public partial class MainWindow : Window
 
         RefreshStatusBar();
     }
+
+    private static string NormalizeProjectKey(string? projectPath)
+        => (projectPath ?? "").Replace('/', '\\').Trim().ToLowerInvariant();
 
     private async Task RunJobAsync(PublishJobItem job)
     {
@@ -441,7 +481,8 @@ public partial class MainWindow : Window
                     Dispatcher.Invoke(() => AppendJobLog(job, msg));
                 },
                 progress,
-                job.Cts.Token).ConfigureAwait(true);
+                job.Cts.Token,
+                jobId: job.Id.ToString("N")).ConfigureAwait(true);
 
             job.Percent = 100;
             job.Message = "全部任务完成";
@@ -591,10 +632,10 @@ public partial class MainWindow : Window
         var running = _jobs.Count(j => j.Status == PublishJobStatus.Running);
         var waiting = _jobs.Count(j => j.Status == PublishJobStatus.Waiting);
         var done = _jobs.Count(j => j.Status is PublishJobStatus.Completed or PublishJobStatus.Failed or PublishJobStatus.Cancelled);
-        StatusText.Text = $"就绪 · Release · 运行 {running}/{MaxConcurrentJobs} · 等待 {waiting} · 结束 {done}";
+        StatusText.Text = $"就绪 · Release · 运行 {running}/{_maxConcurrentJobs} · 等待 {waiting} · 结束 {done}";
     }
 
-    private PublishOptions BuildOptions() => new()
+    private PublishOptions BuildOptions(string version) => new()
     {
         PackageMode = ModeInstaller.IsChecked == true ? PackageMode.Installer : PackageMode.Standalone,
         DeploymentMode = DeploySelfContained.IsChecked == true
@@ -614,6 +655,7 @@ public partial class MainWindow : Window
         CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true,
         CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
         IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
-                            && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline)
+                            && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline),
+        Version = version
     };
 }

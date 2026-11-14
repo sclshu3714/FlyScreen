@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 
 </Project>

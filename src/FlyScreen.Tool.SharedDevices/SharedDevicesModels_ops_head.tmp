@@ -1,0 +1,17 @@
+using FlyScreen.Services;
+using FlyScreen.Helpers.Localization;
+using FlyScreen.ToolSdk;
+
+namespace FlyScreen.Tool.SharedDevices;
+
+public static class SharedDevicesOps
+{
+    public const string Request = "request";
+    public const string RequestAccept = "request-accept";
+    public const string RequestReject = "request-reject";
+    public const string SessionClose = "session-close";
+    public const string MediaState = "media-state";
+    /// <summary>申请端请求提供方开启本机测试采集/播放。</summary>
+    public const string TestStart = "test-start";
+    public const string TestStop = "test-stop";
+}

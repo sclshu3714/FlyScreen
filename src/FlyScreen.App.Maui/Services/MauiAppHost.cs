@@ -4,7 +4,7 @@ using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 
 namespace FlyScreen.AppMaui.Services;
 
@@ -17,10 +17,12 @@ public sealed class MauiAppHost : IAsyncDisposable
     private static MauiAppHost? _instance;
     private int _started;
     private IMauiPlatformServices _platform = NullMauiPlatformServices.Instance;
-    private SharedDevicesAudioBridge? _sharedDevicesAudio;
 #if ANDROID
     private Platforms.Android.AndroidSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
+#elif WINDOWS
+    private FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
 #endif
+    private ISharedDevicesRuntime? _sharedDevices;
 
     public static MauiAppHost Instance =>
         _instance ?? throw new InvalidOperationException("MauiAppHost 未创建");
@@ -70,20 +72,15 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
-        var sharedDevices = FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
-        sharedDevices.StatusMessage += msg =>
-        {
-            try { StatusMessage?.Invoke(msg); } catch { /* ignore */ }
-        };
-#if ANDROID
-        sharedDevices.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
-        _sharedDevicesAudio = new SharedDevicesAudioBridge(
-            sharedDevices, new Platforms.Android.AndroidProjectionAudio());
-        _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sharedDevices);
-#elif WINDOWS
-        sharedDevices.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
-        _sharedDevicesAudio = new SharedDevicesAudioBridge(
-            sharedDevices, new FlyScreen.ScreenExtend.WindowsProjectionAudio());
+        BundledFlyToolsSeeder.EnsureAsync().GetAwaiter().GetResult();
+#if WINDOWS
+        FlyScreen.Services.Tools.ToolService.Instance.AttachExecutableIconExtractor(
+            new FlyScreen.Tools.WindowsToolExecutableIconExtractor());
+#endif
+        FlyScreen.Services.Tools.ToolService.Instance.AttachSharedDevices(Connections, Settings);
+        TryWireSharedDevices();
+        FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
+#if WINDOWS
         FlyScreen.Services.Tools.ToolService.Instance.AttachColorSampler(new FlyScreen.Tools.WinScreenColorSampler());
 #endif
         var sink = new MauiClipboardApplySink();
@@ -274,6 +271,48 @@ public sealed class MauiAppHost : IAsyncDisposable
 #endif
     }
 
+    private void TryWireSharedDevices()
+    {
+        var sd = FlyScreen.Services.Tools.ToolService.Instance.GetToolService<ISharedDevicesRuntime>();
+        if (sd == null)
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+#if ANDROID || WINDOWS
+            try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+            _sharedDevicesProviderMedia = null;
+#endif
+            _sharedDevices = null;
+            return;
+        }
+
+        if (!ReferenceEquals(sd, _sharedDevices))
+        {
+            if (_sharedDevices != null)
+                _sharedDevices.StatusMessage -= PublishStatus;
+#if ANDROID || WINDOWS
+            try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+            _sharedDevicesProviderMedia = null;
+#endif
+            _sharedDevices = sd;
+            sd.StatusMessage += PublishStatus;
+        }
+
+        // 同实例也重新挂硬件：工具 ALC 重载后管理页才能枚举到本机设备
+#if ANDROID
+        sd.AttachHardware(new Platforms.Android.AndroidSharedDevicesHardware());
+        sd.AttachAudioEngine(new Platforms.Android.AndroidProjectionAudio());
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = new Platforms.Android.AndroidSharedDevicesProviderMedia(sd);
+#elif WINDOWS
+        sd.AttachHardware(new FlyScreen.SharedDevices.WindowsSharedDevicesHardware());
+        sd.AttachAudioEngine(new FlyScreen.ScreenExtend.WindowsProjectionAudio("共享扬声器"));
+        Platforms.Windows.MauiWindowsSharedDevicesCamera.Register();
+        try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
+        _sharedDevicesProviderMedia = new FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia(sd);
+#endif
+    }
+
     private void PublishStatus(string message)
     {
         AppLog.RecordStatus(message);
@@ -364,7 +403,8 @@ public sealed class MauiAppHost : IAsyncDisposable
             || previousUdpPort != Settings.UdpPort
             || !string.Equals(previousNicId ?? "", Settings.PreferredNicId ?? "", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(previousLocalIp ?? "", Settings.PreferredLocalIp ?? "", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal);
+            || !string.Equals(previousSecurityKey ?? "", Settings.SecurityKey ?? "", StringComparison.Ordinal)
+            || Connections.NeedsListenRebind();
 
         if (needRestart || !Connections.IsRunning)
             await Connections.StartAsync().ConfigureAwait(false);
@@ -725,7 +765,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.ShareClipboard = shareClipboard;
         Settings.TransferFile = transferFile;
         Settings.EasyMouse = easyMouse;
-        Settings.EdgeCrossMode = edgeCrossMode is >= 0 and <= 2 ? edgeCrossMode : 0;
+        // 0 无障碍 / 1 双击 / 2 极速 / 3 快捷键（与 BehaviorSyncHelper、Win 端一致）
+        Settings.EdgeCrossMode = edgeCrossMode is >= 0 and <= 3 ? edgeCrossMode : 0;
         Settings.SameSubnetOnly = sameSubnet;
         Settings.HideMouseAtEdge = hideMouseAtEdge;
         Settings.DrawMouseCursor = drawMouseCursor;
@@ -734,7 +775,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         Settings.BlockScreenSaver = blockScreenSaver;
         Settings.MoveMouseRelatively = moveMouseRelatively;
         Settings.BlockMouseAtCorners = blockMouseAtCorners;
-        Settings.SwitchHotkeyMode = switchHotkeyMode;
+        FlyScreen.Helpers.TraySwitchMenu.ApplyMode(Settings, switchHotkeyMode);
         if (hotkeySettings != null) Settings.HotkeySettings = hotkeySettings;
         if (hotkeyLock != null) Settings.HotkeyLock = hotkeyLock;
         if (hotkeyReconnect != null) Settings.HotkeyReconnect = hotkeyReconnect;
@@ -888,9 +929,10 @@ public sealed class MauiAppHost : IAsyncDisposable
             try { winPlat.DisposeScreenExtendUi(); } catch { /* ignore */ }
         }
 #endif
-        try { _sharedDevicesAudio?.Dispose(); } catch { /* ignore */ }
-        _sharedDevicesAudio = null;
-#if ANDROID
+#if ANDROID || WINDOWS
+#if WINDOWS
+        Platforms.Windows.MauiWindowsSharedDevicesCamera.Unregister();
+#endif
         try { _sharedDevicesProviderMedia?.Dispose(); } catch { /* ignore */ }
         _sharedDevicesProviderMedia = null;
 #endif

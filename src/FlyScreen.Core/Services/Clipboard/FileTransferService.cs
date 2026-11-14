@@ -1274,6 +1274,20 @@ public sealed class FileTransferService
 
     public RemoteFoldersPayload BuildLocalFoldersPayload()
     {
+        // 本机是手机时：Scoped Storage 下桌面/文档/下载不可靠，上报时只填 Inbox。
+        // 效果：其他端「向本机直传」只看到收件箱+自定义；本机向电脑直传仍用对端上报的 5 项。
+        if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst())
+        {
+            return new RemoteFoldersPayload
+            {
+                MachineName = Environment.MachineName,
+                Desktop = "",
+                Documents = "",
+                Downloads = "",
+                Inbox = _inboxDir
+            };
+        }
+
         static string Special(Environment.SpecialFolder folder)
         {
             try { return Environment.GetFolderPath(folder); }

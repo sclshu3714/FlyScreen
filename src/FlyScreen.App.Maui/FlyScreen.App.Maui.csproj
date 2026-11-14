@@ -109,11 +109,13 @@
     <AndroidSigningKeyPass>flyscreen</AndroidSigningKeyPass>
   </PropertyGroup>
 
-  <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe 名不变，显示名见 WindowsAppUserModel -->
+  <!-- Windows：通用玄鸟 ico；FileDescription=玄鸟。exe 名不变，显示名见 WindowsAppUserModel。
+       清单要求管理员：对齐 WPF，保证 WH_MOUSE_LL 穿边钩子可靠（非提权易丢边沿移动事件）。 -->
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
     <AssemblyTitle>玄鸟</AssemblyTitle>
     <Product>玄鸟</Product>
+    <ApplicationManifest>Platforms\Windows\app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <!-- win-x64 发布：单文件自包含（与 PublishProfiles/SingleFile-win-x64.pubxml / Publish-FlyScreenMaui.ps1 一致） -->
@@ -206,6 +208,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
   </ItemGroup>
 
   <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->
@@ -216,6 +219,7 @@
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
   <!-- Windows：TopologyGuard / VddOffline（zip 在 VddOffline\ 下）打进包 -->
   <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />

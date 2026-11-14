@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:FlyScreen"
+        xmlns:helpers="clr-namespace:FlyScreen.Helpers"
         Title="玄鸟"
         Height="640" Width="960"
         MinHeight="600" MinWidth="900"
@@ -154,8 +155,6 @@
         <Geometry x:Key="GeoAdvanced">M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z</Geometry>
         <Geometry x:Key="GeoPrograms">M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.83L22.17,12L16,18.17V15.59L19.59,12M1.83,12L8,5.83V8.41L4.41,12L8,15.59V18.17L1.83,12Z</Geometry>
         <!-- 共享设备：左上摄像头 · 右上麦克风 · 左下扬声器 · 右下分享节点 -->
-        <Geometry x:Key="GeoToolSharedDevices">M2,6.3H5.2L6,4.9H10L10.8,6.3H14V11.8H2ZM8,7.6A1.9,1.9 0 0,0 6.1,9.5A1.9,1.9 0 0,0 8,11.4A1.9,1.9 0 0,0 9.9,9.5A1.9,1.9 0 0,0 8,7.6M16.4,3.2A1.9,2.5 0 0,1 20.2,3.2V8A1.9,2.5 0 0,1 16.4,8ZM18.3,10.3V12M15.2,8.6C16.5,10.3 20.1,10.3 21.4,8.6M15.4,12H21.2M2.2,15.4H5.2L9.2,12.8V21.2L5.2,18.6H2.2ZM10.5,14.6C11.8,16 11.8,19.2 10.5,20.6M12.4,13.4C14.4,15.4 14.4,19.8 12.4,21.8M16.8,14.2L20.2,16.2M16.8,20.2L20.2,16.2</Geometry>
-        <Geometry x:Key="GeoToolSharedDevicesAccent">M16.5,13A1.15,1.15 0 0,0 15.35,14.15A1.15,1.15 0 0,0 16.5,15.3A1.15,1.15 0 0,0 17.65,14.15A1.15,1.15 0 0,0 16.5,13M21,15.05A1.15,1.15 0 0,0 19.85,16.2A1.15,1.15 0 0,0 21,17.35A1.15,1.15 0 0,0 22.15,16.2A1.15,1.15 0 0,0 21,15.05M16.5,19A1.15,1.15 0 0,0 15.35,20.15A1.15,1.15 0 0,0 16.5,21.3A1.15,1.15 0 0,0 17.65,20.15A1.15,1.15 0 0,0 16.5,19Z</Geometry>
         <Geometry x:Key="GeoLog">M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13M8,13H16V15H8V13M8,17H13V19H8V17Z</Geometry>
         <Geometry x:Key="GeoAbout">M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z</Geometry>
         <Geometry x:Key="GeoHelp">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,19H11V17H13M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7C10.9,7 10,7.89 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,10.1 15.55,11.05 14.07,12.25L15.07,11.25Z</Geometry>
@@ -190,14 +189,180 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <!-- 工具面包屑关闭：悬停浅蓝底 + 蓝色 × -->
-        <Style x:Key="WorkspaceCloseBtn" TargetType="Button">
-            <Setter Property="Width" Value="22"/>
-            <Setter Property="Height" Value="22"/>
-            <Setter Property="MinWidth" Value="22"/>
+        <!-- 工具卡片右上角三点：对齐 Maui-Win（勿吃全局 Button MinWidth=88） -->
+        <Style x:Key="ToolCardMoreBtn" TargetType="Button">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,-2,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="ToolTip" Value="更多操作"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                                BorderBrush="Transparent" BorderThickness="1"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- 工具卡片三点菜单：对齐 Maui-Win MenuFlyout（圆角白底 + 浅蓝悬停，无图标列） -->
+        <Style x:Key="ToolCardContextMenu" TargetType="ContextMenu">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+            <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="MinWidth" Value="128"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="Grid.IsSharedSizeScope" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="2" Direction="270"
+                                                  Opacity="0.16" Color="#14233A"/>
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ToolCardMenuItem" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                Margin="0,1" SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- 网络操作列图标钮：与双按钮总宽对齐；单钮拉满 -->
+        <Style x:Key="NetIconOpBtn" TargetType="Button">
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="0"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
+                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Blue}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="NetIconOpBtnWarn" TargetType="Button" BasedOn="{StaticResource NetIconOpBtn}">
+            <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{DynamicResource WarnSoft}" BorderBrush="{DynamicResource Warn}"
+                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Content="{TemplateBinding Content}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Warn}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 工具面包屑关闭：紧凑方钮，悬停浅蓝底 + 蓝色 × -->
+        <Style x:Key="WorkspaceCloseBtn" TargetType="Button">
+            <Setter Property="Width" Value="18"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MaxWidth" Value="18"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
@@ -205,6 +370,7 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd" Background="Transparent" CornerRadius="4"
                                 BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                Width="18" Height="18"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                               RecognizesAccessKey="True"/>
@@ -811,6 +977,12 @@
 
     </Window.Resources>
 
+    <!-- WindowChrome 去玻璃后补 1px 外框；圆角对齐 Maui-Win / DWM；最大化时码里清零 -->
+    <Border x:Name="WindowOuterBorder"
+            BorderBrush="{DynamicResource Line}" BorderThickness="1"
+            Background="{DynamicResource WinBg}"
+            CornerRadius="8" ClipToBounds="True"
+            SnapsToDevicePixels="True">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36"/>
@@ -1079,6 +1251,7 @@
                                   PreviewMouseMove="Matrix_PreviewMouseMove"
                                   Drop="Matrix_Drop"
                                   DragOver="Matrix_DragOver"
+                                  DragLeave="Matrix_DragLeave"
                                   SizeChanged="MachineMatrix_SizeChanged">
                                             <ItemsControl.ItemContainerStyle>
                                                 <Style TargetType="ContentPresenter">
@@ -1106,31 +1279,30 @@
                                                                 <Setter Property="BorderThickness" Value="1"/>
                                                                 <Setter Property="Margin" Value="4"/>
                                                                 <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-                                                                        <Setter Property="BorderThickness" Value="2"/>
-                                                                        <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
-                                                                    </DataTrigger>
+                                                                    <!-- 本机：绿框（与选中蓝框区分）；后写的选中/落点覆盖本机 -->
                                                                     <DataTrigger Binding="{Binding IsLocal}" Value="True">
-                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Success}"/>
                                                                         <Setter Property="BorderThickness" Value="2"/>
-                                                                        <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
+                                                                        <Setter Property="Background" Value="{DynamicResource SuccessSoft}"/>
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding Enabled}" Value="False">
                                                                         <Setter Property="BorderBrush" Value="#94A3B8"/>
                                                                         <Setter Property="Opacity" Value="0.9"/>
                                                                         <Setter Property="Background" Value="{DynamicResource MatrixBg}"/>
                                                                     </DataTrigger>
-                                                                    <MultiDataTrigger>
-                                                                        <MultiDataTrigger.Conditions>
-                                                                            <Condition Binding="{Binding Enabled}" Value="False"/>
-                                                                            <Condition Binding="{Binding IsSelected}" Value="True"/>
-                                                                        </MultiDataTrigger.Conditions>
+                                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                                                         <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
                                                                         <Setter Property="BorderThickness" Value="2"/>
-                                                                        <Setter Property="Opacity" Value="1"/>
                                                                         <Setter Property="Background" Value="{DynamicResource BlueHover}"/>
-                                                                    </MultiDataTrigger>
+                                                                        <Setter Property="Opacity" Value="1"/>
+                                                                    </DataTrigger>
+                                                                    <!-- 拖拽悬停：准备交换 -->
+                                                                    <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                                                                        <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                                                                        <Setter Property="BorderThickness" Value="3"/>
+                                                                        <Setter Property="Background" Value="{DynamicResource BlueSoft}"/>
+                                                                        <Setter Property="Opacity" Value="1"/>
+                                                                    </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsTwoRow}" Value="True">
                                                                         <Setter Property="Margin" Value="3"/>
                                                                     </DataTrigger>
@@ -1228,6 +1400,8 @@
                                 <RadioButton x:Name="EdgeCrossDoubleRadio" Content="双击" GroupName="EdgeCross"
                                              Margin="0,0,0,4" Checked="EdgeCrossMode_Changed"/>
                                 <RadioButton x:Name="EdgeCrossSpeedRadio" Content="极速" GroupName="EdgeCross"
+                                             Margin="0,0,0,4" Checked="EdgeCrossMode_Changed"/>
+                                <RadioButton x:Name="EdgeCrossHotkeyRadio" Content="快捷键" GroupName="EdgeCross"
                                              Margin="0,0,0,8" Checked="EdgeCrossMode_Changed"/>
                                 <TextBlock x:Name="EdgeCrossTipText" Text="" TextWrapping="Wrap"
                                            Foreground="{DynamicResource Muted}" FontSize="12"/>
@@ -1306,81 +1480,250 @@
                     </Grid>
                 </Grid>
 
-                <!-- ===== 网络设置 ===== -->
+                <!-- ===== 网络设置：连接配置 / 设备管理 ===== -->
                 <Grid x:Name="PageNetwork" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock x:Name="NicTitleText" Text="本机网卡" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                            <TextBlock x:Name="NicHintText" Text="选择用于通信的网卡，避免虚拟网卡导致单向连接。"
-                         Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <ComboBox x:Name="NicCombo" DisplayMemberPath="Display"
-                          VerticalContentAlignment="Center"/>
-                                <Button x:Name="RefreshNicsBtn" Grid.Column="1" Content="刷新网卡" Click="RefreshNics_Click"/>
-                            </Grid>
-                            <Grid Margin="0,12,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="100"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="TcpPortLabel" Text="TCP 端口" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="TcpPortBox" Grid.Column="1" Text="15155"/>
-                                <TextBlock x:Name="UdpPortLabel" Grid.Column="2" Text="发现端口" VerticalAlignment="Center" Margin="20,0,8,0"/>
-                                <TextBox x:Name="UdpPortBox" Grid.Column="3" Text="15156"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="1" Style="{StaticResource Card}">
+                    <StackPanel x:Name="NetworkBreadcrumbHost" Orientation="Horizontal" Margin="0,0,0,10"/>
+                    <!-- 连接配置 -->
+                    <Border x:Name="PanelConnConfig" Grid.Row="1" Style="{StaticResource Card}">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <StackPanel Margin="0,0,0,8">
-                                <TextBlock x:Name="DiscoveryTitleText" Text="局域网自动发现" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DiscoveryHintText" Text="单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出"
-                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <Border Grid.Row="1" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                      CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
-                                <StackPanel Orientation="Horizontal">
-                                    <Button x:Name="RefreshDiscoveryBtn" Content="刷新发现" Margin="0" Click="RefreshDiscovery_Click"/>
+                            <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                                <Button x:Name="AddEndpointBtn" DockPanel.Dock="Right" Width="32" Height="28" Padding="0"
+                                        ToolTip="添加配置" Click="AddEndpoint_Click" Margin="8,0,0,0"
+                                        Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}" BorderThickness="1"
+                                        Foreground="{DynamicResource Blue}" FontWeight="SemiBold" FontSize="16" Content="+"/>
+                                <StackPanel>
+                                    <TextBlock x:Name="ConnConfigTitleText" Text="连接配置" FontWeight="SemiBold" FontSize="15"/>
+                                    <TextBlock x:Name="ConnConfigHintText"
+                                               Text="本机网卡用于局域网；可添加远程设备或中转服务地址（旧端忽略未知配置，局域网互通不受影响）。"
+                                               Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
+                            </DockPanel>
+                            <Border Grid.Row="1" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}"
+                                    BorderThickness="1" CornerRadius="8" Padding="0" Margin="0,0,0,8">
+                                <Grid Margin="12,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ConnColType" Text="类型" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Muted}" Width="96" TextAlignment="Right"/>
+                                </Grid>
                             </Border>
-                            <ListBox x:Name="DiscoveryList" Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                       Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
-                       MouseDoubleClick="DiscoveryList_DoubleClick">
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <!-- 固定：本机网卡；单操作钮拉满与双按钮同宽 -->
+                                    <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                                            BorderThickness="0,0,0,1" Padding="12,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="140"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="96"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center"
+                                                       FontWeight="SemiBold"/>
+                                            <ComboBox x:Name="NicCombo" Grid.Column="1" DisplayMemberPath="Display"
+                                                      VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+                                            <Button x:Name="RefreshNicsBtn" Grid.Column="2" Style="{StaticResource NetIconOpBtn}"
+                                                    Content="↻" ToolTip="刷新网卡" Click="RefreshNics_Click"
+                                                    HorizontalAlignment="Stretch"/>
+                                        </Grid>
+                                    </Border>
+                                    <ItemsControl x:Name="EndpointList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                                                        BorderThickness="0,0,0,1" Padding="12,10">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="140"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="96"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+                                                        <ComboBox SelectedIndex="{Binding Kind, Mode=TwoWay}"
+                                                                  VerticalContentAlignment="Center" FontWeight="SemiBold"
+                                                                  ToolTip="远程=一对一 IP；中转服务=一对多注册发现">
+                                                            <ComboBoxItem Content="远程"/>
+                                                            <ComboBoxItem Content="中转服务"/>
+                                                        </ComboBox>
+                                                        <TextBox Grid.Column="1" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Margin="0,0,8,0" VerticalContentAlignment="Center"
+                                                                 ToolTip="远程：host:port / IP；中转：wss://…"/>
+                                                        <Grid Grid.Column="2">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="6"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Button Grid.Column="0" Style="{StaticResource NetIconOpBtn}"
+                                                                    Content="⚡" ToolTip="测试（通过后才进入设备管理）" Click="TestEndpoint_Click" Tag="{Binding}"/>
+                                                            <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}"
+                                                                    Content="−" ToolTip="删除" Click="DeleteEndpoint_Click" Tag="{Binding}"/>
+                                                        </Grid>
+                                                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,4,8,0" FontSize="11"
+                                                                   Foreground="{DynamicResource Muted}"
+                                                                   Text="{Binding StatusText}"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <!-- 兼容：隐藏旧发现列表宿主，供代码迁移期引用 -->
+                                    <ListBox x:Name="DiscoveryList" Visibility="Collapsed" Height="0"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Grid Grid.Row="3" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="TcpPortLabel" Text="TCP" VerticalAlignment="Center" Margin="0,0,8,0"
+                                           Foreground="{DynamicResource Muted}"/>
+                                <TextBox x:Name="TcpPortBox" Grid.Column="1" Text="15155"/>
+                                <TextBlock x:Name="UdpPortLabel" Grid.Column="2" Text="发现" VerticalAlignment="Center" Margin="20,0,8,0"
+                                           Foreground="{DynamicResource Muted}"/>
+                                <TextBox x:Name="UdpPortBox" Grid.Column="3" Text="15156"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                    <!-- 设备管理 -->
+                    <Border x:Name="PanelDeviceMgmt" Grid.Row="1" Style="{StaticResource Card}" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <DockPanel Margin="0,0,0,4" LastChildFill="True">
+                                <Button x:Name="RefreshDiscoveryBtn" DockPanel.Dock="Right" Width="32" Height="28" Padding="0"
+                                        Content="↻" ToolTip="刷新发现" Click="RefreshDiscovery_Click"
+                                        Foreground="{DynamicResource Blue}" FontSize="14" FontWeight="SemiBold" Margin="8,0,0,0"/>
+                                <StackPanel>
+                                    <TextBlock x:Name="DiscoveryTitleText" Text="设备管理" FontWeight="SemiBold" FontSize="15"/>
+                                    <TextBlock x:Name="DiscoveryHintText"
+                                               Text="刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。"
+                                               Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DockPanel>
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <RadioButton x:Name="DevFilterAll" Content="全部" IsChecked="True" Margin="0,0,12,0"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                                <RadioButton x:Name="DevFilterLocal" Content="本地" Margin="0,0,12,0"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                                <RadioButton x:Name="DevFilterRemote" Content="远程" Margin="0,0,12,0"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                                <RadioButton x:Name="DevFilterService" Content="服务"
+                                             GroupName="DevFilter" Checked="DevFilter_Changed"/>
+                            </StackPanel>
+                            <Border Grid.Row="2" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}"
+                                    BorderThickness="1" CornerRadius="8,8,0,0" Padding="12,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1.4*"/>
+                                        <ColumnDefinition Width="70"/>
+                                        <ColumnDefinition Width="1.2*"/>
+                                        <ColumnDefinition Width="1.6*"/>
+                                        <ColumnDefinition Width="96"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DevColName" Text="设备名称" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColKind" Grid.Column="1" Text="类型" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColAddr" Grid.Column="2" Text="地址" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColStatus" Grid.Column="3" Text="状态" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock x:Name="DevColOp" Grid.Column="4" Text="操作" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" TextAlignment="Right"/>
+                                </Grid>
+                            </Border>
+                            <ListBox x:Name="DeviceInventoryList" Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="1,0,1,1"
+                                     Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <DockPanel Margin="6,8">
-                                            <Button DockPanel.Dock="Right"
-                              Content="{Binding Value, Source={StaticResource Str.Add}}"
-                              Padding="10,0" Height="28" MinWidth="56"
-                              Margin="8,0,0,0" Click="AddDiscovered_Click" Tag="{Binding}"/>
-                                            <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource Success}"
-                              Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                            <TextBlock VerticalAlignment="Center">
-                        <Run Text="{Binding MachineName}" FontWeight="SemiBold"/>
-                        <Run Text="  "/><Run Text="{Binding Ip}" Foreground="{DynamicResource Muted}"/>
-                        <Run Text=":" Foreground="{DynamicResource Muted}"/><Run Text="{Binding TcpPort}" Foreground="{DynamicResource Muted}"/>
-                                            </TextBlock>
-                                        </DockPanel>
+                                        <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="12,10"
+                                                Background="{DynamicResource CardBg}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="1.4*"/>
+                                                    <ColumnDefinition Width="70"/>
+                                                    <ColumnDefinition Width="1.2*"/>
+                                                    <ColumnDefinition Width="1.6*"/>
+                                                    <ColumnDefinition Width="96"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding KindLabel}" VerticalAlignment="Center" FontWeight="SemiBold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource Success}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Kind}" Value="1">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding Kind}" Value="2">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Grid.Column="2" Text="{Binding Address}" Foreground="{DynamicResource Muted}"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" FontSize="12"/>
+                                                <Grid Grid.Column="4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="6"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button Style="{StaticResource NetIconOpBtn}"
+                                                            Content="{Binding PrimaryActionIcon}"
+                                                            ToolTip="{Binding PrimaryActionText}"
+                                                            Click="DevicePrimaryAction_Click" Tag="{Binding}"
+                                                            Grid.ColumnSpan="{Binding PrimaryActionColumnSpan}"
+                                                            Visibility="{Binding PrimaryActionVisible, Converter={StaticResource BoolToVis}}"/>
+                                                    <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}"
+                                                            Content="{Binding SecondaryActionIcon}"
+                                                            ToolTip="{Binding SecondaryActionText}"
+                                                            Click="DeviceSecondaryAction_Click" Tag="{Binding}"
+                                                            Visibility="{Binding SecondaryActionVisible, Converter={StaticResource BoolToVis}}"/>
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </Grid>
                     </Border>
+                    <!-- 兼容旧本地化字段名（隐藏） -->
+                    <TextBlock x:Name="NicHintText" Visibility="Collapsed"/>
                 </Grid>
 
                 <!-- ===== 文件传输 ===== -->
@@ -1618,38 +1961,60 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
-                                <TextBlock x:Name="ToolsTitleText" Text="工具" FontSize="15" FontWeight="SemiBold"
-                                           VerticalAlignment="Center"/>
-                                <StackPanel x:Name="ToolsWorkspaceNavPanel" Orientation="Horizontal"
-                                            VerticalAlignment="Center" Margin="0,0,0,0"/>
-                            </StackPanel>
+                            <DockPanel Margin="0,0,0,4" LastChildFill="False">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
+                                    <TextBlock x:Name="ToolsTitleText" Text="工具" FontSize="15" FontWeight="SemiBold"
+                                               VerticalAlignment="Center"/>
+                                    <StackPanel x:Name="ToolsWorkspaceNavPanel" Orientation="Horizontal"
+                                                VerticalAlignment="Center" Margin="0,0,0,0"/>
+                                </StackPanel>
+                                <Button x:Name="ToolsImportBtn" Content="导入" DockPanel.Dock="Right"
+                                        Padding="12,4" Margin="8,0,0,0" Click="ToolsImport_Click"/>
+                            </DockPanel>
                             <TextBlock x:Name="ToolsHintText" Grid.Row="1" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,14"/>
-                            <ScrollViewer x:Name="ToolsCatalogHost" Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                                       Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,10"/>
+                            <ScrollViewer x:Name="ToolsShortcutHost" Grid.Row="2" Margin="0,0,0,12" MinHeight="72"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled"
+                                          HorizontalAlignment="Stretch">
+                                <StackPanel x:Name="ToolsShortcutBar" Orientation="Horizontal"
+                                            HorizontalAlignment="Left"/>
+                            </ScrollViewer>
+                            <ScrollViewer x:Name="ToolsCatalogHost" Grid.Row="3" VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           SizeChanged="ToolsCatalogHost_SizeChanged">
-                                <ItemsControl x:Name="ToolsList">
+                                <!-- VerticalAlignment=Top：避免 ScrollViewer 拉伸后 UniformGrid 把卡片垂直居中 -->
+                                <ItemsControl x:Name="ToolsList" VerticalAlignment="Top" HorizontalAlignment="Stretch">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <UniformGrid Columns="2"/>
+                                            <UniformGrid Columns="2" VerticalAlignment="Top"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border Height="104" Margin="6" Cursor="Hand"
-                                                    HorizontalAlignment="Stretch"
-                                                    CornerRadius="10" BorderBrush="{DynamicResource Line}"
-                                                    BorderThickness="1" ClipToBounds="True"
+                                                    HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                                                    CornerRadius="10" BorderThickness="1"
+                                                    ClipToBounds="True"
                                                     MouseLeftButtonDown="ToolCard_MouseLeftButtonDown"
+                                                    MouseLeftButtonUp="ToolCard_MouseLeftButtonUp"
+                                                    MouseMove="ToolCard_MouseMove"
+                                                    MouseEnter="ToolCard_MouseEnter"
+                                                    MouseLeave="ToolCard_MouseLeave"
                                                     Tag="{Binding}">
                                                 <Border.Style>
                                                     <Style TargetType="Border">
+                                                        <!-- BorderBrush 必须在 Style 内，否则本地值会压过悬停 Trigger -->
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
                                                         <Setter Property="Background" Value="{DynamicResource ToolCardNotInstalledBg}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Installed">
+                                                                <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding VisualState}" Value="LocalProgram">
                                                                 <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Running">
@@ -1658,15 +2023,6 @@
                                                             <DataTrigger Binding="{Binding VisualState}" Value="Installing">
                                                                 <Setter Property="Background" Value="{DynamicResource ToolCardInstallingBg}"/>
                                                             </DataTrigger>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-                                                                <Setter Property="Effect">
-                                                                    <Setter.Value>
-                                                                        <DropShadowEffect BlurRadius="10" ShadowDepth="0"
-                                                                                          Opacity="0.18" Color="#2563EB"/>
-                                                                    </Setter.Value>
-                                                                </Setter>
-                                                            </Trigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </Border.Style>
@@ -1688,61 +2044,27 @@
                                                             </Style>
                                                         </Border.Style>
                                                     </Border>
-                                                    <!-- 悬停淡罩 -->
-                                                    <Border Background="{DynamicResource BlueHover}" Opacity="0.32"
-                                                            IsHitTestVisible="False" CornerRadius="10">
-                                                        <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
-                                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Border.Style>
-                                                    </Border>
+                                                    <!-- 悬停淡罩（由 MouseEnter/Leave 控制，对齐 Maui-Win） -->
+                                                    <Border Tag="ToolCardHoverWash"
+                                                            Background="{DynamicResource BlueHover}" Opacity="0.32"
+                                                            IsHitTestVisible="False" CornerRadius="10"
+                                                            Visibility="Collapsed"/>
                                                     <Grid Margin="12,10,8,10">
                                                         <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="48"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="28"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
-                                                        <Grid Width="48" Height="48" VerticalAlignment="Center">
-                                                            <!-- 颜色拾取器：色环 + 滴管位图 -->
-                                                            <Image Width="40" Height="40" Stretch="Uniform"
-                                                                   Source="{DynamicResource ToolColorPickerIcon}">
-                                                                <Image.Style>
-                                                                    <Style TargetType="Image">
-                                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Id}" Value="color-picker">
-                                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </Image.Style>
-                                                            </Image>
-                                                            <Viewbox Width="40" Height="40">
-                                                                <Viewbox.Style>
-                                                                    <Style TargetType="Viewbox">
-                                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Id}" Value="color-picker">
-                                                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </Viewbox.Style>
-                                                                <Canvas Width="24" Height="24">
-                                                                    <Path Stroke="{DynamicResource Text}" StrokeThickness="1.4"
-                                                                          Fill="Transparent" StrokeLineJoin="Round"
-                                                                          Data="{StaticResource GeoToolSharedDevices}"/>
-                                                                    <Path Fill="#F59E0B"
-                                                                          Data="{StaticResource GeoToolSharedDevicesAccent}"/>
-                                                                </Canvas>
-                                                            </Viewbox>
-                                                        </Grid>
+                                                        <!-- 图标瓷砖：对齐 Maui-Win CreateToolCard -->
+                                                        <Border Width="48" Height="48" CornerRadius="10"
+                                                                BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                                                Background="{DynamicResource SubtleBg}"
+                                                                VerticalAlignment="Center"
+                                                                SnapsToDevicePixels="True">
+                                                            <Image Width="36" Height="36" Stretch="Uniform"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                   Source="{Binding IconKey, Converter={x:Static helpers:ToolIconKeyToImageConverter.Instance}}"/>
+                                                        </Border>
                                                         <StackPanel Grid.Column="1" Margin="12,0,6,0" VerticalAlignment="Center">
                                                             <StackPanel Orientation="Horizontal">
                                                                 <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
@@ -1754,12 +2076,9 @@
                                                                        Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
                                                                        TextTrimming="CharacterEllipsis" MaxHeight="40"/>
                                                         </StackPanel>
-                                                        <Button Grid.Column="2" Content="⋯" Width="28" Height="28"
+                                                        <Button Grid.Column="2" Content="⋯"
+                                                                Style="{StaticResource ToolCardMoreBtn}"
                                                                 VerticalAlignment="Top" HorizontalAlignment="Right"
-                                                                FontSize="16" FontWeight="Bold" Cursor="Hand"
-                                                                Background="Transparent" BorderThickness="0"
-                                                                Foreground="{DynamicResource Muted}" Padding="0"
-                                                                ToolTip="更多操作"
                                                                 Click="ToolCardMore_Click"
                                                                 PreviewMouseLeftButtonDown="ToolCardMore_PreviewMouseLeftButtonDown"/>
                                                     </Grid>
@@ -1769,7 +2088,7 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </ScrollViewer>
-                            <ContentControl x:Name="ToolsWorkspaceHost" Grid.Row="2" Visibility="Collapsed"
+                            <ContentControl x:Name="ToolsWorkspaceHost" Grid.Row="3" Visibility="Collapsed"
                                             HorizontalContentAlignment="Stretch"
                                             VerticalContentAlignment="Stretch"
                                             HorizontalAlignment="Stretch"
@@ -1903,22 +2222,27 @@
                                                         <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding Level}" Value="Error">
-                                                                <Setter Property="Foreground" Value="#DC2626"/>
+                                                                <Setter Property="Foreground" Value="#F87171"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Level}" Value="Warn">
-                                                                <Setter Property="Foreground" Value="#D97706"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Level}" Value="Debug">
-                                                                <Setter Property="Foreground" Value="#6B7280"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Level}" Value="Info">
-                                                                <Setter Property="Foreground" Value="#2563EB"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
+                                                            </DataTrigger>
+                                                            <!-- 选中行：级别色改为主题文字，避免深色 BlueSoft 底上发灰发糊 -->
+                                                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Text}"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </TextBlock.Style>
                                             </TextBlock>
-                                            <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Message}" TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource Text}"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -1986,4 +2310,5 @@
         </Grid>
         </Grid>
     </Grid>
+    </Border>
 </Window>

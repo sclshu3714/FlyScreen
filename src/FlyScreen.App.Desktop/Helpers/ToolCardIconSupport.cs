@@ -1,54 +1,56 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media.Imaging;
-using FlyScreen.Assets;
 using FlyScreen.Services.Tools;
 
 namespace FlyScreen.DesktopUi.Helpers;
 
-/// <summary>工具卡片图标：颜色拾取器位图与 Id 匹配转换。</summary>
+/// <summary>从 <see cref="ToolIconRegistry"/> 解析工具卡片/快捷栏位图。</summary>
 internal static class ToolCardIcons
 {
-    private static Bitmap? _colorPicker;
+    private static readonly Dictionary<string, Bitmap> Cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public static Bitmap? ColorPicker
+    public static Bitmap? TryGet(string? iconKey)
     {
-        get
+        if (string.IsNullOrWhiteSpace(iconKey)) return null;
+        var key = iconKey.Trim();
+        lock (Cache)
         {
-            if (_colorPicker != null) return _colorPicker;
-            try
-            {
-                using var stream = BrandAssets.Open(BrandAssets.ToolColorPickerJpg);
-                using var copy = new MemoryStream();
-                stream.CopyTo(copy);
-                copy.Position = 0;
-                _colorPicker = new Bitmap(copy);
-            }
-            catch
-            {
-                _colorPicker = null;
-            }
-
-            return _colorPicker;
+            if (Cache.TryGetValue(key, out var hit))
+                return hit;
         }
+
+        ToolBundledCatalogAssets.Ensure();
+        ToolIconRegistry.EnsureFromLoadedAssemblies();
+        var bytes = ToolIconRegistry.TryReadBitmapBytes(key);
+        if (bytes == null || bytes.Length == 0) return null;
+
+        try
+        {
+            using var ms = new MemoryStream(bytes);
+            var bmp = new Bitmap(ms);
+            lock (Cache) Cache[key] = bmp;
+            return bmp;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static void ClearCache()
+    {
+        lock (Cache) Cache.Clear();
     }
 }
 
-internal sealed class IsColorPickerToolConverter : IValueConverter
+/// <summary>IconKey → Bitmap（工具程序集贡献）。</summary>
+internal sealed class ToolIconKeyToBitmapConverter : IValueConverter
 {
-    public static readonly IsColorPickerToolConverter Instance = new(invert: false);
-    public static readonly IsColorPickerToolConverter NotInstance = new(invert: true);
-
-    private readonly bool _invert;
-
-    private IsColorPickerToolConverter(bool invert) => _invert = invert;
+    public static readonly ToolIconKeyToBitmapConverter Instance = new();
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        var match = value is string id
-            && string.Equals(id, ToolIds.ColorPicker, StringComparison.OrdinalIgnoreCase);
-        return _invert ? !match : match;
-    }
+        => ToolCardIcons.TryGet(value as string);
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

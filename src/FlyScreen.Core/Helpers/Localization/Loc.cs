@@ -1,4 +1,5 @@
 using System.Globalization;
+using FlyScreen.ToolSdk;
 
 namespace FlyScreen.Helpers.Localization;
 
@@ -10,6 +11,11 @@ public static class Loc
     public const string DefaultCulture = "zh-CN";
 
     private static readonly Dictionary<string, Dictionary<string, string>> Tables = BuildTables();
+
+    private static readonly object PluginGate = new();
+    /// <summary>插件源 Id → culture → key → text。工具包自带文案，不改主程序表。</summary>
+    private static readonly Dictionary<string, Dictionary<string, Dictionary<string, string>>> PluginTables
+        = new(StringComparer.OrdinalIgnoreCase);
 
     public static string Culture { get; private set; } = DefaultCulture;
 
@@ -66,10 +72,93 @@ public static class Loc
         catch { return fmt; }
     }
 
+    /// <summary>注册或覆盖某工具的多语言表（至少应含 zh-CN / en-US）。</summary>
+    public static void RegisterPlugin(string sourceId, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> tables)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId) || tables == null) return;
+        var copy = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (culture, map) in tables)
+        {
+            if (string.IsNullOrWhiteSpace(culture) || map == null) continue;
+            copy[culture.Trim()] = new Dictionary<string, string>(map, StringComparer.OrdinalIgnoreCase);
+        }
+
+        lock (PluginGate)
+            PluginTables[sourceId.Trim()] = copy;
+        Changed?.Invoke();
+    }
+
+    public static void RegisterPlugin(IToolLocalization localization)
+    {
+        if (localization == null) return;
+        RegisterPlugin(localization.SourceId, localization.Tables);
+    }
+
+    /// <summary>扫描已加载的 FlyScreen.Tool.* 程序集，注册其 <see cref="IToolLocalization"/>。</summary>
+    public static void EnsureToolLocalizationsFromLoadedAssemblies()
+    {
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var name = asm.GetName().Name;
+            if (name == null || !name.StartsWith("FlyScreen.Tool.", StringComparison.OrdinalIgnoreCase))
+                continue;
+            foreach (var type in Services.Tools.ToolAssemblyScan.GetLoadableTypes(asm))
+            {
+                if (type.IsAbstract || !typeof(IToolLocalization).IsAssignableFrom(type))
+                    continue;
+                try
+                {
+                    IToolLocalization? loc = null;
+                    var instProp = type.GetProperty("Instance",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (instProp?.GetValue(null) is IToolLocalization fromProp)
+                        loc = fromProp;
+                    else if (Activator.CreateInstance(type) is IToolLocalization created)
+                        loc = created;
+                    if (loc != null)
+                        RegisterPlugin(loc);
+                }
+                catch
+                {
+                    /* ignore broken tool loc type */
+                }
+            }
+        }
+
+        // 同批发现工具图标贡献
+        Services.Tools.ToolIconRegistry.EnsureFromLoadedAssemblies();
+    }
+
+    public static void UnregisterPlugin(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId)) return;
+        lock (PluginGate)
+            PluginTables.Remove(sourceId.Trim());
+        Changed?.Invoke();
+    }
+
     private static bool TryGet(string culture, string key, out string value)
     {
         value = "";
+        if (TryGetPlugin(culture, key, out value))
+            return true;
         return Tables.TryGetValue(culture, out var table) && table.TryGetValue(key, out value!);
+    }
+
+    private static bool TryGetPlugin(string culture, string key, out string value)
+    {
+        value = "";
+        lock (PluginGate)
+        {
+            foreach (var cultures in PluginTables.Values)
+            {
+                if (cultures.TryGetValue(culture, out var table)
+                    && table.TryGetValue(key, out value!))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static Dictionary<string, Dictionary<string, string>> BuildTables()
@@ -282,90 +371,45 @@ public static class Loc
         ["Nav.Tools"] = "工具",
         ["Nav.Log"] = "日志",
         ["Tool.Title"] = "工具",
-        ["Tool.Hint"] = "每个工具一张卡片，左→右、上→下自适应排列；未安装/已安装/已启动底色不同，安装中显示进度。单击安装或启动，右上角 ⋯ 卸载等操作。",
+        ["Tool.Hint"] = "每个工具一张卡片，左→右、上→下自适应排列；未安装/已安装/已启动底色不同，安装中显示进度。单击安装或启动，右上角 ⋯ 卸载等操作。可将已安装工具拖到上方快捷栏。",
+        ["Tool.Import"] = "导入",
+        ["Tool.Shortcut.DragHere"] = "拖拽到此",
+        ["Tool.Shortcut.Clear"] = "清除快捷方式",
+        ["Tool.ImportTitle"] = "导入工具或本地程序",
+        ["Tool.ImportFilter"] = "玄鸟工具包|*.flytool|可执行程序|*.exe;*.bat;*.cmd|所有文件|*.*",
+        ["Tool.ImportOverwrite"] = "已存在「{0}」。要覆盖还是放弃？",
+        ["Tool.Overwrite"] = "覆盖",
+        ["Tool.Discard"] = "放弃",
+        ["Tool.ImportDiscarded"] = "已放弃导入",
+        ["Tool.ImportLocalOk"] = "已添加本地程序",
+        ["Tool.ImportLocalUpdated"] = "已更新本地程序",
+        ["Tool.RemoveLocalOk"] = "已移除本地程序",
+        ["Tool.LocalProgramMissing"] = "程序文件不存在",
+        ["Tool.LocalProgramLaunched"] = "已启动本地程序",
         ["Tool.TipClickInstall"] = "单击安装",
         ["Tool.TipClickStart"] = "单击启动",
         ["Tool.TipClickStop"] = "单击停止",
         ["Tool.TipMenuStop"] = "⋯ 菜单停止",
         ["Tool.TipRightUninstall"] = "⋯ 菜单卸载",
+        ["Tool.TipRightRemove"] = "⋯ 菜单移除",
         ["Tool.FilterAll"] = "全部",
         ["Tool.FilterNotInstalled"] = "未安装",
         ["Tool.FilterInstalled"] = "已安装",
         ["Tool.Install"] = "安装",
         ["Tool.Uninstall"] = "卸载",
+        ["Tool.Remove"] = "移除",
         ["Tool.Start"] = "启动",
         ["Tool.Stop"] = "停止",
+        ["Tool.Cancel"] = "取消",
         ["Tool.StatusNotInstalled"] = "未安装",
         ["Tool.StatusInstalled"] = "已安装",
+        ["Tool.StatusLocalProgram"] = "本地程序",
         ["Tool.StatusRunning"] = "已启动",
         ["Tool.StatusInstalling"] = "安装中 {0}%",
         ["Tool.TipInstalling"] = "安装进行中",
         ["Tool.Workspace.Catalog"] = "工具",
-        ["Tool.ColorPicker.Name"] = "颜色拾取器",
-        ["Tool.ColorPicker.Summary"] = "用滴管拾取屏幕任意位置颜色，并转换为 HEX / RGB / HSL / CMYK 等常用格式。",
-        ["Tool.ColorPicker.Pick"] = "颜色拾取器",
-        ["Tool.ColorPicker.Picking"] = "拾取中… 再点取消",
-        ["Tool.ColorPicker.Preview"] = "颜色预览",
-        ["Tool.ColorPicker.Formats"] = "颜色格式",
-        ["Tool.ColorPicker.Copied"] = "已复制",
-        ["Tool.ColorPicker.Hint"] = "点击「颜色拾取器」后鼠标变为滴管；移动时实时预览，单击锁定颜色；再点按钮可取消拾取。",
-        ["Tool.ColorPicker.Unsupported"] = "当前平台不支持屏幕取色。",
-        ["Tool.SharedDevices.Name"] = "共享设备",
-        ["Tool.SharedDevices.Summary"] = "向布局内已装本工具的设备申请扬声器、麦克风或摄像头（电脑/手机等均可）；对方同意后即可使用。",
-        ["Tool.SharedDevices.StartTitle"] = "启动共享设备",
-        ["Tool.SharedDevices.PickPeer"] = "选择目标设备",
-        ["Tool.SharedDevices.PickKinds"] = "选择要申请的设备",
-        ["Tool.SharedDevices.Speaker"] = "扬声器",
-        ["Tool.SharedDevices.Microphone"] = "麦克风",
-        ["Tool.SharedDevices.Camera"] = "摄像头",
-        ["Tool.SharedDevices.Confirm"] = "确认启动",
-        ["Tool.SharedDevices.Cancel"] = "取消",
-        ["Tool.SharedDevices.IncomingTitle"] = "共享设备申请",
-        ["Tool.SharedDevices.IncomingBody"] = "「{0}」申请使用本机：{1}",
-        ["Tool.SharedDevices.Accept"] = "同意",
-        ["Tool.SharedDevices.Reject"] = "拒绝",
-        ["Tool.SharedDevices.Remember"] = "记住适配",
-        ["Tool.SharedDevices.RememberHint"] = "勾选后，同一申请端再次申请相同种类时无需再同意；未勾选则每次都需同意。",
-        ["Tool.SharedDevices.NoTargets"] = "布局内没有可申请的设备（需已连接、已安装共享设备工具，且具备扬声器/麦克风/摄像头之一）。",
         ["Tool.Manage"] = "管理",
-        ["Tool.SharedDevices.ManageTitle"] = "共享设备管理",
-        ["Tool.SharedDevices.PickLocalDevice"] = "选择本机设备",
-        ["Tool.SharedDevices.NoLocalDevice"] = "未检测到可用设备",
-        ["Tool.SharedDevices.DefaultDevice"] = "系统默认",
-        ["Tool.SharedDevices.ClearRemember"] = "清除记住适配",
-        ["Tool.SharedDevices.ClearRememberDone"] = "已清除记住适配记录",
-        ["Tool.SharedDevices.Apply"] = "应用",
-        ["Tool.SharedDevices.Save"] = "保存",
-        ["Tool.SharedDevices.PeerNeedTool"] = "未安装工具",
-        ["Tool.SharedDevices.PeerOffline"] = "未连接",
-        ["Tool.SharedDevices.PeerNotDesktop"] = "非电脑",
-        ["Tool.SharedDevices.PeerNoDevice"] = "无可共享设备",
         ["Tool.Test"] = "测试",
-        ["Tool.SharedDevices.TestTitle"] = "共享设备测试",
-        ["Tool.SharedDevices.TestCamera"] = "测试摄像头",
-        ["Tool.SharedDevices.TestCameraHint"] = "选择本机摄像头并开始预览，确认画面正常。",
-        ["Tool.SharedDevices.TestCameraIdle"] = "尚未开始预览",
-        ["Tool.SharedDevices.TestCameraFail"] = "无法打开摄像头预览",
-        ["Tool.SharedDevices.TestNoCamera"] = "未检测到摄像头",
-        ["Tool.SharedDevices.TestNoCameraHint"] = "本机未枚举到摄像头驱动。",
-        ["Tool.SharedDevices.TestSpeaker"] = "测试扬声器",
-        ["Tool.SharedDevices.TestSpeakerHint"] = "播放短促测试音，确认本机扬声器可出声。",
-        ["Tool.SharedDevices.TestPlayTone"] = "播放测试音",
-        ["Tool.SharedDevices.TestSpeakerPlaying"] = "正在播放…",
-        ["Tool.SharedDevices.TestSpeakerDone"] = "播放完成",
-        ["Tool.SharedDevices.TestMicrophone"] = "测试麦克风",
-        ["Tool.SharedDevices.TestMicHint"] = "对着麦克风说话，观察电平条是否跳动。",
-        ["Tool.SharedDevices.TestMicListening"] = "正在监听…",
-        ["Tool.SharedDevices.TestMicFail"] = "无法打开麦克风",
-        ["Tool.SharedDevices.TestStart"] = "开始",
-        ["Tool.SharedDevices.TestStop"] = "停止",
-        ["Tool.SharedDevices.TestClose"] = "关闭",
-        ["Tool.SharedDevices.TestNeedSession"] = "请先「开始」共享设备并等待对端同意，再测试对端设备。",
-        ["Tool.SharedDevices.TestKindNotInSession"] = "当前会话未包含此设备",
-        ["Tool.SharedDevices.TestWaitingPeer"] = "等待对端画面…",
-        ["Tool.SharedDevices.TestRemoteCameraHint"] = "预览「{0}」的摄像头画面（经共享会话）。",
-        ["Tool.SharedDevices.TestRemoteSpeakerHint"] = "在「{0}」本机扬声器播放试音。",
-        ["Tool.SharedDevices.TestRemoteMicHint"] = "监听「{0}」麦克风电平（对着手机说话）。",
         ["Search.Placeholder"] = "搜索设置",
         ["Log.Title"] = "日志",
         ["Log.Hint"] = "写入本地日志文件（按天与 5MB 分块，保留 3 天）。默认只显示最新一页，避免卡顿。",
@@ -554,13 +598,38 @@ public static class Loc
         ["Layout.DragTip"] = "按住拖拽互换",
 
         ["Net.NicTitle"] = "本机网卡",
-        ["Net.NicHint"] = "选择用于通信的网卡，避免虚拟网卡导致单向连接。",
+        ["Net.NicHint"] = "「自动」监听所有网卡（含 Tailscale/VPN）；指定网卡仅绑该 IP。",
+        ["Net.NicAuto"] = "自动（监听所有网卡）",
         ["Net.RefreshNics"] = "刷新网卡",
         ["Net.TcpPort"] = "TCP 端口",
         ["Net.UdpPort"] = "发现端口",
+        ["Net.TcpPortShort"] = "TCP",
+        ["Net.UdpPortShort"] = "发现",
         ["Net.DiscoveryTitle"] = "局域网自动发现",
         ["Net.DiscoveryHint"] = "单击「添加」或双击，填入电脑布局空位；已在布局中的不会列出",
         ["Net.RefreshDiscovery"] = "刷新发现",
+        ["Net.ConnConfigTitle"] = "连接配置",
+        ["Net.ConnConfigHint"] = "本机网卡：「自动」= 所有网卡监听（Tailscale/多网卡推荐）。远程=一对一；中转=一对多。须测试通过后才进入设备管理；旧端忽略未知配置。",
+        ["Net.DeviceMgmtTitle"] = "设备管理",
+        ["Net.DeviceMgmtHint"] = "刷新会同时刷新本地、远程、中转；已在布局/已绑定的不会消失。",
+        ["Net.AddEndpoint"] = "添加配置",
+        ["Net.Col.Type"] = "类型",
+        ["Net.Col.Address"] = "地址",
+        ["Net.Col.Action"] = "操作",
+        ["Net.Col.DeviceName"] = "设备名称",
+        ["Net.Col.Kind"] = "类型",
+        ["Net.Col.Status"] = "状态",
+        ["Net.Filter.All"] = "全部",
+        ["Net.Filter.Local"] = "本地",
+        ["Net.Filter.Remote"] = "远程",
+        ["Net.Filter.Service"] = "服务",
+        ["Net.TestingEndpoint"] = "正在测试连接…",
+        ["Net.TestOk"] = "测试成功",
+        ["Net.TestFail"] = "测试失败",
+        ["Net.DeleteEndpointBoundConfirm"] = "删除后将解除依赖该配置的远程绑定，是否继续？",
+        ["Net.NoPeerToAdd"] = "该设备暂无可用发现地址",
+        ["Net.RemoteBindSoon"] = "远程绑定对话框将在后续版本提供；配置已可保存且不影响局域网。",
+        ["Net.LocatedSlot"] = "已定位到布局：{0}",
 
         ["Xfer.Title"] = "传输列表",
         ["Xfer.Hint"] = "剪贴板粘贴：仅传到粘贴机。直接传输：推送到指定电脑的指定目录。清除只删接收缓存。",
@@ -628,9 +697,11 @@ public static class Loc
         ["Opt.EdgeCross.BarrierFree"] = "无障碍",
         ["Opt.EdgeCross.DoubleTap"] = "双击",
         ["Opt.EdgeCross.SpeedBurst"] = "极速",
+        ["Opt.EdgeCross.HotkeyOnly"] = "快捷键",
         ["Tip.EdgeCross.BarrierFree"] = "鼠标移到屏幕边缘即可穿边到相邻电脑，无需停留（本机↔对端均适用；已连接电脑点「应用」后会同步此设置）。",
         ["Tip.EdgeCross.DoubleTap"] = "需在 1 秒内连续撞击同一侧边界 2 次才穿边；只撞 1 次或间隔超过 1 秒则留在当前电脑。",
         ["Tip.EdgeCross.SpeedBurst"] = "需从屏幕内侧较快甩向边界才穿边；贴边慢蹭不会切换。",
+        ["Tip.EdgeCross.HotkeyOnly"] = "鼠标不能直接穿边；用「切换机器」快捷键（Ctrl+Alt+F1–F4 / 1–4）或托盘「切换机器」跳转。托盘跳转在任意穿边模式下均可用。若快捷键已禁用，则只能用托盘。",
         ["Tip.WrapMouse"] = "布局最左与最右（或最上与最下）首尾相连：鼠标从一侧移出可绕到另一侧有电脑的槽位。仅相邻槽位有电脑时才会切换。",
         ["Tip.ShareClipboard"] = "在已连接电脑之间共享剪贴板。复制文本、图片等内容后，鼠标移到目标机再粘贴。",
         ["Tip.TransferFile"] = "允许通过剪贴板按需传输文件，以及「文件传输」页的直接推送。关闭后仍可共享文本/图片剪贴板。",
@@ -642,7 +713,7 @@ public static class Loc
         ["Tip.BlockSaver"] = "当本机控制远端时，尝试阻止其它机器进入屏保，避免切换后无法操作。",
         ["Tip.MoveRel"] = "使用相对位移转发鼠标移动。部分游戏或远程桌面场景可能更流畅，一般办公建议关闭。",
         ["Tip.BlockCorner"] = "屏幕四角附近不触发边缘切换，减少误触（例如移向关闭按钮时）。",
-        ["Tip.EasyMouse"] = "启用后，将鼠标移出屏幕边缘即可切换到布局中相邻的电脑。穿边方式见下方「穿边模式」。",
+        ["Tip.EasyMouse"] = "启用后，将鼠标移出屏幕边缘即可切换到布局中相邻的电脑。穿边方向与「基础」布局左右一致；若与桌上摆放相反，请对调布局槽位，或勾选「环形鼠标」。穿边方式见下方「穿边模式」。",
 
         ["Slot.Local"] = "本机",
         ["Slot.Disconnected"] = "未连接",
@@ -659,11 +730,11 @@ public static class Loc
         ["DT.Clear"] = "清空",
         ["DT.ContentHint"] = "待传内容：选择或拖入本机文件/文件夹",
         ["DT.DropHint"] = "将文件或文件夹拖到此处",
-        ["DT.TargetHint"] = "传输到：指定已连接电脑及保存位置",
-        ["DT.Peer"] = "目标电脑",
+        ["DT.TargetHint"] = "传输到：指定已连接设备及保存位置",
+        ["DT.Peer"] = "目标设备",
         ["DT.Preset"] = "常用位置",
         ["DT.Path"] = "保存路径",
-        ["DT.PathTip"] = "对端电脑上的绝对路径，可手动修改",
+        ["DT.PathTip"] = "对端保存路径，可手动修改",
         ["DT.Cancel"] = "取消",
         ["DT.Start"] = "开始传输",
         ["DT.NoPeers"] = "当前没有已连接的目标电脑，请先在布局中连接对端。",
@@ -695,6 +766,10 @@ public static class Loc
         ["Tray.Open"] = "打开设置",
         ["Tray.Reconnect"] = "重新连接",
         ["Tray.Project"] = "投影",
+        ["Tray.Switch"] = "切换机器",
+        ["Tray.Tools"] = "工具",
+        ["Tray.ToolsEmpty"] = "暂无快捷工具",
+        ["Tray.LocalSuffix"] = "（本机）",
         ["Tray.About"] = "关于",
         ["Tray.Exit"] = "退出",
 
@@ -742,13 +817,13 @@ public static class Loc
         ["Help.Title"] = "帮助",
         ["Help.ShowDoc"] = "帮助文本",
         ["Help.SectionUpdate"] = "更新与连接诊断",
-        ["Help.SectionHint"] = "可通过 GitHub Release 检查更新；连接异常时先「问题检查」再「一键修复」。",
+        ["Help.SectionHint"] = "可通过 GitHub Release 检查更新（失败自动改用 Gitee）；连接异常时先「问题检查」再「一键修复」。",
         ["Help.CheckUpdate"] = "检查更新",
         ["Help.ApplyUpdate"] = "自动更新",
         ["Help.DiagCheck"] = "问题检查",
         ["Help.DiagFix"] = "一键修复",
         ["Help.Close"] = "关闭",
-        ["Help.CheckingUpdate"] = "正在检查 GitHub Release…",
+        ["Help.CheckingUpdate"] = "正在检查更新（GitHub，失败则 Gitee）…",
         ["Help.NeedCheckFirst"] = "请先点击「检查更新」。",
         ["Help.ConfirmUpdate"] = "将下载并安装 {0}。\n单文件模式会自动替换并重启；安装包模式会启动 Setup 覆盖安装。\n\n资源：{1}\n是否继续？",
         ["Help.ConfirmUpdateTitle"] = "自动更新",
@@ -769,7 +844,7 @@ public static class Loc
         ["Help.Doc.Clip"] = "剪贴板与文件",
         ["Help.Doc.C1"] = "文本 / HTML / RTF / CSV / 截图：复制只宣告，鼠标进入某台后再拉取到该机。",
         ["Help.Doc.C2"] = "复制文件：鼠标移到目标机后即可粘贴；真正粘贴时才开始传输，不粘贴不占用带宽。",
-        ["Help.Doc.C3"] = "「共享」→「直接传输…」可推送到对方桌面、文档、下载、收件箱或自定义路径。",
+        ["Help.Doc.C3"] = "「共享」→「直接传输…」：目标是电脑时可选桌面/文档/下载/收件箱/自定义；目标是手机时仅玄鸟收件箱与自定义（自定义默认收件箱）。",
         ["Help.Doc.C4"] = "剪贴板拉取先写入 Inbox/seq_*，粘贴就绪后迁到暂存并回收 seq_*；「清除已完成」可删接收成品并扫尾缓存，不删发送方本地文件；「打开收件箱」仅打开本机 Inbox。",
         ["Help.Doc.C5"] = "传输列表列：方向、文件名、对端、大小、进度、状态；可删除单条记录。",
         ["Help.Doc.Opts"] = "常用选项",
@@ -778,7 +853,7 @@ public static class Loc
         ["Help.Doc.O3"] = "隐藏光标：同一时间仅活动电脑显示光标；关闭则非活动电脑光标居中显示。",
         ["Help.Doc.O4"] = "开机自动启动：通过任务计划程序以管理员权限登录后启动。",
         ["Help.Doc.O5"] = "程序单实例：再次启动会激活已有窗口（含托盘隐藏）。",
-        ["Help.Doc.O6"] = "穿边模式：无障碍 / 双击（1 秒内同侧撞边 2 次）/ 极速（内侧快速甩向边界）；点「应用」后同步到已连接对端。",
+        ["Help.Doc.O6"] = "穿边模式：无障碍 / 双击（1 秒内同侧撞边 2 次）/ 极速（内侧快速甩向边界）/ 快捷键（仅切换机器热键换机）；点「应用」后同步到已连接对端。",
         ["Help.Doc.O7"] = "安全页：「生成新密钥」在标题栏右侧；窄屏时密钥输入框不被挤裁。",
         ["Help.Doc.Hot"] = "快捷键",
         ["Help.Doc.H1"] = "Ctrl+Alt+M 打开设置　　Ctrl+Alt+R 重新连接　　Ctrl+Alt+Q 退出",
@@ -787,7 +862,7 @@ public static class Loc
         ["Help.Doc.N1"] = "请允许 TCP（默认 15155）与 UDP 发现（默认 15156）在专用网络通过。",
         ["Help.Doc.N2"] = "配置目录：%AppData%\\FlyScreen\\",
         ["Help.Doc.Update"] = "更新",
-        ["Help.Doc.U1"] = "工具栏「检查更新」；若有新版本按钮会变为「自动更新」。单文件下载 exe 自替换；安装包下载 *-Setup.exe 覆盖安装。发布页：",
+        ["Help.Doc.U1"] = "工具栏「检查更新」；若有新版本按钮会变为「自动更新」。优先 GitHub，失败自动改用 Gitee。单文件下载 exe 自替换；安装包下载 *-Setup.exe 覆盖安装。发布页：",
         ["Help.Doc.Diag"] = "连接诊断",
         ["Help.Doc.D1"] = "若无法双向连接：先点「问题检查」查看网卡、发现、防火墙与出入站状态；发现问题时按钮会变为「一键修复」，可自动放行防火墙、重启网络并重连。双方都执行效果更佳。",
     };
@@ -832,90 +907,45 @@ public static class Loc
         ["Nav.Tools"] = "Tools",
         ["Nav.Log"] = "Log",
         ["Tool.Title"] = "Tools",
-        ["Tool.Hint"] = "Each tool is a card, wrapping left-to-right. Backgrounds differ for not installed / installed / started; install shows a progress fill. Click to install or start; use ⋯ for uninstall and other actions.",
+        ["Tool.Hint"] = "Each tool is a card, wrapping left-to-right. Backgrounds differ for not installed / installed / started; install shows a progress fill. Click to install or start; use ⋯ for uninstall and other actions. Drag installed tools to the shortcut bar above.",
+        ["Tool.Import"] = "Import",
+        ["Tool.Shortcut.DragHere"] = "Drag here",
+        ["Tool.Shortcut.Clear"] = "Clear shortcut",
+        ["Tool.ImportTitle"] = "Import tool or local program",
+        ["Tool.ImportFilter"] = "FlyScreen tool|*.flytool|Executables|*.exe;*.bat;*.cmd|All files|*.*",
+        ["Tool.ImportOverwrite"] = "「{0}」 already exists. Overwrite or discard?",
+        ["Tool.Overwrite"] = "Overwrite",
+        ["Tool.Discard"] = "Discard",
+        ["Tool.ImportDiscarded"] = "Import discarded",
+        ["Tool.ImportLocalOk"] = "Local program added",
+        ["Tool.ImportLocalUpdated"] = "Local program updated",
+        ["Tool.RemoveLocalOk"] = "Local program removed",
+        ["Tool.LocalProgramMissing"] = "Program file not found",
+        ["Tool.LocalProgramLaunched"] = "Local program started",
         ["Tool.TipClickInstall"] = "Click to install",
         ["Tool.TipClickStart"] = "Click to start",
         ["Tool.TipClickStop"] = "Click to stop",
         ["Tool.TipMenuStop"] = "Stop via ⋯ menu",
         ["Tool.TipRightUninstall"] = "Uninstall via ⋯ menu",
+        ["Tool.TipRightRemove"] = "Remove via ⋯ menu",
         ["Tool.FilterAll"] = "All",
         ["Tool.FilterNotInstalled"] = "Not installed",
         ["Tool.FilterInstalled"] = "Installed",
         ["Tool.Install"] = "Install",
         ["Tool.Uninstall"] = "Uninstall",
+        ["Tool.Remove"] = "Remove",
         ["Tool.Start"] = "Start",
         ["Tool.Stop"] = "Stop",
+        ["Tool.Cancel"] = "Cancel",
         ["Tool.StatusNotInstalled"] = "Not installed",
         ["Tool.StatusInstalled"] = "Installed",
+        ["Tool.StatusLocalProgram"] = "Local program",
         ["Tool.StatusRunning"] = "Started",
         ["Tool.StatusInstalling"] = "Installing {0}%",
         ["Tool.TipInstalling"] = "Install in progress",
         ["Tool.Workspace.Catalog"] = "Tools",
-        ["Tool.ColorPicker.Name"] = "Color picker",
-        ["Tool.ColorPicker.Summary"] = "Eyedrop any on-screen pixel and convert it to HEX / RGB / HSL / CMYK and other common formats.",
-        ["Tool.ColorPicker.Pick"] = "Color picker",
-        ["Tool.ColorPicker.Picking"] = "Picking… click again to cancel",
-        ["Tool.ColorPicker.Preview"] = "Preview",
-        ["Tool.ColorPicker.Formats"] = "Color formats",
-        ["Tool.ColorPicker.Copied"] = "Copied",
-        ["Tool.ColorPicker.Hint"] = "Click Color picker for an eyedropper cursor; move to preview live, click to lock; click the button again to cancel.",
-        ["Tool.ColorPicker.Unsupported"] = "Screen sampling is not supported on this platform.",
-        ["Tool.SharedDevices.Name"] = "Shared devices",
-        ["Tool.SharedDevices.Summary"] = "Request speaker, microphone, or camera from any layout device with the tool installed (PC or phone); use after the peer accepts.",
-        ["Tool.SharedDevices.StartTitle"] = "Start shared devices",
-        ["Tool.SharedDevices.PickPeer"] = "Choose target device",
-        ["Tool.SharedDevices.PickKinds"] = "Devices to request",
-        ["Tool.SharedDevices.Speaker"] = "Speaker",
-        ["Tool.SharedDevices.Microphone"] = "Microphone",
-        ["Tool.SharedDevices.Camera"] = "Camera",
-        ["Tool.SharedDevices.Confirm"] = "Confirm",
-        ["Tool.SharedDevices.Cancel"] = "Cancel",
-        ["Tool.SharedDevices.IncomingTitle"] = "Shared device request",
-        ["Tool.SharedDevices.IncomingBody"] = "「{0}」 requests: {1}",
-        ["Tool.SharedDevices.Accept"] = "Accept",
-        ["Tool.SharedDevices.Reject"] = "Reject",
-        ["Tool.SharedDevices.Remember"] = "Remember this peer",
-        ["Tool.SharedDevices.RememberHint"] = "If checked, the same peer requesting the same kinds will be accepted without prompting; otherwise every request needs approval.",
-        ["Tool.SharedDevices.NoTargets"] = "No eligible device in the layout (must be connected, have the tool installed, and offer speaker/mic/camera).",
         ["Tool.Manage"] = "Manage",
-        ["Tool.SharedDevices.ManageTitle"] = "Manage shared devices",
-        ["Tool.SharedDevices.PickLocalDevice"] = "Choose local device",
-        ["Tool.SharedDevices.NoLocalDevice"] = "No device available",
-        ["Tool.SharedDevices.DefaultDevice"] = "System default",
-        ["Tool.SharedDevices.ClearRemember"] = "Clear remembered peers",
-        ["Tool.SharedDevices.ClearRememberDone"] = "Remembered peers cleared",
-        ["Tool.SharedDevices.Apply"] = "Apply",
-        ["Tool.SharedDevices.Save"] = "Save",
-        ["Tool.SharedDevices.PeerNeedTool"] = "Tool not installed",
-        ["Tool.SharedDevices.PeerOffline"] = "Offline",
-        ["Tool.SharedDevices.PeerNotDesktop"] = "Not a PC",
-        ["Tool.SharedDevices.PeerNoDevice"] = "No shareable device",
         ["Tool.Test"] = "Test",
-        ["Tool.SharedDevices.TestTitle"] = "Shared devices test",
-        ["Tool.SharedDevices.TestCamera"] = "Test camera",
-        ["Tool.SharedDevices.TestCameraHint"] = "Pick a camera and start preview to verify the picture.",
-        ["Tool.SharedDevices.TestCameraIdle"] = "Preview not started",
-        ["Tool.SharedDevices.TestCameraFail"] = "Could not open camera preview",
-        ["Tool.SharedDevices.TestNoCamera"] = "No camera found",
-        ["Tool.SharedDevices.TestNoCameraHint"] = "No camera driver was enumerated on this PC.",
-        ["Tool.SharedDevices.TestSpeaker"] = "Test speaker",
-        ["Tool.SharedDevices.TestSpeakerHint"] = "Play a short test tone to verify the speaker.",
-        ["Tool.SharedDevices.TestPlayTone"] = "Play test tone",
-        ["Tool.SharedDevices.TestSpeakerPlaying"] = "Playing…",
-        ["Tool.SharedDevices.TestSpeakerDone"] = "Done",
-        ["Tool.SharedDevices.TestMicrophone"] = "Test microphone",
-        ["Tool.SharedDevices.TestMicHint"] = "Speak into the mic and watch the level meter.",
-        ["Tool.SharedDevices.TestMicListening"] = "Listening…",
-        ["Tool.SharedDevices.TestMicFail"] = "Could not open microphone",
-        ["Tool.SharedDevices.TestStart"] = "Start",
-        ["Tool.SharedDevices.TestStop"] = "Stop",
-        ["Tool.SharedDevices.TestClose"] = "Close",
-        ["Tool.SharedDevices.TestNeedSession"] = "Start a shared-devices session and wait for the peer to accept before testing.",
-        ["Tool.SharedDevices.TestKindNotInSession"] = "This device is not in the current session",
-        ["Tool.SharedDevices.TestWaitingPeer"] = "Waiting for peer video…",
-        ["Tool.SharedDevices.TestRemoteCameraHint"] = "Preview camera from “{0}” over the shared session.",
-        ["Tool.SharedDevices.TestRemoteSpeakerHint"] = "Play a test tone on “{0}” speakers.",
-        ["Tool.SharedDevices.TestRemoteMicHint"] = "Listen to mic level from “{0}” (speak into the phone).",
         ["Search.Placeholder"] = "Search settings",
         ["Log.Title"] = "Log",
         ["Log.Hint"] = "Written to local files (split by day / 5MB, keep 3 days). Shows the latest page by default.",
@@ -1104,13 +1134,38 @@ public static class Loc
         ["Layout.DragTip"] = "Drag to swap",
 
         ["Net.NicTitle"] = "Network adapter",
-        ["Net.NicHint"] = "Pick the adapter used for communication to avoid one-way links via virtual NICs.",
+        ["Net.NicHint"] = "\"Automatic\" listens on all adapters (incl. Tailscale/VPN); a specific NIC binds only that IP.",
+        ["Net.NicAuto"] = "Automatic (listen on all)",
         ["Net.RefreshNics"] = "Refresh NICs",
         ["Net.TcpPort"] = "TCP port",
         ["Net.UdpPort"] = "Discovery port",
+        ["Net.TcpPortShort"] = "TCP",
+        ["Net.UdpPortShort"] = "Discovery",
         ["Net.DiscoveryTitle"] = "LAN discovery",
         ["Net.DiscoveryHint"] = "Click Add or double-click to fill an empty layout slot; PCs already in the layout are hidden.",
         ["Net.RefreshDiscovery"] = "Refresh discovery",
+        ["Net.ConnConfigTitle"] = "Connection",
+        ["Net.ConnConfigHint"] = "NIC: Automatic = listen on all (recommended for Tailscale). Remote=1:1; Relay=1:N. Only verified entries appear in Devices. Older peers ignore unknown settings.",
+        ["Net.DeviceMgmtTitle"] = "Devices",
+        ["Net.DeviceMgmtHint"] = "Refresh updates local, remote, and relay; items already in layout or bound stay listed.",
+        ["Net.AddEndpoint"] = "Add endpoint",
+        ["Net.Col.Type"] = "Type",
+        ["Net.Col.Address"] = "Address",
+        ["Net.Col.Action"] = "Actions",
+        ["Net.Col.DeviceName"] = "Name",
+        ["Net.Col.Kind"] = "Kind",
+        ["Net.Col.Status"] = "Status",
+        ["Net.Filter.All"] = "All",
+        ["Net.Filter.Local"] = "Local",
+        ["Net.Filter.Remote"] = "Remote",
+        ["Net.Filter.Service"] = "Service",
+        ["Net.TestingEndpoint"] = "Testing…",
+        ["Net.TestOk"] = "OK",
+        ["Net.TestFail"] = "Failed",
+        ["Net.DeleteEndpointBoundConfirm"] = "Deleting will unbind remotes that use this endpoint. Continue?",
+        ["Net.NoPeerToAdd"] = "No discovery address for this device",
+        ["Net.RemoteBindSoon"] = "Remote bind dialog comes later; saved config does not affect LAN peers.",
+        ["Net.LocatedSlot"] = "Located layout slot: {0}",
 
         ["Xfer.Title"] = "Transfers",
         ["Xfer.Hint"] = "Clipboard paste: only the paste target downloads. Direct transfer: push to a path on a peer. Clear removes receive cache only.",
@@ -1178,9 +1233,11 @@ public static class Loc
         ["Opt.EdgeCross.BarrierFree"] = "Barrier-free",
         ["Opt.EdgeCross.DoubleTap"] = "Double-tap",
         ["Opt.EdgeCross.SpeedBurst"] = "Speed burst",
+        ["Opt.EdgeCross.HotkeyOnly"] = "Hotkey only",
         ["Tip.EdgeCross.BarrierFree"] = "Move to a screen edge to cross immediately (both directions). Apply syncs this to linked PCs.",
         ["Tip.EdgeCross.DoubleTap"] = "Hit the same edge twice within 1 second to cross; a single hit or a gap over 1s stays on this PC.",
         ["Tip.EdgeCross.SpeedBurst"] = "A quick flick from inland crosses; slowly sliding along the edge does not.",
+        ["Tip.EdgeCross.HotkeyOnly"] = "Mouse cannot cross edges; use Switch hotkeys (Ctrl+Alt+F1–F4 / 1–4) or tray Switch machine. Tray jump works in any edge-cross mode. If hotkeys are off, use the tray only.",
         ["Tip.WrapMouse"] = "Connect leftmost/rightmost (or top/bottom) slots in a loop. Switching only happens when the neighboring slot has a PC.",
         ["Tip.ShareClipboard"] = "Share clipboard across connected PCs. Copy text/images, move to the target PC, then paste.",
         ["Tip.TransferFile"] = "Allow on-demand file transfer via clipboard and Direct Transfer. Text/images still work if disabled.",
@@ -1192,7 +1249,7 @@ public static class Loc
         ["Tip.BlockSaver"] = "While controlling a remote PC, try to prevent other machines from entering screensaver.",
         ["Tip.MoveRel"] = "Forward mouse moves as relative deltas. May help some games; leave off for normal desktop use.",
         ["Tip.BlockCorner"] = "Do not switch when the pointer is near screen corners, reducing accidental switches.",
-        ["Tip.EasyMouse"] = "Move the pointer off a screen edge to switch to the adjacent PC. See Edge cross mode below.",
+        ["Tip.EasyMouse"] = "Move off a screen edge to switch to the adjacent PC. Direction follows Basic layout; if that disagrees with desk placement, swap layout slots or enable Wrap mouse. See Edge cross mode below.",
 
         ["Slot.Local"] = "This PC",
         ["Slot.Disconnected"] = "Disconnected",
@@ -1209,8 +1266,8 @@ public static class Loc
         ["DT.Clear"] = "Clear",
         ["DT.ContentHint"] = "Items to send: pick or drag in local files/folders",
         ["DT.DropHint"] = "Drop files or folders here",
-        ["DT.TargetHint"] = "Send to: choose a connected PC and save location",
-        ["DT.Peer"] = "Target PC",
+        ["DT.TargetHint"] = "Send to: choose a connected device and save location",
+        ["DT.Peer"] = "Target device",
         ["DT.Preset"] = "Common folders",
         ["DT.Path"] = "Save path",
         ["DT.PathTip"] = "Absolute path on the peer; you can edit it",
@@ -1245,6 +1302,10 @@ public static class Loc
         ["Tray.Open"] = "Open settings",
         ["Tray.Reconnect"] = "Reconnect",
         ["Tray.Project"] = "Project",
+        ["Tray.Switch"] = "Switch machine",
+        ["Tray.Tools"] = "Tools",
+        ["Tray.ToolsEmpty"] = "No shortcut tools",
+        ["Tray.LocalSuffix"] = " (local)",
         ["Tray.About"] = "About",
         ["Tray.Exit"] = "Exit",
 
@@ -1292,13 +1353,13 @@ public static class Loc
         ["Help.Title"] = "Help",
         ["Help.ShowDoc"] = "Help text",
         ["Help.SectionUpdate"] = "Updates & connection diagnostics",
-        ["Help.SectionHint"] = "Check GitHub Releases for updates. If connection fails, run Problem check first, then One-click fix.",
+        ["Help.SectionHint"] = "Check GitHub Releases for updates (falls back to Gitee on failure). If connection fails, run Problem check first, then One-click fix.",
         ["Help.CheckUpdate"] = "Check for updates",
         ["Help.ApplyUpdate"] = "Auto update",
         ["Help.DiagCheck"] = "Problem check",
         ["Help.DiagFix"] = "One-click fix",
         ["Help.Close"] = "Close",
-        ["Help.CheckingUpdate"] = "Checking GitHub Release…",
+        ["Help.CheckingUpdate"] = "Checking for updates (GitHub, then Gitee)…",
         ["Help.NeedCheckFirst"] = "Click “Check for updates” first.",
         ["Help.ConfirmUpdate"] = "Download and install {0}?\nStandalone replaces the exe and restarts; installer mode launches Setup.\n\nAsset: {1}\nContinue?",
         ["Help.ConfirmUpdateTitle"] = "Auto update",
@@ -1319,7 +1380,7 @@ public static class Loc
         ["Help.Doc.Clip"] = "Clipboard & files",
         ["Help.Doc.C1"] = "Text / HTML / RTF / CSV / screenshots: copy announces only; content is pulled when the mouse enters a PC.",
         ["Help.Doc.C2"] = "Files: paste becomes available after you move to the target PC; transfer starts only when you paste.",
-        ["Help.Doc.C3"] = "Share → Direct transfer… can push to Desktop, Documents, Downloads, inbox, or a custom path.",
+        ["Help.Doc.C3"] = "Share → Direct transfer…: targeting a PC offers Desktop/Documents/Downloads/inbox/custom; targeting a phone offers only inbox + custom (custom defaults to inbox).",
         ["Help.Doc.C4"] = "Clipboard pulls land in Inbox/seq_* then move to paste staging (seq_* recycled). Clear completed can delete received files and leftover cache; never deletes sender locals. Open Inbox only opens the local folder.",
         ["Help.Doc.C5"] = "Transfer list columns: direction, name, peer, size, progress, status; per-row delete supported.",
         ["Help.Doc.Opts"] = "Common options",
@@ -1328,7 +1389,7 @@ public static class Loc
         ["Help.Doc.O3"] = "Hide local edge cursor when controlling remote: show only the active PC cursor.",
         ["Help.Doc.O4"] = "Start with Windows: Task Scheduler launches elevated after logon.",
         ["Help.Doc.O5"] = "Single instance: a second launch activates the existing window (including when hidden to tray).",
-        ["Help.Doc.O6"] = "Edge-cross mode: barrier-free / double-tap (same edge twice in 1s) / speed-burst (quick flick). Apply syncs to linked PCs.",
+        ["Help.Doc.O6"] = "Edge-cross mode: barrier-free / double-tap (same edge twice in 1s) / speed-burst (quick flick) / hotkey-only (Switch hotkeys only). Apply syncs to linked PCs.",
         ["Help.Doc.O7"] = "Security: Generate key sits on the title toolbar so the key field stays readable on narrow screens.",
         ["Help.Doc.Hot"] = "Shortcuts",
         ["Help.Doc.H1"] = "Ctrl+Alt+M settings　　Ctrl+Alt+R reconnect　　Ctrl+Alt+Q exit",
@@ -1337,7 +1398,7 @@ public static class Loc
         ["Help.Doc.N1"] = "Allow TCP (default 15155) and UDP discovery (default 15156) on private networks.",
         ["Help.Doc.N2"] = "Config folder: %AppData%\\FlyScreen\\",
         ["Help.Doc.Update"] = "Updates",
-        ["Help.Doc.U1"] = "Toolbar “Check for updates” → “Auto update”. Standalone self-replaces the exe; installer downloads *-Setup.exe. Releases:",
+        ["Help.Doc.U1"] = "Toolbar “Check for updates” → “Auto update”. Prefers GitHub, falls back to Gitee. Standalone self-replaces the exe; installer downloads *-Setup.exe. Releases:",
         ["Help.Doc.Diag"] = "Connection diagnostics",
         ["Help.Doc.D1"] = "If not connected both ways: Problem check reviews NIC, discovery, firewall and links; when issues are found the button becomes One-click fix to open firewall, restart networking and reconnect. Best if both PCs run it.",
     };

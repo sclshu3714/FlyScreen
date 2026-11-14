@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Tool.ColorPicker.Ui.Desktop</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.ColorPicker.Ui.Desktop</AssemblyName>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Description>颜色拾取器 Avalonia UI（工具包）</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Tool.ColorPicker\FlyScreen.Tool.ColorPicker.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+  </ItemGroup>
+</Project>

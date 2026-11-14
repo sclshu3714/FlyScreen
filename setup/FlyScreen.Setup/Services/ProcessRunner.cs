@@ -10,7 +10,8 @@ public sealed class ProcessRunner
         string arguments,
         string workingDirectory,
         Action<string> onOutput,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -24,6 +25,12 @@ public sealed class ProcessRunner
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+
+        if (environment != null)
+        {
+            foreach (var (key, value) in environment)
+                psi.Environment[key] = value;
+        }
 
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var tcs = new TaskCompletionSource<int>();

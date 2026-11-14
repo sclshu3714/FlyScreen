@@ -38,7 +38,7 @@ MAUI Android：桌面控手机与**用户程序（Fly API / OCR）**均需开启
 8. **多网卡绑定** — 「网络设置」选择通信网卡，减少虚拟网卡导致的单向连接。
 9. **开机自启** — 任务计划程序（最高权限）登录后启动；自启后托盘后台连接。
 10. **单实例** — 再次启动会激活已有窗口（含托盘隐藏）。
-11. **更新与诊断** — 侧栏「帮助」页可检查/自动更新（GitHub Release），以及连接一键检查/修复。
+11. **更新与诊断** — 侧栏「帮助」页可检查/自动更新（优先 GitHub Release，失败自动改用 Gitee），以及连接一键检查/修复。
 12. **电脑扩展屏 / 投影** — 标题栏一键复制或扩展投到对端全屏；可选声音同步、远程回控、去黑边；1 对 1 互斥；手机可复制投到电脑（详见 [docs/extended-display.md](docs/extended-display.md)）。
 13. **穿边拖文件** — 拖着文件/文件夹穿边到另一台电脑松开即复制；同名冲突可替换/跳过；目标占用时双方失败提示一致（详见 [docs/edge-file-drag.md](docs/edge-file-drag.md)）。
 
@@ -49,7 +49,7 @@ MAUI Android：桌面控手机与**用户程序（Fly API / OCR）**均需开启
 | 运行（自包含发布包） | Windows 10/11 x64，**无需**再装 .NET |
 | 运行（依赖框架构建） | Windows 10/11 + **[.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)**（须选 Desktop，不是普通 Runtime） |
 | 开发编译 | **.NET 10 SDK**（含 Windows Desktop；MAUI 另需对应 workload） |
-| 权限 | 建议管理员（全局键鼠钩子） |
+| 权限 | Win / Maui-Win **须管理员**（全局键鼠钩子；非提权穿边易丢事件） |
 
 各端目标框架统一为 `net10.0` / `net10.0-windows7.0` / MAUI `net10.0-android` 等，详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
@@ -84,13 +84,14 @@ macOS / Linux / Android / 鸿蒙 / MAUI 构建说明见 [docs/README.md](docs/RE
 
 Windows / Linux / macOS / MAUI 共用 `build/FlyScreen.Version.targets`；Android / 鸿蒙用同一 Git 标签规则（Gradle 自动解析；鸿蒙发版前跑 `build/Sync-MobileVersion.ps1`）。
 
-规则：**项目版本 = 最新 `vX.Y.Z` 标签的 patch + 1**。多次提交、不打新 tag，版本号不变。`versionCode` = `major*10000+minor*100+patch`。
+规则：**项目版本 = 最新 `vX.Y.Z` 标签自动 +1**，且 **minor / patch 大于 9 向高位进位**（如 `1.0.9→1.1.0`，`1.9.9→2.0.0`）。多次提交、不打新 tag，版本号不变。`versionCode` = `major*10000+minor*100+patch`。
 
 | 最新 GitHub / 本地 tag | 构建出的 Version |
 |------------------------|------------------|
 | `v1.0.1` | 一直是 **1.0.2** |
 | 打上 `v1.0.2` 之后 | 一直是 **1.0.3** |
-| `v1.0.9` | **1.0.10** |
+| `v1.0.9` | **1.1.0** |
+| `v1.9.9` | **2.0.0** |
 | `v1.1.0` | **1.1.1** |
 
 发版推荐流程（以当前最新 tag 为 `v1.0.1`、构建为 `1.0.2` 为例）：

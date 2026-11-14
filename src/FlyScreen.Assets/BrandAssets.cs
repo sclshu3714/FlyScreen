@@ -6,7 +6,6 @@ public static class BrandAssets
     public const string AppIconIco = "Icons/app.ico";
     public const string AppIconPng = "Icons/appicon.png";
     public const string AppIconPng64 = "Icons/appicon-64.png";
-    public const string ToolColorPickerJpg = "Icons/tool-color-picker.jpg";
     public const string CursorPng = "Images/cursor.png";
 
     public static Stream Open(string relativePath)

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Tool.ColorPicker</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.ColorPicker</AssemblyName>
+    <Description>玄鸟颜色拾取器工具包入口</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\tool-color-picker.jpg" LogicalName="FlyScreen.Tool.ColorPicker.Icons.tool-color-picker.jpg" />
+  </ItemGroup>
+</Project>

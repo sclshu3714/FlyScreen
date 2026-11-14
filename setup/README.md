@@ -48,3 +48,11 @@ dotnet run --project setup\FlyScreen.Setup\FlyScreen.Setup.csproj -c Release
 - 支持静默：`Uninstall.exe /S`
 
 发布工具始终 `dotnet publish -c Release`，并剔除 `.pdb`；各端输出目录相互独立。
+
+## 并行打包
+
+队列并行数启动时按本机 **逻辑核 / 2** 与 **可用内存 ÷ 约 6GB** 取较小值，并限制在 1–4；启动日志与状态栏会显示该上限。每个任务使用独立工作区：
+
+`artifacts/setup-work/{jobId}/`（应用暂存、payload、卸载器、安装壳输出、按工程隔离的 `obj`）
+
+通过环境变量 `FlyScreenJobId` + 仓库根 `Directory.Build.props` 分流中间输出；安装壳以 `-p:FlyScreenPayloadZip` / `-p:FlyScreenInstallerJson` 注入载荷，避免抢 `FlyScreen.Installer\Payload`。任务结束后自动删除该工作区。

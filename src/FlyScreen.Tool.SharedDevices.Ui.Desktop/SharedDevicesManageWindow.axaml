@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.Tool.SharedDevices.Ui.Desktop.SharedDevicesManageWindow"
+        Width="520" Height="560"
+        MinWidth="460" MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Title="共享设备管理"
+        Background="{DynamicResource WinBg}">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20">
+    <StackPanel MaxWidth="420" HorizontalAlignment="Center" Spacing="12">
+      <TextBlock x:Name="TitleText" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+      <TextBlock x:Name="HintText" FontSize="12" Foreground="{DynamicResource Muted}"
+                 TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center"
+                 Margin="0,0,0,4"/>
+
+      <Border Classes="card" Padding="14" CornerRadius="12">
+        <StackPanel Spacing="8">
+          <TextBlock x:Name="SpeakerLabel" FontWeight="SemiBold"/>
+          <ComboBox x:Name="SpeakerCombo" MinHeight="36" Height="36" Padding="10,6"/>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="14" CornerRadius="12">
+        <StackPanel Spacing="8">
+          <TextBlock x:Name="MicLabel" FontWeight="SemiBold"/>
+          <ComboBox x:Name="MicCombo" MinHeight="36" Height="36" Padding="10,6"/>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="14" CornerRadius="12">
+        <StackPanel Spacing="8">
+          <TextBlock x:Name="CameraLabel" FontWeight="SemiBold"/>
+          <ComboBox x:Name="CameraCombo" MinHeight="36" Height="36" Padding="10,6"/>
+        </StackPanel>
+      </Border>
+
+      <Button x:Name="ClearRememberBtn" Classes="normal" HorizontalAlignment="Stretch"
+              MinHeight="36" Click="ClearRemember_Click"/>
+      <TextBlock x:Name="ClearStatus" FontSize="12" Foreground="{DynamicResource Muted}"
+                 HorizontalAlignment="Center"/>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,8,0,0">
+        <Button x:Name="SaveBtn" Classes="primary" MinWidth="96" MinHeight="36" Click="Save_Click"/>
+        <Button x:Name="CloseBtn" Classes="normal" MinWidth="96" MinHeight="36" Click="Close_Click"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

@@ -1,9 +1,9 @@
 #if ANDROID
-using System.Collections;
 using Android.Hardware;
 using Android.Media;
 using Android.OS;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.Services;
+using FlyScreen.ToolSdk;
 using Camera = Android.Hardware.Camera;
 using Application = Android.App.Application;
 
@@ -59,26 +59,19 @@ public sealed class AndroidSharedDevicesHardware : ISharedDevicesHardware
         try
         {
             var am = Application.Context.GetSystemService(global::Android.Content.Context.AudioService) as AudioManager;
+            // 勿用 Java 反射 getDevices：部分机型 Method 解析失败会得到空列表，
+            // 导致只宣告摄像头、申请端看不到麦克风/扬声器。
             if (am != null && Build.VERSION.SdkInt >= BuildVersionCodes.M)
             {
-                // 反射 getDevices(int)：返回 AudioDeviceInfo[]
-                var method = am.Class.GetMethod("getDevices", Java.Lang.Integer.Type!);
-                var raw = method?.Invoke(am, new Java.Lang.Integer(inputs ? 1 : 2));
-                IEnumerable? seq = raw as System.Collections.IEnumerable;
-                if (seq != null)
+                var flags = inputs ? GetDevicesTargets.Inputs : GetDevicesTargets.Outputs;
+                var devices = am.GetDevices(flags);
+                if (devices != null)
                 {
-                    foreach (var o in seq)
+                    foreach (var d in devices)
                     {
-                        if (o is not AudioDeviceInfo d) continue;
-                        if (inputs)
-                        {
-                            if (d.Type is AudioDeviceType.BuiltinEarpiece or AudioDeviceType.Telephony)
-                                continue;
-                        }
-                        else if (d.Type is AudioDeviceType.BuiltinEarpiece or AudioDeviceType.Telephony)
-                        {
+                        if (d == null) continue;
+                        if (d.Type is AudioDeviceType.BuiltinEarpiece or AudioDeviceType.Telephony)
                             continue;
-                        }
 
                         var name = string.IsNullOrWhiteSpace(d.ProductName)
                             ? DescribeAudioType(d.Type, inputs)
@@ -94,32 +87,27 @@ public sealed class AndroidSharedDevicesHardware : ISharedDevicesHardware
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // fall through
+            AppLog.Warn("Android 枚举音频设备失败: " + ex.Message);
         }
 
+        // 手机必有内置麦/扬声器；枚举失败时仍宣告种类，否则对端申请对话框会隐藏勾选项
         if (list.Count == 0)
-            return FallbackAudio(inputs);
+        {
+            list.Add(new SharedLocalDevice
+            {
+                Kind = inputs ? SharedDeviceKinds.Microphone : SharedDeviceKinds.Speaker,
+                Id = "default",
+                Name = inputs ? "内置麦克风" : "内置扬声器",
+                IsDefault = true
+            });
+            return list;
+        }
 
         if (!list.Any(d => d.IsDefault))
             list[0] = CloneDefault(list[0]);
         return list;
-    }
-
-    private static IReadOnlyList<SharedLocalDevice> FallbackAudio(bool inputs)
-    {
-        var kind = inputs ? SharedDeviceKinds.Microphone : SharedDeviceKinds.Speaker;
-        return
-        [
-            new SharedLocalDevice
-            {
-                Kind = kind,
-                Id = "default",
-                Name = "系统默认",
-                IsDefault = true
-            }
-        ];
     }
 
     private static SharedLocalDevice CloneDefault(SharedLocalDevice d) => new()

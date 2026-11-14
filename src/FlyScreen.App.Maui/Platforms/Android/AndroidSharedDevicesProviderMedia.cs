@@ -4,7 +4,7 @@ using Android.Hardware;
 using Android.Media;
 using Android.OS;
 using Android.Views;
-using FlyScreen.Services.Tools.SharedDevices;
+using FlyScreen.ToolSdk;
 using Camera = Android.Hardware.Camera;
 using ARect = Android.Graphics.Rect;
 
@@ -13,7 +13,7 @@ namespace FlyScreen.AppMaui.Platforms.Android;
 /// <summary>提供方本机测试：摄像头 JPEG 上行、麦克风 PCM 上行、扬声器试音。</summary>
 public sealed class AndroidSharedDevicesProviderMedia : IDisposable
 {
-    private readonly SharedDevicesService _svc;
+    private readonly ISharedDevicesRuntime _svc;
     private readonly object _gate = new();
     private Camera? _camera;
     private SurfaceTexture? _previewTex;
@@ -25,7 +25,7 @@ public sealed class AndroidSharedDevicesProviderMedia : IDisposable
     private AudioTrack? _toneTrack;
     private int _disposed;
 
-    public AndroidSharedDevicesProviderMedia(SharedDevicesService svc)
+    public AndroidSharedDevicesProviderMedia(ISharedDevicesRuntime svc)
     {
         _svc = svc;
         _svc.ProviderTestCommand += OnTestCommand;
@@ -42,8 +42,7 @@ public sealed class AndroidSharedDevicesProviderMedia : IDisposable
 
     private void OnSessionChanged()
     {
-        var snap = _svc.CurrentSession;
-        if (snap is not { Phase: SharedDevicesSessionPhase.Active, IsApplicant: false })
+        if (!_svc.IsProviderSessionActive)
             StopAll();
     }
 
@@ -428,14 +427,14 @@ public sealed class AndroidSharedDevicesProviderMedia : IDisposable
                 .GetSystemService(global::Android.Content.Context.AudioService) as AudioManager;
             if (am == null) return;
             var isMic = kind.Equals(SharedDeviceKinds.Microphone, StringComparison.OrdinalIgnoreCase);
-            var method = am.Class.GetMethod("getDevices", Java.Lang.Integer.Type!);
-            var raw = method?.Invoke(am, new Java.Lang.Integer(isMic ? 1 : 2));
+            var flags = isMic ? GetDevicesTargets.Inputs : GetDevicesTargets.Outputs;
             AudioDeviceInfo? match = null;
-            if (raw is System.Collections.IEnumerable seq)
+            var devices = am.GetDevices(flags);
+            if (devices != null)
             {
-                foreach (var o in seq)
+                foreach (var d in devices)
                 {
-                    if (o is AudioDeviceInfo d && d.Id == id)
+                    if (d != null && d.Id == id)
                     {
                         match = d;
                         break;

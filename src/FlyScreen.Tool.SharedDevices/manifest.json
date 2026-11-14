@@ -1,0 +1,31 @@
+{
+  "id": "shared-devices",
+  "kind": "enhancement",
+  "crossScreen": true,
+  "group": "shared-devices",
+  "nameKey": "Tool.SharedDevices.Name",
+  "summaryKey": "Tool.SharedDevices.Summary",
+  "schemaVersion": 1,
+  "minAppVersion": "1.0.0",
+  "deviceClasses": ["Desktop", "Phone", "Tablet"],
+  "platforms": ["Windows", "Android", "macOS", "Linux"],
+  "featuresByDeviceClass": {
+    "Desktop": ["speaker", "microphone", "camera", "provide", "consume"],
+    "Phone": ["speaker", "microphone", "camera", "provide"],
+    "Tablet": ["speaker", "microphone", "camera", "provide"]
+  },
+  "roles": ["request", "authorize"],
+  "supportsRepair": false,
+  "capNames": ["Tool:shared-devices"],
+  "titleBar": false,
+  "hasWorkspace": false,
+  "icon": "tool-shared-devices",
+  "permissions": ["camera", "microphone", "speaker", "virtualAudio", "peerNetwork"],
+  "package": {
+    "version": "1.0.5",
+    "format": "flytool",
+    "formatVersion": 1
+  },
+  "entryAssembly": "FlyScreen.Tool.SharedDevices.dll",
+  "entryType": "FlyScreen.Tool.SharedDevices.Module"
+}

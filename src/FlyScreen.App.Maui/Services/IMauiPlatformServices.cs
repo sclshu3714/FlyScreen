@@ -53,7 +53,8 @@ public interface IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null);
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null);
 
     /// <summary>PC：隐藏到托盘；Android：退到后台（无托盘）。</summary>
     void HideToBackground(
@@ -62,7 +63,8 @@ public interface IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null);
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null);
     void DisposeTray();
 
     /// <summary>Win 扩展屏：立刻准备本机第二输出（虚拟驱动/已有副屏）。
@@ -125,14 +127,16 @@ public sealed class NullMauiPlatformServices : IMauiPlatformServices
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null) { }
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null) { }
     public void HideToBackground(
         Action showMain,
         Action? reconnect = null,
         Action? project = null,
         Action? about = null,
         Action? exit = null,
-        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null) { }
+        Func<FlyScreen.Helpers.ProjectionUiPhase>? projectPhase = null,
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null) { }
     public void DisposeTray() { }
 
     public Task<(bool Ok, string? InfoOrError)> EnsureScreenExtendHostDisplayAsync(
