@@ -5,6 +5,8 @@ public static class ToolIconKeys
 {
     public const string ColorPicker = "tool-color-picker";
     public const string SharedDevices = "tool-shared-devices";
+    public const string PortProxy = "tool-port-proxy";
+    public const string VideoWall = "tool-video-wall";
 
     /// <summary>是否已有工具贡献的位图（优先于宿主内嵌回退）。</summary>
     public static bool HasRegisteredBitmap(string? iconKey)

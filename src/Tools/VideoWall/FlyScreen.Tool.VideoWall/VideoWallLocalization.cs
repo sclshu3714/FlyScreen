@@ -1,3 +1,4 @@
+using FlyScreen.Helpers.Localization;
 using FlyScreen.ToolSdk;
 
 namespace FlyScreen.Tool.VideoWall;
@@ -10,7 +11,11 @@ public sealed class VideoWallLocalization : IToolLocalization
 {
     public static VideoWallLocalization Instance { get; } = new();
 
+    static VideoWallLocalization() => EnsureRegistered();
+
     public string SourceId => VideoWallIds.ToolId;
+
+    public static void EnsureRegistered() => Loc.RegisterPlugin(Instance);
 
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Tables { get; } = Build();
 

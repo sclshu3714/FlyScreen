@@ -231,6 +231,31 @@ public sealed class ToolCatalog
     public static string DisplaySummary(ToolManifest m)
         => Loc.T(m.SummaryKey);
 
+    /// <summary>清单 <c>group</c> 的展示名（无 Loc 时回退 raw id）。</summary>
+    public static string DisplayGroup(string? group)
+    {
+        if (string.IsNullOrWhiteSpace(group)) return "";
+        var g = group.Trim();
+        var key = g switch
+        {
+            "shared-devices" => "Tool.Group.SharedDevices",
+            "utilities" => "Tool.Group.Utilities",
+            "media" => "Tool.Group.Media",
+            _ => null
+        };
+        if (key != null)
+        {
+            var t = Loc.T(key);
+            if (!string.Equals(t, key, StringComparison.Ordinal))
+                return t;
+        }
+
+        return g;
+    }
+
+    public static string DisplayGroup(ToolManifest m)
+        => DisplayGroup(m.Group);
+
     private void SaveUnlocked()
     {
         try
@@ -396,6 +421,31 @@ public sealed class ToolCatalog
                 PackageVersion = "1.0.3",
                 EntryAssembly = "FlyScreen.Tool.PortProxy",
                 EntryType = "FlyScreen.Tool.PortProxy.Module"
+            },
+            new ToolManifest
+            {
+                Id = ToolIds.VideoWall,
+                Kind = "enhancement",
+                CrossScreen = false,
+                Group = "media",
+                NameKey = "Tool.VideoWall.Name",
+                SummaryKey = "Tool.VideoWall.Summary",
+                SchemaVersion = 1,
+                DeviceClasses = ["Desktop"],
+                Platforms = ["Windows"],
+                FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desktop"] = ["fixed-sources", "temp-sources", "grid", "composite"]
+                },
+                Roles = ["local"],
+                CapNames = [],
+                TitleBar = false,
+                HasWorkspace = true,
+                Icon = ToolIconKeys.VideoWall,
+                Permissions = ["networkStream", "localFile.open", "speaker"],
+                PackageVersion = "0.1.0",
+                EntryAssembly = "FlyScreen.Tool.VideoWall.dll",
+                EntryType = "FlyScreen.Tool.VideoWall.Module"
             }
         ];
 }

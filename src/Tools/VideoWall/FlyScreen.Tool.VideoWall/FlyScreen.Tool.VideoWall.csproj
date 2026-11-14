@@ -5,10 +5,17 @@
     <Nullable>enable</Nullable>
     <RootNamespace>FlyScreen.Tool.VideoWall</RootNamespace>
     <AssemblyName>FlyScreen.Tool.VideoWall</AssemblyName>
-    <Description>玄鸟视频墙工具包入口（骨架：契约与模块桩，播放后端未接线）</Description>
+    <Description>玄鸟视频墙工具包（LibVLC 播放后端、源目录与宫格装配）</Description>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <!-- 骨架阶段只依赖契约程序集，便于单独编译；接线后再补 FlyScreen.Core 引用。 -->
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <PackageReference Include="LibVLCSharp" Version="3.9.2" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\tool-video-wall.png" LogicalName="FlyScreen.Tool.VideoWall.Icons.tool-video-wall.png" />
   </ItemGroup>
 </Project>

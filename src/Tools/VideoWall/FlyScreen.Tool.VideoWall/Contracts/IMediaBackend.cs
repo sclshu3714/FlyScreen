@@ -15,6 +15,12 @@ public interface IMediaBackend
     /// <summary>协议探测（不建播放会话）。</summary>
     Task<MediaProbeResult> ProbeAsync(VideoEndpoint endpoint, CancellationToken ct = default);
 
+    /// <summary>
+    /// 抓取单帧封面 JPEG（不建常驻播放会话；理想输出 320×180 q80）。
+    /// 后端不可用时返回 <see cref="CoverCaptureResult.Ok"/> = false。
+    /// </summary>
+    Task<CoverCaptureResult> CaptureCoverAsync(VideoEndpoint endpoint, CancellationToken ct = default);
+
     /// <summary>创建单路播放器（一个 MediaPlayer 对应一格）。</summary>
     IMediaPlayer CreatePlayer(VideoEndpoint endpoint, MediaPlayerOptions options);
 }

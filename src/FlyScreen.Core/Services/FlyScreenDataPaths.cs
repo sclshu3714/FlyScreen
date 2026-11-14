@@ -98,6 +98,16 @@ public static class FlyScreenDataPaths
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string TransferHistoryFile => Path.Combine(Root, "transfer-history.json");
 
+    /// <summary>工具专属数据目录：{Root}/ToolData/{toolId}/</summary>
+    public static string GetToolDataDirectory(string toolId)
+    {
+        if (string.IsNullOrWhiteSpace(toolId))
+            throw new ArgumentException("toolId 不能为空", nameof(toolId));
+        var dir = Path.Combine(Root, "ToolData", toolId.Trim());
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
     /// <summary>覆盖工具根。传 null 恢复默认。</summary>
     public static void SetToolsRoot(string? absolutePath)
     {

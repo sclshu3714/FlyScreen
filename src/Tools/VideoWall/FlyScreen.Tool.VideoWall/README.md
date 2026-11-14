@@ -29,7 +29,14 @@ src/FlyScreen.Tool.VideoWall/
 └── Sources/
     ├── SourceFormSchema.cs             四类源的字段矩阵 + 条件显隐求值（§3.3 的唯一实现）
     ├── VideoSourceCatalog.cs           sources.json 原子读写 / CRUD / 地址去重 / 校验回写
-    └── CoverCache.cs                   封面键（SHA256 前 16 位）/ 路径校验 / 孤儿清理
+    ├── CoverCache.cs                   封面键（SHA256 前 16 位）/ 路径校验 / 孤儿清理
+    ├── VideoEndpointParser.cs          地址归一化（sources §6）/ 脱敏 / 协议推断
+    ├── CredentialStore.cs              DPAPI（Win）/ AES 凭据表 video-wall.credentials.bin
+    ├── NvrTemplateExpander.cs          NVR 模板与厂商预设（§6.1–6.2）
+    ├── ProbeService.cs                 轻量「测试」探测（无 LibVLC）
+    ├── CoverCaptureService.cs          首帧 → CoverCache（并发 4，8s 超时）
+    ├── SourceImportExport.cs           导入导出（默认无凭据/封面）
+    └── RecentSourcesStore.cs           最近 20 条临时源（签名 URL 脱敏）
 ```
 
 **能做什么**：
@@ -38,7 +45,7 @@ src/FlyScreen.Tool.VideoWall/
 
 **不能做什么**：
 - 点开卡片不会播放（`VideoWallIds.BackendWired == false`，主操作直接返回「骨架：播放后端尚未接线」）。
-- 没有抓帧代码，`CoverCache` 只有路径与清理，真实首帧仍待接入 `IMediaBackend`。
+- `CoverCaptureService` 已接线契约，但无 VLC 后端实现时 `CaptureCoverAsync` 仍不可用。
 - 没有 UI：列表视图、卡片视图、添加弹窗、单条播放视图都只有文档线框。
 
 ---
@@ -104,7 +111,7 @@ src/
 - 没有原生库、没有 NuGet 依赖（`LibVLCSharp` / `VideoLAN.LibVLC.Windows` 尚未引入）。
 - `IMediaCompositor` 只有契约，无实现；P0 的合流按「二次渲染视图」口径交付。
 - `manifest.json` 的 `platforms: ["Windows"]` 会同时覆盖 MAUI/WinUI；若 MAUI 也装了本工具，需要 UI 侧明确不展示（见 docs 可行性 §4）。
-- 凭据尚未落地：`VideoSourceCatalog` 只存 `CredentialRef` 字符串，`CredentialStore`（DPAPI）未实现，所以目前**没有**可用的密码持久化路径。
+- `CredentialStore` 已实现落盘，UI 保存流尚未调用。
 - `VideoSourceCatalog` 没有文件级并发保护（单进程单实例假设）；多实例同时写会以「后写覆盖」告终。
 
 ---

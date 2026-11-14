@@ -1,0 +1,10 @@
+﻿using System;
+using System.Linq;
+using System.Reflection;
+var asm = Assembly.LoadFrom(@"C:\Users\sclsh\.nuget\packages\libvlcsharp\3.9.2\lib\net8.0\LibVLCSharp.dll");
+var t = asm.GetType("LibVLCSharp.Shared.MediaTrack");
+Console.WriteLine("MediaTrack props: " + string.Join(", ", t!.GetProperties().Select(p => p.Name)));
+var m = asm.GetType("LibVLCSharp.Shared.Media");
+Console.WriteLine("Media props sample: " + string.Join(", ", m!.GetProperties().Select(p => p.Name).Where(n => n.Contains("Parse") || n.Contains("Track"))));
+var ps = asm.GetTypes().Where(x => x.Name.Contains("Parsed")).Select(x => x.FullName);
+Console.WriteLine("Parsed types: " + string.Join(", ", ps));

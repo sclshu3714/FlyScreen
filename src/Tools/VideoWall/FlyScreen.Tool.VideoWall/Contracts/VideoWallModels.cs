@@ -161,4 +161,20 @@ public sealed record MediaProbeResult
     public int? Width { get; init; }
     public int? Height { get; init; }
     public double? Fps { get; init; }
+
+    /// <summary>轻量探测无法完成协议握手时为 true（需完整后端探测）。</summary>
+    public bool NeedsBackend { get; init; }
+}
+
+/// <summary>首帧封面抓取结果（<see cref="IMediaBackend.CaptureCoverAsync"/>）。</summary>
+public sealed record CoverCaptureResult
+{
+    public bool Ok { get; init; }
+    public byte[]? JpegBytes { get; init; }
+    public VideoErrorCode Error { get; init; } = VideoErrorCode.None;
+    public string? Message { get; init; }
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public string? VideoCodec { get; init; }
+    public double Fps { get; init; }
 }
