@@ -1,5 +1,6 @@
 using System.Windows;
 using FlyScreen.Helpers;
+using FlyScreen.Services;
 using FlyScreen.Services.Tools;
 using FlyScreen.ToolSdk;
 
@@ -14,10 +15,12 @@ public static class ToolUiBootstrap
         var ctx = new ToolUiContext
         {
             Owner = owner,
+            // 插件只调 ReportStatus；宿主写入日志页（解耦），侧栏仅短提示
             ReportStatus = reportStatus ?? (s =>
             {
+                AppLog.RecordStatus(s);
                 if (owner is MainWindow mw)
-                    mw.StatusText.Text = s;
+                    mw.StatusText.Text = AppLog.ForStatusBar(s);
             }),
             // 工具独立 Window 不在 MainWindow 资源树内，需显式套用系统样式
             ApplyWindowTheme = o =>

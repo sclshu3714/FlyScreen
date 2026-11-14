@@ -15,6 +15,33 @@
     <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
     <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TextBox">
+          <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="6" Padding="{TemplateBinding Padding}"
+                  SnapsToDevicePixels="True">
+            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="Hidden"
+                          VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <Style TargetType="PasswordBox">
@@ -181,6 +208,7 @@
   </Style>
 
   <Style TargetType="ComboBoxItem">
+    <!-- 覆盖主题默认 RelativeSource→ItemsControl；Popup 未打开/项未入树时否则会刷 Data Error 4 -->
     <Setter Property="OverridesDefaultStyle" Value="True"/>
     <Setter Property="Height" Value="32"/>
     <Setter Property="Padding" Value="10,0"/>
@@ -200,6 +228,34 @@
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
               <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ComboBoxItem 继承 ListBoxItem；默认主题用 RelativeSource 找 ItemsControl，未入树时会报绑定错误 -->
+  <Style TargetType="ListBoxItem">
+    <Setter Property="OverridesDefaultStyle" Value="True"/>
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Padding" Value="6,4"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListBoxItem">
+          <Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -268,5 +324,52 @@
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+  </Style>
+
+  <!-- 播放进度 / 音量：细轨 + 蓝色已播段 + 圆点拇指 -->
+  <ControlTemplate x:Key="PlaybackSliderTemplate" TargetType="Slider">
+    <Grid VerticalAlignment="Center" Background="Transparent">
+      <Border Height="4" CornerRadius="2" Background="{DynamicResource Line}"
+              Margin="7,0" VerticalAlignment="Center"/>
+      <Track x:Name="PART_Track">
+        <Track.DecreaseRepeatButton>
+          <RepeatButton Command="Slider.DecreaseLarge" IsTabStop="False" Focusable="False">
+            <RepeatButton.Template>
+              <ControlTemplate TargetType="RepeatButton">
+                <Border Background="{DynamicResource Blue}" CornerRadius="2" Height="4"
+                        Margin="7,0,0,0" VerticalAlignment="Center"/>
+              </ControlTemplate>
+            </RepeatButton.Template>
+          </RepeatButton>
+        </Track.DecreaseRepeatButton>
+        <Track.IncreaseRepeatButton>
+          <RepeatButton Command="Slider.IncreaseLarge" Opacity="0" IsTabStop="False" Focusable="False"/>
+        </Track.IncreaseRepeatButton>
+        <Track.Thumb>
+          <Thumb Width="14" Height="14">
+            <Thumb.Template>
+              <ControlTemplate TargetType="Thumb">
+                <Ellipse Fill="{DynamicResource Blue}" Stroke="White" StrokeThickness="2"/>
+              </ControlTemplate>
+            </Thumb.Template>
+          </Thumb>
+        </Track.Thumb>
+      </Track>
+    </Grid>
+  </ControlTemplate>
+
+  <Style x:Key="PlaybackSeekSlider" TargetType="Slider">
+    <Setter Property="Height" Value="22"/>
+    <Setter Property="Minimum" Value="0"/>
+    <Setter Property="Maximum" Value="1000"/>
+    <Setter Property="IsMoveToPointEnabled" Value="True"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template" Value="{StaticResource PlaybackSliderTemplate}"/>
+  </Style>
+
+  <Style x:Key="PlaybackVolumeSlider" TargetType="Slider" BasedOn="{StaticResource PlaybackSeekSlider}">
+    <Setter Property="Width" Value="90"/>
+    <Setter Property="Maximum" Value="100"/>
   </Style>
 </ResourceDictionary>

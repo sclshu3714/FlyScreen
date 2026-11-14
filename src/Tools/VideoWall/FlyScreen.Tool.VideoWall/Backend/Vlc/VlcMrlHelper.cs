@@ -8,8 +8,13 @@ internal static class VlcMrlHelper
 {
     public static Media CreateMedia(LibVLC libVlc, VideoEndpoint endpoint, MediaPlayerOptions options, CredentialStore? credentials)
     {
-        var mrl = BuildMrl(endpoint);
-        var media = new Media(libVlc, mrl, FromType.FromLocation);
+        // 本机文件走 FromPath（支持中文路径）；网络地址走 FromLocation
+        Media media;
+        if (TryGetLocalFilePath(endpoint, out var localPath))
+            media = new Media(libVlc, localPath, FromType.FromPath);
+        else
+            media = new Media(libVlc, BuildMrl(endpoint), FromType.FromLocation);
+
         ApplyOptions(media, endpoint, options, credentials);
         return media;
     }
@@ -32,6 +37,37 @@ internal static class VlcMrlHelper
 
         return $"{protocol}://{address}";
     }
+
+    private static bool TryGetLocalFilePath(VideoEndpoint endpoint, out string path)
+    {
+        path = "";
+        var protocol = (endpoint.Protocol ?? "").Trim().ToLowerInvariant();
+        var address = (endpoint.Address ?? "").Trim();
+        if (address.Length == 0) return false;
+
+        if (protocol == "file" || LooksLikeWindowsPath(address))
+        {
+            if (address.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            {
+                try { path = new Uri(address).LocalPath; }
+                catch { return false; }
+            }
+            else
+            {
+                path = address;
+            }
+
+            return path.Length > 0;
+        }
+
+        return false;
+    }
+
+    private static bool LooksLikeWindowsPath(string s)
+        => s.Length >= 3
+           && char.IsLetter(s[0])
+           && s[1] == ':'
+           && (s[2] == '\\' || s[2] == '/');
 
     private static void ApplyOptions(
         Media media,

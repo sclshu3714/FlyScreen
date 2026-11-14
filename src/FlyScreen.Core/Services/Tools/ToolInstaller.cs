@@ -88,8 +88,8 @@ public sealed class ToolInstaller
         {
             await StepAsync(toolId, 10, ct).ConfigureAwait(false);
             var version = pack.PackageVersion;
-            var installDir = Path.Combine(FlyScreenDataPaths.ToolsInstalledDirectory, toolId, version);
-            if (Directory.Exists(installDir) && !TryDeleteDirectory(installDir))
+            var installDir = ResolveWritableInstallDir(toolId, version);
+            if (installDir == null)
                 return ToolInstallResult.Fail("无法覆盖安装目录（文件被占用），请关闭相关窗口后重试");
 
             Directory.CreateDirectory(installDir);
@@ -211,12 +211,16 @@ public sealed class ToolInstaller
 
         try
         {
+            var leftOrphan = false;
             if (!string.IsNullOrWhiteSpace(rec.Path) && Directory.Exists(rec.Path))
             {
                 if (!TryDeleteDirectory(rec.Path))
                 {
-                    AppLog.Warn($"删除工具目录失败（文件占用）: {rec.Path}");
-                    return ToolInstallResult.Fail("无法删除工具文件（仍被占用），请关闭工具窗口后重试");
+                    leftOrphan = !TryOrphanDirectory(rec.Path);
+                    if (leftOrphan)
+                        AppLog.Warn($"删除工具目录失败（文件占用，已保留孤儿目录）: {rec.Path}");
+                    else
+                        AppLog.Warn($"删除工具目录失败（文件占用，已改名待清理）: {rec.Path}");
                 }
             }
 
@@ -228,9 +232,12 @@ public sealed class ToolInstaller
             }
             catch { /* ignore */ }
 
+            // 无论目录是否删净，都清安装记录，避免 UI 卡在「已安装」无法重装
             _catalog.RemoveInstall(toolId);
             AppLog.Info("工具已卸载：" + toolId);
-            return ToolInstallResult.Ok("已卸载");
+            return ToolInstallResult.Ok(leftOrphan
+                ? "已卸载（部分文件待退出应用后清理）"
+                : "已卸载");
         }
         catch (Exception ex)
         {
@@ -263,6 +270,53 @@ public sealed class ToolInstaller
     private static string WithTrailingSep(string path)
         => path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
            + Path.DirectorySeparatorChar;
+
+    /// <summary>
+    /// 选定可写的安装目录：优先 <c>id/version</c>；占用则 orphan 改名；仍失败则用带时间戳的旁路目录。
+    /// </summary>
+    private static string? ResolveWritableInstallDir(string toolId, string version)
+    {
+        var preferred = Path.Combine(FlyScreenDataPaths.ToolsInstalledDirectory, toolId, version);
+        if (!Directory.Exists(preferred))
+            return preferred;
+
+        if (TryDeleteDirectory(preferred))
+            return preferred;
+
+        if (TryOrphanDirectory(preferred))
+            return preferred;
+
+        var alt = Path.Combine(
+            FlyScreenDataPaths.ToolsInstalledDirectory,
+            toolId,
+            $"{version}-{DateTime.UtcNow:yyyyMMddHHmmssfff}");
+        AppLog.Warn($"安装目录占用，改用旁路路径：{alt}");
+        return alt;
+    }
+
+    /// <summary>将占用中的安装目录改名为 <c>.orphaned-*</c>，便于同路径重装；启动时再清。</summary>
+    internal static bool TryOrphanDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return true;
+
+        try
+        {
+            var parent = Path.GetDirectoryName(path);
+            if (string.IsNullOrWhiteSpace(parent))
+                return false;
+
+            var orphan = Path.Combine(parent, $".orphaned-{Path.GetFileName(path)}-{DateTime.UtcNow.Ticks}");
+            Directory.Move(path, orphan);
+            AppLog.Warn($"工具目录已改名待清理：{orphan}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"工具目录改名失败：{ex.Message}");
+            return false;
+        }
+    }
 
     /// <summary>带 GC/退避的目录删除，缓解 ALC 卸载后短暂文件锁。</summary>
     internal static bool TryDeleteDirectory(string path, int attempts = 10)

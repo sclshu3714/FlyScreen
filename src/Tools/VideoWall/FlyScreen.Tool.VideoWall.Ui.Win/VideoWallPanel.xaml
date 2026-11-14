@@ -23,6 +23,7 @@
       <SolidColorBrush x:Key="Text" Color="#111827"/>
       <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
       <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
       <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
       <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
       <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
@@ -34,18 +35,69 @@
       <Geometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</Geometry>
       <Geometry x:Key="GeoEdit">M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z</Geometry>
       <Geometry x:Key="GeoBack">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</Geometry>
+      <!-- 源=卡片宫格；列表=横条列表 -->
+      <Geometry x:Key="GeoViewCard">M3,3H10V10H3V3M14,3H21V10H14V3M3,14H10V21H3V14M14,14H21V21H14V14Z</Geometry>
+      <Geometry x:Key="GeoViewList">M3,5H21V7H3V5M3,11H21V13H3V11M3,17H21V19H3V17Z</Geometry>
+      <Geometry x:Key="GeoViewCanvas">M3,3H21V15H3V3M5,5V13H19V5H5M8,17H16V19H8V17M10,19H14V21H10V19Z</Geometry>
+      <Geometry x:Key="GeoPause">M14,19H18V5H14M6,19H10V5H6V19Z</Geometry>
+      <Geometry x:Key="GeoStop">M18,18H6V6H18V18Z</Geometry>
+      <Geometry x:Key="GeoSeekBack">M11.5,12L20,18V6M11,18V6L2.5,12L11,18Z</Geometry>
+      <Geometry x:Key="GeoSeekFwd">M13,6V18L21.5,12M4,18L12.5,12L4,6V18Z</Geometry>
+      <Geometry x:Key="GeoVolume">M14,3.23V5.29C16.89,6.15 19,8.83 19,12C19,15.17 16.89,17.84 14,18.7V20.77C18,19.86 21,16.28 21,12C21,7.72 18,4.14 14,3.23M16.5,12C16.5,10.23 15.5,8.71 14,7.97V16C15.5,15.29 16.5,13.76 16.5,12M3,9V15H7L12,20V4L7,9H3Z</Geometry>
+      <Geometry x:Key="GeoMute">M12,4L9.91,6.09L12,8.18M4.27,3L3,4.27L7.73,9H3V15H7L12,20V13.27L16.25,17.53C15.58,18.04 14.83,18.46 14,18.7V20.77C15.38,20.45 16.63,19.82 17.68,18.96L19.73,21L21,19.73L12,10.73M19,12C19,12.94 18.8,13.82 18.46,14.64L19.97,16.15C20.62,14.91 21,13.5 21,12C21,7.72 18,4.14 14,3.23V5.29C16.89,6.15 19,8.83 19,12M16.5,12C16.5,10.23 15.5,8.71 14,7.97V10.18L16.45,12.63C16.5,12.43 16.5,12.21 16.5,12Z</Geometry>
+      <Geometry x:Key="GeoFullscreen">M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z</Geometry>
+      <Geometry x:Key="GeoFullscreenExit">M14,14H19V16H16V19H14V14M5,14H10V19H8V16H5V14M8,5H10V10H5V8H8V5M16,8V5H14V10H19V8H16Z</Geometry>
 
-      <Style x:Key="ToolBarCombo" TargetType="ComboBox">
+      <Style x:Key="ToolBarCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
         <Setter Property="Height" Value="32"/>
         <Setter Property="MinWidth" Value="72"/>
         <Setter Property="Margin" Value="0,0,6,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="Padding" Value="10,0,32,0"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource {x:Type ComboBoxItem}}"/>
+      </Style>
+
+      <!-- 工具条搜索框：圆角描边，与 Combo 对齐 -->
+      <Style x:Key="ToolBarTextBox" TargetType="TextBox">
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="MinWidth" Value="72"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
         <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="TextBox">
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      CornerRadius="6" Padding="{TemplateBinding Padding}"
+                      SnapsToDevicePixels="True">
+                <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                              HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Hidden"
+                              VerticalAlignment="Center"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                  <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                  <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
       </Style>
 
       <Style x:Key="IconBtn" TargetType="Button">
@@ -121,6 +173,160 @@
         <Setter Property="MinWidth" Value="28"/>
         <Setter Property="Margin" Value="0,0,4,0"/>
       </Style>
+
+      <!-- 分段：左圆右方 / 左方右圆，中间共边无缝 -->
+      <Style x:Key="SegmentToggleBase" TargetType="ToggleButton">
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+      </Style>
+
+      <Style x:Key="SegmentToggleLeft" TargetType="ToggleButton" BasedOn="{StaticResource SegmentToggleBase}">
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ToggleButton">
+              <Border x:Name="bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="1,1,0,1"
+                      CornerRadius="6,0,0,6">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <MultiTrigger>
+                  <MultiTrigger.Conditions>
+                    <Condition Property="IsChecked" Value="True"/>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                  </MultiTrigger.Conditions>
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </MultiTrigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+
+      <Style x:Key="SegmentToggleMid" TargetType="ToggleButton" BasedOn="{StaticResource SegmentToggleBase}">
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ToggleButton">
+              <Border x:Name="bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="1,1,0,1"
+                      CornerRadius="0">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <MultiTrigger>
+                  <MultiTrigger.Conditions>
+                    <Condition Property="IsChecked" Value="True"/>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                  </MultiTrigger.Conditions>
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </MultiTrigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+
+      <Style x:Key="SegmentToggleRight" TargetType="ToggleButton" BasedOn="{StaticResource SegmentToggleBase}">
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ToggleButton">
+              <Border x:Name="bd" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="1"
+                      CornerRadius="0,6,6,0">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </Trigger>
+                <MultiTrigger>
+                  <MultiTrigger.Conditions>
+                    <Condition Property="IsChecked" Value="True"/>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                  </MultiTrigger.Conditions>
+                  <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                  <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+                </MultiTrigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+
+      <!-- 对齐主窗 ProgList：底部分隔线 + 悬停/选中底色 -->
+      <Style x:Key="SourceListView" TargetType="ListView">
+        <Setter Property="Background" Value="{DynamicResource ListBg}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+      </Style>
+      <Style x:Key="SourceListItem" TargetType="ListViewItem">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+        <Setter Property="Background" Value="{DynamicResource ListBg}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        <Setter Property="Padding" Value="0,4"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ListViewItem">
+              <Border x:Name="Bd"
+                      Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      Padding="{TemplateBinding Padding}"
+                      SnapsToDevicePixels="True">
+                <GridViewRowPresenter VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                  <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
     </ResourceDictionary>
   </UserControl.Resources>
 
@@ -128,140 +334,285 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- 紧凑工具条：模式/视图/布局用下拉；添加/删除用图标 -->
+    <!-- 顺序：添加 | 删除 | 源/列表 | 布局 | 分组 | 搜索 -->
     <Border x:Name="MainToolbar" Margin="0,0,0,8" Padding="8,6" CornerRadius="8"
             BorderBrush="{DynamicResource Line}" BorderThickness="1"
             Background="{DynamicResource CardBg}">
-      <DockPanel LastChildFill="True">
-        <ComboBox x:Name="ModeCombo" DockPanel.Dock="Left" Style="{StaticResource ToolBarCombo}"
-                  Width="88" SelectionChanged="ModeCombo_SelectionChanged"/>
-        <ComboBox x:Name="ViewCombo" DockPanel.Dock="Left" Style="{StaticResource ToolBarCombo}"
-                  Width="88" SelectionChanged="ViewCombo_SelectionChanged"/>
-        <!-- 右侧先 Dock：最右为布局下拉 -->
-        <ComboBox x:Name="LayoutCombo" DockPanel.Dock="Right" Style="{StaticResource ToolBarCombo}"
-                  Width="84" Margin="6,0,0,0" SelectionChanged="LayoutCombo_SelectionChanged"/>
-        <Rectangle DockPanel.Dock="Right" Width="1" Fill="{DynamicResource Line}" Margin="4,4,0,4"/>
-        <Button x:Name="DeleteBtn" DockPanel.Dock="Right" Style="{StaticResource IconDangerBtn}"
-                Margin="0,0,0,0" Click="DeleteBtn_Click">
-          <Viewbox Width="14" Height="14">
-            <Path Data="{StaticResource GeoDelete}" Fill="{DynamicResource Warn}"/>
-          </Viewbox>
-        </Button>
-        <Button x:Name="AddBtn" DockPanel.Dock="Right" Style="{StaticResource IconPrimaryBtn}"
-                Click="AddBtn_Click">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="AddBtn" Grid.Column="0" Style="{StaticResource IconPrimaryBtn}"
+                Margin="0,0,6,0" Click="AddBtn_Click">
           <Viewbox Width="14" Height="14">
             <Path Data="{StaticResource GeoAdd}" Fill="White"/>
           </Viewbox>
         </Button>
-        <ComboBox x:Name="GroupFilter" DockPanel.Dock="Right" Style="{StaticResource ToolBarCombo}"
+        <Button x:Name="DeleteBtn" Grid.Column="1" Style="{StaticResource IconDangerBtn}"
+                Margin="0,0,8,0" Click="DeleteBtn_Click">
+          <Viewbox Width="14" Height="14">
+            <Path Data="{StaticResource GeoDelete}" Fill="{DynamicResource Warn}"/>
+          </Viewbox>
+        </Button>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,8,0"
+                    VerticalAlignment="Center">
+          <ToggleButton x:Name="ViewCardBtn" Style="{StaticResource SegmentToggleLeft}"
+                        Click="ViewCardBtn_Click">
+            <Viewbox Width="14" Height="14">
+              <Path x:Name="ViewCardIcon" Data="{StaticResource GeoViewCard}"
+                    Fill="{DynamicResource Text}"/>
+            </Viewbox>
+          </ToggleButton>
+          <ToggleButton x:Name="ViewListBtn" Style="{StaticResource SegmentToggleMid}"
+                        Click="ViewListBtn_Click">
+            <Viewbox Width="14" Height="14">
+              <Path x:Name="ViewListIcon" Data="{StaticResource GeoViewList}"
+                    Fill="{DynamicResource Text}"/>
+            </Viewbox>
+          </ToggleButton>
+          <ToggleButton x:Name="ViewCanvasBtn" Style="{StaticResource SegmentToggleRight}"
+                        Click="ViewCanvasBtn_Click">
+            <Viewbox Width="14" Height="14">
+              <Path x:Name="ViewCanvasIcon" Data="{StaticResource GeoViewCanvas}"
+                    Fill="{DynamicResource Text}"/>
+            </Viewbox>
+          </ToggleButton>
+        </StackPanel>
+        <ComboBox x:Name="LayoutCombo" Grid.Column="3" Style="{StaticResource ToolBarCombo}"
+                  Width="84" Margin="0,0,6,0" Visibility="Collapsed"
+                  SelectionChanged="LayoutCombo_SelectionChanged"/>
+        <ComboBox x:Name="GroupFilter" Grid.Column="4" Style="{StaticResource ToolBarCombo}"
                   Width="120" Margin="0,0,6,0"/>
-        <TextBox x:Name="SearchBox" MinWidth="72" Height="32" Margin="0,0,6,0"
-                 VerticalAlignment="Center" VerticalContentAlignment="Center"/>
-      </DockPanel>
+        <TextBox x:Name="SearchBox" Grid.Column="5" Style="{StaticResource ToolBarTextBox}"/>
+      </Grid>
     </Border>
 
     <!-- Main content -->
     <Grid Grid.Row="1">
       <Grid x:Name="SourcesPane">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="*"/>
-          <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <DataGrid x:Name="SourcesGrid" AutoGenerateColumns="False" IsReadOnly="True"
-                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                  CanUserAddRows="False" SelectionMode="Extended"
-                  Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
-                  BorderThickness="1" Foreground="{DynamicResource Text}"
-                  AlternatingRowBackground="{DynamicResource SubtleBg}"
-                  MouseDoubleClick="SourcesGrid_MouseDoubleClick" Visibility="Visible">
-          <DataGrid.Columns>
-            <DataGridTextColumn x:Name="ColName" Binding="{Binding Name}" Width="*"/>
-            <DataGridTextColumn x:Name="ColKind" Binding="{Binding KindText}" Width="100"/>
-            <DataGridTextColumn x:Name="ColAddress" Binding="{Binding AddressRedacted}" Width="2*"/>
-            <DataGridTextColumn x:Name="ColGroup" Binding="{Binding Group}" Width="100"/>
-            <DataGridTextColumn x:Name="ColStatus" Binding="{Binding StatusText}" Width="80"/>
-            <DataGridTemplateColumn x:Name="ColActions" Width="108">
-              <DataGridTemplateColumn.CellTemplate>
-                <DataTemplate>
-                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Style="{StaticResource RowIconBtn}" Tag="{Binding Id}"
-                            ToolTip="{Binding PlayLabel}" Click="RowPlay_Click">
-                      <Viewbox Width="12" Height="12">
-                        <Path Data="{StaticResource GeoPlay}" Fill="#059669"/>
-                      </Viewbox>
-                    </Button>
-                    <Button Style="{StaticResource RowIconBtn}" Tag="{Binding Id}"
-                            ToolTip="{Binding EditLabel}" Click="RowEdit_Click">
-                      <Viewbox Width="12" Height="12">
-                        <Path Data="{StaticResource GeoEdit}" Fill="{DynamicResource Blue}"/>
-                      </Viewbox>
-                    </Button>
-                    <Button Style="{StaticResource RowIconBtn}" Margin="0" Tag="{Binding Id}"
-                            ToolTip="{Binding DeleteLabel}" Click="RowDelete_Click">
-                      <Viewbox Width="12" Height="12">
-                        <Path Data="{StaticResource GeoDelete}" Fill="{DynamicResource Warn}"/>
-                      </Viewbox>
-                    </Button>
-                  </StackPanel>
-                </DataTemplate>
-              </DataGridTemplateColumn.CellTemplate>
-            </DataGridTemplateColumn>
-          </DataGrid.Columns>
-        </DataGrid>
-        <ItemsControl x:Name="SourcesCards" Visibility="Collapsed">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel/>
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate>
-              <Border Width="160" Height="120" Margin="6" Padding="8" CornerRadius="8"
-                      BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                      Background="{DynamicResource CardBg}" Cursor="Hand"
-                      MouseLeftButtonDown="Card_MouseLeftButtonDown">
-                <StackPanel>
-                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{DynamicResource Muted}"/>
-                  <TextBlock Text="{Binding AddressRedacted}" FontSize="10" Foreground="{DynamicResource Muted}"
-                             TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
-                </StackPanel>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
-          <TextBlock x:Name="EmptyTitle" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-          <TextBlock x:Name="EmptyHint" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"
-                     HorizontalAlignment="Center" TextWrapping="Wrap" MaxWidth="360"/>
-        </StackPanel>
+        <Border Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}"
+                BorderThickness="1" CornerRadius="8" Padding="0,0,0,4">
+          <Grid>
+            <ListView x:Name="SourcesGrid" Style="{StaticResource SourceListView}"
+                      ItemContainerStyle="{StaticResource SourceListItem}"
+                      SelectionMode="Extended"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                      SizeChanged="SourcesGrid_SizeChanged"
+                      MouseDoubleClick="SourcesGrid_MouseDoubleClick" Visibility="Visible">
+              <ListView.View>
+                <GridView>
+                  <GridViewColumn x:Name="ColName" Width="120" DisplayMemberBinding="{Binding Name}"/>
+                  <GridViewColumn x:Name="ColKind" Width="88" DisplayMemberBinding="{Binding KindText}"/>
+                  <GridViewColumn x:Name="ColAddress" Width="200" DisplayMemberBinding="{Binding AddressRedacted}"/>
+                  <GridViewColumn x:Name="ColGroup" Width="80" DisplayMemberBinding="{Binding Group}"/>
+                  <GridViewColumn x:Name="ColStatus" Width="64" DisplayMemberBinding="{Binding StatusText}"/>
+                  <GridViewColumn x:Name="ColActions" Width="108">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                          <Button Style="{StaticResource RowIconBtn}" Tag="{Binding Id}"
+                                  ToolTip="{Binding PlayLabel}" Click="RowPlay_Click">
+                            <Viewbox Width="12" Height="12">
+                              <Path Data="{StaticResource GeoPlay}" Fill="#059669"/>
+                            </Viewbox>
+                          </Button>
+                          <Button Style="{StaticResource RowIconBtn}" Tag="{Binding Id}"
+                                  ToolTip="{Binding EditLabel}" Click="RowEdit_Click">
+                            <Viewbox Width="12" Height="12">
+                              <Path Data="{StaticResource GeoEdit}" Fill="{DynamicResource Blue}"/>
+                            </Viewbox>
+                          </Button>
+                          <Button Style="{StaticResource RowIconBtn}" Margin="0" Tag="{Binding Id}"
+                                  ToolTip="{Binding DeleteLabel}" Click="RowDelete_Click">
+                            <Viewbox Width="12" Height="12">
+                              <Path Data="{StaticResource GeoDelete}" Fill="{DynamicResource Warn}"/>
+                            </Viewbox>
+                          </Button>
+                        </StackPanel>
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
+                </GridView>
+              </ListView.View>
+            </ListView>
+            <ScrollViewer x:Name="SourcesCardsHost" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="SourcesCards">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Width="180" MinHeight="132" Margin="8" Padding="10" CornerRadius="8"
+                            BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                            Background="{DynamicResource CardBg}" Cursor="Hand"
+                            MouseLeftButtonDown="Card_MouseLeftButtonDown">
+                      <Grid>
+                        <Grid.RowDefinitions>
+                          <RowDefinition Height="*"/>
+                          <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis"/>
+                          <TextBlock Text="{Binding StatusText}" FontSize="11"
+                                     Foreground="{DynamicResource Muted}" Margin="0,4,0,0"/>
+                          <TextBlock Text="{Binding AddressRedacted}" FontSize="10"
+                                     Foreground="{DynamicResource Muted}"
+                                     TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0"
+                                    HorizontalAlignment="Right">
+                          <Button Style="{StaticResource RowIconBtn}" Tag="{Binding Id}"
+                                  ToolTip="{Binding PlayLabel}" Click="RowPlay_Click">
+                            <Viewbox Width="12" Height="12">
+                              <Path Data="{StaticResource GeoPlay}" Fill="#059669"/>
+                            </Viewbox>
+                          </Button>
+                          <Button Style="{StaticResource RowIconBtn}" Tag="{Binding Id}"
+                                  ToolTip="{Binding EditLabel}" Click="RowEdit_Click">
+                            <Viewbox Width="12" Height="12">
+                              <Path Data="{StaticResource GeoEdit}" Fill="{DynamicResource Blue}"/>
+                            </Viewbox>
+                          </Button>
+                          <Button Style="{StaticResource RowIconBtn}" Margin="0" Tag="{Binding Id}"
+                                  ToolTip="{Binding DeleteLabel}" Click="RowDelete_Click">
+                            <Viewbox Width="12" Height="12">
+                              <Path Data="{StaticResource GeoDelete}" Fill="{DynamicResource Warn}"/>
+                            </Viewbox>
+                          </Button>
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        Visibility="Collapsed">
+              <TextBlock x:Name="EmptyTitle" FontSize="15" FontWeight="SemiBold"
+                         HorizontalAlignment="Center"/>
+              <TextBlock x:Name="EmptyHint" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"
+                         HorizontalAlignment="Center" TextWrapping="Wrap" MaxWidth="360"/>
+            </StackPanel>
+          </Grid>
+        </Border>
       </Grid>
 
       <UniformGrid x:Name="WallGrid" Visibility="Collapsed" Rows="3" Columns="3"/>
 
+      <!-- 控制条在画面外（避免 WPF airspace）；按钮+音量+进度同一行 -->
       <Grid x:Name="PlaybackPane" Visibility="Collapsed">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
-          <RowDefinition Height="*"/>
-          <RowDefinition Height="Auto"/>
+          <RowDefinition x:Name="PlaybackVideoRow" Height="*"/>
+          <RowDefinition x:Name="PlaybackTransportRow" Height="Auto"/>
         </Grid.RowDefinitions>
-        <Button x:Name="PlaybackBackBtn" Style="{StaticResource IconBtn}" HorizontalAlignment="Left"
-                Click="PlaybackBackBtn_Click">
-          <Viewbox Width="14" Height="14">
-            <Path Data="{StaticResource GeoBack}" Fill="{DynamicResource Text}"/>
-          </Viewbox>
-        </Button>
-        <Border Grid.Row="1" Background="Black" Margin="0,8">
-          <vlc:VideoView x:Name="PlayerView" Loaded="PlayerView_Loaded"/>
+        <Grid x:Name="PlaybackTitleBar" Height="32">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Button x:Name="PlaybackBackBtn" Style="{StaticResource IconBtn}" Margin="0,0,8,0"
+                  VerticalAlignment="Center" Click="PlaybackBackBtn_Click">
+            <Viewbox Width="14" Height="14">
+              <Path Data="{StaticResource GeoBack}" Fill="{DynamicResource Text}"/>
+            </Viewbox>
+          </Button>
+          <TextBlock x:Name="PlaybackTitle" Grid.Column="1"
+                     VerticalAlignment="Center" FontWeight="SemiBold"
+                     FontSize="14" TextTrimming="CharacterEllipsis"
+                     Foreground="{DynamicResource Text}"/>
+        </Grid>
+        <Border x:Name="PlaybackVideoSlot" Grid.Row="1" Margin="0,8,0,8">
+          <Border x:Name="PlaybackVideoHost" Background="Black" CornerRadius="8" ClipToBounds="True">
+            <vlc:VideoView x:Name="PlayerView" Loaded="PlayerView_Loaded"/>
+          </Border>
         </Border>
-        <TextBlock x:Name="PlaybackStats" Grid.Row="2" Margin="0,8,0,0" FontSize="12"
-                   Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+        <Border x:Name="PlaybackTransportSlot" Grid.Row="2">
+          <Border x:Name="PlaybackTransportBar" Background="{DynamicResource CardBg}"
+                  BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8"
+                  Padding="10,6">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="PlaybackSeekBackBtn" Style="{StaticResource IconBtn}" Margin="0,0,6,0"
+                        Click="PlaybackSeekBack_Click">
+                  <Viewbox Width="14" Height="14">
+                    <Path Data="{StaticResource GeoSeekBack}" Fill="{DynamicResource Text}"/>
+                  </Viewbox>
+                </Button>
+                <Button x:Name="PlaybackPlayPauseBtn" Style="{StaticResource IconPrimaryBtn}"
+                        Margin="0,0,6,0" Click="PlaybackPlayPause_Click">
+                  <Viewbox Width="14" Height="14">
+                    <Path x:Name="PlaybackPlayPauseIcon" Data="{StaticResource GeoPause}" Fill="White"/>
+                  </Viewbox>
+                </Button>
+                <Button x:Name="PlaybackStopBtn" Style="{StaticResource IconBtn}" Margin="0,0,6,0"
+                        Click="PlaybackStop_Click">
+                  <Viewbox Width="14" Height="14">
+                    <Path Data="{StaticResource GeoStop}" Fill="{DynamicResource Text}"/>
+                  </Viewbox>
+                </Button>
+                <Button x:Name="PlaybackSeekFwdBtn" Style="{StaticResource IconBtn}" Margin="0,0,6,0"
+                        Click="PlaybackSeekFwd_Click">
+                  <Viewbox Width="14" Height="14">
+                    <Path Data="{StaticResource GeoSeekFwd}" Fill="{DynamicResource Text}"/>
+                  </Viewbox>
+                </Button>
+                <Rectangle Width="1" Fill="{DynamicResource Line}" Margin="2,4,8,4"/>
+                <Button x:Name="PlaybackMuteBtn" Style="{StaticResource IconBtn}" Margin="0,0,4,0"
+                        Click="PlaybackMute_Click">
+                  <Viewbox Width="14" Height="14">
+                    <Path x:Name="PlaybackMuteIcon" Data="{StaticResource GeoVolume}"
+                          Fill="{DynamicResource Text}"/>
+                  </Viewbox>
+                </Button>
+                <Slider x:Name="PlaybackVolumeBar" Style="{StaticResource PlaybackVolumeSlider}"
+                        Value="100" Margin="0,0,8,0"
+                        PreviewMouseLeftButtonDown="PlaybackVolumeBar_PreviewMouseDown"
+                        PreviewMouseLeftButtonUp="PlaybackVolumeBar_PreviewMouseUp"
+                        ValueChanged="PlaybackVolumeBar_ValueChanged"/>
+              </StackPanel>
+              <TextBlock x:Name="PlaybackTimeText" Grid.Column="1" Text="00:00"
+                         VerticalAlignment="Center" Foreground="{DynamicResource Muted}"
+                         FontSize="12" Margin="0,0,8,0"
+                         FontFamily="Consolas, Cascadia Mono, monospace"/>
+              <Slider x:Name="PlaybackSeekBar" Grid.Column="2" Style="{StaticResource PlaybackSeekSlider}"
+                      PreviewMouseLeftButtonDown="PlaybackSeekBar_PreviewMouseDown"
+                      PreviewMouseLeftButtonUp="PlaybackSeekBar_PreviewMouseUp"
+                      ValueChanged="PlaybackSeekBar_ValueChanged"/>
+              <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock x:Name="PlaybackLengthText" Text="00:00" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}" FontSize="12" Margin="8,0,8,0"
+                           FontFamily="Consolas, Cascadia Mono, monospace"/>
+                <Button x:Name="PlaybackFullscreenBtn" Style="{StaticResource IconBtn}" Margin="0"
+                        Click="PlaybackFullscreen_Click">
+                  <Viewbox Width="14" Height="14">
+                    <Path x:Name="PlaybackFullscreenIcon" Data="{StaticResource GeoFullscreen}"
+                          Fill="{DynamicResource Text}"/>
+                  </Viewbox>
+                </Button>
+              </StackPanel>
+            </Grid>
+          </Border>
+        </Border>
       </Grid>
     </Grid>
-
-    <TextBlock x:Name="StatusBar" Grid.Row="2" FontSize="11" Foreground="{DynamicResource Muted}" Margin="0,6,0,0"/>
   </Grid>
 </UserControl>

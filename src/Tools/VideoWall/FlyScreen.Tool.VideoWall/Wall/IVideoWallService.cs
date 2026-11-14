@@ -32,8 +32,12 @@ public interface IVideoWallService
 
     Task SetLayoutAsync(WallLayout layout, CancellationToken ct = default);
     Task BindTileAsync(int index, string? sourceId, CancellationToken ct = default);
+    Task BindTileAsync(int index, string? sourceId, bool autoStart, CancellationToken ct = default);
+    Task StartTileAsync(int index, CancellationToken ct = default);
     Task SwapTilesAsync(int a, int b, CancellationToken ct = default);
     Task ClearTileAsync(int index, CancellationToken ct = default);
+    /// <summary>停止并回收全部画布格播放（切到列表/卡片或离开墙时调用）。</summary>
+    Task StopAllTilesAsync(CancellationToken ct = default);
 
     Task<AddSourceResult> AddSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);
     Task<AddSourceResult> UpdateSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);

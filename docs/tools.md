@@ -430,6 +430,7 @@ Android：摄像头/麦克风/录屏仍走系统运行时权限。
 | 规则 | MUST |
 |------|------|
 | 加载路径 | 桌面仅 `{BaseDirectory}/Tools/Installed/<id>/<version>/`（**不**写 `%AppData%`）；移动端为应用私有 files 下等价目录 |
+| 原生库缓存 | 含原生依赖的工具（如视频墙 LibVLC）优先使用 `Tools/_native/`，与 Installed 版本目录解耦，避免 LoadLibrary 锁死卸载路径；占用目录可改名为 `.orphaned-*` 后重装，启动时尽力清理 |
 | 复验 | 加载前 contentHash 一致 |
 | API | 仅 `IToolHostServices` 中的**白名单**方法；未声明权限 MUST 拒绝；§5.5.9 所列能力 MUST 永不挂到该接口 |
 | 卸载 | 删目录与记录；停会话；清 Caps/标题栏 |

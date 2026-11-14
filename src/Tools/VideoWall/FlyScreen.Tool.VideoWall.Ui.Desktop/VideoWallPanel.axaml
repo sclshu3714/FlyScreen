@@ -3,16 +3,24 @@
              x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.VideoWallPanel"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
   <Grid Margin="4" RowDefinitions="Auto,*,Auto">
+    <!-- 与 Win 对齐：添加 | 删除 | 源/墙分段 | 布局 | 搜索 -->
     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
-      <Button x:Name="ModeSourcesBtn" Click="ModeSourcesBtn_Click"/>
-      <Button x:Name="ModeWallBtn" Click="ModeWallBtn_Click"/>
       <Button x:Name="AddBtn" Click="AddBtn_Click"/>
       <Button x:Name="DeleteBtn" Click="DeleteBtn_Click"/>
+      <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+        <StackPanel Orientation="Horizontal" Spacing="0">
+          <Button x:Name="ViewCardBtn" Click="ViewCardBtn_Click" Padding="10,6" BorderThickness="0"/>
+          <Button x:Name="ViewListBtn" Click="ViewListBtn_Click" Padding="10,6" BorderThickness="0"/>
+          <Button x:Name="ViewCanvasBtn" Click="ViewCanvasBtn_Click" Padding="10,6" BorderThickness="0"/>
+        </StackPanel>
+      </Border>
+      <StackPanel x:Name="LayoutButtons" Orientation="Horizontal" Spacing="4" IsVisible="False">
+        <Button x:Name="Layout1Btn" Tag="1" Click="LayoutBtn_Click" Content="1×1"/>
+        <Button x:Name="Layout2Btn" Tag="2" Click="LayoutBtn_Click" Content="2×2"/>
+        <Button x:Name="Layout3Btn" Tag="3" Click="LayoutBtn_Click" Content="3×3"/>
+        <Button x:Name="Layout4Btn" Tag="4" Click="LayoutBtn_Click" Content="4×4"/>
+      </StackPanel>
       <TextBox x:Name="SearchBox" Width="180" Watermark=""/>
-      <Button x:Name="Layout1Btn" Tag="1" Click="LayoutBtn_Click" Content="1×1"/>
-      <Button x:Name="Layout2Btn" Tag="2" Click="LayoutBtn_Click" Content="2×2"/>
-      <Button x:Name="Layout3Btn" Tag="3" Click="LayoutBtn_Click" Content="3×3"/>
-      <Button x:Name="Layout4Btn" Tag="4" Click="LayoutBtn_Click" Content="4×4"/>
     </StackPanel>
 
     <Grid Grid.Row="1">
@@ -45,14 +53,31 @@
       </DockPanel>
       <UniformGrid x:Name="WallGrid" IsVisible="False" Rows="3" Columns="3"/>
       <Border x:Name="PlaybackPane" IsVisible="False" Background="#111827" Padding="12">
-        <StackPanel VerticalAlignment="Center" Spacing="8">
-          <Button x:Name="PlaybackBackBtn" Click="PlaybackBackBtn_Click"/>
-          <Border Height="240" Background="Black" CornerRadius="8">
+        <Grid RowDefinitions="Auto,*,Auto">
+          <Button x:Name="PlaybackBackBtn" Click="PlaybackBackBtn_Click" HorizontalAlignment="Left"/>
+          <Border x:Name="PlaybackVideoHost" Grid.Row="1" MinHeight="200" Background="Black"
+                  CornerRadius="8" Margin="0,8">
             <TextBlock x:Name="VideoPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center"
                        Foreground="White" TextWrapping="Wrap" Margin="12"/>
           </Border>
-          <TextBlock x:Name="PlaybackStats" Opacity="0.8"/>
-        </StackPanel>
+          <Border x:Name="PlaybackTransportBar" Grid.Row="2" Background="#1F2937" CornerRadius="8" Padding="10,6">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Button x:Name="PlaybackSeekBackBtn" Content="-10s" Click="PlaybackSeekBack_Click"/>
+                <Button x:Name="PlaybackPlayPauseBtn" Content="Play/Pause" Click="PlaybackPlayPause_Click"/>
+                <Button x:Name="PlaybackStopBtn" Click="PlaybackStop_Click"/>
+                <Button x:Name="PlaybackSeekFwdBtn" Content="+10s" Click="PlaybackSeekFwd_Click"/>
+                <Button x:Name="PlaybackMuteBtn" Click="PlaybackMute_Click"/>
+                <Slider x:Name="PlaybackVolumeBar" Width="90" Minimum="0" Maximum="100" Value="100"
+                        VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock x:Name="PlaybackStats" Grid.Column="1" Opacity="0.8" VerticalAlignment="Center"
+                         Margin="12,0" TextTrimming="CharacterEllipsis"/>
+              <Button x:Name="PlaybackFullscreenBtn" Grid.Column="2" Click="PlaybackFullscreen_Click"
+                      VerticalAlignment="Center"/>
+            </Grid>
+          </Border>
+        </Grid>
       </Border>
     </Grid>
 

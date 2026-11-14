@@ -123,6 +123,9 @@ public sealed class ToolHost
         // 已加载则先卸
         await UnloadAsync(toolId, ct).ConfigureAwait(false);
 
+        // ALC 按字节流加载时 Assembly.Location 为空；原生依赖（如 libvlc）靠此键找安装目录
+        AppContext.SetData($"FlyScreen.Tool.InstallDir.{toolId}", Path.GetFullPath(installDir));
+
         ToolLoadContext? alc = null;
         try
         {

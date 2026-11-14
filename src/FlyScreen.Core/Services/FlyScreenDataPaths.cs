@@ -70,6 +70,11 @@ public static class FlyScreenDataPaths
 
     public static string ToolsInstalledDirectory => Path.Combine(ToolsRoot, "Installed");
 
+    /// <summary>
+    /// 工具共享原生库缓存（如 LibVLC）。与 Installed 版本目录解耦，避免 LoadLibrary 锁死卸载路径。
+    /// </summary>
+    public static string ToolsNativeDirectory => Path.Combine(ToolsRoot, "_native");
+
     /// <summary>工具安装记录（不进 BehaviorSync；位于 Tools 根下）。</summary>
     public static string ToolsInstallStateFile => Path.Combine(ToolsRoot, "tools-install.json");
 
@@ -328,7 +333,24 @@ public static class FlyScreenDataPaths
         Directory.CreateDirectory(toolsRoot);
         Directory.CreateDirectory(Path.Combine(toolsRoot, "Bundled"));
         Directory.CreateDirectory(Path.Combine(toolsRoot, "Installed"));
+        Directory.CreateDirectory(Path.Combine(toolsRoot, "_native"));
         TryMergeLegacyToolsCache(toolsRoot);
+        TryCleanupOrphanedToolDirs(Path.Combine(toolsRoot, "Installed"));
+    }
+
+    /// <summary>启动时尽力清理卸载/重装留下的 <c>.orphaned-*</c> 目录。</summary>
+    private static void TryCleanupOrphanedToolDirs(string installedRoot)
+    {
+        try
+        {
+            if (!Directory.Exists(installedRoot)) return;
+            foreach (var dir in Directory.EnumerateDirectories(installedRoot, ".orphaned-*", SearchOption.AllDirectories))
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch { /* 仍被占用则下次再试 */ }
+            }
+        }
+        catch { /* ignore */ }
     }
 
     /// <summary>旧版 Tools/Cache/*.flytool 并入 Bundled 后删除 Cache 目录。</summary>

@@ -34,6 +34,9 @@ internal sealed class NullMediaPlayer : IMediaPlayer, IDisposable
 {
     public TilePlayState State { get; private set; } = TilePlayState.Idle;
     public VideoErrorCode ErrorCode { get; private set; } = VideoErrorCode.None;
+    public long TimeMs => 0;
+    public long LengthMs => 0;
+    public bool CanSeek => false;
 
     public event Action<TilePlayState>? StateChanged;
 #pragma warning disable CS0067 // 占位播放器不发统计
@@ -49,12 +52,17 @@ internal sealed class NullMediaPlayer : IMediaPlayer, IDisposable
         return Task.CompletedTask;
     }
 
+    public void Pause() { }
+    public void Resume() { }
+
     public Task StopAsync()
     {
         SetState(TilePlayState.Stopped);
         return Task.CompletedTask;
     }
 
+    public void SeekTo(long timeMs) { }
+    public void SeekBy(long deltaMs) { }
     public void SetVolume(int volume0To100) { }
     public void SetMuted(bool muted) { }
     public void Dispose() { }

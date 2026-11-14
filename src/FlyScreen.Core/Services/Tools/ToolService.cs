@@ -139,9 +139,7 @@ public sealed class ToolService
 
     public async Task<ToolInstallResult> InstallAsync(string toolId, CancellationToken ct = default)
     {
-        // 重装前先卸 ALC / UI，避免 Installed 目录 DLL 仍被占用
-        try { await Host.UnloadAsync(toolId, ct).ConfigureAwait(false); }
-        catch (Exception ex) { AppLog.Warn($"安装前停止工具失败 {toolId}: {ex.Message}"); }
+        await StopToolForReplaceAsync(toolId, ct).ConfigureAwait(false);
 
         var local = ToolPackageResolver.ResolveLocalPack(toolId);
         ToolInstallResult result;
@@ -261,10 +259,7 @@ public sealed class ToolService
 
         // flytool
         if (plan.HasConflict && overwrite)
-        {
-            try { await Host.UnloadAsync(plan.TargetId, ct).ConfigureAwait(false); }
-            catch (Exception ex) { AppLog.Warn($"覆盖安装前停止工具失败 {plan.TargetId}: {ex.Message}"); }
-        }
+            await StopToolForReplaceAsync(plan.TargetId, ct).ConfigureAwait(false);
 
         var result = await Installer.InstallFromFlyToolFileAsync(
                 plan.SourcePath, ToolTrustLevel.Unknown, ct, forceOverwrite: plan.HasConflict && overwrite)
@@ -390,12 +385,7 @@ public sealed class ToolService
     {
         var iconKey = Catalog.FindManifest(toolId)?.Icon;
 
-        try { await Host.UnloadAsync(toolId).ConfigureAwait(false); }
-        catch (Exception ex) { AppLog.Warn($"停止工具失败 {toolId}: {ex.Message}"); }
-
-        var mod = Host.Get(toolId);
-        if (mod?.UsesWorkspace == true)
-            Workspace.Close(toolId);
+        await StopToolForReplaceAsync(toolId).ConfigureAwait(false);
 
         Shortcuts.ClearTool(toolId);
         if (!string.IsNullOrWhiteSpace(iconKey))
@@ -405,6 +395,30 @@ public sealed class ToolService
         if (result.Success)
             RefreshToolUiContributors();
         return result;
+    }
+
+    /// <summary>
+    /// 关工作区（让宿主刷新卸掉 VideoView 等）→ 再 Unload ALC。
+    /// 顺序反了会导致原生库仍锁 Installed，重装/卸载失败。
+    /// </summary>
+    private async Task StopToolForReplaceAsync(string toolId, CancellationToken ct = default)
+    {
+        var mod = Host.Get(toolId);
+        if (mod?.UsesWorkspace == true)
+            Workspace.Close(toolId);
+
+        // 宿主多以 BeginInvoke 刷新工作区；稍候再卸，避免面板仍挂着原生句柄
+        try { await Task.Delay(200, ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { /* 仍尽量往下卸 */ }
+
+        try { await Host.UnloadAsync(toolId, ct).ConfigureAwait(false); }
+        catch (Exception ex) { AppLog.Warn($"停止工具失败 {toolId}: {ex.Message}"); }
+
+        try { await Task.Delay(80, ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { /* ignore */ }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
     }
 
     public async Task<(bool Ok, string Message)> PrimaryAsync(
@@ -477,7 +491,7 @@ public sealed class ToolService
         }
 
         AppLog.Warn($"工具需重装（残缺/版本变更/缺图标）：{toolId}");
-        try { await Host.UnloadAsync(toolId, ct).ConfigureAwait(false); } catch { /* ignore */ }
+        await StopToolForReplaceAsync(toolId, ct).ConfigureAwait(false);
         Installer.Uninstall(toolId);
 
         var r = await Installer.InstallFromFlyToolFileAsync(pack.Path,

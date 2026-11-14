@@ -38,6 +38,10 @@ public sealed class TileSession : IDisposable
 
     public MediaStats? LastStats { get; private set; }
 
+    /// <summary>底层原生播放引擎（LibVLC MediaPlayer），供格内 VideoView 绑定。</summary>
+    public object? NativePlaybackEngine
+        => _player is VlcMediaPlayer vlc ? vlc.NativeMediaPlayer : null;
+
     public event Action<TileSession>? Changed;
 
     public async Task BindAsync(
@@ -45,7 +49,8 @@ public sealed class TileSession : IDisposable
         string? sourceId,
         string? temporaryAddress,
         MediaPlayerOptions options,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool autoStart = true)
     {
         await StopAsync().ConfigureAwait(false);
 
@@ -66,7 +71,19 @@ public sealed class TileSession : IDisposable
         WirePlayer(_player);
 
         SetSessionState(TilePlayState.Resolving);
-        await _player.StartAsync(ct).ConfigureAwait(false);
+        if (autoStart)
+            await _player.StartAsync(ct).ConfigureAwait(false);
+        else
+            SetSessionState(TilePlayState.Idle);
+    }
+
+    /// <summary>在格内 VideoView 绑定原生播放器后再调用，避免无 HWND 时弹出独立 VLC 窗。</summary>
+    public Task StartBoundPlaybackAsync(CancellationToken ct = default)
+    {
+        if (_player is null)
+            return Task.CompletedTask;
+        SetSessionState(TilePlayState.Connecting);
+        return _player.StartAsync(ct);
     }
 
     public void SetRenderTarget(IntPtr target)

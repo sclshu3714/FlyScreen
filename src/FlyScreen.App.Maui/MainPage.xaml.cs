@@ -3799,8 +3799,9 @@ public partial class MainPage : ContentPage
             {
                 if (row.IsInstalling) return;
                 var r = await ToolService.Instance.InstallAsync(row.Id);
-                StatusLabel.Text = r.Message;
-                if (!r.Success)
+                if (r.Success)
+                    StatusLabel.Text = r.Message;
+                else
                     await DisplayAlertAsync(Loc.T("Tool.Install"), r.Message, "OK");
                 RefreshToolsPage();
                 return;
@@ -3809,7 +3810,10 @@ public partial class MainPage : ContentPage
             if (!primary && row.IsInstalled)
             {
                 var r = await ToolService.Instance.UninstallAsync(row.Id);
-                StatusLabel.Text = r.Message;
+                if (r.Success)
+                    StatusLabel.Text = r.Message;
+                else
+                    await DisplayAlertAsync(Loc.T("Tool.Install"), r.Message, "OK");
                 RefreshToolsPage();
                 return;
             }

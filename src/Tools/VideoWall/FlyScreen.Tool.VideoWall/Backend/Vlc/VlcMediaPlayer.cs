@@ -41,7 +41,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player.Opening += (_, _) => SetState(TilePlayState.Connecting);
         _player.Buffering += (_, _) => SetState(TilePlayState.Buffering);
         _player.Playing += OnPlaying;
-        _player.Paused += (_, _) => SetState(TilePlayState.Stopped);
+        _player.Paused += (_, _) => SetState(TilePlayState.Paused);
         _player.Stopped += (_, _) => SetState(TilePlayState.Stopped);
         _player.EndReached += (_, _) => SetState(TilePlayState.Stopped);
         _player.EncounteredError += OnEncounteredError;
@@ -66,13 +66,47 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         get { lock (_gate) return _error; }
     }
 
+    /// <summary>供 WPF <c>VideoView.MediaPlayer</c> 绑定；勿再手动设 HWND。</summary>
+    public MediaPlayer NativeMediaPlayer => _player;
+
+    public long TimeMs
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var t = _player.Time;
+            return t < 0 ? 0 : t;
+        }
+    }
+
+    public long LengthMs
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var len = _player.Length;
+            return len < 0 ? 0 : len;
+        }
+    }
+
+    public bool CanSeek
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _player.IsSeekable;
+        }
+    }
+
     public event Action<TilePlayState>? StateChanged;
     public event Action<MediaStats>? StatsChanged;
 
     public void SetRenderTarget(IntPtr target)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _player.Hwnd = target;
+        // VideoView 绑定时由其托管 HWND；仅在显式传入有效句柄时覆盖
+        if (target != IntPtr.Zero)
+            _player.Hwnd = target;
     }
 
     public Task StartAsync(CancellationToken ct = default)
@@ -94,6 +128,22 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         return Task.CompletedTask;
     }
 
+    public void Pause()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_state is TilePlayState.Playing or TilePlayState.Buffering or TilePlayState.Stalled)
+            _player.SetPause(true);
+    }
+
+    public void Resume()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_state == TilePlayState.Paused)
+            _player.SetPause(false);
+        else if (_state is TilePlayState.Stopped or TilePlayState.Idle)
+            _player.Play();
+    }
+
     public Task StopAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -103,6 +153,19 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         SetState(TilePlayState.Stopped);
         return Task.CompletedTask;
     }
+
+    public void SeekTo(long timeMs)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_player.IsSeekable) return;
+        var len = _player.Length;
+        var target = timeMs < 0 ? 0 : timeMs;
+        if (len > 0)
+            target = Math.Min(target, Math.Max(0, len - 1));
+        _player.Time = target;
+    }
+
+    public void SeekBy(long deltaMs) => SeekTo(TimeMs + deltaMs);
 
     public void SetVolume(int volume0To100)
     {

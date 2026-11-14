@@ -4147,8 +4147,9 @@ public partial class MainWindow : Window
             {
                 if (row.IsInstalling) return;
                 var r = await ToolService.Instance.InstallAsync(row.Id);
-                StatusText.Text = r.Message;
-                if (!r.Success)
+                if (r.Success)
+                    StatusText.Text = r.Message;
+                else
                     MessageBox.Show(this, r.Message, Loc.T("Tool.Install"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 RefreshToolsPage();
                 return;
@@ -4157,7 +4158,10 @@ public partial class MainWindow : Window
             if (!primary && row.IsInstalled)
             {
                 var r = await ToolService.Instance.UninstallAsync(row.Id);
-                StatusText.Text = r.Message;
+                if (r.Success)
+                    StatusText.Text = r.Message;
+                else
+                    MessageBox.Show(this, r.Message, Loc.T("Tool.Install"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 RefreshToolsPage();
                 return;
             }
