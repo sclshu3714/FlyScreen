@@ -87,9 +87,12 @@ public sealed class ToolRemoteIndexClient
     public async Task<string?> DownloadToCacheAsync(ToolIndexEntry entry, CancellationToken ct = default)
     {
         FlyScreenDataPaths.EnsureToolsLayout();
+        // 规范名 id.flytool，与内置包一致；避免再落 id-version.flytool 造成重复
         var fileName = string.IsNullOrWhiteSpace(entry.FileName)
-            ? $"{entry.Id}-{entry.Version}.flytool"
+            ? $"{entry.Id}.flytool"
             : entry.FileName.Trim();
+        if (ToolPackageResolver.IsVersionedPackFileName(fileName))
+            fileName = $"{entry.Id}.flytool";
         var dest = Path.Combine(FlyScreenDataPaths.ToolsBundledDirectory, fileName);
         if (File.Exists(dest) && !string.IsNullOrWhiteSpace(entry.Sha256))
         {
@@ -101,8 +104,16 @@ public sealed class ToolRemoteIndexClient
         var urls = new List<string>();
         if (!string.IsNullOrWhiteSpace(entry.Url)) urls.Add(entry.Url!);
         if (!string.IsNullOrWhiteSpace(entry.GiteeUrl)) urls.Add(entry.GiteeUrl!);
-        urls.Add($"https://github.com/{GitHubReleaseClient.Owner}/{GitHubReleaseClient.Repo}/releases/latest/download/{fileName}");
-        urls.Add($"https://gitee.com/{GitHubReleaseClient.Owner}/{GitHubReleaseClient.Repo}/releases/download/latest/{fileName}");
+        // Release 资源名可能是 id.flytool 或 id-version.flytool；落盘统一为规范名
+        var assetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { fileName };
+        if (!string.IsNullOrWhiteSpace(entry.FileName)) assetNames.Add(entry.FileName.Trim());
+        if (!string.IsNullOrWhiteSpace(entry.Version))
+            assetNames.Add($"{entry.Id}-{entry.Version}.flytool");
+        foreach (var asset in assetNames)
+        {
+            urls.Add($"https://github.com/{GitHubReleaseClient.Owner}/{GitHubReleaseClient.Repo}/releases/latest/download/{asset}");
+            urls.Add($"https://gitee.com/{GitHubReleaseClient.Owner}/{GitHubReleaseClient.Repo}/releases/download/latest/{asset}");
+        }
 
         foreach (var url in urls.Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -122,6 +133,7 @@ public sealed class ToolRemoteIndexClient
                 }
 
                 await File.WriteAllBytesAsync(dest, bytes, ct).ConfigureAwait(false);
+                ToolPackageResolver.RemoveRedundantVersionedPacks(FlyScreenDataPaths.ToolsBundledDirectory);
                 AppLog.Info($"工具包已缓存: {dest}");
                 return dest;
             }

@@ -173,20 +173,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
 
     private void PublishStats()
     {
-        var tracks = _player.Media?.Tracks;
-        var video = tracks?.FirstOrDefault(t => t.TrackType == TrackType.Video);
-        var width = 0;
-        var height = 0;
-        double fps = 0;
-        string? codec = null;
-
-        if (video is not null)
-        {
-            width = (int)video.Data.Video.Width;
-            height = (int)video.Data.Video.Height;
-            fps = video.Data.Video.FrameRateNum / (double)Math.Max(1, video.Data.Video.FrameRateDen);
-            codec = video.Codec;
-        }
+        VlcTrackInfo.TryGetVideo(_player.Media, out var video);
 
         var firstFrameMs = _state is TilePlayState.Playing or TilePlayState.Stalled
             ? (int)Math.Max(0, (DateTime.UtcNow - _playStartUtc).TotalMilliseconds)
@@ -194,9 +181,9 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
 
         StatsChanged?.Invoke(new MediaStats
         {
-            Width = width,
-            Height = height,
-            Fps = fps,
+            Width = video.Width,
+            Height = video.Height,
+            Fps = video.Fps,
             BitrateKbps = 0,
             BufferMs = _options.BufferMs ?? _endpoint.BufferMs ?? 0,
             FirstFrameMs = firstFrameMs,

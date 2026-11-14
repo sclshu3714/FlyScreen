@@ -7,6 +7,8 @@
     <AssemblyName>FlyScreen.Tool.VideoWall</AssemblyName>
     <Description>玄鸟视频墙工具包（LibVLC 播放后端、源目录与宫格装配）</Description>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- 类库默认不拷贝 NuGet 依赖；.flytool ALC 需要旁路 LibVLCSharp.dll -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />

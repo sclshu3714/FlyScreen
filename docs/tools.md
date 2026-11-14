@@ -429,7 +429,7 @@ Android：摄像头/麦克风/录屏仍走系统运行时权限。
 
 | 规则 | MUST |
 |------|------|
-| 加载路径 | 仅 `%AppData%/FlyScreen/Tools/<id>/<version>/`（或各端等价目录） |
+| 加载路径 | 桌面仅 `{BaseDirectory}/Tools/Installed/<id>/<version>/`（**不**写 `%AppData%`）；移动端为应用私有 files 下等价目录 |
 | 复验 | 加载前 contentHash 一致 |
 | API | 仅 `IToolHostServices` 中的**白名单**方法；未声明权限 MUST 拒绝；§5.5.9 所列能力 MUST 永不挂到该接口 |
 | 卸载 | 删目录与记录；停会话；清 Caps/标题栏 |

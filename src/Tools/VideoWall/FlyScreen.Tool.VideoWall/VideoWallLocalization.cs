@@ -132,12 +132,27 @@ public sealed class VideoWallLocalization : IToolLocalization
         ["Tool.VideoWall.Search"] = "搜索名称或地址",
         ["Tool.VideoWall.Save"] = "保存",
         ["Tool.VideoWall.Cancel"] = "取消",
+        ["Tool.VideoWall.Add"] = "添加",
         ["Tool.VideoWall.Delete"] = "删除",
+        ["Tool.VideoWall.SelectAll"] = "全选",
+        ["Tool.VideoWall.ColName"] = "名称",
+        ["Tool.VideoWall.ColKind"] = "类型",
+        ["Tool.VideoWall.ColStatus"] = "状态",
+        ["Tool.VideoWall.ColActions"] = "操作",
         ["Tool.VideoWall.Back"] = "返回",
         ["Tool.VideoWall.Play"] = "播放",
         ["Tool.VideoWall.SelectType"] = "选择源类型",
         ["Tool.VideoWall.Capturing"] = "正在抓取首帧…",
-        ["Tool.VideoWall.CaptureFailed"] = "抓帧失败：已保存为「未验证」，可稍后重试。"
+        ["Tool.VideoWall.CaptureFailed"] = "抓帧失败：已保存为「未验证」，可稍后重试。",
+
+        ["Tool.VideoWall.Sources"] = "源",
+        ["Tool.VideoWall.Wall"] = "墙",
+        ["Tool.VideoWall.Layout"] = "布局",
+        ["Tool.VideoWall.GroupAll"] = "全部分组",
+        ["Tool.VideoWall.BackendUnavailable"] = "播放后端不可用（LibVLC 未就绪）；可先添加源，画面嵌入请用 WPF 桌面版。",
+        ["Tool.VideoWall.DesktopOnly"] = "视频墙完整画面嵌入请用 WPF 桌面版；当前宿主仍可管理源与播放控制。",
+        ["Tool.VideoWall.ConfirmDelete"] = "确定删除源「{0}」？",
+        ["Tool.VideoWall.VideoSurfaceTodo"] = "Avalonia 视频表面尚未接线；音频/状态由后端播放。"
     };
 
     private static Dictionary<string, string> En() => new(StringComparer.OrdinalIgnoreCase)
@@ -246,11 +261,26 @@ public sealed class VideoWallLocalization : IToolLocalization
         ["Tool.VideoWall.Search"] = "Search name or address",
         ["Tool.VideoWall.Save"] = "Save",
         ["Tool.VideoWall.Cancel"] = "Cancel",
+        ["Tool.VideoWall.Add"] = "Add",
         ["Tool.VideoWall.Delete"] = "Delete",
+        ["Tool.VideoWall.SelectAll"] = "Select all",
+        ["Tool.VideoWall.ColName"] = "Name",
+        ["Tool.VideoWall.ColKind"] = "Type",
+        ["Tool.VideoWall.ColStatus"] = "Status",
+        ["Tool.VideoWall.ColActions"] = "Actions",
         ["Tool.VideoWall.Back"] = "Back",
         ["Tool.VideoWall.Play"] = "Play",
         ["Tool.VideoWall.SelectType"] = "Choose a source type",
         ["Tool.VideoWall.Capturing"] = "Capturing the first frame…",
-        ["Tool.VideoWall.CaptureFailed"] = "Capture failed: saved as unverified; you can retry later."
+        ["Tool.VideoWall.CaptureFailed"] = "Capture failed: saved as unverified; you can retry later.",
+
+        ["Tool.VideoWall.Sources"] = "Sources",
+        ["Tool.VideoWall.Wall"] = "Wall",
+        ["Tool.VideoWall.Layout"] = "Layout",
+        ["Tool.VideoWall.GroupAll"] = "All groups",
+        ["Tool.VideoWall.BackendUnavailable"] = "Playback backend unavailable (LibVLC not ready). You can still manage sources; use the WPF desktop app for embedded video.",
+        ["Tool.VideoWall.DesktopOnly"] = "Full embedded video is on the WPF desktop app; this host still supports source management and playback control.",
+        ["Tool.VideoWall.ConfirmDelete"] = "Delete source \"{0}\"?",
+        ["Tool.VideoWall.VideoSurfaceTodo"] = "Avalonia video surface is not wired yet; playback runs without a visible surface."
     };
 }

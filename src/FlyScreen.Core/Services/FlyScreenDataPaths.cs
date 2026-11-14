@@ -35,8 +35,9 @@ public static class FlyScreenDataPaths
     public static bool HasOverride => !string.IsNullOrWhiteSpace(_rootOverride);
 
     /// <summary>
-    /// 工具根目录。桌面默认 <c>{BaseDirectory}/Tools</c>；
-    /// 当 BaseDirectory 不可写（或已 SetRoot 的移动端）时回落到 <c>{Root}/Tools</c>。
+    /// 工具根目录。桌面<strong>仅</strong> <c>{BaseDirectory}/Tools</c>（安装目录 / exe 旁），
+    /// MUST NOT 再回退到 <c>%AppData%/FlyScreen/Tools</c>。
+    /// 移动端（已 <see cref="SetRoot"/>）跟应用私有 files 下的 Tools。
     /// </summary>
     public static string ToolsRoot
     {
@@ -49,12 +50,8 @@ public static class FlyScreenDataPaths
             if (!string.IsNullOrWhiteSpace(_rootOverride))
                 return Path.Combine(_rootOverride!, "Tools");
 
-            var beside = Path.Combine(AppContext.BaseDirectory.TrimEnd(
+            return Path.Combine(AppContext.BaseDirectory.TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), "Tools");
-            if (CanWriteDirectory(beside))
-                return beside;
-
-            return Path.Combine(Root, "Tools");
         }
     }
 
@@ -212,6 +209,9 @@ public static class FlyScreenDataPaths
             var legacyState = Path.Combine(legacyRoot, "tools-install.json");
             var destRoot = ToolsRoot;
 
+            if (!Directory.Exists(legacyTools) && !File.Exists(legacyState))
+                return;
+
             if (string.Equals(
                     Path.GetFullPath(legacyTools),
                     Path.GetFullPath(destRoot),
@@ -227,15 +227,58 @@ public static class FlyScreenDataPaths
 
             if (Directory.Exists(legacyTools))
             {
-                // 旧布局：Tools/<id>/<ver>/  → 新：Installed/<id>/<ver>/
+                // 旧 Bundled / Cache → 程序旁 Tools/Bundled
+                var legacyBundled = Path.Combine(legacyTools, "Bundled");
+                if (Directory.Exists(legacyBundled))
+                {
+                    Directory.CreateDirectory(ToolsBundledDirectory);
+                    foreach (var file in Directory.EnumerateFiles(legacyBundled, "*.flytool", SearchOption.TopDirectoryOnly))
+                    {
+                        var dest = Path.Combine(ToolsBundledDirectory, Path.GetFileName(file));
+                        if (!File.Exists(dest))
+                            File.Copy(file, dest, overwrite: false);
+                    }
+                }
+
+                var legacyCache = Path.Combine(legacyTools, "Cache");
+                if (Directory.Exists(legacyCache))
+                {
+                    Directory.CreateDirectory(ToolsBundledDirectory);
+                    foreach (var file in Directory.EnumerateFiles(legacyCache, "*.flytool", SearchOption.TopDirectoryOnly))
+                    {
+                        var dest = Path.Combine(ToolsBundledDirectory, Path.GetFileName(file));
+                        if (!File.Exists(dest))
+                            File.Copy(file, dest, overwrite: false);
+                    }
+                }
+
+                // 旧布局：Tools/<id>/<ver>/ 或 Tools/Installed/<id>/<ver>/ → Installed/
                 foreach (var idDir in Directory.EnumerateDirectories(legacyTools))
                 {
                     var id = Path.GetFileName(idDir);
                     if (string.IsNullOrEmpty(id)
                         || id.Equals("Bundled", StringComparison.OrdinalIgnoreCase)
-                        || id.Equals("Cache", StringComparison.OrdinalIgnoreCase)
-                        || id.Equals("Installed", StringComparison.OrdinalIgnoreCase))
+                        || id.Equals("Cache", StringComparison.OrdinalIgnoreCase))
                         continue;
+
+                    if (id.Equals("Installed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var installedIdDir in Directory.EnumerateDirectories(idDir))
+                        {
+                            var toolId = Path.GetFileName(installedIdDir);
+                            if (string.IsNullOrEmpty(toolId)) continue;
+                            foreach (var verDir in Directory.EnumerateDirectories(installedIdDir))
+                            {
+                                var ver = Path.GetFileName(verDir);
+                                if (string.IsNullOrEmpty(ver)) continue;
+                                var dest = Path.Combine(ToolsInstalledDirectory, toolId, ver);
+                                if (Directory.Exists(dest)) continue;
+                                CopyDirectoryRecursive(verDir, dest);
+                            }
+                        }
+
+                        continue;
+                    }
 
                     foreach (var verDir in Directory.EnumerateDirectories(idDir))
                     {
@@ -257,9 +300,21 @@ public static class FlyScreenDataPaths
                 {
                     text = text.Replace(legacyTools.Replace('\\', '/'), ToolsInstalledDirectory.Replace('\\', '/'));
                     text = text.Replace(legacyTools, ToolsInstalledDirectory);
-                    // 旧 Path 可能是 Tools/id/ver，新为 Installed/id/ver —— 若仍含 /Tools/ 且不含 Installed，再兜底
                     File.WriteAllText(destState, text);
                 }
+            }
+
+            // 迁移完成后删掉 Roaming 下错误的 Tools（个人配置 Root 其它文件不动）
+            try
+            {
+                if (Directory.Exists(legacyTools))
+                    Directory.Delete(legacyTools, recursive: true);
+                if (File.Exists(legacyState))
+                    File.Delete(legacyState);
+            }
+            catch
+            {
+                // 占用时下次启动再试
             }
         }
         catch
@@ -302,22 +357,6 @@ public static class FlyScreenDataPaths
         catch
         {
             // 迁移失败不阻断
-        }
-    }
-
-    private static bool CanWriteDirectory(string dir)
-    {
-        try
-        {
-            Directory.CreateDirectory(dir);
-            var probe = Path.Combine(dir, ".write-probe");
-            File.WriteAllText(probe, "1");
-            File.Delete(probe);
-            return true;
-        }
-        catch
-        {
-            return false;
         }
     }
 

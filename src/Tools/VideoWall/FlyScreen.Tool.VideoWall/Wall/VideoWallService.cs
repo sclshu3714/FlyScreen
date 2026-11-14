@@ -20,15 +20,19 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
     private bool _running;
     private List<TileSession> _tiles = [];
     private WallLayout _layout = WallLayout.ThreeByThree;
-    private IMediaBackend? _backend;
 
     public VideoWallService()
     {
-        Catalog = new VideoSourceCatalog("");
-        Covers = new CoverCache("");
-        Credentials = new CredentialStore("");
-        Scenes = new SceneStore("");
-        Recent = new RecentSourcesStore("");
+        // Module 字段初始化时宿主数据目录尚不可用；用临时目录占位，InitializeAsync 再切到正式路径。
+        // MUST NOT 传空字符串（Catalog/CoverCache 等会 ArgumentException）。
+        var staging = Path.Combine(Path.GetTempPath(), "FlyScreen", "video-wall-uninit");
+        Directory.CreateDirectory(Path.Combine(staging, "covers"));
+
+        Catalog = new VideoSourceCatalog(Path.Combine(staging, SourcesFile));
+        Covers = new CoverCache(Path.Combine(staging, "covers"));
+        Credentials = new CredentialStore(Path.Combine(staging, CredentialsFile));
+        Scenes = new SceneStore(Path.Combine(staging, ScenesFile));
+        Recent = new RecentSourcesStore(Path.Combine(staging, RecentFile));
         Probe = new ProbeService();
         Audio = new AudioRouter();
         Backend = new NullMediaBackend();

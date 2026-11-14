@@ -36,7 +36,9 @@ internal sealed class NullMediaPlayer : IMediaPlayer, IDisposable
     public VideoErrorCode ErrorCode { get; private set; } = VideoErrorCode.None;
 
     public event Action<TilePlayState>? StateChanged;
+#pragma warning disable CS0067 // 占位播放器不发统计
     public event Action<MediaStats>? StatsChanged;
+#pragma warning restore CS0067
 
     public void SetRenderTarget(IntPtr target) { }
 

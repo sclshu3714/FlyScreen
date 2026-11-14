@@ -239,17 +239,25 @@ public sealed class ToolInstaller
         }
     }
 
-    /// <summary>源包不在 Bundled 时，以 <c>id-version.flytool</c> 写入 Bundled 供重装。</summary>
+    /// <summary>
+    /// 源包不在 Bundled 时，写入规范名 <c>id.flytool</c> 供重装；
+    /// 不再落 <c>id-version.flytool</c>，避免与内置包并列重复。
+    /// </summary>
     private static void MaybePersistExternalPack(string flytoolPath, string toolId, string version)
     {
+        _ = version;
         var fullSrc = Path.GetFullPath(flytoolPath);
         var bundledRoot = WithTrailingSep(Path.GetFullPath(FlyScreenDataPaths.ToolsBundledDirectory));
         if (fullSrc.StartsWith(bundledRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            ToolPackageResolver.RemoveRedundantVersionedPacks(FlyScreenDataPaths.ToolsBundledDirectory);
             return;
+        }
 
         Directory.CreateDirectory(FlyScreenDataPaths.ToolsBundledDirectory);
-        var dest = Path.Combine(FlyScreenDataPaths.ToolsBundledDirectory, $"{toolId}-{version}.flytool");
+        var dest = Path.Combine(FlyScreenDataPaths.ToolsBundledDirectory, $"{toolId}.flytool");
         File.Copy(flytoolPath, dest, overwrite: true);
+        ToolPackageResolver.RemoveRedundantVersionedPacks(FlyScreenDataPaths.ToolsBundledDirectory);
     }
 
     private static string WithTrailingSep(string path)

@@ -91,7 +91,8 @@ public sealed class TileSession : IDisposable
         {
             UnwirePlayer(_player);
             await _player.StopAsync().ConfigureAwait(false);
-            _player.Dispose();
+            if (_player is IDisposable disposable)
+                disposable.Dispose();
             _player = null;
         }
 
@@ -190,7 +191,8 @@ public sealed class TileSession : IDisposable
         if (_player is not null)
         {
             await _player.StopAsync().ConfigureAwait(false);
-            _player.Dispose();
+            if (_player is IDisposable disposable)
+                disposable.Dispose();
         }
 
         _player = _backend.CreatePlayer(_endpoint, new MediaPlayerOptions

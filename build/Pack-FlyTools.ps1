@@ -36,6 +36,16 @@ $tools = @(
             "src/Tools/PortProxy/FlyScreen.Tool.PortProxy.Ui.Win/FlyScreen.Tool.PortProxy.Ui.Win.csproj",
             "src/Tools/PortProxy/FlyScreen.Tool.PortProxy.Ui.Maui/FlyScreen.Tool.PortProxy.Ui.Maui.csproj"
         )
+    },
+    @{
+        Id = "video-wall"
+        Proj = "src/Tools/VideoWall/FlyScreen.Tool.VideoWall/FlyScreen.Tool.VideoWall.csproj"
+        Manifest = "src/Tools/VideoWall/FlyScreen.Tool.VideoWall/manifest.json"
+        UiProjs = @(
+            "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Win/FlyScreen.Tool.VideoWall.Ui.Win.csproj",
+            "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Desktop/FlyScreen.Tool.VideoWall.Ui.Desktop.csproj",
+            "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Maui/FlyScreen.Tool.VideoWall.Ui.Maui.csproj"
+        )
     }
 )
 
@@ -80,6 +90,37 @@ foreach ($t in $tools) {
     Copy-Item $manifest (Join-Path $packStage "manifest.json") -Force
     Copy-Item (Join-Path $outDir "$asmName.dll") $packStage -Force
 
+    # video-wall：仅旁路自有 NuGet（勿把 Core 传递依赖打进包）+ LibVLC 原生库
+    if ($t.Id -eq "video-wall") {
+        foreach ($dep in @(
+            "LibVLCSharp.dll",
+            "System.Security.Cryptography.ProtectedData.dll"
+        )) {
+            $depPath = Join-Path $outDir $dep
+            if (Test-Path -LiteralPath $depPath) {
+                Copy-Item $depPath $packStage -Force
+                Write-Host "  + $dep"
+            }
+            else {
+                Write-Host "  ! missing $dep under $outDir"
+            }
+        }
+        $libVlc = Join-Path $outDir "libvlc/win-x64"
+        if (Test-Path -LiteralPath $libVlc) {
+            $nativeDest = Join-Path $packStage "runtimes/win-x64/native"
+            New-Item -ItemType Directory -Force -Path $nativeDest | Out-Null
+            Copy-Item (Join-Path $libVlc "*") $nativeDest -Recurse -Force
+            # 同时保留 libvlc/win-x64 布局，供 VlcNativeBootstrap 第一候选路径命中
+            $libVlcDest = Join-Path $packStage "libvlc/win-x64"
+            New-Item -ItemType Directory -Force -Path $libVlcDest | Out-Null
+            Copy-Item (Join-Path $libVlc "*") $libVlcDest -Recurse -Force
+            Write-Host "  + libvlc/win-x64 (native)"
+        }
+        else {
+            Write-Host "  ! missing libvlc/win-x64 under $outDir"
+        }
+    }
+
     # 平台 UI 卫星程序集（宿主提供 Core/ToolSdk）
     foreach ($uiRel in @($t.UiProjs)) {
         $uiProj = Join-Path $repo $uiRel
@@ -92,6 +133,16 @@ foreach ($t in $tools) {
         if ($uiOut) {
             Copy-Item (Join-Path $uiOut "$uiAsm.dll") $packStage -Force
             Write-Host "  + $uiAsm.dll"
+            # Win 卫星依赖的 LibVLCSharp.WPF 需随包，宿主 ALC 不会自带
+            if ($t.Id -eq "video-wall" -and $uiAsm -like "*.Ui.Win") {
+                foreach ($dep in @("LibVLCSharp.WPF.dll", "LibVLCSharp.dll")) {
+                    $depPath = Join-Path $uiOut $dep
+                    if (Test-Path -LiteralPath $depPath) {
+                        Copy-Item $depPath $packStage -Force
+                        Write-Host "  + $dep"
+                    }
+                }
+            }
         }
         else {
             Write-Host "  ! skip missing UI dll $uiAsm"

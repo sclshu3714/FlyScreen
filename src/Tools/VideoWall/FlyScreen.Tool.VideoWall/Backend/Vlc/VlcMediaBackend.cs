@@ -123,7 +123,7 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
 
         ct.ThrowIfCancellationRequested();
 
-        if (media.ParsedStatus == ParsedStatus.Failed)
+        if (media.ParsedStatus == MediaParsedStatus.Failed)
         {
             var msg = media.Meta(MetadataType.Title) ?? "解析失败";
             return new MediaProbeResult
@@ -134,15 +134,15 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
             };
         }
 
-        var video = media.Tracks?.FirstOrDefault(t => t.TrackType == TrackType.Video);
+        VlcTrackInfo.TryGetVideo(media, out var video);
         return new MediaProbeResult
         {
             Ok = true,
             Message = "解析成功",
-            VideoCodec = video?.Codec,
-            Width = video is null ? null : (int)video.Data.Video.Width,
-            Height = video is null ? null : (int)video.Data.Video.Height,
-            Fps = video is null ? null : video.Data.Video.FrameRateNum / (double)Math.Max(1, video.Data.Video.FrameRateDen)
+            VideoCodec = video.Codec,
+            Width = video.Width > 0 ? video.Width : null,
+            Height = video.Height > 0 ? video.Height : null,
+            Fps = video.Fps > 0 ? video.Fps : null
         };
     }
 
@@ -203,9 +203,7 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
 
             ct.ThrowIfCancellationRequested();
             var bytes = File.ReadAllBytes(temp);
-
-            var tracks = media.Tracks;
-            var video = tracks?.FirstOrDefault(t => t.TrackType == TrackType.Video);
+            VlcTrackInfo.TryGetVideo(media, out var video);
 
             // P0-a：后端可返回任意尺寸的 JPEG，CoverCaptureService/UI 可再 letterbox
             return new CoverCaptureResult
@@ -214,8 +212,8 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
                 JpegBytes = bytes,
                 Width = 320,
                 Height = 180,
-                VideoCodec = video?.Codec,
-                Fps = video is null ? 0 : video.Data.Video.FrameRateNum / (double)Math.Max(1, video.Data.Video.FrameRateDen)
+                VideoCodec = video.Codec,
+                Fps = video.Fps
             };
         }
         finally

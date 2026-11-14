@@ -3,8 +3,9 @@
     各端统一版本规则（与 Win 端一致）：
     Version = 最新 Git tag vX.Y.Z 自动 +1；minor/patch 大于 9 向高位进位
     （1.0.9→1.1.0，1.9.9→2.0.0）；与提交次数无关。
-    可覆盖：dotnet build/publish -p:Version=1.1.0 -p:IgnoreGitVersion=true
-    禁用：-p:IgnoreGitVersion=true
+    解析前会尽力 git fetch tags（Release 只打远程标签时需此步，否则会停在旧 tag）。
+    可覆盖：dotnet build/publish /p:Version=1.1.0 /p:IgnoreGitVersion=true
+    禁用：/p:IgnoreGitVersion=true
 
     Android 注意：Microsoft.Android.Sdk 在 _GenerateJavaStubs → GenerateMainAndroidManifest
     使用 $(_AndroidVersionName)/$(_AndroidVersionCode)。这些属性只在 Target 里赋值；
@@ -35,7 +36,7 @@
   <Target Name="ResolveVersionFromGitTag"
           BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild;_GetAndroidPackageName"
           Condition="'$(IgnoreGitVersion)' != 'true'">
-    <!-- 与 Resolve-FlyScreenVersion.ps1 同源：+1 且各段 >9 进位 -->
+    <!-- 与 Resolve FlyScreenVersion.ps1 同源：+1 且各段大于 9 进位 -->
     <PropertyGroup>
       <_FsResolveScript>$(MSBuildThisFileDirectory)Resolve-FlyScreenVersion.ps1</_FsResolveScript>
       <_FsRepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_FsRepoRoot>
@@ -93,7 +94,7 @@
              Text="版本来自 Git 标签：最新 $(_LatestTag) → 项目 Version=$(Version)（code=$(FlyScreenVersionCode)；&gt;9 进位；提交不改变此版本）" />
   </Target>
 
-  <!-- Setup / 命令行显式 -p:Version + IgnoreGitVersion：强制对齐程序集与 MAUI/Android 清单字段 -->
+  <!-- Setup / 命令行显式 /p:Version + IgnoreGitVersion：强制对齐程序集与 MAUI/Android 清单字段 -->
   <Target Name="ApplyExplicitVersion"
           BeforeTargets="GenerateAssemblyInfo;CoreGenerateAssemblyInfo;GetAssemblyVersion;PrepareForBuild;_GetAndroidPackageName"
           Condition="'$(IgnoreGitVersion)' == 'true' And '$(Version)' != ''">

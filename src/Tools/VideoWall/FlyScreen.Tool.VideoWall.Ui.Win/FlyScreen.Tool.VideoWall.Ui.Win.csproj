@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>FlyScreen.Tool.VideoWall.Ui.Win</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.VideoWall.Ui.Win</AssemblyName>
+    <Description>视频墙 WPF UI（Windows 专版工具包）</Description>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="LibVLCSharp.WPF" Version="3.9.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Tool.VideoWall\FlyScreen.Tool.VideoWall.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.VideoWallPanel"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+  <Grid Margin="4" RowDefinitions="Auto,*,Auto">
+    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+      <Button x:Name="ModeSourcesBtn" Click="ModeSourcesBtn_Click"/>
+      <Button x:Name="ModeWallBtn" Click="ModeWallBtn_Click"/>
+      <Button x:Name="AddBtn" Click="AddBtn_Click"/>
+      <Button x:Name="DeleteBtn" Click="DeleteBtn_Click"/>
+      <TextBox x:Name="SearchBox" Width="180" Watermark=""/>
+      <Button x:Name="Layout1Btn" Tag="1" Click="LayoutBtn_Click" Content="1×1"/>
+      <Button x:Name="Layout2Btn" Tag="2" Click="LayoutBtn_Click" Content="2×2"/>
+      <Button x:Name="Layout3Btn" Tag="3" Click="LayoutBtn_Click" Content="3×3"/>
+      <Button x:Name="Layout4Btn" Tag="4" Click="LayoutBtn_Click" Content="4×4"/>
+    </StackPanel>
+
+    <Grid Grid.Row="1">
+      <DockPanel x:Name="SourcesPane">
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,4" ColumnDefinitions="*,100,2*,80,200">
+          <TextBlock x:Name="HdrName" FontWeight="SemiBold" Opacity="0.7"/>
+          <TextBlock x:Name="HdrKind" Grid.Column="1" FontWeight="SemiBold" Opacity="0.7"/>
+          <TextBlock x:Name="HdrAddress" Grid.Column="2" FontWeight="SemiBold" Opacity="0.7"/>
+          <TextBlock x:Name="HdrStatus" Grid.Column="3" FontWeight="SemiBold" Opacity="0.7"/>
+          <TextBlock x:Name="HdrActions" Grid.Column="4" FontWeight="SemiBold" Opacity="0.7"/>
+        </Grid>
+        <ListBox x:Name="SourcesList" SelectionMode="Multiple" DoubleTapped="SourcesList_DoubleTapped">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:CompileBindings="False">
+              <Grid ColumnDefinitions="*,100,2*,80,200" Margin="0,2">
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="1" Text="{Binding KindText}" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="2" Text="{Binding AddressRedacted}" VerticalAlignment="Center"
+                           Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="3" Text="{Binding StatusText}" VerticalAlignment="Center" Opacity="0.7"/>
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4">
+                  <Button Content="{Binding PlayLabel}" Tag="{Binding Id}" Click="RowPlay_Click" Padding="8,2"/>
+                  <Button Content="{Binding EditLabel}" Tag="{Binding Id}" Click="RowEdit_Click" Padding="8,2"/>
+                  <Button Content="{Binding DeleteLabel}" Tag="{Binding Id}" Click="RowDelete_Click" Padding="8,2"/>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+      <UniformGrid x:Name="WallGrid" IsVisible="False" Rows="3" Columns="3"/>
+      <Border x:Name="PlaybackPane" IsVisible="False" Background="#111827" Padding="12">
+        <StackPanel VerticalAlignment="Center" Spacing="8">
+          <Button x:Name="PlaybackBackBtn" Click="PlaybackBackBtn_Click"/>
+          <Border Height="240" Background="Black" CornerRadius="8">
+            <TextBlock x:Name="VideoPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center"
+                       Foreground="White" TextWrapping="Wrap" Margin="12"/>
+          </Border>
+          <TextBlock x:Name="PlaybackStats" Opacity="0.8"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <TextBlock x:Name="StatusBar" Grid.Row="2" FontSize="11" Opacity="0.7" Margin="0,6,0,0"/>
+  </Grid>
+</UserControl>

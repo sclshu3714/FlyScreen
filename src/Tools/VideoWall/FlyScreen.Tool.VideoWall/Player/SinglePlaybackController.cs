@@ -86,7 +86,8 @@ public sealed class SinglePlaybackController : IDisposable
 
         _player.StateChanged -= OnStateChanged;
         await _player.StopAsync().ConfigureAwait(false);
-        _player.Dispose();
+        if (_player is IDisposable disposable)
+            disposable.Dispose();
         _player = null;
         StateChanged?.Invoke(TilePlayState.Stopped);
     }
