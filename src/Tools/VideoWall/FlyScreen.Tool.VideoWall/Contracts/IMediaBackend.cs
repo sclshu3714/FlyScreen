@@ -78,6 +78,12 @@ public interface IMediaPlayer
     void SetVolume(int volume0To100);
 
     void SetMuted(bool muted);
+
+    /// <summary>播放速率（1.0 = 正常）。不支持时忽略。</summary>
+    void SetRate(float rate);
+
+    /// <summary>播放结束后是否循环（从头重播）。</summary>
+    void SetLoop(bool loop);
 }
 
 /// <summary>

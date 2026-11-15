@@ -25,6 +25,14 @@ public interface IVideoWallService
     SinglePlaybackController SinglePlayback { get; }
     AudioRouter Audio { get; }
 
+    /// <summary>应用内「最大化」的格索引；null 表示正常墙布局。</summary>
+    int? FocusedTileIndex { get; }
+
+    /// <summary>
+    /// 聚焦某格（暂停其余播放中的格，UI 将该格铺满）；传 null 恢复并继续此前被暂停的格。
+    /// </summary>
+    Task FocusTileAsync(int? tileIndex, CancellationToken ct = default);
+
     void Start();
     void Stop();
 

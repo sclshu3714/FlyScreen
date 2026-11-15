@@ -3,7 +3,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Threading;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Tools;
 using FlyScreen.Tool.VideoWall.Contracts;
@@ -19,24 +18,28 @@ public partial class VideoWallPanel : UserControl
 
     private readonly IVideoWallService? _service;
     private readonly ObservableCollection<DesktopSourceRow> _rows = new();
-    private readonly DispatcherTimer _fsHideTimer;
     private PanelMode _mode = PanelMode.Sources;
     private BrowseView _browseView = BrowseView.List;
-    private string? _pendingPlayId;
-    private bool _fullscreen;
-    private Window? _fullscreenWindow;
-    private bool _volumeApplying;
 
-    public Action<string>? StatusReporter { get; set; }
+    public Action<string>? StatusReporter
+    {
+        get => _statusReporter;
+        set
+        {
+            _statusReporter = value;
+            Player.StatusReporter = value;
+        }
+    }
+
+    private Action<string>? _statusReporter;
 
     public VideoWallPanel()
     {
         InitializeComponent();
         _service = ToolService.Instance.GetToolService<IVideoWallService>();
         SourcesList.ItemsSource = _rows;
-        _fsHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        _fsHideTimer.Tick += (_, _) => HideFullscreenChrome();
-        PlaybackVolumeBar.PropertyChanged += PlaybackVolumeBar_PropertyChanged;
+        Player.Closed += () => SetMode(PanelMode.Sources);
+        Player.RequestInAppMaximize += OnPlayerRequestInAppMaximize;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         SearchBox.TextChanged += (_, _) => RefreshSources();
@@ -58,15 +61,6 @@ public partial class VideoWallPanel : UserControl
         AddBtn.Content = Loc.T("Tool.VideoWall.Add");
         DeleteBtn.Content = Loc.T("Tool.VideoWall.Delete");
         SearchBox.Watermark = Loc.T("Tool.VideoWall.Search");
-        PlaybackBackBtn.Content = Loc.T("Tool.VideoWall.Back");
-        PlaybackStopBtn.Content = Loc.T("Tool.VideoWall.Stop");
-        PlaybackMuteBtn.Content = Loc.T("Tool.VideoWall.Mute");
-        PlaybackSeekBackBtn.Content = Loc.T("Tool.VideoWall.SeekBack");
-        PlaybackSeekFwdBtn.Content = Loc.T("Tool.VideoWall.SeekForward");
-        PlaybackPlayPauseBtn.Content = Loc.T("Tool.VideoWall.Pause");
-        PlaybackFullscreenBtn.Content = Loc.T("Tool.VideoWall.Fullscreen");
-        ToolTip.SetTip(PlaybackVolumeBar, Loc.T("Tool.VideoWall.Volume"));
-        VideoPlaceholder.Text = Loc.T("Tool.VideoWall.VideoSurfaceTodo");
         HdrName.Text = Loc.T("Tool.VideoWall.ColName");
         HdrKind.Text = Loc.T("Tool.VideoWall.ColKind");
         HdrAddress.Text = Loc.T("Tool.VideoWall.Field.Address");
@@ -80,13 +74,14 @@ public partial class VideoWallPanel : UserControl
         if (_service is null) return;
         _service.CatalogChanged += OnChanged;
         _service.SessionChanged += OnChanged;
+        Player.AttachService(_service);
         RefreshAll();
     }
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
-        _fsHideTimer.Stop();
-        ExitFullscreen();
+        Player.AttachService(null);
+        _ = Player.StopAsync();
         if (_service is null) return;
         _service.CatalogChanged -= OnChanged;
         _service.SessionChanged -= OnChanged;
@@ -129,7 +124,9 @@ public partial class VideoWallPanel : UserControl
         _mode = mode;
         SourcesPane.IsVisible = mode == PanelMode.Sources;
         WallGrid.IsVisible = mode == PanelMode.Wall;
-        PlaybackPane.IsVisible = mode == PanelMode.Playback;
+        Player.IsVisible = mode == PanelMode.Playback;
+        if (mode != PanelMode.Playback)
+            _ = Player.StopAsync();
         if (mode == PanelMode.Wall)
             RebuildWall();
         SyncBrowseChrome();
@@ -196,7 +193,7 @@ public partial class VideoWallPanel : UserControl
     private async void RowPlay_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string id }) return;
-        await PlayAsync(id);
+        await BeginPlaybackAsync(id);
     }
 
     private async void RowEdit_Click(object? sender, RoutedEventArgs e)
@@ -236,10 +233,14 @@ public partial class VideoWallPanel : UserControl
         if (_service is null) return;
         WallGrid.Children.Clear();
         var layout = _service.Layout;
-        WallGrid.Rows = layout.Rows;
-        WallGrid.Columns = layout.Columns;
+        // 应用内最大化：只渲染聚焦格并铺满（其余格由服务层暂停）
+        var focus = _service.FocusedTileIndex;
+        var focused = focus is int f && f >= 0 && f < layout.TileCount;
+        WallGrid.Rows = focused ? 1 : layout.Rows;
+        WallGrid.Columns = focused ? 1 : layout.Columns;
         for (var i = 0; i < layout.TileCount; i++)
         {
+            if (focused && i != focus) continue;
             var tile = i < _service.Tiles.Count ? _service.Tiles[i] : null;
             var name = tile?.SourceId is { } sid
                 ? _service.Catalog.Sources.FirstOrDefault(s => s.Id == sid)?.Name ?? sid
@@ -266,6 +267,23 @@ public partial class VideoWallPanel : UserControl
                 });
             }
 
+            var restoreBtn = new Button
+            {
+                Content = Loc.T("Tool.VideoWall.MaximizeExit"),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+                Margin = new Thickness(0, 4, 6, 0),
+                Padding = new Thickness(10, 2),
+                IsVisible = focused,
+                ZIndex = 3
+            };
+            restoreBtn.Click += async (_, e) =>
+            {
+                e.Handled = true;
+                await _service.FocusTileAsync(null);
+                RebuildWall();
+            };
+
             var border = new Border
             {
                 Margin = new Thickness(3),
@@ -275,6 +293,7 @@ public partial class VideoWallPanel : UserControl
                 {
                     Children =
                     {
+                        restoreBtn,
                         new TextBlock
                         {
                             Text = tile?.SourceId is null
@@ -302,8 +321,7 @@ public partial class VideoWallPanel : UserControl
                 {
                     await _service.BindTileAsync(tileIndex, sourceId, autoStart: false);
                     RebuildWall();
-                    // Desktop 尚无格内视频表面，绑定后进单画面页
-                    await PlayAsync(sourceId);
+                    await BeginPlaybackAsync(sourceId);
                 };
                 menu.Items.Add(item);
             }
@@ -323,17 +341,51 @@ public partial class VideoWallPanel : UserControl
         }
     }
 
-    private async void Tile_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    /// <summary>
+    /// 应用内最大化：当前源所在墙格铺满整墙并暂停其它格。
+    /// Avalonia 侧墙格暂无视频面，单画面播放保持（音频/状态不中断），不重复起播。
+    /// </summary>
+    private async void OnPlayerRequestInAppMaximize()
+    {
+        if (_service is null) return;
+        var sourceId = _service.SinglePlayback.CurrentSourceId;
+        if (string.IsNullOrWhiteSpace(sourceId)) return;
+
+        try
+        {
+            var tiles = _service.Tiles.ToList();
+            var index = tiles.FindIndex(t => t.SourceId == sourceId);
+            if (index < 0)
+            {
+                index = tiles.FindIndex(t => t.SourceId is null);
+                if (index < 0) index = 0;
+                await _service.BindTileAsync(index, sourceId, autoStart: false);
+            }
+            else
+            {
+                index = tiles[index].Index;
+            }
+
+            await _service.FocusTileAsync(index);
+            _browseView = BrowseView.Canvas;
+            SetMode(PanelMode.Wall);
+        }
+        catch (Exception ex)
+        {
+            StatusReporter?.Invoke(ex.Message);
+        }
+    }
+
+    private async void Tile_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (_service is null || sender is not Border { Tag: int index }) return;
-        // 单击忽略；双击有源 → 单画面；双击空格 → 打开右键同款菜单
         if (e.ClickCount < 2) return;
         e.Handled = true;
 
         var tile = index < _service.Tiles.Count ? _service.Tiles[index] : null;
         if (tile?.SourceId is { } id)
         {
-            await PlayAsync(id);
+            await BeginPlaybackAsync(id);
             return;
         }
 
@@ -341,174 +393,26 @@ public partial class VideoWallPanel : UserControl
             menu.Open(c);
     }
 
-    private async void SourcesList_DoubleTapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    private async void SourcesList_DoubleTapped(object? sender, TappedEventArgs e)
     {
         if (SourcesList.SelectedItem is not DesktopSourceRow row) return;
-        await PlayAsync(row.Id);
+        await BeginPlaybackAsync(row.Id);
     }
 
-    private async Task PlayAsync(string id)
+    private async Task BeginPlaybackAsync(string id)
     {
-        _pendingPlayId = id;
         SetMode(PanelMode.Playback);
-        PlaybackStats.Text = Loc.T("Tool.VideoWall.StatusConnecting");
-        if (_service is null) return;
-        try
-        {
-            await _service.SinglePlayback.StopAsync();
-            await _service.SinglePlayback.PlaySourceAsync(id);
-            PlaybackStats.Text = Loc.T("Tool.VideoWall.Play");
-            StatusReporter?.Invoke(PlaybackStats.Text);
-        }
-        catch (Exception ex)
-        {
-            PlaybackStats.Text = ex.Message;
-        }
+        var title = ResolvePlaybackTitle(id);
+        await Player.PlayAsync(id, title);
     }
 
-    private async void PlaybackBackBtn_Click(object? sender, RoutedEventArgs e)
+    private string ResolvePlaybackTitle(string sourceId)
     {
-        ExitFullscreen();
-        if (_service is not null)
-            await _service.SinglePlayback.StopAsync();
-        _pendingPlayId = null;
-        SetMode(PanelMode.Sources);
-    }
-
-    private void PlaybackPlayPause_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_service is null) return;
-        var state = _service.SinglePlayback.State;
-        if (state == TilePlayState.Paused)
-            _service.SinglePlayback.Resume();
-        else if (state is TilePlayState.Stopped or TilePlayState.Idle or TilePlayState.Failed)
-        {
-            var id = _pendingPlayId ?? _service.SinglePlayback.CurrentSourceId;
-            if (!string.IsNullOrWhiteSpace(id))
-                _ = PlayAsync(id);
-        }
-        else
-            _service.SinglePlayback.Pause();
-        BumpFullscreenChrome();
-    }
-
-    private async void PlaybackStop_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_service is null) return;
-        await _service.SinglePlayback.StopAsync();
-        PlaybackStats.Text = Loc.T("Tool.VideoWall.StatusStopped");
-        BumpFullscreenChrome();
-    }
-
-    private void PlaybackSeekBack_Click(object? sender, RoutedEventArgs e)
-    {
-        _service?.SinglePlayback.SeekBy(-10_000);
-        BumpFullscreenChrome();
-    }
-
-    private void PlaybackSeekFwd_Click(object? sender, RoutedEventArgs e)
-    {
-        _service?.SinglePlayback.SeekBy(10_000);
-        BumpFullscreenChrome();
-    }
-
-    private void PlaybackMute_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_service is null) return;
-        _service.SinglePlayback.ToggleMute();
-        SyncVolumeUi();
-        BumpFullscreenChrome();
-    }
-
-    private void PlaybackVolumeBar_PropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
-    {
-        if (e.Property != Slider.ValueProperty || _volumeApplying || _service is null) return;
-        _service.SinglePlayback.SetVolume((int)Math.Round(PlaybackVolumeBar.Value));
-        SyncMuteLabel();
-        BumpFullscreenChrome();
-    }
-
-    private void PlaybackFullscreen_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_fullscreen) ExitFullscreen();
-        else EnterFullscreen();
-    }
-
-    private void SyncVolumeUi()
-    {
-        if (_service is null) return;
-        _volumeApplying = true;
-        try { PlaybackVolumeBar.Value = _service.SinglePlayback.Volume; }
-        finally { _volumeApplying = false; }
-        SyncMuteLabel();
-    }
-
-    private void SyncMuteLabel()
-    {
-        if (_service is null) return;
-        PlaybackMuteBtn.Content = Loc.T(
-            _service.SinglePlayback.IsMuted ? "Tool.VideoWall.Unmute" : "Tool.VideoWall.Mute");
-    }
-
-    private void EnterFullscreen()
-    {
-        if (_fullscreen) return;
-        var host = TopLevel.GetTopLevel(this) as Window;
-        if (host is null) return;
-
-        _fullscreenWindow = host;
-        _fullscreen = true;
-        host.WindowState = WindowState.FullScreen;
-        PlaybackFullscreenBtn.Content = Loc.T("Tool.VideoWall.FullscreenExit");
-        host.PointerMoved += Fullscreen_PointerMoved;
-        host.KeyDown += Fullscreen_KeyDown;
-        BumpFullscreenChrome();
-    }
-
-    private void ExitFullscreen()
-    {
-        _fsHideTimer.Stop();
-        var host = _fullscreenWindow;
-        _fullscreenWindow = null;
-        if (host != null)
-        {
-            host.PointerMoved -= Fullscreen_PointerMoved;
-            host.KeyDown -= Fullscreen_KeyDown;
-            if (host.WindowState == WindowState.FullScreen)
-                host.WindowState = WindowState.Normal;
-        }
-
-        _fullscreen = false;
-        PlaybackTransportBar.IsVisible = true;
-        PlaybackFullscreenBtn.Content = Loc.T("Tool.VideoWall.Fullscreen");
-    }
-
-    private void Fullscreen_PointerMoved(object? sender, PointerEventArgs e)
-        => BumpFullscreenChrome();
-
-    private void Fullscreen_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            ExitFullscreen();
-            e.Handled = true;
-        }
-        else BumpFullscreenChrome();
-    }
-
-    private void BumpFullscreenChrome()
-    {
-        if (!_fullscreen) return;
-        PlaybackTransportBar.IsVisible = true;
-        _fsHideTimer.Stop();
-        _fsHideTimer.Start();
-    }
-
-    private void HideFullscreenChrome()
-    {
-        _fsHideTimer.Stop();
-        if (_fullscreen)
-            PlaybackTransportBar.IsVisible = false;
+        var row = _rows.FirstOrDefault(r => r.Id == sourceId);
+        if (!string.IsNullOrWhiteSpace(row?.Name))
+            return row.Name;
+        var src = _service?.Catalog.Sources.FirstOrDefault(s => s.Id == sourceId);
+        return !string.IsNullOrWhiteSpace(src?.Name) ? src.Name : sourceId;
     }
 
     private static string KindLabel(VideoSourceKind kind) => kind switch

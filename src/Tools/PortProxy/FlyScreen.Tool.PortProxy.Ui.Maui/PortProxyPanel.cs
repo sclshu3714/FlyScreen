@@ -5,7 +5,7 @@ using FlyScreen.ToolSdk;
 
 namespace FlyScreen.Tool.PortProxy.Ui.Maui;
 
-/// <summary>端口代理工作区（Maui；工具条 + 列表，支持批量删除与行内编辑/删除）。</summary>
+/// <summary>端口代理工作区（Maui；对齐 Win 工具条 + 表头列 + 行内操作）。</summary>
 public sealed class PortProxyPanel : ContentView
 {
     private readonly IPortProxyService? _service;
@@ -20,6 +20,14 @@ public sealed class PortProxyPanel : ContentView
     private readonly Button _dumpBtn;
     private readonly CheckBox _selectAll;
     private readonly PortProxyDropDown _filterDrop;
+    private readonly CollectionView _table;
+    private readonly Color _text;
+    private readonly Color _muted;
+    private readonly Color _line;
+    private readonly Color _subtle;
+    private readonly Color _card;
+    private readonly Color _blue;
+    private readonly Color _warn;
     private PortProxyMappingKind? _filterKind;
     private bool _busy;
     private bool _suppressSelectAll;
@@ -32,73 +40,60 @@ public sealed class PortProxyPanel : ContentView
                    ?? ToolService.Instance.GetToolService<IPortProxyService>();
 
         var dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
-        var muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
-        var line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
-        var subtle = Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
-        var card = Color.FromArgb(dark ? "#1E293B" : "#FFFFFF");
-        var blue = Color.FromArgb("#2563EB");
-        var warn = Color.FromArgb("#DC2626");
+        _text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
+        _muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
+        _line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
+        _subtle = Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
+        _card = Color.FromArgb(dark ? "#1E293B" : "#FFFFFF");
+        _blue = Color.FromArgb("#2563EB");
+        _warn = Color.FromArgb("#DC2626");
 
         _hint = new Label
         {
             Text = Loc.T("Tool.PortProxy.Hint"),
             FontSize = 12,
-            TextColor = muted,
+            TextColor = _muted,
             LineBreakMode = LineBreakMode.WordWrap
         };
-        _admin = new Label { FontSize = 12, TextColor = text, LineBreakMode = LineBreakMode.WordWrap };
-        _status = new Label { FontSize = 12, TextColor = muted };
+        _admin = new Label { FontSize = 12, TextColor = _text, LineBreakMode = LineBreakMode.WordWrap };
+        _status = new Label { FontSize = 12, TextColor = _muted };
 
-        _addBtn = MakeBtn(Loc.T("Tool.PortProxy.Add"), blue, Colors.White);
-        _deleteBtn = MakeBtn(Loc.T("Tool.PortProxy.Delete"), card, warn, line);
-        _refreshBtn = MakeBtn(Loc.T("Tool.PortProxy.Refresh"), card, text, line);
-        _resetBtn = MakeBtn(Loc.T("Tool.PortProxy.Reset"), card, warn, line);
-        _dumpBtn = MakeBtn(Loc.T("Tool.PortProxy.Dump"), card, text, line);
+        _addBtn = MakeToolBarBtn(Loc.T("Tool.PortProxy.Add"), _blue, Colors.White);
+        _deleteBtn = MakeToolBarBtn(Loc.T("Tool.PortProxy.Delete"), _card, _warn, _line);
+        _refreshBtn = MakeToolBarBtn(Loc.T("Tool.PortProxy.Refresh"), _card, _text, _line);
+        _resetBtn = MakeToolBarBtn(Loc.T("Tool.PortProxy.Reset"), _card, _warn, _line);
+        _dumpBtn = MakeToolBarBtn(Loc.T("Tool.PortProxy.Dump"), _card, _text, _line, marginRight: 0);
         _addBtn.Clicked += async (_, _) => await AddAsync();
         _deleteBtn.Clicked += async (_, _) => await DeleteSelectedAsync();
         _refreshBtn.Clicked += async (_, _) => await RefreshAsync();
         _resetBtn.Clicked += async (_, _) => await ResetAsync();
         _dumpBtn.Clicked += async (_, _) => await DumpAsync();
 
-        _selectAll = new CheckBox { VerticalOptions = LayoutOptions.Center };
+        _selectAll = new CheckBox { VerticalOptions = LayoutOptions.Center, HorizontalOptions = LayoutOptions.Center };
         _selectAll.CheckedChanged += (_, e) =>
         {
             if (_suppressSelectAll) return;
             foreach (var row in _rows)
                 row.IsSelected = e.Value;
         };
-        var selectAllLabel = new Label
-        {
-            Text = Loc.T("Tool.PortProxy.SelectAll"),
-            VerticalOptions = LayoutOptions.Center,
-            TextColor = text,
-            FontSize = 13
-        };
-        var selectAllTap = new TapGestureRecognizer();
-        selectAllTap.Tapped += (_, _) =>
-        {
-            _selectAll.IsChecked = !_selectAll.IsChecked;
-        };
-        selectAllLabel.GestureRecognizers.Add(selectAllTap);
 
         _filterKind = null;
         var allLabel = Loc.T("Tool.PortProxy.TabAll");
-        _filterDrop = new PortProxyDropDown(text, muted, line, card)
+        _filterDrop = new PortProxyDropDown(_text, _muted, _line, _card)
         {
             Value = allLabel,
-            WidthRequest = 140,
-            MinimumWidthRequest = 128,
+            WidthRequest = 120,
+            MinimumWidthRequest = 108,
             HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.Start
+            VerticalOptions = LayoutOptions.Center
         };
         _filterDrop.SetOptions(allLabel, "v4tov4", "v4tov6", "v6tov4", "v6tov6");
         _filterDrop.SelectionChanged += OnFilterChanged;
 
         var adminBorder = new Border
         {
-            Stroke = line,
-            BackgroundColor = subtle,
+            Stroke = _line,
+            BackgroundColor = _subtle,
             Padding = new Thickness(10, 8),
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
             Content = _admin
@@ -106,83 +101,92 @@ public sealed class PortProxyPanel : ContentView
 
         var toolbar = new Border
         {
-            Stroke = line,
+            Stroke = _line,
             StrokeThickness = 1,
-            BackgroundColor = card,
+            BackgroundColor = _card,
             Padding = new Thickness(10, 8),
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-            Content = new VerticalStackLayout
+            Content = new Grid
             {
-                Spacing = 8,
+                ColumnDefinitions =
+                [
+                    new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Star),
+                    new ColumnDefinition(GridLength.Auto)
+                ],
+                ColumnSpacing = 0,
+                VerticalOptions = LayoutOptions.Center,
                 Children =
                 {
-                    new FlexLayout
-                    {
-                        Wrap = Microsoft.Maui.Layouts.FlexWrap.Wrap,
-                        AlignItems = Microsoft.Maui.Layouts.FlexAlignItems.Center,
-                        Children = { _addBtn, _deleteBtn, _refreshBtn, _resetBtn, _dumpBtn }
-                    },
-                    new Grid
-                    {
-                        ColumnDefinitions =
-                        {
-                            new ColumnDefinition(GridLength.Auto),
-                            new ColumnDefinition(GridLength.Auto),
-                            new ColumnDefinition(GridLength.Star),
-                            new ColumnDefinition(GridLength.Auto),
-                            new ColumnDefinition(GridLength.Auto)
-                        },
-                        ColumnSpacing = 8,
-                        Children =
-                        {
-                            _selectAll,
-                            Col(selectAllLabel, 1),
-                            Col(new Label
-                            {
-                                Text = Loc.T("Tool.PortProxy.Filter"),
-                                VerticalOptions = LayoutOptions.Center,
-                                TextColor = muted,
-                                FontSize = 12,
-                                HorizontalOptions = LayoutOptions.End
-                            }, 3),
-                            Col(_filterDrop, 4)
-                        }
-                    }
+                    _addBtn,
+                    Col(_deleteBtn, 1),
+                    Col(_refreshBtn, 2),
+                    Col(_resetBtn, 3),
+                    Col(_dumpBtn, 4),
+                    Col(_filterDrop, 6)
                 }
             }
         };
 
-        var list = new CollectionView
+        var header = BuildHeaderRow();
+        _table = new CollectionView
         {
             ItemsSource = _rows,
             SelectionMode = SelectionMode.None,
             EmptyView = new Label
             {
                 Text = Loc.T("Tool.PortProxy.Empty"),
-                TextColor = muted,
-                Margin = new Thickness(12),
-                HorizontalOptions = LayoutOptions.Center
+                TextColor = _muted,
+                FontSize = 13,
+                HorizontalOptions = LayoutOptions.Center,
+                Margin = new Thickness(12, 24)
             },
-            ItemTemplate = new DataTemplate(() => BuildRow(text, muted, line, card, warn))
+            ItemTemplate = new DataTemplate(() => BuildDataRow())
+        };
+
+        var tableHost = new Border
+        {
+            Stroke = _line,
+            StrokeThickness = 1,
+            BackgroundColor = _card,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            Padding = new Thickness(0, 0, 0, 2),
+            Content = new Grid
+            {
+                RowDefinitions =
+                [
+                    new RowDefinition(GridLength.Auto),
+                    new RowDefinition(GridLength.Star)
+                ],
+                Children =
+                {
+                    header,
+                    _table.Also(v => Grid.SetRow(v, 1))
+                }
+            }
         };
 
         var root = new Grid
         {
             RowDefinitions =
-            {
+            [
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Star),
                 new RowDefinition(GridLength.Auto)
-            },
+            ],
             Padding = new Thickness(4, 0, 4, 4),
             RowSpacing = 8
         };
         root.Add(_hint, 0, 0);
         root.Add(adminBorder, 0, 1);
         root.Add(toolbar, 0, 2);
-        root.Add(list, 0, 3);
+        root.Add(tableHost, 0, 3);
         root.Add(_status, 0, 4);
 
         var flyoutLayer = new AbsoluteLayout
@@ -212,83 +216,140 @@ public sealed class PortProxyPanel : ContentView
         BindRules();
     }
 
-    private View BuildRow(Color text, Color muted, Color line, Color card, Color warn)
+    private View BuildHeaderRow()
     {
-        var check = new CheckBox { VerticalOptions = LayoutOptions.Center };
-        check.SetBinding(CheckBox.IsCheckedProperty, nameof(PortProxyRuleRow.IsSelected));
-
-        var summary = new Label
+        Label Header(string text) => new()
         {
-            FontSize = 13,
-            TextColor = text,
-            LineBreakMode = LineBreakMode.WordWrap,
-            VerticalOptions = LayoutOptions.Center
-        };
-        summary.SetBinding(Label.TextProperty, nameof(PortProxyRuleRow.Summary));
-
-        var edit = new Button
-        {
-            Text = Loc.T("Tool.PortProxy.Edit"),
+            Text = text,
             FontSize = 12,
-            Padding = new Thickness(10, 4),
-            BackgroundColor = card,
-            TextColor = text,
-            BorderColor = line,
-            BorderWidth = 1
+            FontAttributes = FontAttributes.Bold,
+            TextColor = _muted,
+            VerticalOptions = LayoutOptions.Center,
+            LineBreakMode = LineBreakMode.TailTruncation
         };
-        edit.SetBinding(Button.CommandParameterProperty, ".");
-        edit.Clicked += async (s, _) =>
-        {
-            if (s is Button { CommandParameter: PortProxyRuleRow row })
-                await EditAsync(row.Rule);
-        };
-
-        var del = new Button
-        {
-            Text = Loc.T("Tool.PortProxy.Delete"),
-            FontSize = 12,
-            Padding = new Thickness(10, 4),
-            BackgroundColor = card,
-            TextColor = warn,
-            BorderColor = Color.FromArgb("#FECACA"),
-            BorderWidth = 1
-        };
-        del.SetBinding(Button.CommandParameterProperty, ".");
-        del.Clicked += async (s, _) =>
-        {
-            if (s is Button { CommandParameter: PortProxyRuleRow row })
-                await DeleteOneAsync(row.Rule);
-        };
-
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Auto),
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Auto),
-                new ColumnDefinition(GridLength.Auto)
-            },
-            ColumnSpacing = 8
-        };
-        grid.Add(check, 0, 0);
-        grid.Add(summary, 1, 0);
-        grid.Add(edit, 2, 0);
-        grid.Add(del, 3, 0);
 
         return new Border
         {
-            Stroke = line,
-            StrokeThickness = 1,
-            BackgroundColor = card,
-            Padding = new Thickness(10, 8),
-            Margin = new Thickness(0, 0, 0, 6),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-            Content = grid
+            BackgroundColor = _subtle,
+            Padding = new Thickness(8, 10),
+            StrokeThickness = 0,
+            Content = new Grid
+            {
+                ColumnDefinitions = TableColumnDefinitions(),
+                ColumnSpacing = 6,
+                Children =
+                {
+                    _selectAll,
+                    Header(Loc.T("Tool.PortProxy.ColKind")).Also(v => Grid.SetColumn(v, 1)),
+                    Header(Loc.T("Tool.PortProxy.ColListenAddress")).Also(v => Grid.SetColumn(v, 2)),
+                    Header(Loc.T("Tool.PortProxy.ColListenPort")).Also(v => Grid.SetColumn(v, 3)),
+                    Header(Loc.T("Tool.PortProxy.ColConnectAddress")).Also(v => Grid.SetColumn(v, 4)),
+                    Header(Loc.T("Tool.PortProxy.ColConnectPort")).Also(v => Grid.SetColumn(v, 5)),
+                    Header(Loc.T("Tool.PortProxy.ColProtocol")).Also(v => Grid.SetColumn(v, 6)),
+                    Header(Loc.T("Tool.PortProxy.ColActions")).Also(v => Grid.SetColumn(v, 7))
+                }
+            }
         };
     }
 
-    private static Button MakeBtn(string text, Color bg, Color fg, Color? border = null)
+    private View BuildDataRow()
+    {
+        var check = new CheckBox { VerticalOptions = LayoutOptions.Center, HorizontalOptions = LayoutOptions.Center };
+        check.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(PortProxyRuleRow.IsSelected), mode: BindingMode.TwoWay));
+        check.CheckedChanged += (_, _) => SyncSelectAll();
+
+        Label Cell(string prop)
+        {
+            var label = new Label
+            {
+                FontSize = 12,
+                TextColor = _text,
+                VerticalOptions = LayoutOptions.Center,
+                LineBreakMode = LineBreakMode.TailTruncation
+            };
+            label.SetBinding(Label.TextProperty, prop);
+            return label;
+        }
+
+        var edit = MakeRowBtn(Loc.T("Tool.PortProxy.Edit"));
+        edit.Clicked += async (s, _) =>
+        {
+            if (s is BindableObject { BindingContext: PortProxyRuleRow row })
+                await EditAsync(row.Rule);
+        };
+
+        var del = MakeRowBtn(Loc.T("Tool.PortProxy.Delete"), danger: true);
+        del.Clicked += async (s, _) =>
+        {
+            if (s is BindableObject { BindingContext: PortProxyRuleRow row })
+                await DeleteOneAsync(row.Rule);
+        };
+
+        var rowGrid = new Grid
+        {
+            ColumnDefinitions = TableColumnDefinitions(),
+            ColumnSpacing = 6,
+            Padding = new Thickness(8, 8),
+            Children =
+            {
+                check,
+                Cell(nameof(PortProxyRuleRow.KindToken)).Also(v => Grid.SetColumn(v, 1)),
+                Cell(nameof(PortProxyRuleRow.ListenAddress)).Also(v => Grid.SetColumn(v, 2)),
+                Cell(nameof(PortProxyRuleRow.ListenPort)).Also(v => Grid.SetColumn(v, 3)),
+                Cell(nameof(PortProxyRuleRow.ConnectAddress)).Also(v => Grid.SetColumn(v, 4)),
+                Cell(nameof(PortProxyRuleRow.ConnectPort)).Also(v => Grid.SetColumn(v, 5)),
+                Cell(nameof(PortProxyRuleRow.Protocol)).Also(v => Grid.SetColumn(v, 6)),
+                new HorizontalStackLayout
+                {
+                    Spacing = 6,
+                    VerticalOptions = LayoutOptions.Center,
+                    Children = { edit, del }
+                }.Also(v => Grid.SetColumn(v, 7))
+            }
+        };
+
+        var border = new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Colors.Transparent,
+            Content = rowGrid
+        };
+
+        var tap = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+        tap.Tapped += async (_, _) =>
+        {
+            if (border.BindingContext is PortProxyRuleRow row)
+                await EditAsync(row.Rule);
+        };
+        rowGrid.GestureRecognizers.Add(tap);
+
+        var dbl = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
+        dbl.Tapped += async (_, _) =>
+        {
+            if (border.BindingContext is PortProxyRuleRow row)
+                await EditAsync(row.Rule);
+        };
+        rowGrid.GestureRecognizers.Add(dbl);
+
+        return border;
+    }
+
+    private Button MakeRowBtn(string text, bool danger = false)
+        => new()
+        {
+            Text = text,
+            FontSize = 12,
+            Padding = new Thickness(8, 4),
+            HeightRequest = 28,
+            MinimumHeightRequest = 28,
+            BackgroundColor = _card,
+            TextColor = danger ? _warn : _text,
+            BorderColor = danger ? Color.FromArgb("#FECACA") : _line,
+            BorderWidth = 1,
+            CornerRadius = 8
+        };
+
+    private static Button MakeToolBarBtn(string text, Color bg, Color fg, Color? border = null, int marginRight = 8)
         => new()
         {
             Text = text,
@@ -296,10 +357,27 @@ public sealed class PortProxyPanel : ContentView
             TextColor = fg,
             BorderColor = border ?? bg,
             BorderWidth = border == null ? 0 : 1,
-            Padding = new Thickness(12, 6),
-            Margin = new Thickness(0, 0, 8, 4),
-            FontSize = 13
+            Padding = new Thickness(12, 0),
+            Margin = new Thickness(0, 0, marginRight, 0),
+            FontSize = 13,
+            HeightRequest = 32,
+            MinimumHeightRequest = 32,
+            MinimumWidthRequest = 72,
+            CornerRadius = 8,
+            VerticalOptions = LayoutOptions.Center
         };
+
+    private static ColumnDefinitionCollection TableColumnDefinitions() =>
+    [
+        new ColumnDefinition(44),
+        new ColumnDefinition(80),
+        new ColumnDefinition(GridLength.Star),
+        new ColumnDefinition(88),
+        new ColumnDefinition(GridLength.Star),
+        new ColumnDefinition(88),
+        new ColumnDefinition(64),
+        new ColumnDefinition(148)
+    ];
 
     private static View Col(View view, int column)
     {
@@ -362,20 +440,23 @@ public sealed class PortProxyPanel : ContentView
             : Loc.T("Tool.PortProxy.AdminNeed");
     }
 
+    private static string RowKey(PortProxyRuleInfo rule)
+        => $"{rule.KindToken}|{rule.ListenAddress}|{rule.ListenPort}|{rule.Protocol}";
+
+    private static string RowKey(PortProxyRuleRow row) => RowKey(row.Rule);
+
     private void BindRules()
     {
         if (_service == null) return;
         var filter = CurrentFilter();
-        var selected = _rows.Where(r => r.IsSelected)
-            .Select(r => $"{r.KindToken}|{r.ListenAddress}|{r.ListenPort}")
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedKeys = _rows.Where(r => r.IsSelected).Select(RowKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _rows.Clear();
         foreach (var rule in _service.Rules)
         {
             if (filter is not null && rule.Kind != filter.Value) continue;
             _rows.Add(new PortProxyRuleRow(rule)
             {
-                IsSelected = selected.Contains($"{rule.KindToken}|{rule.ListenAddress}|{rule.ListenPort}")
+                IsSelected = selectedKeys.Contains(RowKey(rule))
             });
         }
 
@@ -392,9 +473,14 @@ public sealed class PortProxyPanel : ContentView
         _suppressSelectAll = true;
         try
         {
-            if (_rows.Count == 0) { _selectAll.IsChecked = false; return; }
-            var n = _rows.Count(r => r.IsSelected);
-            _selectAll.IsChecked = n > 0 && n == _rows.Count;
+            if (_rows.Count == 0)
+            {
+                _selectAll.IsChecked = false;
+                return;
+            }
+
+            var selected = _rows.Count(r => r.IsSelected);
+            _selectAll.IsChecked = selected > 0 && selected == _rows.Count;
         }
         finally { _suppressSelectAll = false; }
     }
@@ -408,6 +494,7 @@ public sealed class PortProxyPanel : ContentView
         _refreshBtn.IsEnabled = on;
         _resetBtn.IsEnabled = on;
         _dumpBtn.IsEnabled = on;
+        _filterDrop.SetEnabled(on);
     }
 
     private void Report(string msg)
@@ -536,11 +623,7 @@ public sealed class PortProxyPanel : ContentView
             }
 
             var text = string.IsNullOrWhiteSpace(r.StdOut) ? r.Message : r.StdOut;
-            var page = GetParentPage();
-            if (page == null) return;
-            await page.DisplayAlertAsync(Loc.T("Tool.PortProxy.DialogDump"), text, Loc.T("Tool.PortProxy.Close"));
-            try { await Clipboard.Default.SetTextAsync(text); }
-            catch { /* ignore */ }
+            await PortProxyDumpPage.ShowAsync(GetNavigation(), text);
         }
         finally { SetBusy(false); }
     }
@@ -571,5 +654,14 @@ public sealed class PortProxyPanel : ContentView
         }
 
         return Application.Current?.Windows.FirstOrDefault()?.Page;
+    }
+}
+
+internal static class PortProxyViewExtensions
+{
+    public static T Also<T>(this T value, Action<T> configure)
+    {
+        configure(value);
+        return value;
     }
 }

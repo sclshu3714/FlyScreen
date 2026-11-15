@@ -86,6 +86,10 @@ public sealed class TileSession : IDisposable
         return _player.StartAsync(ct);
     }
 
+    public void Pause() => _player?.Pause();
+
+    public void Resume() => _player?.Resume();
+
     public void SetRenderTarget(IntPtr target)
     {
         _renderTarget = target;

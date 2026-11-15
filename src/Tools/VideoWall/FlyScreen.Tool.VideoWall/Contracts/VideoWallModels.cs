@@ -31,6 +31,9 @@ public sealed record VideoSourceGroup
     public required string Name { get; init; }
 }
 
+/// <summary>播放关键事件标记（进度条白点）。</summary>
+public sealed record PlaybackCue(long PositionMs, string? Label = null);
+
 /// <summary>固定/临时源条目。</summary>
 public sealed record VideoSourceDescriptor
 {
@@ -61,6 +64,9 @@ public sealed record VideoSourceDescriptor
     public DateTimeOffset? CoverCapturedAt { get; init; }
 
     public DateTimeOffset? LastPlayedAt { get; init; }
+
+    /// <summary>用户自定义的关键事件标记（进度条白点）。</summary>
+    public IReadOnlyList<PlaybackCue> KeyEvents { get; init; } = [];
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
 }

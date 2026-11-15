@@ -196,6 +196,9 @@ public sealed class VideoSourceCatalog
         CoverCapturedAt = d.CoverCapturedAt,
         LastPlayedAt = d.LastPlayedAt,
         CreatedAt = d.CreatedAt ?? DateTimeOffset.Now,
+        KeyEvents = d.KeyEvents is { Count: > 0 }
+            ? d.KeyEvents.Where(e => e.Ms >= 0).OrderBy(e => e.Ms).Select(e => new PlaybackCue(e.Ms, e.Label)).ToList()
+            : [],
         Endpoint = new VideoEndpoint
         {
             Protocol = d.Protocol,
@@ -227,7 +230,10 @@ public sealed class VideoSourceCatalog
         CoverKey = s.CoverKey,
         CoverCapturedAt = s.CoverCapturedAt,
         LastPlayedAt = s.LastPlayedAt,
-        CreatedAt = s.CreatedAt
+        CreatedAt = s.CreatedAt,
+        KeyEvents = s.KeyEvents.Count > 0
+            ? s.KeyEvents.Select(e => new CueDto { Ms = e.PositionMs, Label = e.Label }).ToList()
+            : null
     };
 
     private static TEnum ParseEnum<TEnum>(string? value, string id) where TEnum : struct, Enum
@@ -273,5 +279,12 @@ public sealed class VideoSourceCatalog
         public DateTimeOffset? CoverCapturedAt { get; set; }
         public DateTimeOffset? LastPlayedAt { get; set; }
         public DateTimeOffset? CreatedAt { get; set; }
+        public List<CueDto>? KeyEvents { get; set; }
+    }
+
+    private sealed class CueDto
+    {
+        public long Ms { get; set; }
+        public string? Label { get; set; }
     }
 }

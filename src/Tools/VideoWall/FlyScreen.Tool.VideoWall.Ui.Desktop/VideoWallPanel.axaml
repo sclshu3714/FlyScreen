@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:FlyScreen.Tool.VideoWall.Ui.Desktop"
              x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.VideoWallPanel"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
   <Grid Margin="4" RowDefinitions="Auto,*,Auto">
@@ -52,33 +53,7 @@
         </ListBox>
       </DockPanel>
       <UniformGrid x:Name="WallGrid" IsVisible="False" Rows="3" Columns="3"/>
-      <Border x:Name="PlaybackPane" IsVisible="False" Background="#111827" Padding="12">
-        <Grid RowDefinitions="Auto,*,Auto">
-          <Button x:Name="PlaybackBackBtn" Click="PlaybackBackBtn_Click" HorizontalAlignment="Left"/>
-          <Border x:Name="PlaybackVideoHost" Grid.Row="1" MinHeight="200" Background="Black"
-                  CornerRadius="8" Margin="0,8">
-            <TextBlock x:Name="VideoPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center"
-                       Foreground="White" TextWrapping="Wrap" Margin="12"/>
-          </Border>
-          <Border x:Name="PlaybackTransportBar" Grid.Row="2" Background="#1F2937" CornerRadius="8" Padding="10,6">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Button x:Name="PlaybackSeekBackBtn" Content="-10s" Click="PlaybackSeekBack_Click"/>
-                <Button x:Name="PlaybackPlayPauseBtn" Content="Play/Pause" Click="PlaybackPlayPause_Click"/>
-                <Button x:Name="PlaybackStopBtn" Click="PlaybackStop_Click"/>
-                <Button x:Name="PlaybackSeekFwdBtn" Content="+10s" Click="PlaybackSeekFwd_Click"/>
-                <Button x:Name="PlaybackMuteBtn" Click="PlaybackMute_Click"/>
-                <Slider x:Name="PlaybackVolumeBar" Width="90" Minimum="0" Maximum="100" Value="100"
-                        VerticalAlignment="Center"/>
-              </StackPanel>
-              <TextBlock x:Name="PlaybackStats" Grid.Column="1" Opacity="0.8" VerticalAlignment="Center"
-                         Margin="12,0" TextTrimming="CharacterEllipsis"/>
-              <Button x:Name="PlaybackFullscreenBtn" Grid.Column="2" Click="PlaybackFullscreen_Click"
-                      VerticalAlignment="Center"/>
-            </Grid>
-          </Border>
-        </Grid>
-      </Border>
+      <local:VideoWallPlayerControl x:Name="Player" IsVisible="False"/>
     </Grid>
 
     <TextBlock x:Name="StatusBar" Grid.Row="2" FontSize="11" Opacity="0.7" Margin="0,6,0,0"/>

@@ -21,6 +21,8 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
     private bool _running;
     private List<TileSession> _tiles = [];
     private WallLayout _layout = WallLayout.ThreeByThree;
+    private int? _focusedTileIndex;
+    private readonly HashSet<int> _pausedByFocus = [];
 
     public VideoWallService()
     {
@@ -71,6 +73,68 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
 
     public SinglePlaybackController SinglePlayback { get; private set; }
     public AudioRouter Audio { get; }
+
+    public int? FocusedTileIndex
+    {
+        get { lock (_gate) return _focusedTileIndex; }
+    }
+
+    public Task FocusTileAsync(int? tileIndex, CancellationToken ct = default)
+    {
+        List<TileSession> toPause = [];
+        List<TileSession> toResume = [];
+
+        lock (_gate)
+        {
+            if (tileIndex is int idx && _tiles.All(t => t.Index != idx))
+                throw new ArgumentOutOfRangeException(nameof(tileIndex), $"格索引超出布局：{idx}");
+
+            if (_focusedTileIndex == tileIndex)
+                return Task.CompletedTask;
+
+            if (tileIndex is int focus)
+            {
+                // 切换聚焦格：先把上一轮被暂停且就是新焦点格的恢复
+                foreach (var tile in _tiles)
+                {
+                    if (tile.Index == focus)
+                    {
+                        if (_pausedByFocus.Remove(tile.Index))
+                            toResume.Add(tile);
+                    }
+                    else if (tile.State is TilePlayState.Playing or TilePlayState.Buffering)
+                    {
+                        _pausedByFocus.Add(tile.Index);
+                        toPause.Add(tile);
+                    }
+                }
+            }
+            else
+            {
+                foreach (var tile in _tiles)
+                {
+                    if (_pausedByFocus.Contains(tile.Index))
+                        toResume.Add(tile);
+                }
+                _pausedByFocus.Clear();
+            }
+
+            _focusedTileIndex = tileIndex;
+        }
+
+        foreach (var tile in toPause)
+        {
+            try { tile.Pause(); } catch { /* ignore */ }
+        }
+
+        foreach (var tile in toResume)
+        {
+            try { tile.Resume(); } catch { /* ignore */ }
+        }
+
+        RaiseSession();
+        return Task.CompletedTask;
+    }
 
     public void AttachHost(IToolHostServices host) => _host = host;
 
@@ -162,6 +226,8 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
             oldTiles = _tiles.ToList();
             _tiles = [];
             _layout = layout;
+            _focusedTileIndex = null;
+            _pausedByFocus.Clear();
         }
 
         foreach (var tile in oldTiles)
@@ -180,7 +246,11 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
     {
         List<TileSession> tiles;
         lock (_gate)
+        {
             tiles = _tiles.ToList();
+            _focusedTileIndex = null;
+            _pausedByFocus.Clear();
+        }
 
         foreach (var tile in tiles)
         {
@@ -256,6 +326,7 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
 
     public async Task<AddSourceResult> AddSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default)
     {
+        source = ResolveGroupName(source);
         var result = Catalog.Add(source);
         if (result.Added)
         {
@@ -268,6 +339,7 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
 
     public async Task<AddSourceResult> UpdateSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default)
     {
+        source = ResolveGroupName(source);
         var result = Catalog.Update(source);
         if (result.Added)
         {
@@ -276,6 +348,16 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>表单里的 groupId 实际是分组名：EnsureGroup 后写回规范名称。</summary>
+    private VideoSourceDescriptor ResolveGroupName(VideoSourceDescriptor source)
+    {
+        if (string.IsNullOrWhiteSpace(source.GroupId))
+            return source with { GroupId = null };
+
+        var group = Catalog.EnsureGroup(source.GroupId);
+        return source with { GroupId = group.Name };
     }
 
     public async Task<bool> RemoveSourceAsync(string sourceId, CancellationToken ct = default)

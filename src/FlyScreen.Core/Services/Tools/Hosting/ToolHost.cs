@@ -385,17 +385,36 @@ public sealed class ToolHost
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            // 与宿主共享契约 / Core / UI 框架，避免类型身份分裂
+            // 与宿主共享契约 / Core / UI 框架，避免类型身份分裂。
+            // 显式 LoadFromAssemblyName：宿主缺 NuGet 旁路包（如 ProtectedData）时捕获后回落插件目录，
+            // 避免 return null 交给 Default 直接 FileNotFound（Maui-Win 视频墙安装后无法启动）。
             if (ShouldShareWithDefaultContext(assemblyName.Name))
-                return null;
+            {
+                try
+                {
+                    return Default.LoadFromAssemblyName(assemblyName);
+                }
+                catch (FileNotFoundException)
+                {
+                    /* fall through → 插件旁路 */
+                }
+                catch (FileLoadException)
+                {
+                    /* fall through */
+                }
+            }
 
             var path = _resolver?.ResolveAssemblyToPath(assemblyName);
             if (path != null)
                 return LoadFromFileBytes(path);
 
-            var fallback = Path.Combine(_pluginDir, assemblyName.Name + ".dll");
-            if (File.Exists(fallback))
-                return LoadFromFileBytes(fallback);
+            var name = assemblyName.Name;
+            if (!string.IsNullOrEmpty(name))
+            {
+                var fallback = Path.Combine(_pluginDir, name + ".dll");
+                if (File.Exists(fallback))
+                    return LoadFromFileBytes(fallback);
+            }
 
             return null;
         }
@@ -407,6 +426,7 @@ public sealed class ToolHost
                 return true;
             if (name is "netstandard" or "mscorlib")
                 return true;
+            // System.* 含 BCL 与 NuGet 旁路；Default 缺包时由 Load 回落插件目录
             if (name.StartsWith("System.", StringComparison.Ordinal))
                 return true;
             if (name is "PresentationFramework" or "PresentationCore" or "WindowsBase" or "System.Xaml")
@@ -421,6 +441,7 @@ public sealed class ToolHost
                 || name.StartsWith("AndroidX.", StringComparison.Ordinal)
                 || name.StartsWith("Android.", StringComparison.Ordinal))
                 return true;
+            // LibVLCSharp* 不与宿主共享：插件自带旁路 DLL，保证热拔插、宿主零媒体依赖
             return false;
         }
     }

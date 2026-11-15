@@ -32,6 +32,13 @@
           <TextBlock x:Name="PassLabel" FontSize="12" Opacity="0.7"/>
           <TextBox x:Name="PassBox" PasswordChar="●" MinHeight="36"/>
         </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock x:Name="GroupLabel" FontSize="12" Opacity="0.7"/>
+          <ComboBox x:Name="GroupCombo" MinHeight="36" IsEditable="True"/>
+        </StackPanel>
+        <StackPanel x:Name="FileBrowseRow" Orientation="Horizontal" Spacing="8" IsVisible="False">
+          <Button x:Name="BrowseBtn" Click="BrowseBtn_Click" MinWidth="80"/>
+        </StackPanel>
       </StackPanel>
     </ScrollViewer>
     <StackPanel Grid.Row="2" Spacing="8" Margin="0,10,0,0">

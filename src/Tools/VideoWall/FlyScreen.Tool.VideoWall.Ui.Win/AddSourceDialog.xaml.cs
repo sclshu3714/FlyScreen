@@ -33,6 +33,13 @@ public partial class AddSourceDialog : Window
             _values["address"] = edit.Endpoint.Address;
             if (edit.Kind == VideoSourceKind.LocalFile)
                 _values["path"] = edit.Endpoint.Address;
+            _values["groupId"] = edit.GroupId;
+            _values["decode"] = edit.DecodePreference;
+            _values["note"] = edit.Note;
+            if (edit.Endpoint.BufferMs is int buf)
+                _values["bufferMs"] = buf.ToString();
+            if (!string.IsNullOrWhiteSpace(edit.Endpoint.Transport))
+                _values["transport"] = edit.Endpoint.Transport;
         }
 
         if (owner is not null)
@@ -165,6 +172,9 @@ public partial class AddSourceDialog : Window
 
     private UIElement CreateSelect(SourceFieldSpec field)
     {
+        if (field.AllowCustomValue)
+            return CreateEditableSelect(field);
+
         var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 0), Tag = field.Key };
         foreach (var opt in field.Options)
             combo.Items.Add(new ComboBoxItem { Content = Loc.T(opt.LabelKey), Tag = opt.Value });
@@ -186,6 +196,69 @@ public partial class AddSourceDialog : Window
                 _values[field.Key] = item.Tag as string;
                 RebuildFields();
             }
+        };
+        return combo;
+    }
+
+    /// <summary>可输入可下拉：选已有分组，或键入名称新建。</summary>
+    private UIElement CreateEditableSelect(SourceFieldSpec field)
+    {
+        var combo = new ComboBox
+        {
+            Tag = field.Key,
+            IsEditable = true,
+            IsTextSearchEnabled = true,
+            StaysOpenOnEdit = true
+        };
+        if (field.Placeholder is not null)
+            combo.ToolTip = Loc.T(field.Placeholder);
+
+        // 分组：候选项来自目录（非 schema Options）
+        if (string.Equals(field.Key, "groupId", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var g in _service.Catalog.Groups)
+                combo.Items.Add(g.Name);
+        }
+        else
+        {
+            foreach (var opt in field.Options)
+                combo.Items.Add(new ComboBoxItem { Content = Loc.T(opt.LabelKey), Tag = opt.Value });
+        }
+
+        var current = _values.GetValueOrDefault(field.Key) ?? field.DefaultValue ?? "";
+        combo.Text = current;
+        if (!string.IsNullOrWhiteSpace(current))
+        {
+            for (var i = 0; i < combo.Items.Count; i++)
+            {
+                var text = combo.Items[i] switch
+                {
+                    string s => s,
+                    ComboBoxItem { Content: string c } => c,
+                    ComboBoxItem item => item.Content?.ToString(),
+                    _ => combo.Items[i]?.ToString()
+                };
+                if (string.Equals(text, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    combo.SelectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        void Sync()
+        {
+            var text = (combo.Text ?? "").Trim();
+            _values[field.Key] = string.IsNullOrEmpty(text) ? null : text;
+        }
+
+        combo.SelectionChanged += (_, _) => Sync();
+        combo.LostFocus += (_, _) => Sync();
+        combo.DropDownClosed += (_, _) => Sync();
+        combo.Loaded += (_, _) =>
+        {
+            if (combo.Template.FindName("PART_EditableTextBox", combo) is TextBox tb)
+                tb.TextChanged += (_, _) => Sync();
         };
         return combo;
     }
@@ -228,15 +301,44 @@ public partial class AddSourceDialog : Window
         btn.Click += (_, _) =>
         {
             var dlg = new OpenFileDialog { Filter = "Video|*.mp4;*.mkv;*.avi;*.mov;*.ts|All|*.*" };
-            if (dlg.ShowDialog() == true)
-            {
-                tb.Text = dlg.FileName;
-                _values[field.Key] = dlg.FileName;
-            }
+            if (dlg.ShowDialog() != true) return;
+            tb.Text = dlg.FileName;
+            _values[field.Key] = dlg.FileName;
+            SuggestNameFromPath(dlg.FileName);
         };
         Grid.SetColumn(btn, 1);
         grid.Children.Add(btn);
         return grid;
+    }
+
+    private void FlushEditableFields()
+    {
+        foreach (var child in FieldsPanel.Children)
+        {
+            if (child is ComboBox { IsEditable: true, Tag: string key } combo)
+            {
+                var text = (combo.Text ?? "").Trim();
+                _values[key] = string.IsNullOrEmpty(text) ? null : text;
+            }
+        }
+    }
+
+    /// <summary>选本地文件后，若名称为空则用文件名（不含扩展名）。</summary>
+    private void SuggestNameFromPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (!string.IsNullOrWhiteSpace(_values.GetValueOrDefault("name"))) return;
+        var name = System.IO.Path.GetFileNameWithoutExtension(path);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _values["name"] = name;
+        foreach (var child in FieldsPanel.Children)
+        {
+            if (child is TextBox { Tag: "name" } tb)
+            {
+                tb.Text = name;
+                break;
+            }
+        }
     }
 
     private async void SaveBtn_Click(object sender, RoutedEventArgs e)
@@ -245,6 +347,7 @@ public partial class AddSourceDialog : Window
         SaveBtn.IsEnabled = false;
         try
         {
+            FlushEditableFields();
             var descriptor = SourceDescriptorBuilder.TryBuild(_kind, _values, _service.Credentials, out var err);
             if (descriptor is null)
             {

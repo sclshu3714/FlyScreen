@@ -65,6 +65,8 @@ internal sealed class NullMediaPlayer : IMediaPlayer, IDisposable
     public void SeekBy(long deltaMs) { }
     public void SetVolume(int volume0To100) { }
     public void SetMuted(bool muted) { }
+    public void SetRate(float rate) { }
+    public void SetLoop(bool loop) { }
     public void Dispose() { }
 
     private void SetState(TilePlayState state)

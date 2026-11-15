@@ -20,6 +20,12 @@ public static class ToolBundledPackSeeder
     {
         FlyScreenDataPaths.EnsureToolsLayout();
         var destDir = FlyScreenDataPaths.ToolsBundledDirectory;
+        if (FlyScreenDataPaths.IsForbiddenToolsPath(destDir))
+        {
+            AppLog.Warn($"跳过 Bundled 种子：目标落在禁区 {destDir}");
+            return;
+        }
+
         Directory.CreateDirectory(destDir);
 
         foreach (var sourceDir in EnumerateSourceCandidates())
@@ -54,6 +60,12 @@ public static class ToolBundledPackSeeder
     {
         FlyScreenDataPaths.EnsureToolsLayout();
         var destDir = FlyScreenDataPaths.ToolsBundledDirectory;
+        if (FlyScreenDataPaths.IsForbiddenToolsPath(destDir))
+        {
+            AppLog.Warn($"跳过 Bundled 流种子：目标落在禁区 {destDir}");
+            return;
+        }
+
         Directory.CreateDirectory(destDir);
 
         foreach (var (fileName, content) in packs)

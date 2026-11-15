@@ -152,7 +152,7 @@
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
                     CornerRadius="6"/>
-            <ToggleButton Focusable="False" ClickMode="Press"
+            <ToggleButton x:Name="ToggleButton" Focusable="False" ClickMode="Press"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
               <ToggleButton.Template>
@@ -168,23 +168,27 @@
                 </ControlTemplate>
               </ToggleButton.Template>
             </ToggleButton>
-            <ContentPresenter Margin="{TemplateBinding Padding}"
+            <!-- 只读模式：显示选中项 -->
+            <ContentPresenter x:Name="ContentSite" Margin="{TemplateBinding Padding}"
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                               Content="{TemplateBinding SelectionBoxItem}"
                               ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                               ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                              IsHitTestVisible="False">
-              <ContentPresenter.Style>
-                <Style TargetType="ContentPresenter">
-                  <Style.Triggers>
-                    <DataTrigger Binding="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource TemplatedParent}}" Value="{x:Null}">
-                      <Setter Property="ContentTemplate" Value="{Binding ItemTemplate, RelativeSource={RelativeSource TemplatedParent}}"/>
-                    </DataTrigger>
-                  </Style.Triggers>
-                </Style>
-              </ContentPresenter.Style>
-            </ContentPresenter>
+                              IsHitTestVisible="False"/>
+            <!-- 可编辑模式：必须有 PART_EditableTextBox，否则 IsEditable 无效 -->
+            <TextBox x:Name="PART_EditableTextBox"
+                     Margin="{TemplateBinding Padding}"
+                     Padding="0"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Foreground="{TemplateBinding Foreground}"
+                     VerticalContentAlignment="Center"
+                     HorizontalAlignment="Stretch"
+                     VerticalAlignment="Center"
+                     Visibility="Collapsed"
+                     Focusable="True"
+                     IsTabStop="True"/>
             <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                    AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
               <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
@@ -200,6 +204,13 @@
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
+            </Trigger>
+            <Trigger Property="IsEditable" Value="True">
+              <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/>
+              <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+              <!-- 可编辑时仅右侧箭头可点，避免挡住输入框 -->
+              <Setter TargetName="ToggleButton" Property="HorizontalAlignment" Value="Right"/>
+              <Setter TargetName="ToggleButton" Property="Width" Value="32"/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -326,18 +337,26 @@
     </Setter>
   </Style>
 
-  <!-- 播放进度 / 音量：细轨 + 蓝色已播段 + 圆点拇指 -->
+  <SolidColorBrush x:Key="PlaybackAccent" Color="#00D4C8"/>
+  <SolidColorBrush x:Key="PlaybackTrackBg" Color="#66FFFFFF"/>
+  <LinearGradientBrush x:Key="PlaybackVolumeGradient" StartPoint="0,1" EndPoint="0,0">
+    <GradientStop Color="Lime" Offset="0"/>
+    <GradientStop Color="Cyan" Offset="0.5"/>
+    <GradientStop Color="SkyBlue" Offset="1"/>
+  </LinearGradientBrush>
+
+  <!-- 播放进度：极细轨 + 青绿色已播段（对齐附件） -->
   <ControlTemplate x:Key="PlaybackSliderTemplate" TargetType="Slider">
-    <Grid VerticalAlignment="Center" Background="Transparent">
-      <Border Height="4" CornerRadius="2" Background="{DynamicResource Line}"
-              Margin="7,0" VerticalAlignment="Center"/>
+    <Grid VerticalAlignment="Center" Background="Transparent" MinHeight="16">
+      <Border Height="2" CornerRadius="1" Background="{StaticResource PlaybackTrackBg}"
+              Margin="0" VerticalAlignment="Center"/>
       <Track x:Name="PART_Track">
         <Track.DecreaseRepeatButton>
           <RepeatButton Command="Slider.DecreaseLarge" IsTabStop="False" Focusable="False">
             <RepeatButton.Template>
               <ControlTemplate TargetType="RepeatButton">
-                <Border Background="{DynamicResource Blue}" CornerRadius="2" Height="4"
-                        Margin="7,0,0,0" VerticalAlignment="Center"/>
+                <Border Background="{StaticResource PlaybackAccent}" CornerRadius="1" Height="2"
+                        VerticalAlignment="Center"/>
               </ControlTemplate>
             </RepeatButton.Template>
           </RepeatButton>
@@ -346,10 +365,14 @@
           <RepeatButton Command="Slider.IncreaseLarge" Opacity="0" IsTabStop="False" Focusable="False"/>
         </Track.IncreaseRepeatButton>
         <Track.Thumb>
-          <Thumb Width="14" Height="14">
+          <Thumb Width="10" Height="10">
             <Thumb.Template>
               <ControlTemplate TargetType="Thumb">
-                <Ellipse Fill="{DynamicResource Blue}" Stroke="White" StrokeThickness="2"/>
+                <Ellipse Fill="White">
+                  <Ellipse.Effect>
+                    <DropShadowEffect BlurRadius="6" ShadowDepth="0" Color="#00D4C8" Opacity="0.85"/>
+                  </Ellipse.Effect>
+                </Ellipse>
               </ControlTemplate>
             </Thumb.Template>
           </Thumb>
@@ -359,7 +382,7 @@
   </ControlTemplate>
 
   <Style x:Key="PlaybackSeekSlider" TargetType="Slider">
-    <Setter Property="Height" Value="22"/>
+    <Setter Property="Height" Value="16"/>
     <Setter Property="Minimum" Value="0"/>
     <Setter Property="Maximum" Value="1000"/>
     <Setter Property="IsMoveToPointEnabled" Value="True"/>
@@ -368,8 +391,47 @@
     <Setter Property="Template" Value="{StaticResource PlaybackSliderTemplate}"/>
   </Style>
 
-  <Style x:Key="PlaybackVolumeSlider" TargetType="Slider" BasedOn="{StaticResource PlaybackSeekSlider}">
-    <Setter Property="Width" Value="90"/>
+  <!-- 竖向音量弹出（附件式） -->
+  <ControlTemplate x:Key="PlaybackVolumeVerticalTemplate" TargetType="Slider">
+    <Grid HorizontalAlignment="Center" Background="Transparent" MinWidth="20">
+      <!-- 整条绿→青→蓝渐变轨；未到音量的上半段用不透明深色盖住 -->
+      <Border Width="4" CornerRadius="2" Background="{StaticResource PlaybackVolumeGradient}"
+              HorizontalAlignment="Center"/>
+      <Track x:Name="PART_Track" Orientation="Vertical">
+        <Track.DecreaseRepeatButton>
+          <RepeatButton Command="Slider.DecreaseLarge" Opacity="0" IsTabStop="False" Focusable="False"/>
+        </Track.DecreaseRepeatButton>
+        <Track.IncreaseRepeatButton>
+          <RepeatButton Command="Slider.IncreaseLarge" IsTabStop="False" Focusable="False">
+            <RepeatButton.Template>
+              <ControlTemplate TargetType="RepeatButton">
+                <Border Background="#FF3B4252" CornerRadius="2" Width="4"
+                        HorizontalAlignment="Center"/>
+              </ControlTemplate>
+            </RepeatButton.Template>
+          </RepeatButton>
+        </Track.IncreaseRepeatButton>
+        <Track.Thumb>
+          <Thumb Width="12" Height="12">
+            <Thumb.Template>
+              <ControlTemplate TargetType="Thumb">
+                <Ellipse Fill="White" Stroke="Cyan" StrokeThickness="1.5"/>
+              </ControlTemplate>
+            </Thumb.Template>
+          </Thumb>
+        </Track.Thumb>
+      </Track>
+    </Grid>
+  </ControlTemplate>
+
+  <Style x:Key="PlaybackVolumeVerticalSlider" TargetType="Slider">
+    <Setter Property="Width" Value="28"/>
+    <Setter Property="Height" Value="120"/>
+    <Setter Property="Minimum" Value="0"/>
     <Setter Property="Maximum" Value="100"/>
+    <Setter Property="Orientation" Value="Vertical"/>
+    <Setter Property="IsMoveToPointEnabled" Value="True"/>
+    <Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template" Value="{StaticResource PlaybackVolumeVerticalTemplate}"/>
   </Style>
 </ResourceDictionary>

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
@@ -31,6 +32,9 @@ public partial class AddSourceWindow : Window
             .Cast<object>()
             .ToList();
 
+        GroupCombo.ItemsSource = service.Catalog.Groups.Select(g => g.Name).ToList();
+        GroupCombo.PlaceholderText = Loc.T("Tool.VideoWall.Field.GroupPlaceholder");
+
         if (edit is not null)
         {
             var kinds = SourceFormSchema.Types
@@ -41,6 +45,7 @@ public partial class AddSourceWindow : Window
             TypeCombo.IsEnabled = false;
             NameBox.Text = edit.Name;
             AddressBox.Text = edit.Endpoint.Address;
+            GroupCombo.Text = edit.GroupId ?? "";
         }
         else
         {
@@ -54,6 +59,8 @@ public partial class AddSourceWindow : Window
             Loc.T("Tool.VideoWall.Auth.Digest")
         };
         AuthCombo.SelectedIndex = 0;
+        TypeCombo.SelectionChanged += (_, _) => UpdateLocalFileUi();
+        UpdateLocalFileUi();
     }
 
     public bool Saved { get; private set; }
@@ -68,10 +75,12 @@ public partial class AddSourceWindow : Window
         AuthLabel.Text = Loc.T("Tool.VideoWall.Field.Auth");
         UserLabel.Text = Loc.T("Tool.VideoWall.Field.Username");
         PassLabel.Text = Loc.T("Tool.VideoWall.Field.Password");
+        GroupLabel.Text = Loc.T("Tool.VideoWall.Field.Group");
         NameBox.Watermark = Loc.T("Tool.VideoWall.Field.Name");
         AddressBox.Watermark = Loc.T("Tool.VideoWall.Field.Address");
         UserBox.Watermark = Loc.T("Tool.VideoWall.Field.Username");
         PassBox.Watermark = Loc.T("Tool.VideoWall.Field.Password");
+        BrowseBtn.Content = "…";
         CancelBtn.Content = Loc.T("Tool.VideoWall.Cancel");
         SaveBtn.Content = Loc.T("Tool.VideoWall.Save");
     }
@@ -85,6 +94,15 @@ public partial class AddSourceWindow : Window
         return VideoSourceKind.Camera;
     }
 
+    private void UpdateLocalFileUi()
+    {
+        var local = SelectedKind() == VideoSourceKind.LocalFile;
+        FileBrowseRow.IsVisible = local;
+        AddressLabel.Text = local
+            ? Loc.T("Tool.VideoWall.Field.FilePath")
+            : Loc.T("Tool.VideoWall.Field.Address");
+    }
+
     private static string AuthValue(int index) => index switch
     {
         1 => SourceFormSchema.AuthBasic,
@@ -92,12 +110,37 @@ public partial class AddSourceWindow : Window
         _ => SourceFormSchema.AuthNone
     };
 
+    private async void BrowseBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        var top = StorageProvider;
+        if (top is null) return;
+        var files = await top.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Loc.T("Tool.VideoWall.Field.FilePath"),
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Video")
+                {
+                    Patterns = ["*.mp4", "*.mkv", "*.avi", "*.mov", "*.ts", "*.m4v", "*.wmv", "*.flv", "*.webm"]
+                },
+                new FilePickerFileType("All") { Patterns = ["*.*"] }
+            ]
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(path)) return;
+        AddressBox.Text = path;
+        if (string.IsNullOrWhiteSpace(NameBox.Text))
+            NameBox.Text = Path.GetFileNameWithoutExtension(path);
+    }
+
     private async void SaveBtn_Click(object? sender, RoutedEventArgs e)
     {
         if (_service is null) return;
 
         ErrorText.Text = "";
         var kind = SelectedKind();
+        var group = (GroupCombo.Text ?? "").Trim();
         var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
             ["name"] = NameBox.Text,
@@ -108,7 +151,8 @@ public partial class AddSourceWindow : Window
             ["password"] = PassBox.Text,
             ["decode"] = "auto",
             ["bufferMs"] = "800",
-            ["transport"] = "tcp"
+            ["transport"] = "tcp",
+            ["groupId"] = string.IsNullOrEmpty(group) ? null : group
         };
 
         var descriptor = SourceDescriptorBuilder.TryBuild(kind, values, _service.Credentials, out var err);

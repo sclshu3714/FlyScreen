@@ -22,8 +22,19 @@ internal sealed class VideoWallFlyoutHost
     {
         if (!ReferenceEquals(_owner, owner))
             Close();
-
         _owner = owner;
+        ShowCore(anchor, menu, minWidth);
+    }
+
+    /// <summary>无 DropDown 归属的浮层（如分组可编辑输入旁的 ▾）。</summary>
+    public void ShowAt(View anchor, View menu, double minWidth)
+    {
+        Close();
+        ShowCore(anchor, menu, minWidth);
+    }
+
+    private void ShowCore(View anchor, View menu, double minWidth)
+    {
         _menu = menu;
         _layer.Children.Clear();
 

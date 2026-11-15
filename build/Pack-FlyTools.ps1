@@ -1,12 +1,37 @@
-﻿# 将工具工程打成 .flytool，复制到各 App 输出目录的 Tools/Bundled/
+﻿# Pack tool projects into .flytool and copy ONLY to App bin output Tools/Bundled.
+# NEVER write under src/**/Tools/Bundled (source tree). NEVER write AppData.
+# Output primary: artifacts/flytools ; optional copy: <App>/bin/<cfg>/<tfm>/Tools/Bundled
+#
+# Maui 多 TFM / 多宿主并行构建时会同时调用本脚本；用命名互斥串行化，避免抢写 .flytool。
 param(
     [string]$Configuration = "Debug",
     [string]$OutRoot = "",
-    [switch]$SkipAppCopy
+    [switch]$SkipAppCopy,
+    # Force: rebuild zip even if dll/manifest not newer than existing .flytool
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
+
+# 串行化：VS 多 TFM 并行时否则会同时 Zip / 删 stage 导致 exit 1
+$mutex = $null
+$mutexAcquired = $false
+try {
+    $mutex = New-Object System.Threading.Mutex($false, "Local\FlyScreen.PackFlyTools.v1")
+    Write-Host "Pack-FlyTools: waiting for lock..."
+    $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(45))
+    if (-not $mutexAcquired) {
+        throw "Pack-FlyTools: timed out waiting for pack lock (another build stuck?)"
+    }
+    Write-Host "Pack-FlyTools: lock acquired"
+}
+catch {
+    Write-Error $_
+    exit 1
+}
+
+try {
 $tools = @(
     @{
         Id = "color-picker"
@@ -49,14 +74,38 @@ $tools = @(
     }
 )
 
-function Resolve-ProjectOutputDir([string]$projectFile, [string]$configuration, [string]$assemblyName) {
+function Test-AllowedFlyToolDest([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path)) { return $false }
+    $full = [IO.Path]::GetFullPath($path.Trim().TrimEnd('\', '/'))
+    $norm = $full.Replace('/', '\').ToLowerInvariant()
+
+    if ($norm -match '\\appdata\\(roaming|local)\\flyscreen(\\|$)') { return $false }
+
+    if ($norm -match '\\src\\') {
+        if ($norm -notmatch '\\bin\\' -and $norm -notmatch '\\obj\\') { return $false }
+    }
+
+    return $true
+}
+
+function Resolve-ProjectOutputDir([string]$projectFile, [string]$configuration, [string]$assemblyName, [switch]$PreferWindows) {
     $projDir = Split-Path -Parent $projectFile
-    $candidates = @(
-        (Join-Path $projDir "bin/$configuration/net10.0"),
-        (Join-Path $projDir "bin/$configuration/net10.0-windows7.0"),
-        (Join-Path $projDir "bin/$configuration/net10.0-windows10.0.19041.0"),
-        (Join-Path $projDir "bin/$configuration/net10.0-android")
-    )
+    $candidates = if ($PreferWindows) {
+        @(
+            (Join-Path $projDir "bin/$configuration/net10.0-windows10.0.19041.0"),
+            (Join-Path $projDir "bin/$configuration/net10.0-windows7.0"),
+            (Join-Path $projDir "bin/$configuration/net10.0"),
+            (Join-Path $projDir "bin/$configuration/net10.0-android")
+        )
+    }
+    else {
+        @(
+            (Join-Path $projDir "bin/$configuration/net10.0"),
+            (Join-Path $projDir "bin/$configuration/net10.0-windows7.0"),
+            (Join-Path $projDir "bin/$configuration/net10.0-windows10.0.19041.0"),
+            (Join-Path $projDir "bin/$configuration/net10.0-android")
+        )
+    }
     foreach ($dir in $candidates) {
         $dll = Join-Path $dir "$assemblyName.dll"
         if (Test-Path -LiteralPath $dll) { return $dir }
@@ -64,11 +113,57 @@ function Resolve-ProjectOutputDir([string]$projectFile, [string]$configuration, 
     return $null
 }
 
+function Get-NewestUtc([string[]]$paths) {
+    $max = [datetime]::MinValue
+    foreach ($p in $paths) {
+        if ([string]::IsNullOrWhiteSpace($p) -or -not (Test-Path -LiteralPath $p)) { continue }
+        $t = (Get-Item -LiteralPath $p).LastWriteTimeUtc
+        if ($t -gt $max) { $max = $t }
+    }
+    return $max
+}
+
+function Add-IndexEntry([string]$id, [string]$manifestPath, [string]$flyPath) {
+    $hash = (Get-FileHash -Algorithm SHA256 $flyPath).Hash.ToLowerInvariant()
+    $mf = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    return [ordered]@{
+        id = $id
+        version = $mf.package.version
+        fileName = [IO.Path]::GetFileName($flyPath)
+        sha256 = $hash
+    }
+}
+
+function Write-FlyToolZip([string]$packStage, [string]$flyPath) {
+    $tmp = "$flyPath.packing"
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $flyPath) { Remove-Item -LiteralPath $flyPath -Force -ErrorAction SilentlyContinue }
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($packStage, $tmp)
+    $retries = 0
+    while ($true) {
+        try {
+            Move-Item -LiteralPath $tmp -Destination $flyPath -Force
+            break
+        }
+        catch {
+            $retries++
+            if ($retries -ge 8) { throw }
+            Start-Sleep -Milliseconds (200 * $retries)
+        }
+    }
+}
+
 $stage = Join-Path $repo "artifacts/flytools-stage"
 $bundledOut = if ($OutRoot) { $OutRoot } else { Join-Path $repo "artifacts/flytools" }
+$bundledOut = [IO.Path]::GetFullPath($bundledOut)
+if (-not (Test-AllowedFlyToolDest $bundledOut)) {
+    throw "Refusing OutRoot (forbidden path): $bundledOut"
+}
 New-Item -ItemType Directory -Force -Path $bundledOut | Out-Null
 
 $index = [ordered]@{ schemaVersion = 1; tools = @() }
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 foreach ($t in $tools) {
     $proj = Join-Path $repo $t.Proj
@@ -84,13 +179,48 @@ foreach ($t in $tools) {
     $outDir = Resolve-ProjectOutputDir $proj $Configuration $asmName
     if (-not $outDir) { throw "missing output dll for $asmName under $(Split-Path $proj -Parent)/bin/$Configuration" }
 
+    # 用 List 避免 PS「+= 单个 hashtable 退化成非数组」陷阱
+    $uiDlls = New-Object 'System.Collections.Generic.List[string]'
+    $uiPackItems = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($uiRel in @($t.UiProjs)) {
+        $uiProj = Join-Path $repo $uiRel
+        if (-not (Test-Path -LiteralPath $uiProj)) { continue }
+        Write-Host "  Building UI $uiRel..."
+        dotnet build $uiProj -c $Configuration --nologo -v q
+        if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
+        $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiProj)
+        $preferWin = $uiAsm -like "*.Ui.Maui"
+        $uiOut = Resolve-ProjectOutputDir $uiProj $Configuration $uiAsm -PreferWindows:$preferWin
+        if ($uiOut) {
+            $uiDll = Join-Path $uiOut "$uiAsm.dll"
+            [void]$uiDlls.Add($uiDll)
+            [void]$uiPackItems.Add([pscustomobject]@{ Asm = $uiAsm; OutDir = $uiOut })
+            Write-Host "  + $uiAsm.dll  <- $uiOut"
+        }
+        else {
+            Write-Host "  ! skip missing UI dll $uiAsm"
+        }
+    }
+
+    $mainDll = Join-Path $outDir "$asmName.dll"
+    $fly = Join-Path $bundledOut "$($t.Id).flytool"
+    $inputs = @($manifest, $mainDll) + $uiDlls.ToArray()
+    $newestInput = Get-NewestUtc $inputs
+    $flyTime = if (Test-Path -LiteralPath $fly) { (Get-Item -LiteralPath $fly).LastWriteTimeUtc } else { [datetime]::MinValue }
+
+    if (-not $Force -and (Test-Path -LiteralPath $fly) -and $newestInput -le $flyTime) {
+        Write-Host "Up-to-date $($t.Id).flytool (inputs <= pack $($flyTime.ToLocalTime().ToString('HH:mm:ss')))"
+        $index.tools += Add-IndexEntry $t.Id $manifest $fly
+        continue
+    }
+
+    Write-Host "Packing $($t.Id) (inputs newer than pack)..."
     $packStage = Join-Path $stage $t.Id
     Remove-Item -Recurse -Force $packStage -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $packStage | Out-Null
     Copy-Item $manifest (Join-Path $packStage "manifest.json") -Force
-    Copy-Item (Join-Path $outDir "$asmName.dll") $packStage -Force
+    Copy-Item $mainDll $packStage -Force
 
-    # video-wall：仅旁路自有 NuGet（勿把 Core 传递依赖打进包）+ LibVLC 原生库
     if ($t.Id -eq "video-wall") {
         foreach ($dep in @(
             "LibVLCSharp.dll",
@@ -110,7 +240,6 @@ foreach ($t in $tools) {
             $nativeDest = Join-Path $packStage "runtimes/win-x64/native"
             New-Item -ItemType Directory -Force -Path $nativeDest | Out-Null
             Copy-Item (Join-Path $libVlc "*") $nativeDest -Recurse -Force
-            # 同时保留 libvlc/win-x64 布局，供 VlcNativeBootstrap 第一候选路径命中
             $libVlcDest = Join-Path $packStage "libvlc/win-x64"
             New-Item -ItemType Directory -Force -Path $libVlcDest | Out-Null
             Copy-Item (Join-Path $libVlc "*") $libVlcDest -Recurse -Force
@@ -121,56 +250,33 @@ foreach ($t in $tools) {
         }
     }
 
-    # 平台 UI 卫星程序集（宿主提供 Core/ToolSdk）
-    foreach ($uiRel in @($t.UiProjs)) {
-        $uiProj = Join-Path $repo $uiRel
-        if (-not (Test-Path -LiteralPath $uiProj)) { continue }
-        Write-Host "  Building UI $uiRel..."
-        dotnet build $uiProj -c $Configuration --nologo -v q
-        if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
-        $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiProj)
-        $uiOut = Resolve-ProjectOutputDir $uiProj $Configuration $uiAsm
-        if ($uiOut) {
-            Copy-Item (Join-Path $uiOut "$uiAsm.dll") $packStage -Force
-            Write-Host "  + $uiAsm.dll"
-            # Win 卫星依赖的 LibVLCSharp.WPF 需随包，宿主 ALC 不会自带
-            if ($t.Id -eq "video-wall" -and $uiAsm -like "*.Ui.Win") {
-                foreach ($dep in @("LibVLCSharp.WPF.dll", "LibVLCSharp.dll")) {
-                    $depPath = Join-Path $uiOut $dep
-                    if (Test-Path -LiteralPath $depPath) {
-                        Copy-Item $depPath $packStage -Force
-                        Write-Host "  + $dep"
-                    }
+    foreach ($item in $uiPackItems) {
+        $uiAsm = $item.Asm
+        $uiOut = $item.OutDir
+        Copy-Item (Join-Path $uiOut "$uiAsm.dll") $packStage -Force
+        if ($t.Id -eq "video-wall" -and $uiAsm -like "*.Ui.Win") {
+            foreach ($dep in @("LibVLCSharp.WPF.dll", "LibVLCSharp.dll")) {
+                $depPath = Join-Path $uiOut $dep
+                if (Test-Path -LiteralPath $depPath) {
+                    Copy-Item $depPath $packStage -Force
+                    Write-Host "  + $dep"
                 }
             }
         }
-        else {
-            Write-Host "  ! skip missing UI dll $uiAsm"
-        }
+        # Ui.Maui：仅 HWND + Controls，不打包 LibVLCSharp.MAUI（宿主零依赖；内核 DLL 已在主包）
     }
 
-    $fly = Join-Path $bundledOut "$($t.Id).flytool"
-    if (Test-Path $fly) { Remove-Item $fly -Force }
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($packStage, $fly)
+    Write-FlyToolZip $packStage $fly
 
-    $hash = (Get-FileHash -Algorithm SHA256 $fly).Hash.ToLowerInvariant()
     $len = (Get-Item $fly).Length
-    Write-Host "Packed $fly ($len bytes, sha256=$hash)"
-
-    $mf = Get-Content $manifest -Raw | ConvertFrom-Json
-    $index.tools += [ordered]@{
-        id = $t.Id
-        version = $mf.package.version
-        fileName = "$($t.Id).flytool"
-        sha256 = $hash
-    }
+    $entry = Add-IndexEntry $t.Id $manifest $fly
+    Write-Host "Packed $fly ($len bytes, sha256=$($entry.sha256))"
+    $index.tools += $entry
 }
 
 $indexPath = Join-Path $bundledOut "tools-index.json"
 ($index | ConvertTo-Json -Depth 6) | Set-Content -Path $indexPath -Encoding UTF8
 
-# 复制到常见 App 输出旁 Tools/Bundled（MSBuild 目标也会做；脚本可单独跑）
 if (-not $SkipAppCopy) {
     $targets = @(
         "src/FlyScreen.App.Windows/bin/$Configuration/net10.0-windows7.0",
@@ -185,6 +291,10 @@ if (-not $SkipAppCopy) {
         $dir = Join-Path $repo $rel
         if (-not (Test-Path $dir)) { continue }
         $dest = Join-Path $dir "Tools/Bundled"
+        if (-not (Test-AllowedFlyToolDest $dest)) {
+            Write-Host "SKIP forbidden dest: $dest"
+            continue
+        }
         New-Item -ItemType Directory -Force -Path $dest | Out-Null
         Copy-Item (Join-Path $bundledOut "*.flytool") $dest -Force
         Copy-Item $indexPath $dest -Force
@@ -192,4 +302,35 @@ if (-not $SkipAppCopy) {
     }
 }
 
+$polluted = @(
+    "src/FlyScreen.App.Windows/Tools/Bundled",
+    "src/FlyScreen.App.Maui/Tools/Bundled",
+    "src/FlyScreen.App.Desktop/Tools/Bundled",
+    "src/FlyScreen.App.Mac/Tools/Bundled",
+    "src/FlyScreen.App.Linux/Tools/Bundled"
+)
+foreach ($rel in $polluted) {
+    $dir = Join-Path $repo $rel
+    if (-not (Test-Path -LiteralPath $dir)) { continue }
+    Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in ".flytool", ".json" } |
+        ForEach-Object {
+            Remove-Item $_.FullName -Force
+            Write-Host "Removed source pollution: $($_.FullName)"
+        }
+}
+
 Write-Host "Done. Output: $bundledOut"
+exit 0
+}
+catch {
+    Write-Host "Pack-FlyTools FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.ScriptStackTrace) { Write-Host $_.ScriptStackTrace }
+    exit 1
+}
+finally {
+    if ($mutexAcquired -and $mutex) {
+        try { $mutex.ReleaseMutex() } catch { }
+    }
+    if ($mutex) { $mutex.Dispose() }
+}

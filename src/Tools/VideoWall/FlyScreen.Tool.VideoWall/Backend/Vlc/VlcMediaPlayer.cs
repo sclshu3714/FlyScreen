@@ -25,6 +25,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     private DateTime _lastProgressUtc = DateTime.UtcNow;
     private DateTime _playStartUtc;
     private bool _disposed;
+    private volatile bool _loop;
 
     public VlcMediaPlayer(
         LibVLC libVlc,
@@ -43,7 +44,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player.Playing += OnPlaying;
         _player.Paused += (_, _) => SetState(TilePlayState.Paused);
         _player.Stopped += (_, _) => SetState(TilePlayState.Stopped);
-        _player.EndReached += (_, _) => SetState(TilePlayState.Stopped);
+        _player.EndReached += OnEndReached;
         _player.EncounteredError += OnEncounteredError;
 
         _watchTimer = new System.Timers.Timer(500) { AutoReset = true };
@@ -177,6 +178,36 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _player.Mute = muted;
+    }
+
+    public void SetRate(float rate)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _player.SetRate(Math.Clamp(rate, 0.25f, 4f));
+    }
+
+    public void SetLoop(bool loop) => _loop = loop;
+
+    private void OnEndReached(object? sender, EventArgs e)
+    {
+        if (!_loop || _disposed)
+        {
+            SetState(TilePlayState.Stopped);
+            return;
+        }
+
+        // LibVLC 事件线程内不可直接调 Play/Stop，丢到线程池重播。
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                if (_disposed || !_loop) return;
+                _player.Stop();
+                _player.Play();
+                _player.Time = 0;
+            }
+            catch { /* 播放器已释放 */ }
+        });
     }
 
     public void Dispose()

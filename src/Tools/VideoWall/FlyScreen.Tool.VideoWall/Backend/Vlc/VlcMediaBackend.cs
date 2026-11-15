@@ -148,7 +148,17 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
 
     private CoverCaptureResult CaptureCore(VideoEndpoint endpoint, CancellationToken ct)
     {
-        var libVlc = GetOrCreateLibVlc();
+        // 独立 LibVLC + vout=dummy；切勿设 MediaPlayer.Hwnd，否则会强制 Direct3D11 并弹出独立窗。
+        using var libVlc = new LibVLC(
+            "--intf=dummy",
+            "--extraintf=",
+            "--vout=dummy",
+            "--aout=dummy",
+            "--no-audio",
+            "--no-video-title-show",
+            "--no-stats",
+            "--quiet",
+            "--verbose=-1");
         using var player = new MediaPlayer(libVlc);
         using var media = VlcMrlHelper.CreateMedia(libVlc, endpoint, new MediaPlayerOptions
         {
@@ -157,7 +167,10 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
         }, _credentials);
 
         media.AddOption(":vout=dummy");
+        media.AddOption(":aout=dummy");
         media.AddOption(":no-audio");
+        media.AddOption(":no-video-title-show");
+
         player.Media = media;
 
         var temp = Path.Combine(Path.GetTempPath(), $"videowall-cover-{Guid.NewGuid():N}.jpg");
@@ -168,8 +181,12 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
         {
             try
             {
+                // 稍等一帧再抓，减少空图
+                Thread.Sleep(120);
                 if (player.TakeSnapshot(0, temp, 320, 180))
                     tcs.TrySetResult(true);
+                else
+                    tcs.TrySetResult(false);
             }
             catch
             {
@@ -205,7 +222,6 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
             var bytes = File.ReadAllBytes(temp);
             VlcTrackInfo.TryGetVideo(media, out var video);
 
-            // P0-a：后端可返回任意尺寸的 JPEG，CoverCaptureService/UI 可再 letterbox
             return new CoverCaptureResult
             {
                 Ok = true,
@@ -220,7 +236,7 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
         {
             player.Playing -= OnPlaying;
             player.EncounteredError -= OnError;
-            player.Stop();
+            try { player.Stop(); } catch { /* ignore */ }
             try
             {
                 if (File.Exists(temp))

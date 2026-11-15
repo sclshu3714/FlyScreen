@@ -17,6 +17,8 @@ public sealed class SinglePlaybackController : IDisposable
     private bool _muted;
     private int _volume = 100;
     private int _volumeBeforeMute = 100;
+    private float _rate = 1f;
+    private bool _loop;
 
     public SinglePlaybackController(
         IMediaBackend backend,
@@ -94,6 +96,7 @@ public sealed class SinglePlaybackController : IDisposable
         await StopAsync().ConfigureAwait(false);
 
         options ??= new MediaPlayerOptions { Mute = false };
+        LastStats = null;
         _endpoint = endpoint;
         lock (_gate)
             _sourceId = sourceId;
@@ -114,8 +117,18 @@ public sealed class SinglePlaybackController : IDisposable
         }
 
         ApplyVolumeToPlayer();
+        float rate;
+        lock (_gate) rate = _rate;
+        _player.SetRate(rate);
+        bool loop;
+        lock (_gate) loop = _loop;
+        _player.SetLoop(loop);
         _player.StateChanged += OnStateChanged;
-        _player.StatsChanged += s => StatsChanged?.Invoke(s);
+        _player.StatsChanged += s =>
+        {
+            LastStats = s;
+            StatsChanged?.Invoke(s);
+        };
 
         await _player.StartAsync(ct).ConfigureAwait(false);
     }
@@ -218,6 +231,61 @@ public sealed class SinglePlaybackController : IDisposable
     }
 
     public void SetRenderTarget(IntPtr target) => _player?.SetRenderTarget(target);
+
+    /// <summary>播放结束后是否循环（跨换源保持）。</summary>
+    public bool Loop
+    {
+        get { lock (_gate) return _loop; }
+        set => SetLoop(value);
+    }
+
+    public void SetLoop(bool loop)
+    {
+        lock (_gate) _loop = loop;
+        _player?.SetLoop(loop);
+    }
+
+    /// <summary>最近一次上报的统计（分辨率/帧率），无播放时为 null。</summary>
+    public MediaStats? LastStats { get; private set; }
+
+    /// <summary>当前播放源的关键事件标记（白点）。</summary>
+    public IReadOnlyList<PlaybackCue> GetKeyEvents()
+    {
+        string? id;
+        lock (_gate) id = _sourceId;
+        if (string.IsNullOrWhiteSpace(id)) return [];
+        return _catalog.Sources.FirstOrDefault(s => s.Id == id)?.KeyEvents ?? [];
+    }
+
+    /// <summary>覆盖当前源的关键事件标记并落盘；无固定源时返回 false。</summary>
+    public async Task<bool> SetKeyEventsAsync(IEnumerable<PlaybackCue> cues)
+    {
+        string? id;
+        lock (_gate) id = _sourceId;
+        if (string.IsNullOrWhiteSpace(id)) return false;
+
+        var source = _catalog.Sources.FirstOrDefault(s => s.Id == id);
+        if (source is null) return false;
+
+        var list = cues.Where(c => c.PositionMs >= 0).OrderBy(c => c.PositionMs).ToList();
+        var result = _catalog.Update(source with { KeyEvents = list });
+        if (!result.Added) return false;
+
+        await _saveCatalogAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    public float Rate
+    {
+        get { lock (_gate) return _rate; }
+    }
+
+    public void SetRate(float rate)
+    {
+        var r = Math.Clamp(rate, 0.25f, 4f);
+        lock (_gate) _rate = r;
+        _player?.SetRate(r);
+    }
 
     private void ApplyVolumeToPlayer()
     {

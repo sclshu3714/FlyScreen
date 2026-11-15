@@ -87,10 +87,13 @@ public static class FlyScreenDataPaths
     /// <summary>远程 tools-index 本地缓存。</summary>
     public static string ToolsIndexCacheFile => Path.Combine(ToolsRoot, "tools-index.cache.json");
 
-    /// <summary>共享设备「记住适配」记录。</summary>
-    public static string SharedDevicesRememberFile => Path.Combine(Root, "shared-devices-remember.json");
-    /// <summary>共享设备提供方本机选用（扬声器/麦克风/摄像头 Id）。</summary>
-    public static string SharedDevicesSelectionFile => Path.Combine(Root, "shared-devices-selection.json");
+    /// <summary>共享设备「记住适配」：仅 Tools/ToolData（不得写 AppData）。</summary>
+    public static string SharedDevicesRememberFile
+        => Path.Combine(ToolsRoot, "ToolData", "shared-devices", "shared-devices-remember.json");
+
+    /// <summary>共享设备提供方本机选用：仅 Tools/ToolData（不得写 AppData）。</summary>
+    public static string SharedDevicesSelectionFile
+        => Path.Combine(ToolsRoot, "ToolData", "shared-devices", "shared-devices-selection.json");
     public static string InboxDirectory
         => !string.IsNullOrWhiteSpace(_inboxOverride)
             ? _inboxOverride!
@@ -100,17 +103,22 @@ public static class FlyScreenDataPaths
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string TransferHistoryFile => Path.Combine(Root, "transfer-history.json");
 
-    /// <summary>工具专属数据目录：{Root}/ToolData/{toolId}/</summary>
+    /// <summary>
+    /// 工具专属数据目录：仅 <c>{ToolsRoot}/ToolData/{toolId}/</c>
+    /// （桌面=exe 旁 Tools；MUST NOT 写 %AppData%/FlyScreen）。
+    /// </summary>
     public static string GetToolDataDirectory(string toolId)
     {
         if (string.IsNullOrWhiteSpace(toolId))
             throw new ArgumentException("toolId 不能为空", nameof(toolId));
-        var dir = Path.Combine(Root, "ToolData", toolId.Trim());
+        EnsureToolsLayout();
+        var dir = Path.Combine(ToolsRoot, "ToolData", toolId.Trim());
+        ThrowIfForbiddenToolsPath(dir, nameof(GetToolDataDirectory));
         Directory.CreateDirectory(dir);
         return dir;
     }
 
-    /// <summary>覆盖工具根。传 null 恢复默认。</summary>
+    /// <summary>覆盖工具根。传 null 恢复默认。禁止 AppData / 源码树路径。</summary>
     public static void SetToolsRoot(string? absolutePath)
     {
         if (string.IsNullOrWhiteSpace(absolutePath))
@@ -119,9 +127,46 @@ public static class FlyScreenDataPaths
             return;
         }
 
-        var path = absolutePath.Trim();
+        var path = Path.GetFullPath(absolutePath.Trim());
+        ThrowIfForbiddenToolsPath(path, nameof(SetToolsRoot));
         EnsureToolsTree(path);
         _toolsRootOverride = path;
+    }
+
+    /// <summary>
+    /// 工具路径禁区：%AppData%/FlyScreen、以及仓库 <c>src/FlyScreen.App.*/Tools</c>
+    /// （不含 bin/obj 输出目录）。
+    /// </summary>
+    public static bool IsForbiddenToolsPath(string? absolutePath)
+    {
+        if (string.IsNullOrWhiteSpace(absolutePath))
+            return true;
+
+        string norm;
+        try { norm = Path.GetFullPath(absolutePath).Replace('/', '\\'); }
+        catch { return true; }
+
+        var lower = norm.ToLowerInvariant();
+
+        if (lower.Contains("\\appdata\\roaming\\flyscreen", StringComparison.Ordinal)
+            || lower.Contains("\\appdata\\local\\flyscreen", StringComparison.Ordinal))
+            return true;
+
+        // 源码树 App 工程下的 Tools（误把包写进项目目录）
+        if (lower.Contains("\\src\\flyscreen.app.", StringComparison.Ordinal)
+            && lower.Contains("\\tools", StringComparison.Ordinal)
+            && !lower.Contains("\\bin\\", StringComparison.Ordinal)
+            && !lower.Contains("\\obj\\", StringComparison.Ordinal))
+            return true;
+
+        return false;
+    }
+
+    private static void ThrowIfForbiddenToolsPath(string path, string caller)
+    {
+        if (!IsForbiddenToolsPath(path)) return;
+        throw new InvalidOperationException(
+            $"{caller}: 禁止将工具数据写到 AppData 或源码树。路径={path}；仅允许安装目录/exe 旁 Tools。");
     }
 
     /// <summary>
@@ -167,7 +212,9 @@ public static class FlyScreenDataPaths
     /// <summary>确保 Tools 子树存在；并尝试从 Roaming 旧路径迁移一次。</summary>
     public static void EnsureToolsLayout()
     {
-        EnsureToolsTree(ToolsRoot);
+        var root = ToolsRoot;
+        ThrowIfForbiddenToolsPath(root, nameof(EnsureToolsLayout));
+        EnsureToolsTree(root);
         TryMigrateLegacyToolsFromAppData();
     }
 
@@ -309,6 +356,14 @@ public static class FlyScreenDataPaths
                 }
             }
 
+            // 旧版误落在 AppData Root 的工具偏好 → ToolData
+            TryMigrateFile(
+                Path.Combine(legacyRoot, "shared-devices-remember.json"),
+                SharedDevicesRememberFile);
+            TryMigrateFile(
+                Path.Combine(legacyRoot, "shared-devices-selection.json"),
+                SharedDevicesSelectionFile);
+
             // 迁移完成后删掉 Roaming 下错误的 Tools（个人配置 Root 其它文件不动）
             try
             {
@@ -330,12 +385,32 @@ public static class FlyScreenDataPaths
 
     private static void EnsureToolsTree(string toolsRoot)
     {
+        ThrowIfForbiddenToolsPath(toolsRoot, nameof(EnsureToolsTree));
         Directory.CreateDirectory(toolsRoot);
         Directory.CreateDirectory(Path.Combine(toolsRoot, "Bundled"));
         Directory.CreateDirectory(Path.Combine(toolsRoot, "Installed"));
         Directory.CreateDirectory(Path.Combine(toolsRoot, "_native"));
+        Directory.CreateDirectory(Path.Combine(toolsRoot, "ToolData"));
         TryMergeLegacyToolsCache(toolsRoot);
         TryCleanupOrphanedToolDirs(Path.Combine(toolsRoot, "Installed"));
+    }
+
+    private static void TryMigrateFile(string source, string dest)
+    {
+        try
+        {
+            if (!File.Exists(source) || File.Exists(dest)) return;
+            var dir = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+            File.Copy(source, dest, overwrite: false);
+            try { File.Delete(source); }
+            catch { /* 占用则保留源，下次再迁 */ }
+        }
+        catch
+        {
+            // 迁移失败不阻断
+        }
     }
 
     /// <summary>启动时尽力清理卸载/重装留下的 <c>.orphaned-*</c> 目录。</summary>
