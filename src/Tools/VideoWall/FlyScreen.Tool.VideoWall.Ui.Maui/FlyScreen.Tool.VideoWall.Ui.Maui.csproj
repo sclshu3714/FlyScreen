@@ -7,7 +7,7 @@
     <AssemblyName>FlyScreen.Tool.VideoWall.Ui.Maui</AssemblyName>
     <Description>视频墙 Maui UI（含 Maui-Win 源管理与播放控制）</Description>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
-    <!-- 单路播放：软件帧回调→Image；墙格仍 HWND。不依赖 LibVLCSharp.MAUI -->
+    <!-- 单路完整嵌入：软件帧→Image；墙格仍 HWND。不依赖 LibVLCSharp.MAUI -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>

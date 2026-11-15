@@ -202,16 +202,16 @@ public partial class VideoWallPanel : UserControl
             return;
         }
 
-        // 隐藏到托盘不会 Unload 面板，必须在此卸 ForegroundWindow / 墙格 VideoView
-        ReleaseNativeOverlays();
+        // 隐藏到托盘不会 Unload：收起单路 UI，并解绑墙格 VideoView
+        ReleaseNativeSurfaces();
     }
 
     private void OnHostClosing(object? sender, System.ComponentModel.CancelEventArgs e)
-        => ReleaseNativeOverlays();
+        => ReleaseNativeSurfaces();
 
-    private void ReleaseNativeOverlays()
+    private void ReleaseNativeSurfaces()
     {
-        Player.SuspendNativeOverlays();
+        Player.SuspendPlaybackUi();
         DetachAllTileViews();
     }
 
@@ -233,7 +233,7 @@ public partial class VideoWallPanel : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         UnhookHostWindow();
-        ReleaseNativeOverlays();
+        ReleaseNativeSurfaces();
         Player.AttachService(null);
         _ = Player.StopAsync();
         if (_service is null) return;

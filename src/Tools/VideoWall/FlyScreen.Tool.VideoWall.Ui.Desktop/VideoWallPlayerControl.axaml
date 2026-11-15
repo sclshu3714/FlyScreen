@@ -54,8 +54,8 @@
         PointerReleased="Root_PointerReleased">
     <Border x:Name="PlaybackVideoHost" MinHeight="200" Background="Black"
             CornerRadius="0" Margin="0">
-      <TextBlock x:Name="VideoPlaceholder" VerticalAlignment="Center" HorizontalAlignment="Center"
-                 Foreground="White" TextWrapping="Wrap" Margin="12"/>
+      <Image x:Name="PlaybackFrameImage" Stretch="Uniform"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
     </Border>
 
     <Border x:Name="PlaybackTitleBarHost" Height="56" VerticalAlignment="Top" ZIndex="2">
@@ -100,6 +100,7 @@
           <Slider x:Name="PlaybackSeekBar" Minimum="0" Maximum="1000" Value="0"
                   Height="16" VerticalAlignment="Bottom" Margin="0,0,0,8"
                   PointerPressed="PlaybackSeekBar_PointerPressed"
+                  PointerMoved="PlaybackSeekBar_PointerMoved"
                   PointerReleased="PlaybackSeekBar_PointerReleased"
                   SizeChanged="PlaybackSeekBar_SizeChanged"/>
           <!-- 关键事件白点：点击跳转，右键进度条添加，右键白点删除 -->

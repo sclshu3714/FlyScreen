@@ -812,9 +812,9 @@ public sealed class VideoWallPanel : ContentView
         var chrome = new Grid
         {
             BackgroundColor = Color.FromArgb("#AA111827"),
-            ColumnDefinitions =
-            [
-                new ColumnDefinition(GridLength.Star),
+                ColumnDefinitions =
+                [
+                    new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Auto)
             ],

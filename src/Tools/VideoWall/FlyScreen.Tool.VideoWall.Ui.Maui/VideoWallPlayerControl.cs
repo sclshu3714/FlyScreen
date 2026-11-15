@@ -12,6 +12,9 @@ public sealed class VideoWallPlayerControl : ContentView
     private const long SeekStepMs = 5_000;
     private const double SeekBarMax = 1000;
     private const double SeekThumbWidth = 20;
+    private const int SeekHoldMaxMs = 15_000;
+    private const int SeekCatchupMs = 400;
+    private const int SeekCatchupHoldMs = 400;
     private const double CueHitHeight = 16;
     private const double CueDotSize = 6;
     private const double CompactChromeThreshold = 500;
@@ -59,6 +62,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private bool _seekDragging;
     private long _seekHoldMs = -1;
     private long _seekHoldUntilTick;
+    private long _seekHoldNearSinceTick = -1;
     private bool _volumeDragging;
     private bool _volumePopupHover;
     private bool _progressUpdating;
@@ -150,7 +154,9 @@ public sealed class VideoWallPlayerControl : ContentView
             VideoWallMauiIcons.Geo.Next, Loc.T("Tool.VideoWall.SeekForward5"), iconSize: 20);
         VideoWallMauiIcons.WireClicked(nextPair.Host, (_, _) =>
         {
-            _service?.SinglePlayback.SeekBy(SeekStepMs);
+            if (_service is null) return;
+            _service.SinglePlayback.SeekBy(SeekStepMs);
+            HoldSeekUi(_service.SinglePlayback.TimeMs);
             RefreshPlaybackProgress();
             BumpPlaybackChrome();
         });
@@ -416,16 +422,21 @@ public sealed class VideoWallPlayerControl : ContentView
         {
             if (_service is null || _progressUpdating) return;
             var len = _service.SinglePlayback.LengthMs;
+            if (len <= 0) len = _cueLengthMs;
             if (len <= 0) return;
             var ms = (long)(e.NewValue / SeekBarMax * len);
             _playbackTimeText.Text = FormatClock(ms);
-            // 点击轨道常无 Drag 会话，须在 ValueChanged 里直接 Seek
-            if (!_seekDragging && _service.SinglePlayback.CanSeek)
+            if (_seekDragging)
             {
-                _service.SinglePlayback.SeekTo(ms);
+                // 拖动中只预览，松手再 Seek
                 HoldSeekUi(ms);
-                BumpPlaybackChrome();
+                return;
             }
+
+            // 点击轨道常无 Drag 会话，须在 ValueChanged 里直接 Seek
+            HoldSeekUi(ms);
+            _service.SinglePlayback.SeekTo(ms);
+            BumpPlaybackChrome();
         };
         // 部分平台点击不改 Value：按坐标比例跳转
         var seekPrimaryTap = new TapGestureRecognizer { Buttons = ButtonsMask.Primary };
@@ -779,16 +790,18 @@ public sealed class VideoWallPlayerControl : ContentView
     {
         if (_service is null) return;
         var len = _service.SinglePlayback.LengthMs;
-        if (len <= 0 || !_service.SinglePlayback.CanSeek) return;
+        if (len <= 0) len = _cueLengthMs;
+        if (len <= 0) return;
         var ms = (long)(_playbackSeekBar.Value / SeekBarMax * len);
-        _service.SinglePlayback.SeekTo(ms);
         HoldSeekUi(ms);
+        _service.SinglePlayback.SeekTo(ms);
     }
 
     private void SeekByPointer(Point? position)
     {
-        if (position is null || _service is null || !_service.SinglePlayback.CanSeek) return;
+        if (position is null || _service is null) return;
         var len = _service.SinglePlayback.LengthMs;
+        if (len <= 0) len = _cueLengthMs;
         if (len <= 0) return;
         var w = Math.Max(1, _playbackSeekBar.Width - SeekThumbWidth);
         var ratio = Math.Clamp((position.Value.X - SeekThumbWidth / 2) / w, 0, 1);
@@ -803,15 +816,16 @@ public sealed class VideoWallPlayerControl : ContentView
             _progressUpdating = false;
         }
 
-        _service.SinglePlayback.SeekTo(ms);
         HoldSeekUi(ms);
+        _service.SinglePlayback.SeekTo(ms);
         BumpPlaybackChrome();
     }
 
     private void HoldSeekUi(long ms)
     {
         _seekHoldMs = ms;
-        _seekHoldUntilTick = Environment.TickCount64 + 600;
+        _seekHoldUntilTick = Environment.TickCount64 + SeekHoldMaxMs;
+        _seekHoldNearSinceTick = -1;
         _playbackTimeText.Text = FormatClock(ms);
     }
 
@@ -852,16 +866,25 @@ public sealed class VideoWallPlayerControl : ContentView
         var len = _service.SinglePlayback.LengthMs;
         if (_seekHoldMs >= 0)
         {
-            if (Environment.TickCount64 < _seekHoldUntilTick && Math.Abs(time - _seekHoldMs) > 1000)
-                time = _seekHoldMs;
+            var now = Environment.TickCount64;
+            if (Math.Abs(time - _seekHoldMs) <= SeekCatchupMs)
+            {
+                if (_seekHoldNearSinceTick < 0)
+                    _seekHoldNearSinceTick = now;
+                else if (now - _seekHoldNearSinceTick >= SeekCatchupHoldMs)
+                    _seekHoldMs = -1;
+            }
             else
-                _seekHoldMs = -1;
+                _seekHoldNearSinceTick = -1;
+
+            if (_seekHoldMs >= 0)
+                time = _seekHoldMs;
         }
 
         _playbackTimeText.Text = FormatClock(time);
         _playbackLengthText.Text = len > 0 ? FormatClock(len) : "--:--";
         _playbackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
-        _playbackSeekBar.IsEnabled = _service.SinglePlayback.CanSeek && len > 0;
+        _playbackSeekBar.IsEnabled = len > 0;
         if (len > 0)
         {
             _progressUpdating = true;
@@ -884,6 +907,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private void ResetSeekUi()
     {
         _seekHoldMs = -1;
+        _seekHoldNearSinceTick = -1;
         _playbackTimeText.Text = "00:00";
         _playbackLengthText.Text = "00:00";
         _playbackSeekBar.Value = 0;
@@ -933,6 +957,7 @@ public sealed class VideoWallPlayerControl : ContentView
             {
                 if (_service is null || !_service.SinglePlayback.CanSeek) return;
                 _service.SinglePlayback.SeekTo(captured.PositionMs);
+                HoldSeekUi(captured.PositionMs);
                 RefreshPlaybackProgress();
                 BumpPlaybackChrome();
             };

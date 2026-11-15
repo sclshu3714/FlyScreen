@@ -16,6 +16,9 @@ namespace FlyScreen.Tool.VideoWall.Ui.Desktop;
 public sealed partial class VideoWallPlayerControl : UserControl
 {
     private const long SeekStepMs = 5_000;
+    private const int SeekHoldMaxMs = 15_000;
+    private const int SeekCatchupMs = 400;
+    private const int SeekCatchupHoldMs = 400;
     private const double CueHitSize = 14;
     private const double CueDotSize = 6;
     private const double SeekBarMax = 1000;
@@ -34,8 +37,10 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private Window? _fullscreenWindow;
     private bool _volumeApplying;
     private bool _seekDragging;
+    private double? _seekPointerX;
     private long _seekHoldMs = -1;
     private long _seekHoldUntilTick;
+    private long _seekHoldNearSinceTick = -1;
     private bool _volumePopupPinned;
     private int _speedIndex = 1;
     private Window? _pipWindow;
@@ -44,6 +49,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private bool _suppressEpisodeSelection;
     private bool _suppressSwitch;
     private long _cueLengthMs = -1;
+    private VideoWallFrameSurface? _frameSurface;
 
     public Action<string>? StatusReporter { get; set; }
     public event Action? Closed;
@@ -97,14 +103,18 @@ public sealed partial class VideoWallPlayerControl : UserControl
         if (_service is null) return;
         try
         {
+            _frameSurface ??= new VideoWallFrameSurface(PlaybackFrameImage);
+            _frameSurface.Clear();
             await _service.SinglePlayback.StopAsync();
-            await _service.SinglePlayback.PlaySourceAsync(sourceId);
+            await _service.SinglePlayback.PlaySourceAsync(
+                sourceId, renderTarget: null, frameSink: _frameSurface);
             UpdateTransportChrome(_service.SinglePlayback.State);
             _progressTimer.Start();
             StatusReporter?.Invoke(Loc.T("Tool.VideoWall.Play"));
         }
         catch (Exception ex)
         {
+            _frameSurface?.Clear();
             _progressTimer.Stop();
             StatusReporter?.Invoke(ex.Message);
         }
@@ -119,6 +129,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         ExitFullscreen();
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
+        _frameSurface?.Clear();
         _pendingPlayId = null;
         PlaybackTitle.Text = "";
         PlaybackTitleDuration.Text = "";
@@ -164,7 +175,6 @@ public sealed partial class VideoWallPlayerControl : UserControl
         ToolTip.SetTip(PlaybackFullscreenBtn, Loc.T("Tool.VideoWall.Fullscreen"));
         ToolTip.SetTip(PlaybackVolumeBar, Loc.T("Tool.VideoWall.Volume"));
         ToolTip.SetTip(PlaybackSpeedBtn, Loc.T("Tool.VideoWall.Speed"));
-        VideoPlaceholder.Text = Loc.T("Tool.VideoWall.VideoSurfaceTodo");
         SyncSpeedButton();
     }
 
@@ -201,7 +211,9 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void PlaybackSeekFwd_Click(object? sender, RoutedEventArgs e)
     {
-        _service?.SinglePlayback.SeekBy(SeekStepMs);
+        if (_service is null) return;
+        _service.SinglePlayback.SeekBy(SeekStepMs);
+        HoldSeekUi(_service.SinglePlayback.TimeMs);
         RefreshPlaybackProgress();
         BumpPlaybackChrome();
     }
@@ -676,16 +688,16 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void ApplyVideoChromeInset(bool title, bool transport)
     {
-        // Desktop 无 HWND 空气空间时可叠层；仍留边以与 Win/Maui 视觉一致
-        var top = title ? TitleChromeHeight : 0;
-        var bottom = transport ? TransportChromeHeight : 0;
-        PlaybackVideoHost.Margin = new Thickness(0, top, 0, bottom);
+        // 软件帧：chrome 叠在画面上，不 inset
+        _ = title;
+        _ = transport;
+        PlaybackVideoHost.Margin = new Thickness(0);
     }
 
     private void PlaybackSeekBar_PropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property != Slider.ValueProperty || !_seekDragging || _service is null) return;
-        var len = _service.SinglePlayback.LengthMs;
+        var len = ResolveSeekLengthMs();
         if (len <= 0) return;
         var ms = (long)(PlaybackSeekBar.Value / SeekBarMax * len);
         PlaybackTimeText.Text = FormatClock(ms);
@@ -693,28 +705,92 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void PlaybackSeekBar_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.GetCurrentPoint(PlaybackSeekBar).Properties.IsLeftButtonPressed)
-            _seekDragging = true;
+        if (!e.GetCurrentPoint(PlaybackSeekBar).Properties.IsLeftButtonPressed) return;
+        _seekDragging = true;
+        _seekPointerX = e.GetPosition(PlaybackSeekBar).X;
+        // 按下即 Seek；拖动中只预览，松手再提交最终目标
+        ApplySeekFromPointerX(_seekPointerX.Value);
+        e.Pointer.Capture(PlaybackSeekBar);
+        e.Handled = true;
+    }
+
+    private void PlaybackSeekBar_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_seekDragging) return;
+        _seekPointerX = e.GetPosition(PlaybackSeekBar).X;
+        PreviewSeekFromPointerX(_seekPointerX.Value);
     }
 
     private void PlaybackSeekBar_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (e.InitialPressMouseButton != MouseButton.Left) return;
-        ApplySeekFromBar();
+        EndSeekDrag(e.GetPosition(PlaybackSeekBar).X);
+        e.Pointer.Capture(null);
+        e.Handled = true;
+    }
+
+    private void EndSeekDrag(double? pointerX)
+    {
+        if (!_seekDragging) return;
+        if (pointerX is double x)
+            ApplySeekFromPointerX(x);
+        else
+            ApplySeekFromBar();
         _seekDragging = false;
+        _seekPointerX = null;
         BumpPlaybackChrome();
+    }
+
+    private long ResolveSeekLengthMs()
+    {
+        var len = _service?.SinglePlayback.LengthMs ?? 0;
+        if (len <= 0) len = _cueLengthMs;
+        return len;
+    }
+
+    private void PreviewSeekFromPointerX(double x)
+    {
+        var len = ResolveSeekLengthMs();
+        if (len <= 0) return;
+        var ratio = PointerXToRatio(x);
+        PlaybackSeekBar.Value = ratio * SeekBarMax;
+        HoldSeekUi((long)(ratio * len));
+    }
+
+    private void ApplySeekFromPointerX(double x)
+    {
+        if (_service is null) return;
+        var len = ResolveSeekLengthMs();
+        if (len <= 0) return;
+        var ratio = PointerXToRatio(x);
+        var ms = (long)(ratio * len);
+        PlaybackSeekBar.Value = ratio * SeekBarMax;
+        HoldSeekUi(ms);
+        _service.SinglePlayback.SeekTo(ms);
+    }
+
+    private double PointerXToRatio(double x)
+    {
+        var thumb = SeekThumbWidth();
+        var w = Math.Max(1, PlaybackSeekBar.Bounds.Width);
+        return Math.Clamp((x - thumb / 2) / Math.Max(1, w - thumb), 0, 1);
     }
 
     private void ApplySeekFromBar()
     {
         if (_service is null) return;
-        var len = _service.SinglePlayback.LengthMs;
-        if (len <= 0 || !_service.SinglePlayback.CanSeek) return;
+        var len = ResolveSeekLengthMs();
+        if (len <= 0) return;
         var ms = (long)(PlaybackSeekBar.Value / SeekBarMax * len);
+        HoldSeekUi(ms);
         _service.SinglePlayback.SeekTo(ms);
-        // Seek 后 TimeMs 短暂仍为旧值；立刻 Refresh 会把滑块弹回
+    }
+
+    private void HoldSeekUi(long ms)
+    {
         _seekHoldMs = ms;
-        _seekHoldUntilTick = Environment.TickCount64 + 600;
+        _seekHoldUntilTick = Environment.TickCount64 + SeekHoldMaxMs;
+        _seekHoldNearSinceTick = -1;
         PlaybackTimeText.Text = FormatClock(ms);
     }
 
@@ -725,16 +801,25 @@ public sealed partial class VideoWallPlayerControl : UserControl
         var len = _service.SinglePlayback.LengthMs;
         if (_seekHoldMs >= 0)
         {
-            if (Environment.TickCount64 < _seekHoldUntilTick && Math.Abs(time - _seekHoldMs) > 1000)
-                time = _seekHoldMs;
+            var now = Environment.TickCount64;
+            if (Math.Abs(time - _seekHoldMs) <= SeekCatchupMs)
+            {
+                if (_seekHoldNearSinceTick < 0)
+                    _seekHoldNearSinceTick = now;
+                else if (now - _seekHoldNearSinceTick >= SeekCatchupHoldMs)
+                    _seekHoldMs = -1;
+            }
             else
-                _seekHoldMs = -1;
+                _seekHoldNearSinceTick = -1;
+
+            if (_seekHoldMs >= 0)
+                time = _seekHoldMs;
         }
 
         PlaybackTimeText.Text = FormatClock(time);
         PlaybackLengthText.Text = len > 0 ? FormatClock(len) : "--:--";
         PlaybackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
-        PlaybackSeekBar.IsEnabled = _service.SinglePlayback.CanSeek && len > 0;
+        PlaybackSeekBar.IsEnabled = len > 0;
         if (len > 0)
             PlaybackSeekBar.Value = Math.Clamp(time * SeekBarMax / len, 0, SeekBarMax);
         if (len != _cueLengthMs)
@@ -744,6 +829,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private void ResetSeekUi()
     {
         _seekHoldMs = -1;
+        _seekHoldNearSinceTick = -1;
         PlaybackTimeText.Text = "00:00";
         PlaybackLengthText.Text = "00:00";
         PlaybackSeekBar.Value = 0;
@@ -819,6 +905,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         e.Handled = true;
         if (!_service.SinglePlayback.CanSeek) return;
         _service.SinglePlayback.SeekTo(cue.PositionMs);
+        HoldSeekUi(cue.PositionMs);
         RefreshPlaybackProgress();
         BumpPlaybackChrome();
     }

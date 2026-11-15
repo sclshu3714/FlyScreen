@@ -7,8 +7,7 @@ using FlyScreen.Tool.VideoWall.Contracts;
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
 /// <summary>
-/// Maui 单路播放软件帧面：接 LibVLC RV32 回调，画到本机 Image。
-/// 无 HWND airspace，chrome 可半透明叠在画面上。
+/// Maui 单路完整播放面：LibVLC RV32 → Image，与 chrome 同树（无顶层浮层）。
 /// </summary>
 public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
 {

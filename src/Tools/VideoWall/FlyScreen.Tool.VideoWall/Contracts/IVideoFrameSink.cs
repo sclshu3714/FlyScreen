@@ -1,8 +1,9 @@
 namespace FlyScreen.Tool.VideoWall.Contracts;
 
 /// <summary>
-/// 软件帧接收面：LibVLC 内存回调出画，供 MAUI 等无法与 HWND 叠层共存的宿主使用。
-/// 回调可能在解码线程触发；实现方应尽快拷贝，勿长时间阻塞。
+/// 软件帧接收面：LibVLC 内存回调出画。
+/// 各端<strong>单路播放器</strong>用此面把画面嵌进 UI 树（与 chrome 同生命周期），避免 VideoView ForegroundWindow 等顶层浮层。
+/// 墙格多路仍可走 HWND。回调可能在解码线程触发；实现方应尽快拷贝。
 /// </summary>
 public interface IVideoFrameSink
 {

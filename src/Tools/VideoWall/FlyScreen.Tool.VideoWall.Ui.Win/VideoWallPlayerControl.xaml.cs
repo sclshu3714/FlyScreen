@@ -8,8 +8,6 @@ using System.Windows.Threading;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Wall;
-using LibVLCSharp.WPF;
-using VlcMediaPlayerNative = LibVLCSharp.Shared.MediaPlayer;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Win;
 
@@ -18,6 +16,10 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private const long SeekStepMs = 5_000;
     private const double SeekBarMax = 1000;
     private const double SeekThumbWidth = 10;
+    private const int SeekHoldMaxMs = 15_000;
+    private const int SeekCatchupMs = 400;
+    private const int SeekCatchupHoldMs = 400;
+    private long _seekHoldNearSinceTick = -1;
     private const double CueHitSize = 14;
     private const double CueDotSize = 6;
     private const double CompactChromeThreshold = 500;
@@ -33,6 +35,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private IVideoWallService? _service;
     private string? _pendingPlayId;
     private bool _seekDragging;
+    private double? _seekPointerX;
     private long _seekHoldMs = -1;
     private long _seekHoldUntilTick;
     private bool _volumeDragging;
@@ -49,6 +52,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private DateTime _lastMenuClosedUtc;
     private bool _suppressEpisodeSelection;
     private long _cueLengthMs = -1;
+    private VideoWallFrameSurface? _frameSurface;
 
     public Action<string>? StatusReporter { get; set; }
     public event Action? Closed;
@@ -81,6 +85,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private void OnControlLoaded(object sender, RoutedEventArgs e)
     {
         InheritHostBrushes(Window.GetWindow(this) ?? (FrameworkElement?)Parent);
+        _frameSurface ??= new VideoWallFrameSurface(PlaybackFrameImage);
         // 代码绑定 PlacementTarget，避免 ElementName 在 Collapsed chrome / 独立 Popup 树下 Data Error 4
         PlaybackQualityPopup.PlacementTarget = PlaybackQualityBtn;
         PlaybackEpisodesPopup.PlacementTarget = PlaybackEpisodesBtn;
@@ -92,8 +97,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private void OnControlUnloaded(object sender, RoutedEventArgs e)
     {
         UnhookHostWindow();
-        // 主窗 Hide 不走 Unloaded；此处覆盖切页/关工具。卸 VideoView 以关掉 ForegroundWindow。
-        SuspendNativeOverlays();
+        SuspendPlaybackUi();
     }
 
     private void HookHostWindow(Window? window)
@@ -102,7 +106,6 @@ public sealed partial class VideoWallPlayerControl : UserControl
         UnhookHostWindow();
         _hostWindow = window;
         if (window is null) return;
-        // 主窗 Closing→Cancel+Hide：控件仍 Loaded，但 LibVLC ForegroundWindow 是独立 HWND，会留在桌面
         window.IsVisibleChanged += OnHostIsVisibleChanged;
         window.Closing += OnHostClosing;
     }
@@ -119,37 +122,37 @@ public sealed partial class VideoWallPlayerControl : UserControl
     {
         if (_hostWindow?.IsVisible == true)
         {
-            if (IsVisible)
-                RestoreNativeOverlays();
+            if (IsVisible && (_chromeTitleVisible || _chromeTransportVisible))
+                ShowPlaybackChrome();
             return;
         }
 
-        SuspendNativeOverlays();
+        SuspendPlaybackUi();
     }
 
     private void OnHostClosing(object? sender, System.ComponentModel.CancelEventArgs e)
-        => SuspendNativeOverlays();
+        => SuspendPlaybackUi();
 
-    /// <summary>卸掉 LibVLC ForegroundWindow（标题/进度浮层），主窗隐藏或关闭时必须调用。</summary>
-    public void SuspendNativeOverlays()
+    /// <summary>主窗隐藏/关闭：收起画中画/全屏与菜单（软件帧无独立浮层）。</summary>
+    public void SuspendPlaybackUi()
     {
         try
         {
             CloseMenuPopups();
             ExitPip(restoreUi: false);
             ExitFullscreen(restoreUi: false);
-            DetachPlayerView();
-            SuspendVideoSurface();
+            ForceHidePlaybackChrome();
         }
         catch { /* 关闭过程中可视树可能已半拆 */ }
     }
 
-    /// <summary>主窗从托盘恢复且仍在播放态时，把 VideoView 挂回。</summary>
+    /// <summary>兼容面板旧调用名。</summary>
+    public void SuspendNativeOverlays() => SuspendPlaybackUi();
+
+    /// <summary>兼容面板旧调用名。</summary>
     public void RestoreNativeOverlays()
     {
         if (!IsVisible) return;
-        EnsureVideoSurface();
-        AttachPlayerView();
         if (_chromeTitleVisible || _chromeTransportVisible)
             ShowPlaybackChrome();
     }
@@ -171,12 +174,11 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _cueLengthMs = -1;
         RefreshCueLayer();
         UpdateQualityUi(null);
-        EnsureVideoSurface();
+        _frameSurface ??= new VideoWallFrameSurface(PlaybackFrameImage);
         ShowPlaybackChrome();
         BumpPlaybackChrome();
         ReportLog($"视频墙连接中: {title}");
-        if (PlayerView.IsLoaded)
-            await StartPlaybackAsync(sourceId);
+        await StartPlaybackAsync(sourceId);
     }
 
     public async Task StopAsync()
@@ -186,29 +188,13 @@ public sealed partial class VideoWallPlayerControl : UserControl
         CloseMenuPopups();
         ExitPip(restoreUi: false);
         ExitFullscreen(restoreUi: false);
-        DetachPlayerView();
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
+        _frameSurface?.Clear();
         _pendingPlayId = null;
         PlaybackTitle.Text = "";
         ResetSeekUi();
-        // Collapsed 不会 Unload VideoView，ForegroundWindow 会残留在源列表上；必须移出可视树。
-        SuspendVideoSurface();
-    }
-
-    /// <summary>把 VideoView 挂回宿主（播放前调用）。</summary>
-    private void EnsureVideoSurface()
-    {
-        if (!ReferenceEquals(PlaybackVideoHost.Child, PlayerView))
-            PlaybackVideoHost.Child = PlayerView;
-    }
-
-    /// <summary>卸载 VideoView，触发 ForegroundWindow.Hide，避免返回列表后标题/进度条浮层残留。</summary>
-    private void SuspendVideoSurface()
-    {
         ForceHidePlaybackChrome();
-        if (ReferenceEquals(PlaybackVideoHost.Child, PlayerView))
-            PlaybackVideoHost.Child = null;
     }
 
     private void ForceHidePlaybackChrome()
@@ -318,42 +304,25 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _ => state.ToString()
     };
 
-    private async void PlayerView_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (!string.IsNullOrEmpty(_pendingPlayId))
-            await StartPlaybackAsync(_pendingPlayId);
-    }
-
     private async Task StartPlaybackAsync(string sourceId)
     {
         if (_service is null) return;
         try
         {
-            DetachPlayerView();
-            await _service.SinglePlayback.PlaySourceAsync(sourceId);
-            AttachPlayerView();
+            _frameSurface ??= new VideoWallFrameSurface(PlaybackFrameImage);
+            _frameSurface.Clear();
+            await _service.SinglePlayback.PlaySourceAsync(
+                sourceId, renderTarget: null, frameSink: _frameSurface);
             UpdateTransportChrome(_service.SinglePlayback.State);
             _progressTimer.Start();
             ReportLog($"视频墙播放: {PlaybackTitle.Text}");
         }
         catch (Exception ex)
         {
-            DetachPlayerView();
+            _frameSurface?.Clear();
             _progressTimer.Stop();
             ReportLog($"视频墙播放异常「{PlaybackTitle.Text}」: {ex.Message}");
         }
-    }
-
-    private void AttachPlayerView()
-    {
-        if (_service?.SinglePlayback.NativePlaybackEngine is VlcMediaPlayerNative mp)
-            PlayerView.MediaPlayer = mp;
-    }
-
-    private void DetachPlayerView()
-    {
-        try { PlayerView.MediaPlayer = null; }
-        catch { /* VideoView 可能已卸载 */ }
     }
 
     private async void PlaybackBackBtn_Click(object sender, RoutedEventArgs e)
@@ -394,8 +363,8 @@ public sealed partial class VideoWallPlayerControl : UserControl
     {
         if (_service is null) return;
         _progressTimer.Stop();
-        DetachPlayerView();
         await _service.SinglePlayback.StopAsync();
+        _frameSurface?.Clear();
         ResetSeekUi();
         UpdateTransportChrome(TilePlayState.Stopped);
         BumpPlaybackChrome();
@@ -403,14 +372,18 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void PlaybackSeekBack_Click(object sender, RoutedEventArgs e)
     {
-        _service?.SinglePlayback.SeekBy(-SeekStepMs);
+        if (_service is null) return;
+        _service.SinglePlayback.SeekBy(-SeekStepMs);
+        HoldSeekUi(_service.SinglePlayback.TimeMs);
         RefreshPlaybackProgress();
         BumpPlaybackChrome();
     }
 
     private void PlaybackSeekFwd_Click(object sender, RoutedEventArgs e)
     {
-        _service?.SinglePlayback.SeekBy(SeekStepMs);
+        if (_service is null) return;
+        _service.SinglePlayback.SeekBy(SeekStepMs);
+        HoldSeekUi(_service.SinglePlayback.TimeMs);
         RefreshPlaybackProgress();
         BumpPlaybackChrome();
     }
@@ -653,9 +626,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _pipWindow = win;
         _pip = true;
         UpdatePipChrome();
-        DetachPlayerView();
         win.Show();
-        AttachPlayerView();
         ShowPlaybackChrome();
     }
 
@@ -674,11 +645,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         }
 
         if (restoreUi && win != null)
-        {
             ShowPlaybackChrome();
-            DetachPlayerView();
-            AttachPlayerView();
-        }
 
         UpdatePipChrome();
     }
@@ -774,35 +741,110 @@ public sealed partial class VideoWallPlayerControl : UserControl
     }
 
     private void PlaybackSeekBar_PreviewMouseDown(object sender, MouseButtonEventArgs e)
-        => _seekDragging = true;
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        _seekDragging = true;
+        _seekPointerX = e.GetPosition(PlaybackSeekBar).X;
+        // 按下即按坐标落点并 Seek；Handled 阻止 Slider/Thumb 默认链路
+        ApplySeekFromPointerX(_seekPointerX.Value);
+        PlaybackSeekBar.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void PlaybackSeekBar_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_seekDragging || e.LeftButton != MouseButtonState.Pressed) return;
+        _seekPointerX = e.GetPosition(PlaybackSeekBar).X;
+        // 拖动中只预览，不连发 Seek（松手再提交最终目标）
+        PreviewSeekFromPointerX(_seekPointerX.Value);
+    }
 
     private void PlaybackSeekBar_PreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (_service is null) return;
-        ApplySeekFromBar();
+        if (e.ChangedButton != MouseButton.Left) return;
+        EndSeekDrag(e.GetPosition(PlaybackSeekBar).X);
+        e.Handled = true;
+    }
+
+    private void PlaybackSeekBar_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_seekDragging)
+            EndSeekDrag(_seekPointerX);
+    }
+
+    private void EndSeekDrag(double? pointerX)
+    {
+        if (!_seekDragging) return;
+        if (pointerX is double x)
+            ApplySeekFromPointerX(x);
+        else
+            ApplySeekFromBar();
         _seekDragging = false;
+        _seekPointerX = null;
+        if (PlaybackSeekBar.IsMouseCaptured)
+            PlaybackSeekBar.ReleaseMouseCapture();
         BumpPlaybackChrome();
     }
 
     private void PlaybackSeekBar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (!_seekDragging || _service is null) return;
-        var len = _service.SinglePlayback.LengthMs;
+        var len = ResolveSeekLengthMs();
         if (len <= 0) return;
         var ms = (long)(e.NewValue / SeekBarMax * len);
         PlaybackTimeText.Text = FormatClock(ms);
     }
 
+    private long ResolveSeekLengthMs()
+    {
+        var len = _service?.SinglePlayback.LengthMs ?? 0;
+        if (len <= 0) len = _cueLengthMs;
+        return len;
+    }
+
+    private void PreviewSeekFromPointerX(double x)
+    {
+        var len = ResolveSeekLengthMs();
+        if (len <= 0) return;
+        var ratio = PointerXToRatio(x);
+        var ms = (long)(ratio * len);
+        PlaybackSeekBar.Value = ratio * SeekBarMax;
+        HoldSeekUi(ms);
+    }
+
+    private void ApplySeekFromPointerX(double x)
+    {
+        if (_service is null) return;
+        var len = ResolveSeekLengthMs();
+        if (len <= 0) return;
+        var ratio = PointerXToRatio(x);
+        var ms = (long)(ratio * len);
+        PlaybackSeekBar.Value = ratio * SeekBarMax;
+        HoldSeekUi(ms);
+        _service.SinglePlayback.SeekTo(ms);
+    }
+
+    private double PointerXToRatio(double x)
+    {
+        var w = Math.Max(1, PlaybackSeekBar.ActualWidth);
+        return Math.Clamp((x - SeekThumbWidth / 2) / Math.Max(1, w - SeekThumbWidth), 0, 1);
+    }
+
     private void ApplySeekFromBar()
     {
         if (_service is null) return;
-        var len = _service.SinglePlayback.LengthMs;
-        if (len <= 0 || !_service.SinglePlayback.CanSeek) return;
+        var len = ResolveSeekLengthMs();
+        if (len <= 0) return;
         var ms = (long)(PlaybackSeekBar.Value / SeekBarMax * len);
+        HoldSeekUi(ms);
         _service.SinglePlayback.SeekTo(ms);
-        // Seek 后 TimeMs 短暂仍为旧值；立刻 Refresh 会把滑块弹回
+    }
+
+    private void HoldSeekUi(long ms)
+    {
         _seekHoldMs = ms;
-        _seekHoldUntilTick = Environment.TickCount64 + 600;
+        _seekHoldUntilTick = Environment.TickCount64 + SeekHoldMaxMs;
+        _seekHoldNearSinceTick = -1;
         PlaybackTimeText.Text = FormatClock(ms);
     }
 
@@ -813,16 +855,35 @@ public sealed partial class VideoWallPlayerControl : UserControl
         var len = _service.SinglePlayback.LengthMs;
         if (_seekHoldMs >= 0)
         {
-            if (Environment.TickCount64 < _seekHoldUntilTick && Math.Abs(time - _seekHoldMs) > 1000)
-                time = _seekHoldMs;
+            var now = Environment.TickCount64;
+            var near = Math.Abs(time - _seekHoldMs) <= SeekCatchupMs;
+            if (near)
+            {
+                if (_seekHoldNearSinceTick < 0)
+                    _seekHoldNearSinceTick = now;
+                else if (now - _seekHoldNearSinceTick >= SeekCatchupHoldMs)
+                    _seekHoldMs = -1;
+            }
             else
-                _seekHoldMs = -1;
+            {
+                _seekHoldNearSinceTick = -1;
+                // 超时仍远离：继续显示目标，避免同 tick 立刻弹回；下次用户操作会覆盖
+                time = _seekHoldMs;
+                if (now >= _seekHoldUntilTick)
+                {
+                    /* 保持 hold 显示，不强制清；仅当再次贴近才解除 */
+                }
+            }
+
+            if (_seekHoldMs >= 0)
+                time = _seekHoldMs;
         }
 
         PlaybackTimeText.Text = FormatClock(time);
         PlaybackLengthText.Text = len > 0 ? FormatClock(len) : "--:--";
         PlaybackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
-        PlaybackSeekBar.IsEnabled = _service.SinglePlayback.CanSeek && len > 0;
+        // 以时长为主，不把瞬时 CanSeek 当成禁用条件
+        PlaybackSeekBar.IsEnabled = len > 0;
         if (len > 0)
             PlaybackSeekBar.Value = Math.Clamp(time * SeekBarMax / len, 0, SeekBarMax);
         if (len != _cueLengthMs)
@@ -834,6 +895,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private void ResetSeekUi()
     {
         _seekHoldMs = -1;
+        _seekHoldNearSinceTick = -1;
         PlaybackTimeText.Text = "00:00";
         PlaybackLengthText.Text = "00:00";
         PlaybackSeekBar.Value = 0;
@@ -898,6 +960,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         if (_service is null || sender is not FrameworkElement { Tag: PlaybackCue cue }) return;
         if (!_service.SinglePlayback.CanSeek) return;
         _service.SinglePlayback.SeekTo(cue.PositionMs);
+        HoldSeekUi(cue.PositionMs);
         RefreshPlaybackProgress();
         BumpPlaybackChrome();
     }
@@ -1022,19 +1085,10 @@ public sealed partial class VideoWallPlayerControl : UserControl
                 : PlaybackTitle.Text
         };
 
+        // 软件帧：画面与 chrome 同在 PlaybackVideoHost，整棵迁入全屏窗即可
         var root = new Grid();
         PlaybackVideoSlot.Child = null;
-        PlaybackTransportSlot.Child = null;
-        PlaybackTitleBarHost.Visibility = Visibility.Collapsed;
-        PlaybackVideoHost.CornerRadius = new CornerRadius(0);
-        PlaybackTransportBar.CornerRadius = new CornerRadius(0);
-        PlaybackTransportBar.BorderThickness = new Thickness(0);
-        PlaybackTransportBar.Background = TransportChromeBrush;
-        PlaybackTransportBar.VerticalAlignment = VerticalAlignment.Bottom;
-        Panel.SetZIndex(PlaybackTransportBar, 2);
-
         root.Children.Add(PlaybackVideoHost);
-        root.Children.Add(PlaybackTransportBar);
         win.Content = root;
 
         win.PreviewKeyDown += FullscreenWindow_PreviewKeyDown;
@@ -1048,10 +1102,8 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _fullscreenWindow = win;
         _fullscreen = true;
         UpdateFullscreenChrome();
-        DetachPlayerView();
         win.Show();
         win.Activate();
-        AttachPlayerView();
         BumpPlaybackChrome();
     }
 
@@ -1070,24 +1122,11 @@ public sealed partial class VideoWallPlayerControl : UserControl
                 g.Children.Clear();
             try { win.Close(); } catch { /* ignore */ }
 
-            // 无论是否刷新 UI，都要把视频/控制条放回主界面，否则下次播放时宿主已脱离可视树
             PlaybackVideoSlot.Child = PlaybackVideoHost;
-            PlaybackTransportSlot.Child = PlaybackTransportBar;
         }
 
         if (restoreUi)
-        {
-            PlaybackVideoHost.CornerRadius = new CornerRadius(0);
-            PlaybackTransportBar.CornerRadius = new CornerRadius(0);
-            PlaybackTransportBar.BorderThickness = new Thickness(0);
-            PlaybackTransportBar.Background = TransportChromeBrush;
-            PlaybackTransportBar.VerticalAlignment = VerticalAlignment.Stretch;
-            PlaybackVideoSlot.Child = PlaybackVideoHost;
-            PlaybackTransportSlot.Child = PlaybackTransportBar;
             ShowPlaybackChrome();
-            DetachPlayerView();
-            AttachPlayerView();
-        }
 
         UpdateFullscreenChrome();
     }

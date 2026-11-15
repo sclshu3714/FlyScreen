@@ -1,7 +1,6 @@
 <UserControl x:Class="FlyScreen.Tool.VideoWall.Ui.Win.VideoWallPlayerControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
              Background="#000000"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
              MouseMove="Root_MouseMove"
@@ -199,17 +198,16 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <!-- chrome 必须作为 VideoView.Content：LibVLCSharp 用 ForegroundWindow 叠在 HWND 视频之上 -->
+    <!-- 单路完整嵌入：软件帧 Image + 同树 chrome（无 VideoView ForegroundWindow） -->
     <Grid x:Name="PlaybackRoot">
         <Border x:Name="PlaybackVideoSlot">
-            <Border x:Name="PlaybackVideoHost" Background="Black" CornerRadius="0" ClipToBounds="True">
-                <vlc:VideoView x:Name="PlayerView" Loaded="PlayerView_Loaded">
-                    <!-- #01 不透明才能命中：纯 Transparent 时 ForegroundWindow 收不到 MouseMove，chrome 隐藏后无法再唤起 -->
-                    <Grid x:Name="PlaybackChromeOverlay"
-                Background="#01000000"
-                MouseMove="PlaybackChromeOverlay_MouseMove"
-                MouseEnter="PlaybackChromeOverlay_MouseEnter"
-                PreviewMouseLeftButtonUp="PlaybackChromeOverlay_PreviewMouseLeftButtonUp">
+            <Grid x:Name="PlaybackVideoHost" Background="Black" ClipToBounds="True"
+                  MouseMove="PlaybackChromeOverlay_MouseMove"
+                  MouseEnter="PlaybackChromeOverlay_MouseEnter"
+                  PreviewMouseLeftButtonUp="PlaybackChromeOverlay_PreviewMouseLeftButtonUp">
+                <Image x:Name="PlaybackFrameImage" Stretch="Uniform"
+                       HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                <Grid x:Name="PlaybackChromeOverlay" Background="#01000000">
                         <Border x:Name="PlaybackTitleBarHost" VerticalAlignment="Top" Height="56"
             Background="{StaticResource TitleChromeBrush}" Panel.ZIndex="2">
                             <Grid x:Name="PlaybackTitleBar" Margin="12,0,12,8" VerticalAlignment="Top" Height="44">
@@ -249,7 +247,9 @@
                                         <Slider x:Name="PlaybackSeekBar" Style="{StaticResource PlaybackSeekSlider}"
                     VerticalAlignment="Bottom" Margin="0,0,0,8"
                     PreviewMouseLeftButtonDown="PlaybackSeekBar_PreviewMouseDown"
+                    PreviewMouseMove="PlaybackSeekBar_PreviewMouseMove"
                     PreviewMouseLeftButtonUp="PlaybackSeekBar_PreviewMouseUp"
+                    LostMouseCapture="PlaybackSeekBar_LostMouseCapture"
                     PreviewMouseRightButtonUp="PlaybackSeekBar_PreviewMouseRightButtonUp"
                     ValueChanged="PlaybackSeekBar_ValueChanged"
                     SizeChanged="PlaybackSeekBar_SizeChanged"/>
@@ -444,9 +444,8 @@
                                 </Grid>
                             </Border>
                         </Border>
-                    </Grid>
-                </vlc:VideoView>
-            </Border>
+                </Grid>
+            </Grid>
         </Border>
     </Grid>
 </UserControl>

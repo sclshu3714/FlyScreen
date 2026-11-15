@@ -30,6 +30,22 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     private bool _disposed;
     private volatile bool _loop;
 
+    // Seek：last-wins 节流 + 乐观时间；须持续贴近后才取消
+    private const int SeekCatchupMs = 400;
+    private const int SeekCatchupHoldMs = 400;
+    private const int SeekPendingMaxMs = 15_000;
+    private const int SeekThrottleMs = 200;
+    private const int SeekMaxRetries = 2;
+    private const int SeekStoppedRecoverMax = 2;
+    private long _pendingSeekMs = -1;
+    private long _pendingSeekUntilTick;
+    private long _pendingSeekNearSinceTick = -1;
+    private long _coalesceSeekTarget = -1;
+    private long _coalesceSeekDueTick;
+    private int _seekRetryLeft;
+    private int _seekStoppedRecoverLeft;
+    private int _seekFlushScheduled;
+
     // 软件帧出画（须在 Play 前绑定；委托字段防 GC）
     private IVideoFrameSink? _frameSink;
     private MediaPlayer.LibVLCVideoFormatCb? _formatCb;
@@ -59,7 +75,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player.Buffering += (_, _) => SetState(TilePlayState.Buffering);
         _player.Playing += OnPlaying;
         _player.Paused += (_, _) => SetState(TilePlayState.Paused);
-        _player.Stopped += (_, _) => SetState(TilePlayState.Stopped);
+        _player.Stopped += OnStopped;
         _player.EndReached += OnEndReached;
         _player.EncounteredError += OnEncounteredError;
 
@@ -91,8 +107,50 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         get
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            var t = _player.Time;
-            return t < 0 ? 0 : t;
+            var t = ReadRawTimeMs();
+
+            lock (_gate)
+            {
+                if (_pendingSeekMs < 0)
+                    return t;
+
+                var now = Environment.TickCount64;
+                var target = _pendingSeekMs;
+
+                // Time 设目标后可能瞬间读到目标又退回旧值；需持续贴近才确认追上
+                if (Math.Abs(t - target) <= SeekCatchupMs)
+                {
+                    if (_pendingSeekNearSinceTick < 0)
+                        _pendingSeekNearSinceTick = now;
+                    else if (now - _pendingSeekNearSinceTick >= SeekCatchupHoldMs)
+                    {
+                        ClearPendingSeek_NoLock();
+                        return t;
+                    }
+
+                    return target;
+                }
+
+                _pendingSeekNearSinceTick = -1;
+
+                if (now >= _pendingSeekUntilTick)
+                {
+                    // 超时仍远离：有限次重提，避免只伪装后弹回
+                    if (_seekRetryLeft > 0)
+                    {
+                        _seekRetryLeft--;
+                        _pendingSeekUntilTick = now + SeekPendingMaxMs / 2;
+                        _coalesceSeekTarget = target;
+                        ScheduleSeekFlush_NoLock(immediate: true);
+                        return target;
+                    }
+
+                    ClearPendingSeek_NoLock();
+                    return t;
+                }
+
+                return target;
+            }
         }
     }
 
@@ -187,6 +245,8 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         SetState(TilePlayState.Stopping);
         _watchTimer.Stop();
         _player.Stop();
+        lock (_gate)
+            ClearPendingSeek_NoLock();
         SetState(TilePlayState.Stopped);
         return Task.CompletedTask;
     }
@@ -194,15 +254,158 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     public void SeekTo(long timeMs)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!_player.IsSeekable) return;
         var len = _player.Length;
+        // IsSeekable 在缓冲/seek 中会短暂为 false，有时长仍应尝试
+        if (len <= 0 && !_player.IsSeekable) return;
+
         var target = timeMs < 0 ? 0 : timeMs;
         if (len > 0)
             target = Math.Min(target, Math.Max(0, len - 1));
-        _player.Time = target;
+
+        lock (_gate)
+        {
+            _pendingSeekMs = target;
+            _pendingSeekUntilTick = Environment.TickCount64 + SeekPendingMaxMs;
+            _pendingSeekNearSinceTick = -1;
+            _coalesceSeekTarget = target;
+            _coalesceSeekDueTick = Environment.TickCount64 + SeekThrottleMs;
+            _seekRetryLeft = SeekMaxRetries;
+            _seekStoppedRecoverLeft = SeekStoppedRecoverMax;
+            ScheduleSeekFlush_NoLock(immediate: false);
+        }
+
+        // 防止 seek 期间 Time 卡住被误判为 Stalled
+        _lastProgressUtc = DateTime.UtcNow;
+        _lastTime = -1;
     }
 
     public void SeekBy(long deltaMs) => SeekTo(TimeMs + deltaMs);
+
+    private long ReadRawTimeMs()
+    {
+        var t = _player.Time;
+        return t < 0 ? 0 : t;
+    }
+
+    private void ClearPendingSeek_NoLock()
+    {
+        _pendingSeekMs = -1;
+        _pendingSeekNearSinceTick = -1;
+        _coalesceSeekTarget = -1;
+        _seekRetryLeft = 0;
+    }
+
+    private void ScheduleSeekFlush_NoLock(bool immediate)
+    {
+        if (Interlocked.CompareExchange(ref _seekFlushScheduled, 1, 0) != 0)
+            return;
+
+        var delay = immediate
+            ? 0
+            : Math.Max(0, (int)(_coalesceSeekDueTick - Environment.TickCount64));
+
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                if (delay > 0)
+                    Thread.Sleep(delay);
+                FlushCoalescedSeek();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _seekFlushScheduled, 0);
+                // 睡眠期间又有新目标：再排一次
+                lock (_gate)
+                {
+                    if (_coalesceSeekTarget >= 0 && !_disposed)
+                        ScheduleSeekFlush_NoLock(immediate: false);
+                }
+            }
+        });
+    }
+
+    private void FlushCoalescedSeek()
+    {
+        if (_disposed) return;
+
+        long target;
+        lock (_gate)
+        {
+            target = _coalesceSeekTarget;
+            if (target < 0) return;
+            // last-wins：若还未到 due 且目标可能仍在更新，等下一轮
+            if (Environment.TickCount64 < _coalesceSeekDueTick)
+            {
+                ScheduleSeekFlush_NoLock(immediate: false);
+                return;
+            }
+
+            _coalesceSeekTarget = -1;
+            _pendingSeekMs = target;
+            _pendingSeekNearSinceTick = -1;
+        }
+
+        ApplySeekTarget(target);
+        _lastProgressUtc = DateTime.UtcNow;
+        _lastTime = -1;
+    }
+
+    private void ApplySeekTarget(long targetMs)
+    {
+        try
+        {
+            // 勿用 Position：部分源设 Position 后会停住无法继续播
+            _player.Time = targetMs;
+        }
+        catch
+        {
+            /* 播放器可能正在切换媒体 */
+        }
+    }
+
+    private void OnStopped(object? sender, EventArgs e)
+    {
+        long pending;
+        int recoverLeft;
+        lock (_gate)
+        {
+            pending = _pendingSeekMs;
+            recoverLeft = _seekStoppedRecoverLeft;
+            if (pending >= 0 && recoverLeft > 0)
+                _seekStoppedRecoverLeft = recoverLeft - 1;
+        }
+
+        // pending seek 中偶发 Stopped：有限次恢复，避免整段会话挂死
+        if (pending >= 0 && recoverLeft > 0 && !_disposed)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    if (_disposed) return;
+                    long keep;
+                    lock (_gate) keep = _pendingSeekMs;
+                    if (keep < 0) return;
+
+                    if (!_player.IsPlaying)
+                        _player.Play();
+                    ApplySeekTarget(keep);
+                    _lastProgressUtc = DateTime.UtcNow;
+                    _lastTime = -1;
+                    if (_state is TilePlayState.Stopped or TilePlayState.Idle)
+                        SetState(TilePlayState.Buffering);
+                }
+                catch
+                {
+                    /* ignore */
+                }
+            });
+            return;
+        }
+
+        SetState(TilePlayState.Stopped);
+    }
 
     public void SetVolume(int volume0To100)
     {
@@ -359,11 +562,22 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         if (_disposed) return;
 
         TilePlayState state;
+        long pending;
         lock (_gate)
+        {
             state = _state;
+            pending = _pendingSeekMs;
+        }
 
         if (state != TilePlayState.Playing)
             return;
+
+        // Seek 过程中时钟常停滞，不算卡顿
+        if (pending >= 0)
+        {
+            _lastProgressUtc = DateTime.UtcNow;
+            return;
+        }
 
         var time = _player.Time;
         if (time != _lastTime)

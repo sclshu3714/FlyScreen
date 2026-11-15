@@ -387,11 +387,12 @@
     </Grid>
   </ControlTemplate>
 
+  <!-- IsMoveToPointEnabled 必须 False：True 时 class handler 会 UpdateValue 并 Handled，XAML Preview 进不去，导致只改滑块从不 Seek -->
   <Style x:Key="PlaybackSeekSlider" TargetType="Slider">
     <Setter Property="Height" Value="16"/>
     <Setter Property="Minimum" Value="0"/>
     <Setter Property="Maximum" Value="1000"/>
-    <Setter Property="IsMoveToPointEnabled" Value="True"/>
+    <Setter Property="IsMoveToPointEnabled" Value="False"/>
     <Setter Property="VerticalAlignment" Value="Center"/>
     <Setter Property="Focusable" Value="False"/>
     <Setter Property="Template" Value="{StaticResource PlaybackSliderTemplate}"/>
