@@ -57,6 +57,8 @@ public sealed class VideoWallPlayerControl : ContentView
     private IVideoWallService? _service;
     private string? _pendingPlayId;
     private bool _seekDragging;
+    private long _seekHoldMs = -1;
+    private long _seekHoldUntilTick;
     private bool _volumeDragging;
     private bool _volumePopupHover;
     private bool _progressUpdating;
@@ -421,6 +423,7 @@ public sealed class VideoWallPlayerControl : ContentView
             if (!_seekDragging && _service.SinglePlayback.CanSeek)
             {
                 _service.SinglePlayback.SeekTo(ms);
+                HoldSeekUi(ms);
                 BumpPlaybackChrome();
             }
         };
@@ -779,7 +782,7 @@ public sealed class VideoWallPlayerControl : ContentView
         if (len <= 0 || !_service.SinglePlayback.CanSeek) return;
         var ms = (long)(_playbackSeekBar.Value / SeekBarMax * len);
         _service.SinglePlayback.SeekTo(ms);
-        RefreshPlaybackProgress();
+        HoldSeekUi(ms);
     }
 
     private void SeekByPointer(Point? position)
@@ -801,8 +804,15 @@ public sealed class VideoWallPlayerControl : ContentView
         }
 
         _service.SinglePlayback.SeekTo(ms);
-        _playbackTimeText.Text = FormatClock(ms);
+        HoldSeekUi(ms);
         BumpPlaybackChrome();
+    }
+
+    private void HoldSeekUi(long ms)
+    {
+        _seekHoldMs = ms;
+        _seekHoldUntilTick = Environment.TickCount64 + 600;
+        _playbackTimeText.Text = FormatClock(ms);
     }
 
     private void ApplyVolumeFromBar()
@@ -840,6 +850,14 @@ public sealed class VideoWallPlayerControl : ContentView
         if (_service is null || _seekDragging) return;
         var time = _service.SinglePlayback.TimeMs;
         var len = _service.SinglePlayback.LengthMs;
+        if (_seekHoldMs >= 0)
+        {
+            if (Environment.TickCount64 < _seekHoldUntilTick && Math.Abs(time - _seekHoldMs) > 1000)
+                time = _seekHoldMs;
+            else
+                _seekHoldMs = -1;
+        }
+
         _playbackTimeText.Text = FormatClock(time);
         _playbackLengthText.Text = len > 0 ? FormatClock(len) : "--:--";
         _playbackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
@@ -865,6 +883,7 @@ public sealed class VideoWallPlayerControl : ContentView
 
     private void ResetSeekUi()
     {
+        _seekHoldMs = -1;
         _playbackTimeText.Text = "00:00";
         _playbackLengthText.Text = "00:00";
         _playbackSeekBar.Value = 0;

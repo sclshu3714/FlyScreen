@@ -34,6 +34,8 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private Window? _fullscreenWindow;
     private bool _volumeApplying;
     private bool _seekDragging;
+    private long _seekHoldMs = -1;
+    private long _seekHoldUntilTick;
     private bool _volumePopupPinned;
     private int _speedIndex = 1;
     private Window? _pipWindow;
@@ -710,7 +712,10 @@ public sealed partial class VideoWallPlayerControl : UserControl
         if (len <= 0 || !_service.SinglePlayback.CanSeek) return;
         var ms = (long)(PlaybackSeekBar.Value / SeekBarMax * len);
         _service.SinglePlayback.SeekTo(ms);
-        RefreshPlaybackProgress();
+        // Seek 后 TimeMs 短暂仍为旧值；立刻 Refresh 会把滑块弹回
+        _seekHoldMs = ms;
+        _seekHoldUntilTick = Environment.TickCount64 + 600;
+        PlaybackTimeText.Text = FormatClock(ms);
     }
 
     private void RefreshPlaybackProgress()
@@ -718,6 +723,14 @@ public sealed partial class VideoWallPlayerControl : UserControl
         if (_service is null || _seekDragging) return;
         var time = _service.SinglePlayback.TimeMs;
         var len = _service.SinglePlayback.LengthMs;
+        if (_seekHoldMs >= 0)
+        {
+            if (Environment.TickCount64 < _seekHoldUntilTick && Math.Abs(time - _seekHoldMs) > 1000)
+                time = _seekHoldMs;
+            else
+                _seekHoldMs = -1;
+        }
+
         PlaybackTimeText.Text = FormatClock(time);
         PlaybackLengthText.Text = len > 0 ? FormatClock(len) : "--:--";
         PlaybackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
@@ -730,6 +743,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void ResetSeekUi()
     {
+        _seekHoldMs = -1;
         PlaybackTimeText.Text = "00:00";
         PlaybackLengthText.Text = "00:00";
         PlaybackSeekBar.Value = 0;

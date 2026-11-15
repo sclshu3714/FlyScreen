@@ -32,6 +32,7 @@ public partial class VideoWallPanel : UserControl
     private string _groupFilter = "";
     private bool _suppressCombo;
     private bool _suppressSegment;
+    private Window? _hostWindow;
 
     public Action<string>? StatusReporter
     {
@@ -163,6 +164,7 @@ public partial class VideoWallPanel : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         InheritHostBrushes(Window.GetWindow(this) ?? (FrameworkElement?)Parent);
+        HookHostWindow(Window.GetWindow(this));
         if (_service is null) return;
         _service.CatalogChanged += OnCatalogChanged;
         _service.SessionChanged += OnSessionChanged;
@@ -171,6 +173,46 @@ public partial class VideoWallPanel : UserControl
         SyncCombosFromState();
         RefreshAll();
         FitSourcesColumns();
+    }
+
+    private void HookHostWindow(Window? window)
+    {
+        if (ReferenceEquals(_hostWindow, window)) return;
+        UnhookHostWindow();
+        _hostWindow = window;
+        if (window is null) return;
+        window.IsVisibleChanged += OnHostIsVisibleChanged;
+        window.Closing += OnHostClosing;
+    }
+
+    private void UnhookHostWindow()
+    {
+        if (_hostWindow is null) return;
+        _hostWindow.IsVisibleChanged -= OnHostIsVisibleChanged;
+        _hostWindow.Closing -= OnHostClosing;
+        _hostWindow = null;
+    }
+
+    private void OnHostIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_hostWindow?.IsVisible == true)
+        {
+            if (_mode == PanelMode.Playback)
+                Player.RestoreNativeOverlays();
+            return;
+        }
+
+        // 隐藏到托盘不会 Unload 面板，必须在此卸 ForegroundWindow / 墙格 VideoView
+        ReleaseNativeOverlays();
+    }
+
+    private void OnHostClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+        => ReleaseNativeOverlays();
+
+    private void ReleaseNativeOverlays()
+    {
+        Player.SuspendNativeOverlays();
+        DetachAllTileViews();
     }
 
     /// <summary>从宿主窗口拷贝主题色，使工具区与主程序样式一致。</summary>
@@ -190,10 +232,11 @@ public partial class VideoWallPanel : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        UnhookHostWindow();
+        ReleaseNativeOverlays();
         Player.AttachService(null);
         _ = Player.StopAsync();
         if (_service is null) return;
-        DetachAllTileViews();
         _service.CatalogChanged -= OnCatalogChanged;
         _service.SessionChanged -= OnSessionChanged;
     }

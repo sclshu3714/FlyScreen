@@ -345,14 +345,14 @@
     <GradientStop Color="SkyBlue" Offset="1"/>
   </LinearGradientBrush>
 
-  <!-- 播放进度：极细轨 + 青绿色已播段（对齐附件） -->
+  <!-- 播放进度：极细轨 + 青绿色已播段；RepeatButton 勿绑 Decrease/IncreaseLarge，否则点击已播段会先大步回跳再 MoveToPoint -->
   <ControlTemplate x:Key="PlaybackSliderTemplate" TargetType="Slider">
     <Grid VerticalAlignment="Center" Background="Transparent" MinHeight="16">
       <Border Height="2" CornerRadius="1" Background="{StaticResource PlaybackTrackBg}"
               Margin="0" VerticalAlignment="Center"/>
       <Track x:Name="PART_Track">
         <Track.DecreaseRepeatButton>
-          <RepeatButton Command="Slider.DecreaseLarge" IsTabStop="False" Focusable="False">
+          <RepeatButton IsTabStop="False" Focusable="False">
             <RepeatButton.Template>
               <ControlTemplate TargetType="RepeatButton">
                 <Border Background="{StaticResource PlaybackAccent}" CornerRadius="1" Height="2"
@@ -362,7 +362,13 @@
           </RepeatButton>
         </Track.DecreaseRepeatButton>
         <Track.IncreaseRepeatButton>
-          <RepeatButton Command="Slider.IncreaseLarge" Opacity="0" IsTabStop="False" Focusable="False"/>
+          <RepeatButton IsTabStop="False" Focusable="False">
+            <RepeatButton.Template>
+              <ControlTemplate TargetType="RepeatButton">
+                <Border Background="Transparent" Height="2" VerticalAlignment="Center"/>
+              </ControlTemplate>
+            </RepeatButton.Template>
+          </RepeatButton>
         </Track.IncreaseRepeatButton>
         <Track.Thumb>
           <Thumb Width="10" Height="10">

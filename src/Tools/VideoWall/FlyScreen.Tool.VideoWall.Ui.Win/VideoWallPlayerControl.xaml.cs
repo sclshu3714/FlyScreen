@@ -33,6 +33,8 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private IVideoWallService? _service;
     private string? _pendingPlayId;
     private bool _seekDragging;
+    private long _seekHoldMs = -1;
+    private long _seekHoldUntilTick;
     private bool _volumeDragging;
     private bool _fullscreen;
     private bool _chromeTitleVisible;
@@ -68,9 +70,88 @@ public sealed partial class VideoWallPlayerControl : UserControl
             if (!_volumeDragging && !_volumePopupPinned)
                 PlaybackVolumePopup.IsOpen = false;
         };
-        Loaded += (_, _) => InheritHostBrushes(Window.GetWindow(this) ?? (FrameworkElement?)Parent);
+        Loaded += OnControlLoaded;
+        Unloaded += OnControlUnloaded;
         ApplyLoc();
         SyncSpeedButton();
+    }
+
+    private Window? _hostWindow;
+
+    private void OnControlLoaded(object sender, RoutedEventArgs e)
+    {
+        InheritHostBrushes(Window.GetWindow(this) ?? (FrameworkElement?)Parent);
+        // 代码绑定 PlacementTarget，避免 ElementName 在 Collapsed chrome / 独立 Popup 树下 Data Error 4
+        PlaybackQualityPopup.PlacementTarget = PlaybackQualityBtn;
+        PlaybackEpisodesPopup.PlacementTarget = PlaybackEpisodesBtn;
+        PlaybackSettingsPopup.PlacementTarget = PlaybackSettingsBtn;
+        PlaybackVolumePopup.PlacementTarget = PlaybackVolumeHost;
+        HookHostWindow(Window.GetWindow(this));
+    }
+
+    private void OnControlUnloaded(object sender, RoutedEventArgs e)
+    {
+        UnhookHostWindow();
+        // 主窗 Hide 不走 Unloaded；此处覆盖切页/关工具。卸 VideoView 以关掉 ForegroundWindow。
+        SuspendNativeOverlays();
+    }
+
+    private void HookHostWindow(Window? window)
+    {
+        if (ReferenceEquals(_hostWindow, window)) return;
+        UnhookHostWindow();
+        _hostWindow = window;
+        if (window is null) return;
+        // 主窗 Closing→Cancel+Hide：控件仍 Loaded，但 LibVLC ForegroundWindow 是独立 HWND，会留在桌面
+        window.IsVisibleChanged += OnHostIsVisibleChanged;
+        window.Closing += OnHostClosing;
+    }
+
+    private void UnhookHostWindow()
+    {
+        if (_hostWindow is null) return;
+        _hostWindow.IsVisibleChanged -= OnHostIsVisibleChanged;
+        _hostWindow.Closing -= OnHostClosing;
+        _hostWindow = null;
+    }
+
+    private void OnHostIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_hostWindow?.IsVisible == true)
+        {
+            if (IsVisible)
+                RestoreNativeOverlays();
+            return;
+        }
+
+        SuspendNativeOverlays();
+    }
+
+    private void OnHostClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+        => SuspendNativeOverlays();
+
+    /// <summary>卸掉 LibVLC ForegroundWindow（标题/进度浮层），主窗隐藏或关闭时必须调用。</summary>
+    public void SuspendNativeOverlays()
+    {
+        try
+        {
+            CloseMenuPopups();
+            ExitPip(restoreUi: false);
+            ExitFullscreen(restoreUi: false);
+            DetachPlayerView();
+            SuspendVideoSurface();
+        }
+        catch { /* 关闭过程中可视树可能已半拆 */ }
+    }
+
+    /// <summary>主窗从托盘恢复且仍在播放态时，把 VideoView 挂回。</summary>
+    public void RestoreNativeOverlays()
+    {
+        if (!IsVisible) return;
+        EnsureVideoSurface();
+        AttachPlayerView();
+        if (_chromeTitleVisible || _chromeTransportVisible)
+            ShowPlaybackChrome();
     }
 
     public void AttachService(IVideoWallService? service)
@@ -719,7 +800,10 @@ public sealed partial class VideoWallPlayerControl : UserControl
         if (len <= 0 || !_service.SinglePlayback.CanSeek) return;
         var ms = (long)(PlaybackSeekBar.Value / SeekBarMax * len);
         _service.SinglePlayback.SeekTo(ms);
-        RefreshPlaybackProgress();
+        // Seek 后 TimeMs 短暂仍为旧值；立刻 Refresh 会把滑块弹回
+        _seekHoldMs = ms;
+        _seekHoldUntilTick = Environment.TickCount64 + 600;
+        PlaybackTimeText.Text = FormatClock(ms);
     }
 
     private void RefreshPlaybackProgress()
@@ -727,6 +811,14 @@ public sealed partial class VideoWallPlayerControl : UserControl
         if (_service is null || _seekDragging) return;
         var time = _service.SinglePlayback.TimeMs;
         var len = _service.SinglePlayback.LengthMs;
+        if (_seekHoldMs >= 0)
+        {
+            if (Environment.TickCount64 < _seekHoldUntilTick && Math.Abs(time - _seekHoldMs) > 1000)
+                time = _seekHoldMs;
+            else
+                _seekHoldMs = -1;
+        }
+
         PlaybackTimeText.Text = FormatClock(time);
         PlaybackLengthText.Text = len > 0 ? FormatClock(len) : "--:--";
         PlaybackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
@@ -741,6 +833,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void ResetSeekUi()
     {
+        _seekHoldMs = -1;
         PlaybackTimeText.Text = "00:00";
         PlaybackLengthText.Text = "00:00";
         PlaybackSeekBar.Value = 0;
