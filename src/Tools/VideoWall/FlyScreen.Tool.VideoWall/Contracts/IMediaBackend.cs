@@ -59,6 +59,12 @@ public interface IMediaPlayer
     /// <summary>更新渲染区域（布局切换/全屏时调用，不重建连接）。</summary>
     void SetRenderTarget(IntPtr target);
 
+    /// <summary>
+    /// 绑定软件帧接收面（与 HWND 互斥）。须在 <see cref="StartAsync"/> 之前调用；
+    /// 传 null 表示不使用回调出画（墙格等继续走 HWND）。
+    /// </summary>
+    void AttachFrameSink(IVideoFrameSink? sink);
+
     Task StartAsync(CancellationToken ct = default);
 
     /// <summary>暂停（可 <see cref="Resume"/>）。</summary>

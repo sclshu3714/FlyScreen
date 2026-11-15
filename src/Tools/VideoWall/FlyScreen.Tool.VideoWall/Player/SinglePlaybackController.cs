@@ -73,29 +73,38 @@ public sealed class SinglePlaybackController : IDisposable
     public event Action<TilePlayState>? StateChanged;
     public event Action<MediaStats>? StatsChanged;
 
-    public async Task PlaySourceAsync(string sourceId, IntPtr? renderTarget = null, CancellationToken ct = default)
+    public async Task PlaySourceAsync(
+        string sourceId,
+        IntPtr? renderTarget = null,
+        IVideoFrameSink? frameSink = null,
+        CancellationToken ct = default)
     {
         var source = _catalog.Sources.FirstOrDefault(s => s.Id == sourceId)
                      ?? throw new InvalidOperationException($"源不存在：{sourceId}");
 
+        // 软件帧与 HWND 互斥：有 frameSink 时不绑 RenderTarget
         await PlayEndpointAsync(source.Endpoint, sourceId, new MediaPlayerOptions
         {
             DecodePreference = source.DecodePreference,
             BufferMs = source.Endpoint.BufferMs,
             Mute = false,
-            RenderTarget = renderTarget
-        }, ct).ConfigureAwait(false);
+            RenderTarget = frameSink is null ? renderTarget : null
+        }, ct, frameSink).ConfigureAwait(false);
     }
 
     public async Task PlayEndpointAsync(
         VideoEndpoint endpoint,
         string? sourceId,
         MediaPlayerOptions? options = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IVideoFrameSink? frameSink = null)
     {
         await StopAsync().ConfigureAwait(false);
 
         options ??= new MediaPlayerOptions { Mute = false };
+        if (frameSink is not null)
+            options = options with { RenderTarget = null };
+
         LastStats = null;
         _endpoint = endpoint;
         lock (_gate)
@@ -109,6 +118,9 @@ public sealed class SinglePlaybackController : IDisposable
         }
 
         _player = _backend.CreatePlayer(endpoint, options);
+        if (frameSink is not null)
+            _player.AttachFrameSink(frameSink);
+
         lock (_gate)
         {
             _muted = options.Mute;
@@ -178,7 +190,7 @@ public sealed class SinglePlaybackController : IDisposable
         }
 
         if (!string.IsNullOrWhiteSpace(sourceId))
-            return PlaySourceAsync(sourceId, renderTarget: null, ct);
+            return PlaySourceAsync(sourceId, renderTarget: null, frameSink: null, ct);
 
         if (endpoint is null)
             return Task.CompletedTask;

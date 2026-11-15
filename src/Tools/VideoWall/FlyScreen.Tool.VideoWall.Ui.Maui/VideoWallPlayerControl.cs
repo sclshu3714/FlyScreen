@@ -27,7 +27,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private readonly Label _playbackTitle;
     private readonly Border _playbackVideoHost;
 #if WINDOWS
-    private readonly VideoWallHwndSurface _playbackSurface;
+    private readonly VideoWallFrameSurface _playbackSurface;
 #else
     private readonly Label _playbackVideoPlaceholder;
 #endif
@@ -40,6 +40,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private readonly Label _playbackLengthText;
     private readonly Border _playbackMuteBtn;
     private readonly Path _playbackMuteIcon;
+    private readonly Grid _playbackVolumeHost;
     private readonly Border _playbackVolumePopup;
     private readonly Label _playbackSpeedBtn;
     private readonly Border _playbackTitleBarHost;
@@ -57,6 +58,8 @@ public sealed class VideoWallPlayerControl : ContentView
     private string? _pendingPlayId;
     private bool _seekDragging;
     private bool _volumeDragging;
+    private bool _volumePopupHover;
+    private bool _progressUpdating;
     private int _speedIndex = 1;
     private long _cueLengthMs = -1;
     private bool _showEpisodeTitle = true;
@@ -65,9 +68,6 @@ public sealed class VideoWallPlayerControl : ContentView
     private IDispatcherTimer? _progressTimer;
     private IDispatcherTimer? _chromeHideTimer;
     private IDispatcherTimer? _volumePopupHideTimer;
-#if WINDOWS
-    private VideoWallMauiChromeOverlay? _chromeOverlay;
-#endif
 
     public Action<string>? StatusReporter { get; set; }
     public event Action? Closed;
@@ -100,7 +100,8 @@ public sealed class VideoWallPlayerControl : ContentView
         VideoWallMauiIcons.WireClicked(playbackBackPair.Host, async (_, _) => await PlaybackBackAsync());
 
 #if WINDOWS
-        _playbackSurface = new VideoWallHwndSurface
+        // 软件帧 Image：无 HWND airspace，顶/底 chrome 可半透明叠在画面上
+        _playbackSurface = new VideoWallFrameSurface
         {
             HorizontalOptions = LayoutOptions.Fill,
             VerticalOptions = LayoutOptions.Fill
@@ -108,8 +109,10 @@ public sealed class VideoWallPlayerControl : ContentView
         _playbackVideoHost = new Border
         {
             BackgroundColor = Colors.Black,
+            Stroke = Colors.Transparent,
             StrokeThickness = 0,
             StrokeShape = new RoundRectangle { CornerRadius = 0 },
+            Padding = 0,
             Margin = 0,
             Content = _playbackSurface
         };
@@ -126,8 +129,10 @@ public sealed class VideoWallPlayerControl : ContentView
         _playbackVideoHost = new Border
         {
             BackgroundColor = Colors.Black,
+            Stroke = Colors.Transparent,
             StrokeThickness = 0,
             StrokeShape = new RoundRectangle { CornerRadius = 0 },
+            Padding = 0,
             Margin = 0,
             Content = _playbackVideoPlaceholder
         };
@@ -160,6 +165,26 @@ public sealed class VideoWallPlayerControl : ContentView
             ShowVolumePopup();
             BumpPlaybackChrome();
         });
+        // 悬停音量图标弹出竖条（对齐 Win MouseEnter）
+        _playbackVolumeHost = new Grid
+        {
+            WidthRequest = 36,
+            HeightRequest = 34,
+            Children = { _playbackMuteBtn }
+        };
+        var volumeHostPtr = new PointerGestureRecognizer();
+        volumeHostPtr.PointerEntered += (_, _) =>
+        {
+            _volumePopupHover = true;
+            ShowVolumePopup();
+            BumpPlaybackChrome();
+        };
+        volumeHostPtr.PointerExited += (_, _) =>
+        {
+            _volumePopupHover = false;
+            ScheduleHideVolumePopup();
+        };
+        _playbackVolumeHost.GestureRecognizers.Add(volumeHostPtr);
 
         var fullscreenPair = VideoWallMauiIcons.CreateChromeIconButton(
             VideoWallMauiIcons.Geo.Fullscreen, Loc.T("Tool.VideoWall.Fullscreen"),
@@ -265,6 +290,7 @@ public sealed class VideoWallPlayerControl : ContentView
         _playbackVolumePopup = new Border
         {
             IsVisible = false,
+            ZIndex = 20,
             StrokeThickness = 1,
             Stroke = Color.FromArgb("#33FFFFFF"),
             BackgroundColor = Color.FromArgb("#E6111827"),
@@ -290,6 +316,20 @@ public sealed class VideoWallPlayerControl : ContentView
                 }
             }
         };
+        // 指针在弹层上时保持显示，移出后再收起
+        var volumePopupPtr = new PointerGestureRecognizer();
+        volumePopupPtr.PointerEntered += (_, _) =>
+        {
+            _volumePopupHover = true;
+            _volumePopupHideTimer?.Stop();
+            ShowVolumePopup();
+        };
+        volumePopupPtr.PointerExited += (_, _) =>
+        {
+            _volumePopupHover = false;
+            ScheduleHideVolumePopup();
+        };
+        _playbackVolumePopup.GestureRecognizers.Add(volumePopupPtr);
 
         _playbackSpeedBtn = new Label
         {
@@ -297,7 +337,8 @@ public sealed class VideoWallPlayerControl : ContentView
             TextColor = Colors.White,
             FontSize = 13,
             VerticalOptions = LayoutOptions.Center,
-            Padding = new Thickness(10, 6)
+            Padding = new Thickness(10, 6),
+            BackgroundColor = Colors.Transparent
         };
         var speedTap = new TapGestureRecognizer();
         speedTap.Tapped += (_, _) =>
@@ -309,6 +350,7 @@ public sealed class VideoWallPlayerControl : ContentView
             BumpPlaybackChrome();
         };
         _playbackSpeedBtn.GestureRecognizers.Add(speedTap);
+        VideoWallMauiIcons.WireChromeHover(_playbackSpeedBtn);
 
         _qualityBtn = CreateChromeTextButton(Loc.T("Tool.VideoWall.QualityAuto"), () => ToggleMenu(MenuKind.Quality));
         _episodesBtn = CreateChromeTextButton(Loc.T("Tool.VideoWall.Episodes"), () => ToggleMenu(MenuKind.Episodes));
@@ -323,7 +365,7 @@ public sealed class VideoWallPlayerControl : ContentView
             StrokeShape = new RoundRectangle { CornerRadius = 12 },
             VerticalOptions = LayoutOptions.End,
             HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(0, 0, 16, 8),
+            Margin = new Thickness(0, 0, 16, TransportChromeHeight - 12),
             MinimumWidthRequest = 160,
             MaximumWidthRequest = 300,
             ZIndex = 5
@@ -370,19 +412,30 @@ public sealed class VideoWallPlayerControl : ContentView
         };
         _playbackSeekBar.ValueChanged += (_, e) =>
         {
-            if (!_seekDragging || _service is null) return;
+            if (_service is null || _progressUpdating) return;
             var len = _service.SinglePlayback.LengthMs;
             if (len <= 0) return;
             var ms = (long)(e.NewValue / SeekBarMax * len);
             _playbackTimeText.Text = FormatClock(ms);
+            // 点击轨道常无 Drag 会话，须在 ValueChanged 里直接 Seek
+            if (!_seekDragging && _service.SinglePlayback.CanSeek)
+            {
+                _service.SinglePlayback.SeekTo(ms);
+                BumpPlaybackChrome();
+            }
         };
+        // 部分平台点击不改 Value：按坐标比例跳转
+        var seekPrimaryTap = new TapGestureRecognizer { Buttons = ButtonsMask.Primary };
+        seekPrimaryTap.Tapped += (_, e) => SeekByPointer(e.GetPosition(_playbackSeekBar));
+        _playbackSeekBar.GestureRecognizers.Add(seekPrimaryTap);
 
-        // 关键事件白点层：与进度条同宽，位置按「滑块中心」比例排布
+        // 关键事件白点层：穿透点击，避免挡住进度条点击/拖动
         _cueLayer = new AbsoluteLayout
         {
             HeightRequest = CueHitHeight,
             VerticalOptions = LayoutOptions.End,
-            Margin = new Thickness(0, 0, 0, 8)
+            Margin = new Thickness(0, 0, 0, 8),
+            InputTransparent = true
         };
 
         var progressRow = new Grid
@@ -438,7 +491,7 @@ public sealed class VideoWallPlayerControl : ContentView
                         _qualityBtn,
                         _episodesBtn,
                         settingsPair.Host,
-                        _playbackMuteBtn,
+                        _playbackVolumeHost,
                         pipPair.Host,
                         maximizePair.Host,
                         fullscreenPair.Host
@@ -507,25 +560,18 @@ public sealed class VideoWallPlayerControl : ContentView
             Content = _playbackTitleBar
         };
 
-        // Win：视频全铺；chrome 进独立浮层（只创建一次），避免 inset 压缩画面
+        // 画面全铺 + chrome 叠层（软件帧，非 HWND）；禁止 inset，避免压画面/假透明
         _root = new Grid
         {
             BackgroundColor = Colors.Black,
             Children =
             {
                 _playbackVideoHost,
-#if !WINDOWS
                 _playbackTitleBarHost,
                 _playbackTransportBar,
                 _menuHost
-#endif
             }
         };
-#if WINDOWS
-        if (_playbackTransportBar.Content is Grid transportGrid &&
-            !ReferenceEquals(_menuHost.Parent, transportGrid))
-            transportGrid.Children.Add(_menuHost);
-#endif
         var playbackPointer = new PointerGestureRecognizer();
         playbackPointer.PointerMoved += (_, _) => BumpPlaybackChrome();
         _root.GestureRecognizers.Add(playbackPointer);
@@ -547,11 +593,6 @@ public sealed class VideoWallPlayerControl : ContentView
         _playbackVideoHost.GestureRecognizers.Add(videoTap);
 
         Content = _root;
-        SizeChanged += (_, _) =>
-        {
-            if (_playbackTitleBarHost.IsVisible || _playbackTransportBar.IsVisible)
-                ShowPlaybackChrome();
-        };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -573,9 +614,6 @@ public sealed class VideoWallPlayerControl : ContentView
         _cueLengthMs = -1;
         RefreshCueLayer();
         UpdateQualityUi(null);
-#if WINDOWS
-        EnsureChromeOverlay();
-#endif
         ShowPlaybackChrome();
         BumpPlaybackChrome();
         ReportLog($"视频墙连接中: {title}");
@@ -589,10 +627,7 @@ public sealed class VideoWallPlayerControl : ContentView
         CloseMenu();
         RestorePresenter();
 #if WINDOWS
-        ClearPlaybackRenderTarget();
-        // 仅隐藏表面，保留 HWND；浮层只 Hide 不销毁
-        _playbackSurface.SetSurfaceVisible(false);
-        _chromeOverlay?.Hide();
+        _playbackSurface.Clear();
 #endif
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
@@ -602,10 +637,6 @@ public sealed class VideoWallPlayerControl : ContentView
         _playbackTitleBarHost.IsVisible = false;
         _playbackTransportBar.IsVisible = false;
         _playbackVolumePopup.IsVisible = false;
-        ApplyVideoChromeInset(title: false, transport: false);
-#if WINDOWS
-        _playbackSurface.Sync();
-#endif
     }
 
     private void OnLoaded(object? sender, EventArgs e)
@@ -621,7 +652,7 @@ public sealed class VideoWallPlayerControl : ContentView
         _volumePopupHideTimer.Tick += (_, _) =>
         {
             _volumePopupHideTimer.Stop();
-            if (!_volumeDragging)
+            if (!_volumeDragging && !_volumePopupHover)
                 _playbackVolumePopup.IsVisible = false;
         };
         SyncSpeedButton();
@@ -635,19 +666,9 @@ public sealed class VideoWallPlayerControl : ContentView
         RestorePresenter();
         DetachServiceSubscriptions();
 #if WINDOWS
-        ClearPlaybackRenderTarget();
-        _chromeOverlay?.Dispose();
-        _chromeOverlay = null;
+        _playbackSurface.Clear();
 #endif
     }
-
-#if WINDOWS
-    private void EnsureChromeOverlay()
-    {
-        _chromeOverlay ??= new VideoWallMauiChromeOverlay(this);
-        _chromeOverlay.SetContents(_playbackTitleBarHost, _playbackTransportBar);
-    }
-#endif
 
     private void DetachServiceSubscriptions()
     {
@@ -690,51 +711,19 @@ public sealed class VideoWallPlayerControl : ContentView
         StatusReporter?.Invoke(message);
     }
 
-#if WINDOWS
-    public void SetSurfaceVisible(bool visible) => _playbackSurface.SetSurfaceVisible(visible);
-
-    private async Task PulseSurfaceSyncAsync()
-    {
-        foreach (var delay in new[] { 32, 80, 160, 320 })
-        {
-            await Task.Delay(delay).ConfigureAwait(true);
-            if (!IsVisible) return;
-            _playbackSurface.Sync();
-            _chromeOverlay?.SyncBounds();
-        }
-    }
-#endif
-
     private async Task StartPlaybackAsync(string sourceId)
     {
         if (_service is null) return;
         _playbackTitle.Text = _playbackTitle.Text ?? sourceId;
         try
         {
+            ShowPlaybackChrome();
 #if WINDOWS
-            ClearPlaybackRenderTarget();
-            _playbackSurface.SetSurfaceVisible(true);
-            // 进播放页时布局常尚未完成，强等有效尺寸再绑 HWND，否则画面要拖窗口才出现
-            var laidOut = await _playbackSurface.WaitUntilLaidOutAsync(2500).ConfigureAwait(true);
-            var hwnd = await WaitForSurfaceHwndAsync(_playbackSurface, 1500).ConfigureAwait(true);
-            if (hwnd == IntPtr.Zero || !laidOut)
-            {
-                await Task.Delay(80).ConfigureAwait(true);
-                _playbackSurface.SetSurfaceVisible(true);
-                await _playbackSurface.WaitUntilLaidOutAsync(1500).ConfigureAwait(true);
-                hwnd = await WaitForSurfaceHwndAsync(_playbackSurface, 1500).ConfigureAwait(true);
-            }
-
-            if (hwnd == IntPtr.Zero)
-            {
-                ReportLog($"视频墙播放「{_playbackTitle.Text}」: HWND 未就绪");
-                return;
-            }
-
-            await _service.SinglePlayback.PlaySourceAsync(sourceId, hwnd).ConfigureAwait(true);
-            _playbackSurface.Sync();
-            // 播放开始后再补几次 Sync，覆盖首帧布局抖动
-            _ = PulseSurfaceSyncAsync();
+            _playbackSurface.Clear();
+            // 无 HWND：直接回调出画，首帧即见画面，不因布局/resize 黑屏
+            await _service.SinglePlayback
+                .PlaySourceAsync(sourceId, renderTarget: null, frameSink: _playbackSurface)
+                .ConfigureAwait(true);
 #else
             await _service.SinglePlayback.PlaySourceAsync(sourceId).ConfigureAwait(true);
 #endif
@@ -745,7 +734,7 @@ public sealed class VideoWallPlayerControl : ContentView
         catch (Exception ex)
         {
 #if WINDOWS
-            ClearPlaybackRenderTarget();
+            _playbackSurface.Clear();
 #endif
             _progressTimer?.Stop();
             ReportLog($"视频墙播放异常「{_playbackTitle.Text}」: {ex.Message}");
@@ -793,6 +782,29 @@ public sealed class VideoWallPlayerControl : ContentView
         RefreshPlaybackProgress();
     }
 
+    private void SeekByPointer(Point? position)
+    {
+        if (position is null || _service is null || !_service.SinglePlayback.CanSeek) return;
+        var len = _service.SinglePlayback.LengthMs;
+        if (len <= 0) return;
+        var w = Math.Max(1, _playbackSeekBar.Width - SeekThumbWidth);
+        var ratio = Math.Clamp((position.Value.X - SeekThumbWidth / 2) / w, 0, 1);
+        var ms = (long)(ratio * len);
+        _progressUpdating = true;
+        try
+        {
+            _playbackSeekBar.Value = ratio * SeekBarMax;
+        }
+        finally
+        {
+            _progressUpdating = false;
+        }
+
+        _service.SinglePlayback.SeekTo(ms);
+        _playbackTimeText.Text = FormatClock(ms);
+        BumpPlaybackChrome();
+    }
+
     private void ApplyVolumeFromBar()
     {
         if (_service is null) return;
@@ -810,7 +822,7 @@ public sealed class VideoWallPlayerControl : ContentView
 
     private void ScheduleHideVolumePopup()
     {
-        if (_volumeDragging) return;
+        if (_volumeDragging || _volumePopupHover) return;
         _volumePopupHideTimer?.Stop();
         _volumePopupHideTimer?.Start();
     }
@@ -833,7 +845,18 @@ public sealed class VideoWallPlayerControl : ContentView
         _playbackTitleDuration.Text = len > 0 ? FormatClock(len) : "";
         _playbackSeekBar.IsEnabled = _service.SinglePlayback.CanSeek && len > 0;
         if (len > 0)
-            _playbackSeekBar.Value = Math.Clamp(time * SeekBarMax / len, 0, SeekBarMax);
+        {
+            _progressUpdating = true;
+            try
+            {
+                _playbackSeekBar.Value = Math.Clamp(time * SeekBarMax / len, 0, SeekBarMax);
+            }
+            finally
+            {
+                _progressUpdating = false;
+            }
+        }
+
         if (len != _cueLengthMs)
             RefreshCueLayer();
         if (!_volumeDragging)
@@ -867,6 +890,7 @@ public sealed class VideoWallPlayerControl : ContentView
             var hit = new Grid
             {
                 BackgroundColor = Colors.Transparent,
+                InputTransparent = false,
                 Children =
                 {
                     new Ellipse
@@ -951,11 +975,13 @@ public sealed class VideoWallPlayerControl : ContentView
             TextColor = Colors.White,
             FontSize = 13,
             VerticalOptions = LayoutOptions.Center,
-            Padding = new Thickness(10, 6)
+            Padding = new Thickness(10, 6),
+            BackgroundColor = Colors.Transparent
         };
         var tap = new TapGestureRecognizer();
         tap.Tapped += (_, _) => onTap();
         label.GestureRecognizers.Add(tap);
+        VideoWallMauiIcons.WireChromeHover(label);
         return label;
     }
 
@@ -976,10 +1002,6 @@ public sealed class VideoWallPlayerControl : ContentView
         };
         _menuKind = kind;
         _menuHost.IsVisible = true;
-#if WINDOWS
-        // 子 HWND 会盖住 WinUI 叠层，菜单打开期间先收起视频面
-        _playbackSurface.SetSurfaceVisible(false);
-#endif
         BumpPlaybackChrome();
     }
 
@@ -989,9 +1011,6 @@ public sealed class VideoWallPlayerControl : ContentView
         _menuKind = MenuKind.None;
         _menuHost.IsVisible = false;
         _menuHost.Content = null;
-#if WINDOWS
-        _playbackSurface.SetSurfaceVisible(true);
-#endif
     }
 
     private static Label MenuTitle(string text) => new()
@@ -1268,40 +1287,23 @@ public sealed class VideoWallPlayerControl : ContentView
         var showTransport = !IsCompactChrome();
         _playbackTitleBarHost.IsVisible = true;
         _playbackTransportBar.IsVisible = showTransport;
-        // 视频始终全铺，不因 chrome 显示而 inset 压缩
-        ApplyVideoChromeInset(title: false, transport: false);
-#if WINDOWS
-        EnsureChromeOverlay();
-        _chromeOverlay!.Show(title: true, transport: showTransport);
-        _playbackSurface.Sync();
-#endif
+        // 画面始终全铺；chrome 叠在上面，不改视频 Margin
+        _playbackVideoHost.Margin = new Thickness(0);
     }
 
     private void HidePlaybackChrome()
     {
         _chromeHideTimer?.Stop();
-        if (!IsVisible || _seekDragging || _volumeDragging || _menuKind != MenuKind.None) return;
+        if (!IsVisible || _seekDragging || _volumeDragging || _volumePopupHover || _menuKind != MenuKind.None)
+            return;
         _playbackTitleBarHost.IsVisible = false;
         _playbackTransportBar.IsVisible = false;
         _playbackVolumePopup.IsVisible = false;
-        ApplyVideoChromeInset(title: false, transport: false);
-#if WINDOWS
-        _chromeOverlay?.Hide();
-        _playbackSurface.Sync();
-#endif
     }
 
     private bool IsCompactChrome() =>
         Width > 0 && Height > 0 &&
         (Width < CompactChromeThreshold || Height < CompactChromeThreshold);
-
-    private void ApplyVideoChromeInset(bool title, bool transport)
-    {
-        // Maui-Win：画面全铺；chrome 由浮层叠在 HWND 上。参数保留以对齐其它端签名。
-        _ = title;
-        _ = transport;
-        _playbackVideoHost.Margin = new Thickness(0);
-    }
 
     private static LinearGradientBrush CreateTitleChromeBrush() => new()
     {
@@ -1309,9 +1311,8 @@ public sealed class VideoWallPlayerControl : ContentView
         EndPoint = new Point(0, 1),
         GradientStops =
         {
-            // 深色为主，靠向视频一侧再淡出（避免浅色雾白）
-            new GradientStop(Color.FromArgb("#F20B1220"), 0f),
-            new GradientStop(Color.FromArgb("#CC0B1220"), 0.55f),
+            new GradientStop(Color.FromArgb("#CC0B1220"), 0f),
+            new GradientStop(Color.FromArgb("#880B1220"), 0.55f),
             new GradientStop(Color.FromArgb("#000B1220"), 1f)
         }
     };
@@ -1323,9 +1324,9 @@ public sealed class VideoWallPlayerControl : ContentView
         GradientStops =
         {
             new GradientStop(Color.FromArgb("#000B1220"), 0f),
-            new GradientStop(Color.FromArgb("#990B1220"), 0.35f),
-            new GradientStop(Color.FromArgb("#E60B1220"), 0.75f),
-            new GradientStop(Color.FromArgb("#F20B1220"), 1f)
+            new GradientStop(Color.FromArgb("#660B1220"), 0.35f),
+            new GradientStop(Color.FromArgb("#AA0B1220"), 0.75f),
+            new GradientStop(Color.FromArgb("#DD0B1220"), 1f)
         }
     };
 
@@ -1364,39 +1365,6 @@ public sealed class VideoWallPlayerControl : ContentView
         SemanticProperties.SetHint(_playbackMuteBtn, hint);
         AutomationProperties.SetName(_playbackMuteBtn, hint);
     }
-
-#if WINDOWS
-    private static async Task<IntPtr> WaitForSurfaceHwndAsync(VideoWallHwndSurface surface, int timeoutMs = 1000)
-    {
-        if (surface.Hwnd != IntPtr.Zero)
-            return surface.Hwnd;
-
-        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnHwndReady() => ready.TrySetResult();
-        surface.HwndReady += OnHwndReady;
-        try
-        {
-            var deadline = Environment.TickCount64 + timeoutMs;
-            while (surface.Hwnd == IntPtr.Zero && Environment.TickCount64 < deadline)
-            {
-                var waitMs = (int)Math.Min(50, deadline - Environment.TickCount64);
-                if (waitMs <= 0)
-                    break;
-                var completed = await Task.WhenAny(ready.Task, Task.Delay(waitMs)).ConfigureAwait(true);
-                if (completed == ready.Task || surface.Hwnd != IntPtr.Zero)
-                    break;
-            }
-
-            return surface.Hwnd;
-        }
-        finally
-        {
-            surface.HwndReady -= OnHwndReady;
-        }
-    }
-
-    private void ClearPlaybackRenderTarget() => _service?.SinglePlayback.SetRenderTarget(IntPtr.Zero);
-#endif
 
     private static string StatusTextFor(TilePlayState state) => state switch
     {

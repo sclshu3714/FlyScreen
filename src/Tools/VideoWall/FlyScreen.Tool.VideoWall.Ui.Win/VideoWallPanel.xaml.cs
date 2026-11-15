@@ -129,7 +129,7 @@ public partial class VideoWallPanel : UserControl
                 : Visibility.Collapsed;
             ApplySegmentIconColors();
 
-            var edge = _service?.Layout.Rows ?? 3;
+            var edge = _service?.Layout.Rows ?? 2;
             for (var i = 0; i < LayoutCombo.Items.Count; i++)
             {
                 if (LayoutCombo.Items[i] is ComboBoxItem { Tag: int tag } && tag == edge)
@@ -140,7 +140,7 @@ public partial class VideoWallPanel : UserControl
             }
 
             if (LayoutCombo.SelectedIndex < 0 && LayoutCombo.Items.Count > 0)
-                LayoutCombo.SelectedIndex = Math.Min(2, LayoutCombo.Items.Count - 1);
+                LayoutCombo.SelectedIndex = Math.Min(1, LayoutCombo.Items.Count - 1); // 默认 2×2
         }
         finally
         {

@@ -88,7 +88,7 @@ public static class VideoWallMauiIcons
         return new IconButtonPair(host, icon);
     }
 
-    /// <summary>播放器 chrome 用：透明底、无描边、白色 Path 图标。</summary>
+    /// <summary>播放器 chrome 用：透明底、无描边、白色 Path 图标；悬停浅亮。</summary>
     public static IconButtonPair CreateChromeIconButton(
         string geoData,
         string hintText,
@@ -105,7 +105,19 @@ public static class VideoWallMauiIcons
             6);
         host.StrokeThickness = 0;
         ApplyHint(host, hintText);
+        WireChromeHover(host);
         return new IconButtonPair(host, icon);
+    }
+
+    /// <summary>播放器 chrome 悬停：半透明白底，对齐 Win ChromeIconBtn。</summary>
+    public static void WireChromeHover(View host, Color? hover = null)
+    {
+        var idle = host.BackgroundColor ?? Colors.Transparent;
+        var over = hover ?? Color.FromArgb("#33FFFFFF");
+        var ptr = new PointerGestureRecognizer();
+        ptr.PointerEntered += (_, _) => host.BackgroundColor = over;
+        ptr.PointerExited += (_, _) => host.BackgroundColor = idle;
+        host.GestureRecognizers.Add(ptr);
     }
 
     public static IconButtonPair CreateRowIconButton(

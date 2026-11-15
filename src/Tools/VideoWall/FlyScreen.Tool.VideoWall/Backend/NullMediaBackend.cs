@@ -45,6 +45,8 @@ internal sealed class NullMediaPlayer : IMediaPlayer, IDisposable
 
     public void SetRenderTarget(IntPtr target) { }
 
+    public void AttachFrameSink(IVideoFrameSink? sink) { }
+
     public Task StartAsync(CancellationToken ct = default)
     {
         ErrorCode = VideoErrorCode.SourceUnsupported;

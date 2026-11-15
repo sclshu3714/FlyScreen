@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Text;
 using FlyScreen.Tool.VideoWall.Contracts;
 using LibVLCSharp.Shared;
 using MediaStats = FlyScreen.Tool.VideoWall.Contracts.MediaStats;
@@ -9,6 +11,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
 {
     private static readonly TimeSpan StallThreshold = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan StatsInterval = TimeSpan.FromSeconds(2);
+    private static readonly byte[] Rv32Chroma = Encoding.ASCII.GetBytes("RV32");
 
     private readonly LibVLC _libVlc;
     private readonly VideoEndpoint _endpoint;
@@ -26,6 +29,19 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     private DateTime _playStartUtc;
     private bool _disposed;
     private volatile bool _loop;
+
+    // 软件帧出画（须在 Play 前绑定；委托字段防 GC）
+    private IVideoFrameSink? _frameSink;
+    private MediaPlayer.LibVLCVideoFormatCb? _formatCb;
+    private MediaPlayer.LibVLCVideoCleanupCb? _cleanupCb;
+    private MediaPlayer.LibVLCVideoLockCb? _lockCb;
+    private MediaPlayer.LibVLCVideoDisplayCb? _displayCb;
+    private IntPtr _frameAlloc;
+    private IntPtr _frameAligned;
+    private int _frameAllocSize;
+    private uint _frameWidth;
+    private uint _frameHeight;
+    private uint _framePitch;
 
     public VlcMediaPlayer(
         LibVLC libVlc,
@@ -105,9 +121,29 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     public void SetRenderTarget(IntPtr target)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        // 软件帧模式下忽略 HWND，避免与回调出画冲突
+        if (_frameSink is not null)
+            return;
         // VideoView 绑定时由其托管 HWND；仅在显式传入有效句柄时覆盖
         if (target != IntPtr.Zero)
             _player.Hwnd = target;
+    }
+
+    public void AttachFrameSink(IVideoFrameSink? sink)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _frameSink = sink;
+        if (sink is null)
+            return;
+
+        // 与 HWND 互斥：清窗口句柄，改走内存回调
+        _player.Hwnd = IntPtr.Zero;
+        _formatCb = OnVideoFormat;
+        _cleanupCb = OnVideoCleanup;
+        _lockCb = OnVideoLock;
+        _displayCb = OnVideoDisplay;
+        _player.SetVideoFormatCallbacks(_formatCb, _cleanupCb);
+        _player.SetVideoCallbacks(_lockCb, null, _displayCb);
     }
 
     public Task StartAsync(CancellationToken ct = default)
@@ -220,6 +256,87 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player.Stop();
         _media?.Dispose();
         _player.Dispose();
+        FreeFrameBuffer();
+        _frameSink = null;
+    }
+
+    private uint OnVideoFormat(
+        ref IntPtr opaque,
+        IntPtr chroma,
+        ref uint width,
+        ref uint height,
+        ref uint pitches,
+        ref uint lines)
+    {
+        Marshal.Copy(Rv32Chroma, 0, chroma, 4);
+
+        // 对齐到偶数，避免部分转换器踩奇宽高
+        if ((width & 1) != 0) width++;
+        if ((height & 1) != 0) height++;
+
+        pitches = width * 4;
+        lines = height;
+        _frameWidth = width;
+        _frameHeight = height;
+        _framePitch = pitches;
+
+        var bytes = checked((int)(pitches * lines));
+        EnsureFrameBuffer(bytes);
+        try
+        {
+            _frameSink?.OnVideoFormat((int)width, (int)height, (int)pitches);
+        }
+        catch
+        {
+            /* 宿主侧异常不影响解码 */
+        }
+
+        return 1;
+    }
+
+    private void OnVideoCleanup(ref IntPtr opaque) => FreeFrameBuffer();
+
+    private IntPtr OnVideoLock(IntPtr opaque, IntPtr planes)
+    {
+        Marshal.WriteIntPtr(planes, _frameAligned);
+        return _frameAligned;
+    }
+
+    private void OnVideoDisplay(IntPtr opaque, IntPtr picture)
+    {
+        var sink = _frameSink;
+        if (sink is null || _frameAligned == IntPtr.Zero || _frameWidth == 0 || _frameHeight == 0)
+            return;
+        try
+        {
+            sink.OnVideoFrame(_frameAligned, (int)_frameWidth, (int)_frameHeight, (int)_framePitch);
+        }
+        catch
+        {
+            /* 宿主侧异常不影响解码 */
+        }
+    }
+
+    private void EnsureFrameBuffer(int size)
+    {
+        if (_frameAlloc != IntPtr.Zero && _frameAllocSize >= size)
+            return;
+
+        FreeFrameBuffer();
+        // +63：Alloc 后对齐到 32 字节边界（LibVLC 要求）
+        _frameAlloc = Marshal.AllocHGlobal(size + 63);
+        _frameAllocSize = size;
+        var addr = _frameAlloc.ToInt64();
+        _frameAligned = new IntPtr((addr + 31) & ~31L);
+    }
+
+    private void FreeFrameBuffer()
+    {
+        if (_frameAlloc == IntPtr.Zero) return;
+        Marshal.FreeHGlobal(_frameAlloc);
+        _frameAlloc = IntPtr.Zero;
+        _frameAligned = IntPtr.Zero;
+        _frameAllocSize = 0;
     }
 
     private void OnPlaying(object? sender, EventArgs e)

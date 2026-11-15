@@ -142,7 +142,7 @@ public sealed class VideoWallPanel : ContentView
 
         _layoutDrop = new VideoWallDropDown(_text, _muted, _line, _card);
         _layoutDrop.SetOptions(["1×1", "2×2", "3×3", "4×4"]);
-        _layoutDrop.SelectedIndex = 2;
+        _layoutDrop.SelectedIndex = 1; // 默认 2×2
         _layoutDrop.IsVisible = false;
         _layoutDrop.SelectionChanged += async _ => await OnLayoutChangedAsync();
 
@@ -289,7 +289,8 @@ public sealed class VideoWallPanel : ContentView
         };
         var main = _mainPane;
 
-        var flyoutLayer = new AbsoluteLayout { IsVisible = false, ZIndex = 300 };
+        // 浮层必须挂在根上：原先塞进 dialogHost，主界面关闭对话框时整层不可见，布局/分组下拉无法打开
+        var flyoutLayer = new AbsoluteLayout { IsVisible = false, ZIndex = 400 };
         _flyout = new VideoWallFlyoutHost(flyoutLayer);
 
         _sourceForm = new VideoWallSourceForm(
@@ -366,7 +367,7 @@ public sealed class VideoWallPanel : ContentView
         {
             IsVisible = false,
             ClassId = "dialogHost",
-            Children = { dim, _dialogCard, flyoutLayer }
+            Children = { dim, _dialogCard }
         };
         dialogHost.SizeChanged += (_, _) =>
         {
@@ -382,8 +383,11 @@ public sealed class VideoWallPanel : ContentView
         AbsoluteLayout.SetLayoutFlags(main, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
         AbsoluteLayout.SetLayoutBounds(dialogHost, new Rect(0, 0, 1, 1));
         AbsoluteLayout.SetLayoutFlags(dialogHost, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
+        AbsoluteLayout.SetLayoutBounds(flyoutLayer, new Rect(0, 0, 1, 1));
+        AbsoluteLayout.SetLayoutFlags(flyoutLayer, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
         _root.Children.Add(main);
         _root.Children.Add(dialogHost);
+        _root.Children.Add(flyoutLayer);
 
         Content = _root;
         Loaded += OnLoaded;
@@ -462,7 +466,7 @@ public sealed class VideoWallPanel : ContentView
         {
             var edge = _service.Layout.Rows;
             var idx = Array.IndexOf(LayoutEdges, edge);
-            _layoutDrop.SelectedIndex = idx >= 0 ? idx : 2;
+            _layoutDrop.SelectedIndex = idx >= 0 ? idx : 1;
         }
         finally { _suppressLayout = false; }
     }
@@ -525,10 +529,6 @@ public sealed class VideoWallPanel : ContentView
         else if (mode == PanelMode.Sources)
             RefreshSources();
 
-#if WINDOWS
-        if (mode == PanelMode.Playback)
-            _player.SetSurfaceVisible(true);
-#endif
         SyncBrowseChrome();
     }
 
@@ -1046,12 +1046,8 @@ public sealed class VideoWallPanel : ContentView
 
     private async Task BeginPlaybackCoreAsync(string sourceId)
     {
-        // 先切到播放页并等一帧布局，避免 HWND 在 0×0 时绑定导致黑屏
+        // 软件帧出画不依赖 HWND 布局；仍让出一帧以便播放页可见
         await Task.Yield();
-#if WINDOWS
-        _player.SetSurfaceVisible(true);
-        await Task.Delay(32).ConfigureAwait(true);
-#endif
         await _player.PlayAsync(sourceId, ResolvePlaybackTitle(sourceId)).ConfigureAwait(true);
     }
 

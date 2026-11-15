@@ -20,7 +20,7 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
     private string? _dataDir;
     private bool _running;
     private List<TileSession> _tiles = [];
-    private WallLayout _layout = WallLayout.ThreeByThree;
+    private WallLayout _layout = WallLayout.TwoByTwo;
     private int? _focusedTileIndex;
     private readonly HashSet<int> _pausedByFocus = [];
 
