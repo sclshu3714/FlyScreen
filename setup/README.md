@@ -67,4 +67,19 @@ dotnet run --project setup\FlyScreen.Setup\FlyScreen.Setup.csproj -c Release
 
 `artifacts/setup-work/{jobId}/`（应用暂存、payload、卸载器、安装壳输出、按工程隔离的 `obj`）
 
-通过环境变量 `FlyScreenJobId` + 仓库根 `Directory.Build.props` 分流中间输出；安装壳以 `-p:FlyScreenPayloadZip` / `-p:FlyScreenInstallerJson` 注入载荷，避免抢 `FlyScreen.Installer\Payload`。任务结束后自动删除该工作区。
+通过环境变量 `FlyScreenJobId` + 仓库根 `Directory.Build.props` 分流中间输出；安装壳以 `-p:FlyScreenPayloadZip` / `-p:FlyScreenInstallerJson` 注入载荷，避免抢 `FlyScreen.Installer\Payload`。任务结束后自动删除该工作区（含重试；并清扫其它任务残留）。
+
+### artifacts 保留与清理
+
+| 路径 | 用途 |
+| --- | --- |
+| `artifacts/release/` | 最终命名产物（安装包 / 独立应用 / zip） |
+| `artifacts/flytools/` | 已组好的 `.flytool` + `tools-index.json` |
+| `artifacts/setup-work/{jobId}/` | Setup 任务暂存，**任务结束删除** |
+| `artifacts/flytools-stage/` | Pack-FlyTools 组包暂存，**脚本结束删除** |
+
+其它 `artifacts/*`（如旧 RID 暂存、检查目录、根目录日志）视为中间产物：Setup 打包开始时会清扫；亦可手动：
+
+```powershell
+powershell -File build\Clean-Artifacts.ps1
+```

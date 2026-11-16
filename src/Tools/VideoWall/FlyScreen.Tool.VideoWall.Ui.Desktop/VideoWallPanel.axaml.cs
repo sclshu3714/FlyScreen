@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -23,6 +25,7 @@ public partial class VideoWallPanel : UserControl
     private PanelMode _mode = PanelMode.Sources;
     private BrowseView _browseView = BrowseView.List;
     private bool _suppressCarouselToggle;
+    private bool _suppressCheckSync;
     private readonly DispatcherTimer _carouselTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(WallCarousel.DefaultIntervalMs)
@@ -63,6 +66,13 @@ public partial class VideoWallPanel : UserControl
             UpdateCarouselChrome();
         };
         ApplyLoc();
+        HdrSelectAll.DoubleTapped += (_, _) =>
+        {
+            foreach (var row in _rows)
+                row.IsSelected = !row.IsSelected;
+            SyncListSelectionFromChecks();
+            SyncHeaderSelectAll();
+        };
 
         if (_service is null)
             StatusBar.Text = Loc.T("Tool.VideoWall.BackendUnavailable");
@@ -78,10 +88,13 @@ public partial class VideoWallPanel : UserControl
         ViewListBtn.Content = Loc.T("Tool.VideoWall.ViewList");
         ViewCanvasBtn.Content = Loc.T("Tool.VideoWall.ViewCanvas");
         AddBtn.Content = Loc.T("Tool.VideoWall.Add");
+        ScanBtn.Content = Loc.T("Tool.VideoWall.Scan");
+        ToolTip.SetTip(ScanBtn, Loc.T("Tool.VideoWall.Scan"));
         DeleteBtn.Content = Loc.T("Tool.VideoWall.Delete");
         SearchBox.Watermark = Loc.T("Tool.VideoWall.Search");
         CarouselToggle.Content = Loc.T("Tool.VideoWall.Carousel");
         ToolTip.SetTip(CarouselToggle, Loc.T("Tool.VideoWall.CarouselHint"));
+        ToolTip.SetTip(HdrSelectAll, Loc.T("Tool.VideoWall.SelectAllTip"));
         HdrName.Text = Loc.T("Tool.VideoWall.ColName");
         HdrKind.Text = Loc.T("Tool.VideoWall.ColKind");
         HdrAddress.Text = Loc.T("Tool.VideoWall.Field.Address");
@@ -144,6 +157,8 @@ public partial class VideoWallPanel : UserControl
                 StatusText = ValidationLabel(s.ValidationState)
             });
         }
+
+        SyncHeaderSelectAll();
     }
 
     private void SetMode(PanelMode mode)
@@ -309,14 +324,102 @@ public partial class VideoWallPanel : UserControl
             RefreshAll();
     }
 
+    private async void ScanBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_service is null) return;
+        var win = new ScanDevicesWindow(_service);
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is not null)
+            await win.ShowDialog(owner);
+        else
+            win.Show();
+        RefreshAll();
+    }
+
     private async void DeleteBtn_Click(object? sender, RoutedEventArgs e)
     {
         if (_service is null) return;
-        var rows = SourcesList.SelectedItems?.OfType<DesktopSourceRow>().ToList() ?? [];
+        var rows = _rows.Where(r => r.IsSelected).ToList();
+        if (rows.Count == 0)
+            rows = SourcesList.SelectedItems?.OfType<DesktopSourceRow>().ToList() ?? [];
         if (rows.Count == 0) return;
         foreach (var row in rows)
             await _service.RemoveSourceAsync(row.Id);
         RefreshAll();
+    }
+
+    private void HdrSelectAll_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressCheckSync || sender is not CheckBox cb) return;
+
+        // 单击：全选/取消全选（双击反选见 HdrSelectAll.DoubleTapped）
+        var target = cb.IsChecked == true;
+        foreach (var row in _rows)
+            row.IsSelected = target;
+
+        SyncListSelectionFromChecks();
+        SyncHeaderSelectAll();
+    }
+
+    private void RowCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressCheckSync) return;
+        SyncListSelectionFromChecks();
+        SyncHeaderSelectAll();
+    }
+
+    private void SourcesList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressCheckSync) return;
+        _suppressCheckSync = true;
+        try
+        {
+            var selected = SourcesList.SelectedItems?.OfType<DesktopSourceRow>().ToHashSet()
+                           ?? new HashSet<DesktopSourceRow>();
+            foreach (var row in _rows)
+                row.IsSelected = selected.Contains(row);
+            SyncHeaderSelectAll();
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+        }
+    }
+
+    private void SyncListSelectionFromChecks()
+    {
+        if (_suppressCheckSync) return;
+        _suppressCheckSync = true;
+        try
+        {
+            SourcesList.SelectedItems?.Clear();
+            foreach (var row in _rows.Where(r => r.IsSelected))
+                SourcesList.SelectedItems?.Add(row);
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+        }
+    }
+
+    private void SyncHeaderSelectAll()
+    {
+        _suppressCheckSync = true;
+        try
+        {
+            if (_rows.Count == 0)
+            {
+                HdrSelectAll.IsChecked = false;
+                return;
+            }
+
+            var n = _rows.Count(r => r.IsSelected);
+            HdrSelectAll.IsChecked = n == 0 ? false : n == _rows.Count ? true : null;
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+        }
     }
 
     private async void RowPlay_Click(object? sender, RoutedEventArgs e)
@@ -553,15 +656,34 @@ public partial class VideoWallPanel : UserControl
         _ => "—"
     };
 
-    private sealed class DesktopSourceRow
+    private sealed class DesktopSourceRow : INotifyPropertyChanged
     {
+        private bool _isSelected;
+
         public required string Id { get; init; }
         public required string Name { get; init; }
         public required string KindText { get; init; }
         public required string AddressRedacted { get; init; }
         public required string StatusText { get; init; }
+
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                if (_isSelected == value) return;
+                _isSelected = value;
+                OnPropertyChanged();
+            }
+        }
+
         public string PlayLabel => Loc.T("Tool.VideoWall.Play");
         public string EditLabel => Loc.T("Tool.VideoWall.Editing");
         public string DeleteLabel => Loc.T("Tool.VideoWall.Delete");
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

@@ -16,5 +16,6 @@
     <ProjectReference Include="..\FlyScreen.Tool.VideoWall\FlyScreen.Tool.VideoWall.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\Controls\FlyScreen.Ui.Wpf\FlyScreen.Ui.Wpf.csproj" />
   </ItemGroup>
 </Project>

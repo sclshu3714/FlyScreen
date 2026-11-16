@@ -34,6 +34,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Controls\FlyScreen.Ui.Wpf\FlyScreen.Ui.Wpf.csproj" />
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />

@@ -6,6 +6,7 @@ using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
 using FlyScreen.ToolSdk;
 using Microsoft.Maui.Controls.Shapes;
+using Microsoft.Maui.Layouts;
 using Grid = Microsoft.Maui.Controls.Grid;
 using Path = Microsoft.Maui.Controls.Shapes.Path;
 
@@ -48,7 +49,9 @@ public sealed class VideoWallPanel : ContentView
     private readonly Grid _contentHost;
     private readonly Grid _sourcesPane;
     private readonly CollectionView _listView;
-    private readonly CollectionView _cardsView;
+    private readonly CheckBox _headerSelectAll;
+    private readonly ScrollView _cardsHost;
+    private readonly FlexLayout _cardsFlex;
     private readonly VerticalStackLayout _emptyState;
     private readonly Grid _wallGrid;
     private readonly VideoWallPlayerControl _player;
@@ -58,6 +61,7 @@ public sealed class VideoWallPanel : ContentView
     private readonly Border _dialogCard;
     private readonly Label _dialogTitle;
     private readonly VideoWallSourceForm _sourceForm;
+    private VideoWallScanOverlay? _scanOverlay;
     private readonly Label _formError;
     private readonly VideoWallFlyoutHost _flyout;
 
@@ -125,6 +129,11 @@ public sealed class VideoWallPanel : ContentView
             VideoWallMauiIcons.Geo.Add, Colors.White, Loc.T("Tool.VideoWall.Add"),
             VideoWallMauiIcons.ToolbarKind.Primary, _text, _card, _line, _blue, _warn);
         VideoWallMauiIcons.WireClicked(addPair.Host, (_, _) => OpenDialog(edit: null));
+
+        var scanPair = VideoWallMauiIcons.CreateIconButton(
+            VideoWallMauiIcons.Geo.Scan, _blue, Loc.T("Tool.VideoWall.Scan"),
+            VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn);
+        VideoWallMauiIcons.WireClicked(scanPair.Host, (_, _) => OpenScanDialog());
 
         var deletePair = VideoWallMauiIcons.CreateIconButton(
             VideoWallMauiIcons.Geo.Delete, _warn, Loc.T("Tool.VideoWall.Delete"),
@@ -227,46 +236,76 @@ public sealed class VideoWallPanel : ContentView
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Star)
                 ],
                 ColumnSpacing = 6,
                 Children =
                 {
                     addPair.Host,
-                    _deleteBtn.Also(v => Grid.SetColumn(v, 1)),
+                    scanPair.Host.Also(v => Grid.SetColumn(v, 1)),
+                    _deleteBtn.Also(v => Grid.SetColumn(v, 2)),
                     new HorizontalStackLayout
                     {
                         Spacing = 0,
                         Children = { _viewCardBtn, _viewListBtn, _viewCanvasBtn }
-                    }.Also(v => Grid.SetColumn(v, 2)),
-                    _layoutDrop.Also(v => Grid.SetColumn(v, 3)),
-                    _carouselPanel.Also(v => Grid.SetColumn(v, 4)),
-                    _groupDrop.Also(v => Grid.SetColumn(v, 5)),
-                    _search.Also(v => Grid.SetColumn(v, 6))
+                    }.Also(v => Grid.SetColumn(v, 3)),
+                    _layoutDrop.Also(v => Grid.SetColumn(v, 4)),
+                    _carouselPanel.Also(v => Grid.SetColumn(v, 5)),
+                    _groupDrop.Also(v => Grid.SetColumn(v, 6)),
+                    _search.Also(v => Grid.SetColumn(v, 7))
                 }
             }
         };
 
+        _headerSelectAll = new CheckBox
+        {
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center
+        };
+        _headerSelectAll.CheckedChanged += HeaderSelectAll_CheckedChanged;
+        // 双击表头复选框：反选
+        var invertTap = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
+        invertTap.Tapped += (_, _) =>
+        {
+            foreach (var row in _rows)
+                row.IsSelected = !row.IsSelected;
+            SyncHeaderSelectAll();
+            UpdateDeleteEnabled();
+        };
+        _headerSelectAll.GestureRecognizers.Add(invertTap);
+
         _listView = new CollectionView
         {
             ItemsSource = _rows,
-            SelectionMode = SelectionMode.Multiple,
+            // 关闭平台自带多选勾选（会挤进名称列）；改用独立复选列
+            SelectionMode = SelectionMode.None,
             ItemTemplate = new DataTemplate(BuildListRow),
             Header = BuildListHeader(),
             BackgroundColor = _listBg
         };
-        _listView.SelectionChanged += (_, _) => _deleteBtn.IsEnabled = _listView.SelectedItems.Count > 0;
 
-        _cardsView = new CollectionView
+        // FlexLayout 定宽换行：避免 GridItemsLayout 均分列宽导致间距过大/右边裁切圆角
+        _cardsFlex = new FlexLayout
         {
-            ItemsSource = _rows,
-            ItemTemplate = new DataTemplate(BuildCard),
-            // 定宽卡片 + 按容器宽度算列数（勿写死 Span=2，否则全屏只两列被拉宽）
-            ItemsLayout = CreateCardItemsLayout(span: 3),
-            IsVisible = false,
-            BackgroundColor = _listBg
+            Direction = FlexDirection.Row,
+            Wrap = FlexWrap.Wrap,
+            JustifyContent = FlexJustify.Start,
+            AlignItems = FlexAlignItems.Start,
+            AlignContent = FlexAlignContent.Start
         };
-        _cardsView.SizeChanged += (_, _) => UpdateCardItemsLayout();
+        BindableLayout.SetItemsSource(_cardsFlex, _rows);
+        BindableLayout.SetItemTemplate(_cardsFlex, new DataTemplate(BuildCard));
+        _cardsHost = new ScrollView
+        {
+            Orientation = ScrollOrientation.Vertical,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill,
+            Padding = new Thickness(4),
+            IsVisible = false,
+            BackgroundColor = _listBg,
+            Content = _cardsFlex
+        };
 
         _emptyState = new VerticalStackLayout
         {
@@ -301,7 +340,7 @@ public sealed class VideoWallPanel : ContentView
             Children =
             {
                 _listView,
-                _cardsView,
+                _cardsHost,
                 _emptyState
             }
         };
@@ -445,8 +484,18 @@ public sealed class VideoWallPanel : ContentView
         AbsoluteLayout.SetLayoutFlags(dialogHost, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
         AbsoluteLayout.SetLayoutBounds(flyoutLayer, new Rect(0, 0, 1, 1));
         AbsoluteLayout.SetLayoutFlags(flyoutLayer, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
+        if (_service is not null)
+        {
+            _scanOverlay = new VideoWallScanOverlay(_service, _text, _muted, _line, _card, _blue);
+            _scanOverlay.SourcesChanged += () => RefreshAll();
+            AbsoluteLayout.SetLayoutBounds(_scanOverlay.Host, new Rect(0, 0, 1, 1));
+            AbsoluteLayout.SetLayoutFlags(_scanOverlay.Host, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
+        }
+
         _root.Children.Add(main);
         _root.Children.Add(dialogHost);
+        if (_scanOverlay is not null)
+            _root.Children.Add(_scanOverlay.Host);
         _root.Children.Add(flyoutLayer);
 
         Content = _root;
@@ -560,7 +609,9 @@ public sealed class VideoWallPanel : ContentView
         var empty = _rows.Count == 0;
         _emptyState.IsVisible = empty && _mode == PanelMode.Sources;
         _listView.IsVisible = _browseView == BrowseView.List && !empty;
-        _cardsView.IsVisible = _browseView == BrowseView.Card && !empty;
+        _cardsHost.IsVisible = _browseView == BrowseView.Card && !empty;
+        SyncHeaderSelectAll();
+        UpdateDeleteEnabled();
     }
 
     private static bool MatchesGroup(VideoSourceDescriptor s, string groupName)
@@ -1190,7 +1241,7 @@ public sealed class VideoWallPanel : ContentView
     private async Task DeleteSelectedAsync()
     {
         if (_service is null) return;
-        var rows = _listView.SelectedItems.OfType<SourceRowVm>().ToList();
+        var rows = _rows.Where(r => r.IsSelected).ToList();
         if (rows.Count == 0) return;
 
         var page = GetPage();
@@ -1213,6 +1264,17 @@ public sealed class VideoWallPanel : ContentView
         }
 
         RefreshAll();
+    }
+
+    private void OpenScanDialog()
+    {
+        if (_service is null || _scanOverlay is null)
+        {
+            ReportLog(Loc.T("Tool.VideoWall.BackendUnavailable"));
+            return;
+        }
+
+        _scanOverlay.Show();
     }
 
     private void OpenDialog(string? edit)
@@ -1290,28 +1352,33 @@ public sealed class VideoWallPanel : ContentView
         ReportLog(_editingId is null ? Loc.T("Tool.VideoWall.AddSource") + " OK" : Loc.T("Tool.VideoWall.Editing") + " OK");
     }
 
+    private bool _suppressHeaderSelect;
+
     private View BuildListHeader()
     {
+        ToolTipProperties.SetText(_headerSelectAll, Loc.T("Tool.VideoWall.SelectAllTip"));
         var hdr = new Grid
         {
             Padding = new Thickness(12, 10),
             BackgroundColor = Color.FromArgb(Application.Current?.RequestedTheme == AppTheme.Dark ? "#0F172A" : "#F3F4F6"),
             ColumnDefinitions =
             [
+                new ColumnDefinition(new GridLength(36)),
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(new GridLength(88)),
                 new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
                 new ColumnDefinition(new GridLength(72)),
-                new ColumnDefinition(new GridLength(200))
+                new ColumnDefinition(new GridLength(108))
             ],
             ColumnSpacing = 8,
             Children =
             {
-                Header(Loc.T("Tool.VideoWall.ColName")),
-                Header(Loc.T("Tool.VideoWall.ColKind")).Also(v => Grid.SetColumn(v, 1)),
-                Header(Loc.T("Tool.VideoWall.Field.Address")).Also(v => Grid.SetColumn(v, 2)),
-                Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 3)),
-                Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 4))
+                _headerSelectAll,
+                Header(Loc.T("Tool.VideoWall.ColName")).Also(v => Grid.SetColumn(v, 1)),
+                Header(Loc.T("Tool.VideoWall.ColKind")).Also(v => Grid.SetColumn(v, 2)),
+                Header(Loc.T("Tool.VideoWall.Field.Address")).Also(v => Grid.SetColumn(v, 3)),
+                Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 4)),
+                Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 5))
             }
         };
         return hdr;
@@ -1321,9 +1388,47 @@ public sealed class VideoWallPanel : ContentView
             Text = t,
             FontSize = 12,
             FontAttributes = FontAttributes.Bold,
-            TextColor = _muted
+            TextColor = _muted,
+            VerticalOptions = LayoutOptions.Center
         };
     }
+
+    private void HeaderSelectAll_CheckedChanged(object? sender, CheckedChangedEventArgs e)
+    {
+        if (_suppressHeaderSelect) return;
+
+        // 单击：全选 / 取消全选（双击反选见 GestureRecognizer）
+        var target = e.Value;
+        foreach (var row in _rows)
+            row.IsSelected = target;
+
+        SyncHeaderSelectAll();
+        UpdateDeleteEnabled();
+    }
+
+    private void SyncHeaderSelectAll()
+    {
+        _suppressHeaderSelect = true;
+        try
+        {
+            if (_rows.Count == 0)
+            {
+                _headerSelectAll.IsChecked = false;
+                return;
+            }
+
+            var n = _rows.Count(r => r.IsSelected);
+            // Maui CheckBox 无 indeterminate，半选时保持 false，避免误显示全选
+            _headerSelectAll.IsChecked = n == _rows.Count;
+        }
+        finally
+        {
+            _suppressHeaderSelect = false;
+        }
+    }
+
+    private void UpdateDeleteEnabled()
+        => _deleteBtn.IsEnabled = _rows.Any(r => r.IsSelected);
 
     private View BuildListRow()
     {
@@ -1332,6 +1437,18 @@ public sealed class VideoWallPanel : ContentView
             l.VerticalOptions = LayoutOptions.Center;
             l.VerticalTextAlignment = TextAlignment.Center;
         }
+
+        var check = new CheckBox
+        {
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center
+        };
+        check.SetBinding(CheckBox.IsCheckedProperty, nameof(SourceRowVm.IsSelected));
+        check.CheckedChanged += (_, _) =>
+        {
+            SyncHeaderSelectAll();
+            UpdateDeleteEnabled();
+        };
 
         var name = new Label { FontSize = 13, TextColor = _text, LineBreakMode = LineBreakMode.TailTruncation };
         name.SetBinding(Label.TextProperty, nameof(SourceRowVm.Name));
@@ -1384,6 +1501,7 @@ public sealed class VideoWallPanel : ContentView
                 MinimumHeightRequest = 44,
                 ColumnDefinitions =
                 [
+                    new ColumnDefinition(new GridLength(36)),
                     new ColumnDefinition(GridLength.Star),
                     new ColumnDefinition(new GridLength(88)),
                     new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
@@ -1393,16 +1511,17 @@ public sealed class VideoWallPanel : ContentView
                 ColumnSpacing = 8,
                 Children =
                 {
-                    name,
-                    kind.Also(v => Grid.SetColumn(v, 1)),
-                    addr.Also(v => Grid.SetColumn(v, 2)),
-                    status.Also(v => Grid.SetColumn(v, 3)),
+                    check,
+                    name.Also(v => Grid.SetColumn(v, 1)),
+                    kind.Also(v => Grid.SetColumn(v, 2)),
+                    addr.Also(v => Grid.SetColumn(v, 3)),
+                    status.Also(v => Grid.SetColumn(v, 4)),
                     new HorizontalStackLayout
                     {
                         Spacing = 0,
                         VerticalOptions = LayoutOptions.Center,
                         Children = { play, edit, del }
-                    }.Also(v => Grid.SetColumn(v, 4))
+                    }.Also(v => Grid.SetColumn(v, 5))
                 }
             }
         };
@@ -1418,25 +1537,7 @@ public sealed class VideoWallPanel : ContentView
     }
 
     private const double CardWidth = 220;
-    private const double CardGap = 12;
-    private int _cardSpan = 3;
-
-    private static GridItemsLayout CreateCardItemsLayout(int span) => new(
-        Math.Max(1, span), ItemsLayoutOrientation.Vertical)
-    {
-        HorizontalItemSpacing = CardGap,
-        VerticalItemSpacing = CardGap
-    };
-
-    private void UpdateCardItemsLayout()
-    {
-        var width = _cardsView.Width;
-        if (width <= 0 || double.IsNaN(width)) return;
-        var span = Math.Max(1, (int)Math.Floor((width + CardGap) / (CardWidth + CardGap)));
-        if (span == _cardSpan && _cardsView.ItemsLayout is GridItemsLayout) return;
-        _cardSpan = span;
-        _cardsView.ItemsLayout = CreateCardItemsLayout(span);
-    }
+    private const double CardGap = 8;
 
     private View BuildCard()
     {
@@ -1474,7 +1575,7 @@ public sealed class VideoWallPanel : ContentView
                 await DeleteOneAsync(id);
         });
 
-        // 定宽 220；格内左对齐，避免 GridItemsLayout 把卡片横向拉满
+        // 定宽 220 + 右/下间距；Flex 换行不均分列，圆角完整可见
         var card = new Border
         {
             WidthRequest = CardWidth,
@@ -1482,7 +1583,7 @@ public sealed class VideoWallPanel : ContentView
             MaximumWidthRequest = CardWidth,
             HorizontalOptions = LayoutOptions.Start,
             VerticalOptions = LayoutOptions.Start,
-            Margin = 0,
+            Margin = new Thickness(0, 0, CardGap, CardGap),
             Padding = 10,
             Stroke = _line,
             BackgroundColor = _card,
@@ -1580,13 +1681,28 @@ public sealed class VideoWallPanel : ContentView
             CornerRadius = 8
         };
 
-    private sealed class SourceRowVm
+    private sealed class SourceRowVm : System.ComponentModel.INotifyPropertyChanged
     {
+        private bool _isSelected;
+
         public string Id { get; init; } = "";
         public string Name { get; init; } = "";
         public string KindText { get; init; } = "";
         public string AddressRedacted { get; init; } = "";
         public string StatusText { get; init; } = "";
+
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                if (_isSelected == value) return;
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     }
 }
 

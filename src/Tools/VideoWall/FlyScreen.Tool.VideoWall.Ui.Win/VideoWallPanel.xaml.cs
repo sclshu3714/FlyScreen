@@ -116,12 +116,14 @@ public partial class VideoWallPanel : UserControl
         ViewCanvasBtn.ToolTip = Loc.T("Tool.VideoWall.ViewCanvas");
         SearchBox.ToolTip = Loc.T("Tool.VideoWall.Search");
         AddBtn.ToolTip = Loc.T("Tool.VideoWall.Add");
+        ScanBtn.ToolTip = Loc.T("Tool.VideoWall.Scan");
         DeleteBtn.ToolTip = Loc.T("Tool.VideoWall.Delete");
         LayoutCombo.ToolTip = Loc.T("Tool.VideoWall.Layout");
         CarouselToggle.Content = Loc.T("Tool.VideoWall.Carousel");
         CarouselToggle.ToolTip = Loc.T("Tool.VideoWall.CarouselHint");
         EmptyTitle.Text = Loc.T("Tool.VideoWall.EmptyTitle");
         EmptyHint.Text = Loc.T("Tool.VideoWall.EmptyHint");
+        HeaderSelectAll.ToolTip = Loc.T("Tool.VideoWall.SelectAllTip");
         ColName.Header = Loc.T("Tool.VideoWall.ColName");
         ColKind.Header = Loc.T("Tool.VideoWall.ColKind");
         ColAddress.Header = Loc.T("Tool.VideoWall.Field.Address");
@@ -278,13 +280,98 @@ public partial class VideoWallPanel : UserControl
     private void FitSourcesColumns()
     {
         if (SourcesGrid.ActualWidth <= 1 || ColAddress is null) return;
-        // 名称/类型/分组/状态/操作 + 纵向滚动条预留
-        const double fixedCols = 120 + 88 + 80 + 64 + 108;
+        // 复选/名称/类型/分组/状态/操作 + 纵向滚动条预留
+        const double fixedCols = 40 + 120 + 88 + 80 + 64 + 108;
         var scroll = SystemParameters.VerticalScrollBarWidth + 16;
         var addressW = Math.Max(120, SourcesGrid.ActualWidth - scroll - fixedCols);
         if (Math.Abs(ColAddress.Width - addressW) > 0.5)
             ColAddress.Width = addressW;
     }
+
+    private bool _suppressCheckSync;
+
+    private void HeaderSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox) return;
+        e.Handled = true;
+        // 单击：全选/取消；Shift+单击：反选
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            foreach (var row in _rows)
+                row.IsSelected = !row.IsSelected;
+        }
+        else
+        {
+            var all = _rows.Count > 0 && _rows.All(r => r.IsSelected);
+            var target = !all;
+            foreach (var row in _rows)
+                row.IsSelected = target;
+        }
+
+        SyncListSelectionFromChecks();
+        SyncHeaderSelectAll();
+        UpdateDeleteEnabled();
+    }
+
+    private void RowCheck_Click(object sender, RoutedEventArgs e)
+    {
+        // 等绑定写回后再同步 ListView 选中与表头
+        Dispatcher.BeginInvoke(() =>
+        {
+            SyncListSelectionFromChecks();
+            SyncHeaderSelectAll();
+            UpdateDeleteEnabled();
+        }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void SourcesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressCheckSync) return;
+        _suppressCheckSync = true;
+        try
+        {
+            var selected = SourcesGrid.SelectedItems.OfType<SourceRowVm>().ToHashSet();
+            foreach (var row in _rows)
+                row.IsSelected = selected.Contains(row);
+            SyncHeaderSelectAll();
+            UpdateDeleteEnabled();
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+        }
+    }
+
+    private void SyncListSelectionFromChecks()
+    {
+        if (_suppressCheckSync) return;
+        _suppressCheckSync = true;
+        try
+        {
+            SourcesGrid.SelectedItems.Clear();
+            foreach (var row in _rows.Where(r => r.IsSelected))
+                SourcesGrid.SelectedItems.Add(row);
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+        }
+    }
+
+    private void SyncHeaderSelectAll()
+    {
+        if (_rows.Count == 0)
+        {
+            HeaderSelectAll.IsChecked = false;
+            return;
+        }
+
+        var n = _rows.Count(r => r.IsSelected);
+        HeaderSelectAll.IsChecked = n == 0 ? false : n == _rows.Count ? true : null;
+    }
+
+    private void UpdateDeleteEnabled()
+        => DeleteBtn.IsEnabled = _rows.Any(r => r.IsSelected);
 
     private void OnCatalogChanged()
         => Dispatcher.BeginInvoke(() =>
@@ -352,6 +439,8 @@ public partial class VideoWallPanel : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         SourcesCardsHost.Visibility = _browseView == BrowseView.Card && !empty
             ? Visibility.Visible : Visibility.Collapsed;
+        SyncHeaderSelectAll();
+        UpdateDeleteEnabled();
     }
 
     private static bool MatchesGroup(VideoSourceDescriptor s, string groupName)
@@ -573,10 +662,20 @@ public partial class VideoWallPanel : UserControl
         Dispatcher.BeginInvoke(new Action(RefreshAll), System.Windows.Threading.DispatcherPriority.Background);
     }
 
+    private void ScanBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_service is null) return;
+        var dlg = new ScanDevicesDialog(_service, Window.GetWindow(this));
+        dlg.ShowDialog();
+        Dispatcher.BeginInvoke(new Action(RefreshAll), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
     private async void DeleteBtn_Click(object sender, RoutedEventArgs e)
     {
         if (_service is null) return;
-        var rows = SourcesGrid.SelectedItems.OfType<SourceRowVm>().ToList();
+        var rows = _rows.Where(r => r.IsSelected).ToList();
+        if (rows.Count == 0)
+            rows = SourcesGrid.SelectedItems.OfType<SourceRowVm>().ToList();
         if (rows.Count == 0) return;
         var label = rows.Count == 1 ? rows[0].Name : rows.Count.ToString();
         var ok = MessageBox.Show(

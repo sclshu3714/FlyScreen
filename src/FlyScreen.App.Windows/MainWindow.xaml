@@ -4,6 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:FlyScreen"
         xmlns:helpers="clr-namespace:FlyScreen.Helpers"
+        xmlns:ui="clr-namespace:FlyScreen.Ui.Wpf;assembly=FlyScreen.Ui.Wpf"
         xmlns:system="clr-namespace:System;assembly=System.Runtime"
         Title="玄鸟"
         Height="640" Width="960"
@@ -1269,22 +1270,9 @@
                                 <TextBlock x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontWeight="SemiBold"
                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             </DockPanel>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" MinWidth="120"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Grid MinHeight="36">
-                                    <TextBox x:Name="SecurityKeyBox" FontFamily="Consolas" FontSize="14"
-                                             TextWrapping="NoWrap" VerticalContentAlignment="Center"
-                                             HorizontalScrollBarVisibility="Hidden"
-                                             Visibility="Collapsed"/>
-                                    <PasswordBox x:Name="SecurityKeyPassword" FontFamily="Consolas" FontSize="14"
-                                                 VerticalContentAlignment="Center"/>
-                                </Grid>
-                                <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" Content="显示" Margin="12,0,0,0"
-                                          VerticalAlignment="Center" Checked="ShowKey_Changed" Unchecked="ShowKey_Changed"/>
-                            </Grid>
+                            <ui:SecurePasswordBox x:Name="SecurityKeyBox"
+                                                  MinWidth="120" Height="40"
+                                                  InputFontFamily="Consolas" InputFontSize="14"/>
                             <TextBlock x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
                                        Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"
                                        TextWrapping="Wrap"/>

@@ -394,9 +394,10 @@ public static class AppLog
             if (watermark == null)
                 return new AppLogDelta(TakeLast(filtered, pageSize), reset: true);
 
+            // 先 ReferenceEquals，再 SameEntry（磁盘克隆 / 跨快照）——避免每条新日志都 Reset 整表
             for (var i = filtered.Count - 1; i >= 0; i--)
             {
-                if (!ReferenceEquals(filtered[i], watermark))
+                if (!ReferenceEquals(filtered[i], watermark) && !SameEntry(filtered[i], watermark))
                     continue;
                 if (i + 1 >= filtered.Count)
                     return new AppLogDelta(Array.Empty<AppLogEntry>(), reset: false);

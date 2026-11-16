@@ -1,0 +1,74 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:FlyScreen.Ui.Avalonia"
+        x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.ScanDevicesWindow"
+        Width="640" Height="520" MinWidth="520" MinHeight="400"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True" ShowInTaskbar="False"
+        TransparencyLevelHint="Transparent"
+        Background="#80000000"
+        SystemDecorations="None">
+  <Panel>
+    <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+            Width="600" MaxHeight="480" MinHeight="400"
+            Background="#FFFFFF" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1"
+            Padding="20" BoxShadow="0 8 24 0 #40000000">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" RowSpacing="10">
+        <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold"/>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,140,Auto" ColumnSpacing="10">
+          <StackPanel>
+            <TextBlock x:Name="SubnetLabel" FontSize="12" Opacity="0.7" Margin="0,0,0,4"/>
+            <TextBox x:Name="SubnetBox" Height="34"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock x:Name="VendorLabel" FontSize="12" Opacity="0.7" Margin="0,0,0,4"/>
+            <ComboBox x:Name="VendorCombo" Height="34" HorizontalAlignment="Stretch"/>
+          </StackPanel>
+          <Button x:Name="RescanBtn" Grid.Column="2" VerticalAlignment="Bottom"
+                  Padding="14,8" Click="RescanBtn_Click"/>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock x:Name="UserLabel" FontSize="12" Opacity="0.7" Margin="0,0,0,4"/>
+            <TextBox x:Name="UserBox" Height="34"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock x:Name="PassLabel" FontSize="12" Opacity="0.7" Margin="0,0,0,4"/>
+            <ui:SecurePasswordBox x:Name="PassBox" Height="34"/>
+          </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="3" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="8" Padding="4">
+          <DockPanel>
+            <Grid DockPanel.Dock="Top" Margin="8,4" ColumnDefinitions="1.2*,0.8*,*,110">
+              <TextBlock x:Name="HdrHost" FontWeight="SemiBold" FontSize="12" Opacity="0.7"/>
+              <TextBlock x:Name="HdrKind" Grid.Column="1" FontWeight="SemiBold" FontSize="12" Opacity="0.7"/>
+              <TextBlock x:Name="HdrPorts" Grid.Column="2" FontWeight="SemiBold" FontSize="12" Opacity="0.7"/>
+              <TextBlock x:Name="HdrActions" Grid.Column="3" FontWeight="SemiBold" FontSize="12" Opacity="0.7"/>
+            </Grid>
+            <ListBox x:Name="DeviceList" BorderThickness="0" Background="Transparent">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:CompileBindings="False">
+                  <Grid ColumnDefinitions="1.2*,0.8*,*,110" Margin="4,4">
+                    <TextBlock Text="{Binding Host}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="1" Text="{Binding KindHint}" VerticalAlignment="Center" Opacity="0.7"/>
+                    <TextBlock Grid.Column="2" Text="{Binding PortsText}" VerticalAlignment="Center" Opacity="0.7"
+                               TextTrimming="CharacterEllipsis"/>
+                    <Button Grid.Column="3" Content="{Binding ActionLabel}" IsEnabled="{Binding CanAdd}"
+                            Tag="{Binding}" Click="AddDevice_Click" Padding="8,4" HorizontalAlignment="Left"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+        </Border>
+
+        <TextBlock x:Name="StatusText" Grid.Row="4" Opacity="0.7" TextWrapping="Wrap"/>
+        <Button x:Name="CloseBtn" Grid.Row="5" HorizontalAlignment="Right" Padding="14,8"
+                Click="CloseBtn_Click"/>
+      </Grid>
+    </Border>
+  </Panel>
+</Window>

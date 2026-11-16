@@ -1,6 +1,7 @@
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
+using FlyScreen.Ui.Maui;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
@@ -194,57 +195,18 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
 
     private View MakePassword(SourceFieldSpec field)
     {
-        var entry = MakeText(field, Keyboard.Default);
-        entry.IsPassword = true;
-        entry.HorizontalOptions = LayoutOptions.Fill;
-
-        var eyeLabel = new Label
+        var initial = _values.TryGetValue(field.Key, out var v) ? v ?? "" : "";
+        var box = new SecurePasswordBox
         {
-            Text = "👁",
-            FontSize = 16,
-            TextColor = _muted,
-            VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center
+            Password = initial,
+            Placeholder = field.Placeholder is null ? Loc.T(field.LabelKey) : Loc.T(field.Placeholder),
+            ShowPasswordTip = Loc.T("Tool.VideoWall.ShowPassword"),
+            HidePasswordTip = Loc.T("Tool.VideoWall.HidePassword"),
+            HorizontalOptions = LayoutOptions.Fill
         };
-        var eyeBtn = new Border
-        {
-            Stroke = _line,
-            StrokeThickness = 1,
-            BackgroundColor = _card,
-            Padding = new Thickness(10, 0),
-            HeightRequest = 36,
-            WidthRequest = 40,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-            Content = eyeLabel
-        };
-        var hidden = true;
-        void ApplyEyeChrome()
-        {
-            entry.IsPassword = hidden;
-            eyeLabel.Text = hidden ? "👁" : "🙈";
-            ToolTipProperties.SetText(
-                eyeBtn,
-                Loc.T(hidden ? "Tool.VideoWall.ShowPassword" : "Tool.VideoWall.HidePassword"));
-        }
-
-        var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) =>
-        {
-            hidden = !hidden;
-            ApplyEyeChrome();
-        };
-        eyeBtn.GestureRecognizers.Add(tap);
-        ApplyEyeChrome();
-
-        var row = new Grid
-        {
-            ColumnDefinitions = [new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto)],
-            ColumnSpacing = 6
-        };
-        row.Children.Add(entry);
-        Grid.SetColumn(eyeBtn, 1);
-        row.Children.Add(eyeBtn);
-        return row;
+        box.ApplyTheme(_text, _muted, _line, _card);
+        box.PasswordChanged += (_, _) => _values[field.Key] = box.Password;
+        return box;
     }
 
     private View MakeSelect(SourceFieldSpec field)

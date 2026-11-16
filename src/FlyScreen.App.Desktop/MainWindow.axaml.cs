@@ -914,8 +914,7 @@ public partial class MainWindow : Window
             });
         }
 
-        ShowKeyCheck.IsChecked = false;
-        ShowKey_Changed(null, null);
+        SecurityKeyBox.IsRevealed = false;
         ApplyLayoutGrid();
         RefreshPositionLabels();
         RefreshSlotBoundRemotes();
@@ -1026,8 +1025,12 @@ public partial class MainWindow : Window
         RefreshNetworkBreadcrumb();
         Title = Loc.T("App.Name");
         if (SecurityTitleText != null) SecurityTitleText.Text = Loc.T("Sec.Title");
+        if (SecurityKeyBox != null)
+        {
+            SecurityKeyBox.ShowPasswordTip = Loc.T("Sec.ShowPassword");
+            SecurityKeyBox.HidePasswordTip = Loc.T("Sec.HidePassword");
+        }
         if (SecurityHintText != null) SecurityHintText.Text = Loc.T("Sec.Hint");
-        if (ShowKeyCheck != null) ShowKeyCheck.Content = Loc.T("Sec.Show");
         if (NewKeyBtn != null) NewKeyBtn.Content = Loc.T("Sec.NewKey");
         if (SyncKeyBtn != null) SyncKeyBtn.Content = Loc.T("Sec.SyncKey");
         if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
@@ -2283,7 +2286,8 @@ public partial class MainWindow : Window
                 ReplaceLogItems(delta.Items);
             else
                 ReplaceLogItems(page.Items);
-            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1] : null;
+            // 始终记下尾部水印；DeltaSince 用 SameEntry 兜底，避免每条日志 Reset 整表
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1] : null;
             _logStickToBottom = true;
             Dispatcher.UIThread.Post(ScrollLogToEndQuiet, DispatcherPriority.Loaded);
         }
@@ -2923,34 +2927,15 @@ public partial class MainWindow : Window
         RefreshDiscovery();
     }
 
-    private void ShowKey_Changed(object? sender, RoutedEventArgs? e)
-    {
-        if (ShowKeyCheck.IsChecked == true)
-        {
-            SecurityKeyBox.Text = SecurityKeyPassword.Text;
-            SecurityKeyBox.IsVisible = true;
-            SecurityKeyPassword.IsVisible = false;
-        }
-        else
-        {
-            SecurityKeyPassword.Text = SecurityKeyBox.Text;
-            SecurityKeyPassword.IsVisible = true;
-            SecurityKeyBox.IsVisible = false;
-        }
-    }
+    private string GetSecurityKey() => SecurityKeyBox.Password ?? "";
 
-    private string GetSecurityKey()
-        => ShowKeyCheck.IsChecked == true ? (SecurityKeyBox.Text ?? "") : (SecurityKeyPassword.Text ?? "");
-
-    private void SetSecurityKey(string key)
-    {
-        SecurityKeyBox.Text = key;
-        SecurityKeyPassword.Text = key;
-        ShowKey_Changed(null, null);
-    }
+    private void SetSecurityKey(string key) => SecurityKeyBox.Password = key ?? "";
 
     private void NewKey_Click(object? sender, RoutedEventArgs e)
-        => SetSecurityKey(AppSettings.GenerateKey());
+    {
+        SetSecurityKey(AppSettings.GenerateKey());
+        SecurityKeyBox.IsRevealed = true;
+    }
 
     private async void SyncKey_Click(object? sender, RoutedEventArgs e)
     {

@@ -4,6 +4,7 @@
              xmlns:local="clr-namespace:FlyScreen.AppMaui"
              xmlns:helpers="clr-namespace:FlyScreen.AppMaui.Helpers"
              xmlns:models="clr-namespace:FlyScreen.Models;assembly=FlyScreen.Core"
+             xmlns:ui="clr-namespace:FlyScreen.Ui.Maui;assembly=FlyScreen.Ui.Maui"
              x:Class="FlyScreen.AppMaui.MainPage"
              Title="玄鸟"
              Shell.NavBarIsVisible="False"
@@ -51,14 +52,7 @@
                                             VerticalOptions="Center" />
                                 </HorizontalStackLayout>
                             </Grid>
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                <Entry x:Name="KeyEntry" IsPassword="True" StyleClass="Mono" FontSize="14"
-                                       HeightRequest="40" HorizontalOptions="Fill" />
-                                <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="4">
-                                    <CheckBox x:Name="ShowKeyCheck" VerticalOptions="Center" CheckedChanged="ShowKey_Changed" />
-                                    <Label x:Name="ShowKeyLabel" Text="显示" VerticalOptions="Center" />
-                                </HorizontalStackLayout>
-                            </Grid>
+                            <ui:SecurePasswordBox x:Name="KeyEntry" HeightRequest="40" HorizontalOptions="Fill" />
                             <Label x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
                                    TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                             <Label x:Name="SecuritySyncHintText"

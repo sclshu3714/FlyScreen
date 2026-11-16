@@ -200,7 +200,7 @@ public partial class MainPage : ContentPage
         });
         _onSecurityKeySynced = from => RunOnUi(() =>
         {
-            KeyEntry.Text = _host.Settings.SecurityKey ?? "";
+            KeyEntry.Password = _host.Settings.SecurityKey ?? "";
             StatusLabel.Text = $"已同步安全密钥 ← {from}";
         });
         _onPeersUpdated = _ => RunOnUi(RefreshDiscovery);
@@ -1179,9 +1179,10 @@ public partial class MainPage : ContentPage
     {
         var s = _host.Settings;
         s.EnsureLocalMachineSlot();
-        KeyEntry.Text = s.SecurityKey;
-        KeyEntry.IsPassword = true;
-        ShowKeyCheck.IsChecked = false;
+        KeyEntry.Password = s.SecurityKey ?? "";
+        KeyEntry.IsRevealed = false;
+        KeyEntry.InnerEntry.StyleClass = new List<string> { "Mono" };
+        KeyEntry.InnerEntry.FontSize = 14;
         _twoRow = s.TwoRow;
         ApplyLayoutModeButtons();
 
@@ -1249,7 +1250,8 @@ public partial class MainPage : ContentPage
         TrayBtn.Text = _host.Platform.SupportsTray ? Loc.T("Btn.HideTray") : "后台运行";
 
         SecurityTitleText.Text = Loc.T("Sec.Title");
-        ShowKeyLabel.Text = Loc.T("Sec.Show");
+        KeyEntry.ShowPasswordTip = Loc.T("Sec.ShowPassword");
+        KeyEntry.HidePasswordTip = Loc.T("Sec.HidePassword");
         NewKeyBtn.Text = Loc.T("Sec.NewKey");
         if (SyncKeyBtn != null) SyncKeyBtn.Text = Loc.T("Sec.SyncKey");
         SecurityHintText.Text = Loc.T("Sec.Hint");
@@ -4225,7 +4227,8 @@ public partial class MainPage : ContentPage
                 ReplaceLogItems(delta.Items);
             else
                 ReplaceLogItems(page.Items);
-            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1].Entry : null;
+            // 始终记下尾部水印；DeltaSince 用 SameEntry 兜底，避免每条日志 Reset 整表
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1].Entry : null;
             _logStickToBottom = true;
             ScrollLogToEnd();
         }
@@ -4631,19 +4634,16 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
     }
 
-    private void ShowKey_Changed(object? sender, CheckedChangedEventArgs e)
-        => KeyEntry.IsPassword = !e.Value;
-
     private void NewKey_Clicked(object? sender, EventArgs e)
     {
-        KeyEntry.Text = AppSettings.GenerateKey();
-        KeyEntry.IsPassword = ShowKeyCheck.IsChecked != true;
+        KeyEntry.Password = AppSettings.GenerateKey();
+        KeyEntry.IsRevealed = true;
     }
 
     private async void SyncKey_Clicked(object? sender, EventArgs e)
     {
         var prevKey = _host.Settings.SecurityKey ?? "";
-        _host.Settings.SecurityKey = (KeyEntry.Text ?? "").Trim();
+        _host.Settings.SecurityKey = (KeyEntry.Password ?? "").Trim();
         _host.Settings.Save();
         var (ok, msg) = await _host.SyncSecurityKeyAsync();
         if (ok)
@@ -4695,7 +4695,7 @@ public partial class MainPage : ContentPage
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
         _host.ApplyFromUi(
-            KeyEntry.Text ?? "",
+            KeyEntry.Password ?? "",
             newSlots,
             _twoRow,
             tcp,

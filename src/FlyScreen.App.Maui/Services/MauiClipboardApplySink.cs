@@ -11,14 +11,31 @@ public sealed class MauiClipboardApplySink : IClipboardApplySink
 {
     private long _suppressUntilMs;
     private string? _lastAppliedKey;
+    /// <summary>图片像素指纹：Win 回读重编码 PNG 后 BuildKey 会变。</summary>
+    private string? _lastAppliedImageFingerprint;
 
     public void Suppress(int ms)
         => _suppressUntilMs = Environment.TickCount64 + Math.Max(0, ms);
 
     public bool IsSuppressed => Environment.TickCount64 < _suppressUntilMs;
 
+    public string? LastAppliedKey => _lastAppliedKey;
+
     public bool IsSameAsLastApplied(ClipboardInlineData data)
-        => _lastAppliedKey != null && _lastAppliedKey == data.BuildKey();
+    {
+        if (_lastAppliedKey != null && _lastAppliedKey == data.BuildKey())
+            return true;
+        if (_lastAppliedImageFingerprint == null || data.Png is not { Length: > 0 })
+            return false;
+#if WINDOWS
+        return string.Equals(
+            MauiWinClipboardInline.FingerprintPng(data.Png),
+            _lastAppliedImageFingerprint,
+            StringComparison.Ordinal);
+#else
+        return false;
+#endif
+    }
 
     public void ApplyText(string text)
     {
@@ -50,6 +67,25 @@ public sealed class MauiClipboardApplySink : IClipboardApplySink
         if (ok)
         {
             _lastAppliedKey = data.BuildKey();
+#if WINDOWS
+            _lastAppliedImageFingerprint = data.Png is { Length: > 0 }
+                ? MauiWinClipboardInline.FingerprintPng(data.Png)
+                : null;
+            // 回读对齐 key，避免抑制结束后因重编码再次宣告
+            try
+            {
+                var roundtrip = await MainThread.InvokeOnMainThreadAsync(MauiWinClipboardInline.TryCaptureAsync)
+                    .ConfigureAwait(false);
+                if (roundtrip != null && !roundtrip.IsEmpty)
+                    _lastAppliedKey = roundtrip.BuildKey();
+            }
+            catch
+            {
+                // ignore
+            }
+#else
+            _lastAppliedImageFingerprint = null;
+#endif
             Suppress(2500);
         }
 

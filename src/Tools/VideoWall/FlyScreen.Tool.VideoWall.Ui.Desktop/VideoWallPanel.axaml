@@ -7,6 +7,7 @@
     <!-- 与 Win 对齐：添加 | 删除 | 源/墙分段 | 布局 | 搜索 -->
     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
       <Button x:Name="AddBtn" Click="AddBtn_Click"/>
+      <Button x:Name="ScanBtn" Click="ScanBtn_Click"/>
       <Button x:Name="DeleteBtn" Click="DeleteBtn_Click"/>
       <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
         <StackPanel Orientation="Horizontal" Spacing="0">
@@ -28,23 +29,28 @@
 
     <Grid Grid.Row="1">
       <DockPanel x:Name="SourcesPane">
-        <Grid DockPanel.Dock="Top" Margin="0,0,0,4" ColumnDefinitions="*,100,2*,80,200">
-          <TextBlock x:Name="HdrName" FontWeight="SemiBold" Opacity="0.7"/>
-          <TextBlock x:Name="HdrKind" Grid.Column="1" FontWeight="SemiBold" Opacity="0.7"/>
-          <TextBlock x:Name="HdrAddress" Grid.Column="2" FontWeight="SemiBold" Opacity="0.7"/>
-          <TextBlock x:Name="HdrStatus" Grid.Column="3" FontWeight="SemiBold" Opacity="0.7"/>
-          <TextBlock x:Name="HdrActions" Grid.Column="4" FontWeight="SemiBold" Opacity="0.7"/>
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,4" ColumnDefinitions="36,*,100,2*,80,200">
+          <CheckBox x:Name="HdrSelectAll" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    IsCheckedChanged="HdrSelectAll_IsCheckedChanged"/>
+          <TextBlock x:Name="HdrName" Grid.Column="1" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrKind" Grid.Column="2" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrAddress" Grid.Column="3" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrStatus" Grid.Column="4" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrActions" Grid.Column="5" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
         </Grid>
-        <ListBox x:Name="SourcesList" SelectionMode="Multiple" DoubleTapped="SourcesList_DoubleTapped">
+        <ListBox x:Name="SourcesList" SelectionMode="Multiple" DoubleTapped="SourcesList_DoubleTapped"
+                 SelectionChanged="SourcesList_SelectionChanged">
           <ListBox.ItemTemplate>
             <DataTemplate x:CompileBindings="False">
-              <Grid ColumnDefinitions="*,100,2*,80,200" Margin="0,2">
-                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                <TextBlock Grid.Column="1" Text="{Binding KindText}" VerticalAlignment="Center" Opacity="0.7"/>
-                <TextBlock Grid.Column="2" Text="{Binding AddressRedacted}" VerticalAlignment="Center"
+              <Grid ColumnDefinitions="36,*,100,2*,80,200" Margin="0,2">
+                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                          IsCheckedChanged="RowCheck_IsCheckedChanged"/>
+                <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="2" Text="{Binding KindText}" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="3" Text="{Binding AddressRedacted}" VerticalAlignment="Center"
                            Opacity="0.7" TextTrimming="CharacterEllipsis"/>
-                <TextBlock Grid.Column="3" Text="{Binding StatusText}" VerticalAlignment="Center" Opacity="0.7"/>
-                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4">
+                <TextBlock Grid.Column="4" Text="{Binding StatusText}" VerticalAlignment="Center" Opacity="0.7"/>
+                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
                   <Button Content="{Binding PlayLabel}" Tag="{Binding Id}" Click="RowPlay_Click" Padding="8,2"/>
                   <Button Content="{Binding EditLabel}" Tag="{Binding Id}" Click="RowEdit_Click" Padding="8,2"/>
                   <Button Content="{Binding DeleteLabel}" Tag="{Binding Id}" Click="RowDelete_Click" Padding="8,2"/>

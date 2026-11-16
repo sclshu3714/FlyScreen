@@ -13,6 +13,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
+# 组包暂存目录：最终产物在 artifacts/flytools（或 -OutRoot），结束后必须删除
+$stage = Join-Path $repo "artifacts/flytools-stage"
 
 # 串行化：VS 多 TFM 并行时否则会同时 Zip / 删 stage 导致 exit 1
 $mutex = $null
@@ -153,13 +155,17 @@ function Write-FlyToolZip([string]$packStage, [string]$flyPath) {
     }
 }
 
-$stage = Join-Path $repo "artifacts/flytools-stage"
 $bundledOut = if ($OutRoot) { $OutRoot } else { Join-Path $repo "artifacts/flytools" }
 $bundledOut = [IO.Path]::GetFullPath($bundledOut)
 if (-not (Test-AllowedFlyToolDest $bundledOut)) {
     throw "Refusing OutRoot (forbidden path): $bundledOut"
 }
 New-Item -ItemType Directory -Force -Path $bundledOut | Out-Null
+# 每次组包前清空 stage，避免残留污染本次 zip
+if (Test-Path -LiteralPath $stage) {
+    Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+}
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 $index = [ordered]@{ schemaVersion = 1; tools = @() }
 
@@ -329,6 +335,16 @@ catch {
     exit 1
 }
 finally {
+    # 无论成功失败都清掉 stage，只保留 artifacts/flytools（或 -OutRoot）最终产物
+    if ($stage -and (Test-Path -LiteralPath $stage)) {
+        try {
+            Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop
+            Write-Host "Cleaned stage: $stage"
+        }
+        catch {
+            Write-Host "Clean stage failed (可稍后手动删除): $stage — $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
     if ($mutexAcquired -and $mutex) {
         try { $mutex.ReleaseMutex() } catch { }
     }

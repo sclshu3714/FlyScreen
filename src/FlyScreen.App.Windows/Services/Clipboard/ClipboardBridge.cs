@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FlyScreen.Models;
 using FlyScreen.Native;
@@ -19,6 +20,8 @@ public static class ClipboardBridge
     private static string? _lastAppliedFilesKey;
     private static string? _lastAppliedImageKey;
     private static string? _lastAppliedInlineKey;
+    /// <summary>写入后位图像素指纹：WPF 回读会重编码 PNG，字节 key 对不上时靠它拦回环。</summary>
+    private static string? _lastAppliedImageFingerprint;
     private static PendingFileDropDataObject? _pendingDataObject;
     private static int _offeringPending;
     private static int _virtualPasteArmed;
@@ -556,14 +559,81 @@ public static class ClipboardBridge
         }
     }
 
+    public static string? LastAppliedInlineKey => _lastAppliedInlineKey;
+
     public static bool IsSameAsLastAppliedInline(ClipboardInlineData data)
-        => _lastAppliedInlineKey != null && _lastAppliedInlineKey == data.BuildKey();
+    {
+        if (_lastAppliedInlineKey != null && _lastAppliedInlineKey == data.BuildKey())
+            return true;
+
+        // 远程图写入后再采集：PngBitmapEncoder 重编码会改字节，BuildKey 对不上
+        if (_lastAppliedImageFingerprint == null || data.Png is not { Length: > 0 })
+            return false;
+
+        try
+        {
+            using var ms = new MemoryStream(data.Png);
+            var decoder = new PngBitmapDecoder(
+                ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            return FingerprintBitmapSource(decoder.Frames[0]) == _lastAppliedImageFingerprint;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     public static void MarkAppliedInline(ClipboardInlineData data)
     {
         _lastAppliedInlineKey = data.BuildKey();
         if (data.Png is { Length: > 0 })
+        {
             _lastAppliedImageKey = BuildImageKey(data.Png);
+            try
+            {
+                using var ms = new MemoryStream(data.Png);
+                var decoder = new PngBitmapDecoder(
+                    ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                _lastAppliedImageFingerprint = FingerprintBitmapSource(decoder.Frames[0]);
+            }
+            catch
+            {
+                _lastAppliedImageFingerprint = null;
+            }
+        }
+        else
+        {
+            _lastAppliedImageFingerprint = null;
+        }
+    }
+
+    private static string FingerprintBitmapSource(BitmapSource src)
+    {
+        BitmapSource bgra = src;
+        if (src.Format != PixelFormats.Bgra32)
+        {
+            var converted = new FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
+            converted.Freeze();
+            bgra = converted;
+        }
+
+        var w = bgra.PixelWidth;
+        var h = bgra.PixelHeight;
+        var stride = w * 4;
+        var pixels = new byte[checked(h * stride)];
+        bgra.CopyPixels(pixels, stride, 0);
+        unchecked
+        {
+            uint hash = 2166136261;
+            for (var i = 0; i < pixels.Length; i += 23)
+            {
+                hash ^= pixels[i];
+                hash *= 16777619;
+            }
+
+            hash ^= (uint)pixels.Length;
+            return $"{w}x{h}:{hash:X8}";
+        }
     }
 
     /// <summary>将多格式内联内容写入本机剪贴板（应用会自动选最合适的格式）。</summary>
@@ -584,6 +654,8 @@ public static class ClipboardBridge
                     ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
                 var frame = decoder.Frames[0];
                 frame.Freeze();
+                // 以实际写入的位图为准记指纹，后续回读重编码仍能认出来
+                _lastAppliedImageFingerprint = FingerprintBitmapSource(frame);
                 obj.SetImage(frame);
                 any = true;
             }
@@ -614,6 +686,22 @@ public static class ClipboardBridge
 
             if (!any) return;
             System.Windows.Clipboard.SetDataObject(obj, copy: true);
+
+            // 回读一次：把 _lastAppliedInlineKey 对齐到「剪贴板上真实内容」的 key
+            try
+            {
+                var roundtrip = TryCaptureInline();
+                if (roundtrip != null && !roundtrip.IsEmpty)
+                {
+                    _lastAppliedInlineKey = roundtrip.BuildKey();
+                    if (roundtrip.Png is { Length: > 0 })
+                        _lastAppliedImageKey = BuildImageKey(roundtrip.Png);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
         }
         catch
         {

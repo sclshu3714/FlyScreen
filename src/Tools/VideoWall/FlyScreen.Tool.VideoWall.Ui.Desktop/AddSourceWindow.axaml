@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:FlyScreen.Ui.Avalonia"
         x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.AddSourceWindow"
         Width="480" MinHeight="280" MaxHeight="560"
         SizeToContent="Height"
@@ -30,11 +31,7 @@
         </StackPanel>
         <StackPanel Spacing="4">
           <TextBlock x:Name="PassLabel" FontSize="12" Opacity="0.7"/>
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-            <TextBox x:Name="PassBox" PasswordChar="●" MinHeight="36"/>
-            <Button x:Name="PassRevealBtn" Grid.Column="1" Width="40" MinHeight="36"
-                    Click="PassRevealBtn_Click" ToolTip.Tip=""/>
-          </Grid>
+          <ui:SecurePasswordBox x:Name="PassBox" MinHeight="36" Height="36"/>
         </StackPanel>
         <StackPanel Spacing="4">
           <TextBlock x:Name="GroupLabel" FontSize="12" Opacity="0.7"/>

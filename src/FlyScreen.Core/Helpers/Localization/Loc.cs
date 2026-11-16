@@ -585,6 +585,8 @@ public static class Loc
 
         ["Sec.Title"] = "安全密钥",
         ["Sec.Show"] = "显示",
+        ["Sec.ShowPassword"] = "显示密码",
+        ["Sec.HidePassword"] = "隐藏密码",
         ["Sec.NewKey"] = "生成新密钥",
         ["Sec.SyncKey"] = "同步密钥",
         ["Sec.Hint"] = "多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。",
@@ -1158,6 +1160,8 @@ public static class Loc
 
         ["Sec.Title"] = "Security key",
         ["Sec.Show"] = "Show",
+        ["Sec.ShowPassword"] = "Show password",
+        ["Sec.HidePassword"] = "Hide password",
         ["Sec.NewKey"] = "Generate key",
         ["Sec.SyncKey"] = "Sync key",
         ["Sec.Hint"] = "All PCs must use the same security key to connect (up to 4 PCs).",

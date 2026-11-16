@@ -7,6 +7,7 @@
         xmlns:tools="using:FlyScreen.Services.Tools"
         xmlns:helpers="using:FlyScreen.DesktopUi.Helpers"
         xmlns:local="using:FlyScreen.DesktopUi"
+        xmlns:ui="using:FlyScreen.Ui.Avalonia"
         x:Class="FlyScreen.DesktopUi.MainWindow"
         Title="玄鸟"
         Icon="/Assets/app_icon.png"
@@ -640,16 +641,8 @@
                   <TextBlock x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontWeight="SemiBold"
                              VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
-                <Grid ColumnDefinitions="*,Auto" MinHeight="36">
-                  <Panel VerticalAlignment="Center" MinWidth="120">
-                    <TextBox x:Name="SecurityKeyBox" FontFamily="Consolas, monospace" FontSize="14"
-                             TextWrapping="NoWrap" IsVisible="False"/>
-                    <TextBox x:Name="SecurityKeyPassword" FontFamily="Consolas, monospace" FontSize="14"
-                             PasswordChar="•" TextWrapping="NoWrap"/>
-                  </Panel>
-                  <CheckBox x:Name="ShowKeyCheck" Grid.Column="1" Content="显示" Margin="12,0,0,0"
-                            VerticalAlignment="Center" IsCheckedChanged="ShowKey_Changed"/>
-                </Grid>
+                <ui:SecurePasswordBox x:Name="SecurityKeyBox" MinWidth="120" Height="40"
+                                      InputFontFamily="Consolas" InputFontSize="14"/>
                 <TextBlock x:Name="SecurityHintText" Text="多台电脑必须使用相同的安全密钥才能连接（最多支持 4 台）。"
                            Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0"
                            TextWrapping="Wrap"/>

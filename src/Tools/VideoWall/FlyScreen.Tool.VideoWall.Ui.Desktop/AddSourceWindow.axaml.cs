@@ -13,7 +13,6 @@ public partial class AddSourceWindow : Window
     private readonly IVideoWallService? _service;
     private readonly string? _editingId;
     private readonly VideoSourceKind? _fixedKind;
-    private bool _passHidden = true;
     private string? _editingCredentialRef;
 
     /// <summary>供 Avalonia 资源加载器发现；运行时请用带服务参数的构造。</summary>
@@ -69,7 +68,7 @@ public partial class AddSourceWindow : Window
                         _ => 1
                     };
                     UserBox.Text = cred.Username;
-                    PassBox.Text = cred.Password;
+                    PassBox.Password = cred.Password;
                 }
             }
         }
@@ -78,20 +77,8 @@ public partial class AddSourceWindow : Window
             TypeCombo.SelectedIndex = 0;
         }
 
-        PassRevealBtn.Content = "👁";
-        ToolTip.SetTip(PassRevealBtn, Loc.T("Tool.VideoWall.ShowPassword"));
         TypeCombo.SelectionChanged += (_, _) => UpdateLocalFileUi();
         UpdateLocalFileUi();
-    }
-
-    private void PassRevealBtn_Click(object? sender, RoutedEventArgs e)
-    {
-        _passHidden = !_passHidden;
-        PassBox.PasswordChar = _passHidden ? '●' : default;
-        PassRevealBtn.Content = _passHidden ? "👁" : "🙈";
-        ToolTip.SetTip(
-            PassRevealBtn,
-            Loc.T(_passHidden ? "Tool.VideoWall.ShowPassword" : "Tool.VideoWall.HidePassword"));
     }
 
     public bool Saved { get; private set; }
@@ -110,7 +97,9 @@ public partial class AddSourceWindow : Window
         NameBox.Watermark = Loc.T("Tool.VideoWall.Field.Name");
         AddressBox.Watermark = Loc.T("Tool.VideoWall.Field.Address");
         UserBox.Watermark = Loc.T("Tool.VideoWall.Field.Username");
-        PassBox.Watermark = Loc.T("Tool.VideoWall.Field.Password");
+        PassBox.Placeholder = Loc.T("Tool.VideoWall.Field.Password");
+        PassBox.ShowPasswordTip = Loc.T("Tool.VideoWall.ShowPassword");
+        PassBox.HidePasswordTip = Loc.T("Tool.VideoWall.HidePassword");
         BrowseBtn.Content = "…";
         CancelBtn.Content = Loc.T("Tool.VideoWall.Cancel");
         SaveBtn.Content = Loc.T("Tool.VideoWall.Save");
@@ -179,7 +168,7 @@ public partial class AddSourceWindow : Window
             ["path"] = kind == VideoSourceKind.LocalFile ? AddressBox.Text : null,
             ["auth"] = AuthValue(AuthCombo.SelectedIndex),
             ["username"] = UserBox.Text,
-            ["password"] = PassBox.Text,
+            ["password"] = PassBox.Password,
             ["credentialRef"] = _editingCredentialRef,
             ["decode"] = "auto",
             ["bufferMs"] = "800",

@@ -135,7 +135,15 @@ if ($want.Windows) {
         'FlyScreen.App.Maui', 'FlyScreen', '玄鸟'
     ) -Extensions @('.exe')
     $named = Invoke-NamePackage -Source $winExe -Rid 'maui-win-x64'
-    $results += [pscustomobject]@{ Platform = 'Windows'; Path = $winExe; Package = $named.Path }
+    $results += [pscustomobject]@{
+        Platform = 'Windows'
+        Path     = $winExe
+        Package  = $(if ($named) { $named.Path } else { $null })
+    }
+    if (-not $SkipName -and (Test-Path -LiteralPath $winOut)) {
+        Remove-Item -LiteralPath $winOut -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "已清理 MAUI Win 暂存: $winOut"
+    }
 }
 
 # ---------- Android（Release APK，自带运行时）----------
@@ -174,7 +182,15 @@ if ($want.Android) {
     Write-Host "使用 APK: $($apk.FullName)"
 
     $named = Invoke-NamePackage -Source $apk.FullName -Rid 'maui-android'
-    $results += [pscustomobject]@{ Platform = 'Android'; Path = $apk.FullName; Package = $named.Path }
+    $results += [pscustomobject]@{
+        Platform = 'Android'
+        Path     = $apk.FullName
+        Package  = $(if ($named) { $named.Path } else { $null })
+    }
+    if (-not $SkipName -and (Test-Path -LiteralPath $androidOut)) {
+        Remove-Item -LiteralPath $androidOut -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "已清理 MAUI Android 暂存: $androidOut"
+    }
 }
 
 # ---------- Mac Catalyst（须在 macOS 上）----------
@@ -214,7 +230,15 @@ if ($want.Mac) {
             ) -Extensions @('')
         }
         $named = Invoke-NamePackage -Source $macBin -Rid $pkgRid
-        $results += [pscustomobject]@{ Platform = 'Mac'; Path = $macBin; Package = $named.Path }
+        $results += [pscustomobject]@{
+            Platform = 'Mac'
+            Path     = $macBin
+            Package  = $(if ($named) { $named.Path } else { $null })
+        }
+        if (-not $SkipName -and (Test-Path -LiteralPath $macOut)) {
+            Remove-Item -LiteralPath $macOut -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "已清理 MAUI Mac 暂存: $macOut"
+        }
     }
 }
 
