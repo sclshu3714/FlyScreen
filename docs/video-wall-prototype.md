@@ -485,6 +485,9 @@ sources.json 记 coverKey / coverCapturedAt / validationState
 | 分组 chips | 高 24，间距 6 |
 | 高 DPI | 全 DIP + 矢量图标；`PerMonitorV2`；跨屏拖动不模糊 |
 | 主题 | 复用宿主变量，不新增品牌色；状态色仅作点缀 |
+| 扫描弹窗 | 继承宿主刷色（`WinBg`/`ListBg` 等）；禁用窗体全透明；结果表不用系统白底 DataGrid 裸样式 |
+| 画布轮播页码 | 底部居中紧凑胶囊：未选中短灰、当前加长紫（`#7C6CF0`）；左右箭头仅悬停显示 |
+| 加载遮罩 | 单路/墙格连接与缓冲时居中旋转环 + 状态文案 |
 
 ---
 

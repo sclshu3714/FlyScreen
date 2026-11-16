@@ -2,67 +2,110 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Styling;
+using FlyScreen.Services;
+using FlyScreen.Ui.Theme;
 
 namespace FlyScreen.DesktopUi.Helpers;
 
 /// <summary>
-/// Avalonia 淡色/深色：覆盖 WinParity 画刷，并切换 Fluent RequestedThemeVariant。
+/// Avalonia 界面主题：按 <see cref="ThemePalette"/> 已注册主题覆写 WinParity 画刷，并切换 Fluent RequestedThemeVariant。
 /// </summary>
 public static class DesktopThemeService
 {
-    public const string Light = "Light";
-    public const string Dark = "Dark";
+    public const string Light = ThemePalette.LightName;
+    public const string Dark = ThemePalette.DarkName;
+    public const string Custom = ThemePalette.CustomName;
 
     public static string Current { get; private set; } = Light;
 
-    public static bool IsDark(string? theme)
-        => string.Equals(theme, Dark, StringComparison.OrdinalIgnoreCase);
+    public static bool IsDark(string? theme) => ThemePalette.IsDark(theme);
 
-    public static void Apply(string? theme, Window? window = null)
+    public static void Apply(string? theme, Window? window = null, string? wallpaperPath = null)
     {
-        Current = IsDark(theme) ? Dark : Light;
-        var dark = Current == Dark;
+        var info = ThemePalette.Resolve(theme);
+        Current = info.Id;
+        var dark = info.IsDark;
 
         var app = Application.Current;
         if (app != null)
             app.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
 
-        Set("Blue", dark ? "#3B82F6" : "#2563EB");
-        Set("BlueSoft", dark ? "#1E3A5F" : "#DBEAFE");
-        Set("BlueHover", dark ? "#243447" : "#EFF6FF");
-        Set("BluePress", dark ? "#1D4ED8" : "#1D4ED8");
-        Set("Line", dark ? "#334155" : "#E5E7EB");
-        Set("Muted", dark ? "#94A3B8" : "#6B7280");
-        Set("Text", dark ? "#E2E8F0" : "#111827");
-        Set("Success", dark ? "#34D399" : "#059669");
-        Set("SuccessSoft", dark ? "#0F3D2E" : "#ECFDF5");
-        Set("Warn", dark ? "#FBBF24" : "#D97706");
-        Set("WarnSoft", dark ? "#422006" : "#FEF3C7");
-        Set("WinBg", dark ? "#0F172A" : "#F7F8FA");
-        Set("CardBg", dark ? "#1E293B" : "#FFFFFF");
-        Set("PaneBg", dark ? "#111827" : "#FFFFFF");
-        Set("SubtleBg", dark ? "#1E293B" : "#F3F4F6");
-        Set("ControlBg", dark ? "#0F172A" : "#FFFFFF");
-        Set("ControlBorder", dark ? "#475569" : "#D1D5DB");
-        Set("ControlHover", dark ? "#334155" : "#F9FAFB");
-        Set("Placeholder", dark ? "#64748B" : "#9CA3AF");
-        Set("MatrixBg", dark ? "#0B1220" : "#F8FAFC");
-        Set("ListBg", dark ? "#0B1220" : "#F9FAFB");
-        Set("ScrollTrack", "#00000000");
-        Set("ScrollThumb", dark ? "#64748B" : "#CBD5E1");
-        Set("ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
-        Set("ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
+        foreach (var (key, hex) in ThemePalette.ToResourceMap(info.ResolveColors()))
+            Set(key, hex);
 
         window ??= TryGetMainWindow();
         if (window == null) return;
 
         window.Foreground = Brush("Text") ?? window.Foreground;
-        // 自绘圆角窗（Background 透明）时由 WindowChrome 铺色，勿覆盖透明
+        // 自绘圆角窗（Background 透明）时由 WindowClip / 壁纸铺色，勿强行盖实心
         if (window.Background is not SolidColorBrush { Color.A: 0 })
-            window.Background = Brush("WinBg") ?? window.Background;
+            window.Background = info.SupportsWallpaper
+                ? Brushes.Transparent
+                : Brush("WinBg") ?? window.Background;
 
+        ApplyWallpaper(window, info.SupportsWallpaper, wallpaperPath);
         window.InvalidateVisual();
+    }
+
+    private static void ApplyWallpaper(Window window, bool supportsWallpaper, string? wallpaperPath)
+    {
+        var image = window.FindControl<Image>("WallpaperImage");
+        var scrim = window.FindControl<Border>("WallpaperScrim");
+        var clip = window.FindControl<Border>("WindowClip");
+        var title = window.FindControl<Border>("ClientTitleBar");
+        var winBg = Brush("WinBg");
+        var paneBg = Brush("PaneBg");
+        var path = supportsWallpaper ? UiWallpaperStore.ResolveExisting(wallpaperPath) : null;
+        var underlay = new SolidColorBrush(Color.Parse("#F7F8FA"));
+
+        if (image == null && scrim == null) return;
+
+        if (path != null)
+        {
+            try
+            {
+                var bmp = new Bitmap(path);
+                if (image != null)
+                {
+                    image.Source = bmp;
+                    image.IsVisible = true;
+                }
+                if (scrim != null) scrim.IsVisible = true;
+                if (clip != null) clip.Background = Brushes.Transparent;
+                if (title != null) title.Background = paneBg;
+            }
+            catch
+            {
+                ClearWallpaperVisual(image, scrim, clip, title, winBg);
+            }
+        }
+        else
+        {
+            ClearWallpaperVisual(image, scrim, clip, title, winBg);
+            if (supportsWallpaper)
+            {
+                // 无图：浅色实心衬底 + 半透明色板
+                if (clip != null) clip.Background = underlay;
+                if (title != null) title.Background = paneBg ?? underlay;
+            }
+        }
+    }
+
+    private static void ClearWallpaperVisual(
+        Image? image, Border? scrim, Border? clip, Border? title, IBrush? solidWinBg)
+    {
+        if (image != null)
+        {
+            image.Source = null;
+            image.IsVisible = false;
+        }
+        if (scrim != null) scrim.IsVisible = false;
+        if (clip != null && solidWinBg != null)
+            clip.Background = solidWinBg;
+        if (title != null && solidWinBg != null)
+            title.Background = solidWinBg;
     }
 
     private static Window? TryGetMainWindow()

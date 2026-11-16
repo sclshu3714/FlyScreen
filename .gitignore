@@ -2,6 +2,12 @@ bin/
 obj/
 .vs/
 artifacts/
+.nuget-packages/
+
+# .flytool 只产出到 artifacts/flytools 与各 App 的 bin/.../Tools/Bundled，禁止落源码树
+src/**/Tools/Bundled/
+src/FlyScreen.App.*/Tools/Bundled/
+*.flytool
 src/FlyScreen.Relay/out/
 src/FlyScreen.Relay/data/
 *.user

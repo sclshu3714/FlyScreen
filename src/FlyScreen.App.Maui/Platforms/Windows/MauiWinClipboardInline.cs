@@ -271,5 +271,59 @@ internal static class MauiWinClipboardInline
         reader.Dispose();
         return bytes;
     }
+
+    /// <summary>PNG 像素指纹（宽高 + BGRA 抽样哈希），用于识别重编码后的同一张图。</summary>
+    public static string? FingerprintPng(byte[] png)
+    {
+        if (png.Length == 0) return null;
+        try
+        {
+            return FingerprintPngAsync(png).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            return ClipboardInlineData.BuildImageKey(png);
+        }
+    }
+
+    public static async Task<string?> FingerprintPngAsync(byte[] png)
+    {
+        if (png.Length == 0) return null;
+        try
+        {
+            var inStream = new InMemoryRandomAccessStream();
+            await inStream.WriteAsync(png.AsBuffer());
+            inStream.Seek(0);
+            var decoder = await BitmapDecoder.CreateAsync(inStream);
+            using var soft = await decoder.GetSoftwareBitmapAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+            if (soft == null) return ClipboardInlineData.BuildImageKey(png);
+
+            var w = soft.PixelWidth;
+            var h = soft.PixelHeight;
+            var byteCount = (uint)(w * h * 4);
+            var buffer = new global::Windows.Storage.Streams.Buffer(byteCount);
+            soft.CopyToBuffer(buffer);
+            var reader = DataReader.FromBuffer(buffer);
+            var pixels = new byte[byteCount];
+            reader.ReadBytes(pixels);
+            unchecked
+            {
+                uint hash = 2166136261;
+                for (var i = 0; i < pixels.Length; i += 47)
+                {
+                    hash ^= pixels[i];
+                    hash *= 16777619;
+                }
+
+                hash ^= (uint)pixels.Length;
+                return $"{w}x{h}:{hash:X8}";
+            }
+        }
+        catch
+        {
+            return ClipboardInlineData.BuildImageKey(png);
+        }
+    }
 }
 #endif

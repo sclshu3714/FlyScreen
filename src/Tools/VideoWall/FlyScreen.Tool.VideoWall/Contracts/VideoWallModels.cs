@@ -31,6 +31,9 @@ public sealed record VideoSourceGroup
     public required string Name { get; init; }
 }
 
+/// <summary>播放关键事件标记（进度条白点）。</summary>
+public sealed record PlaybackCue(long PositionMs, string? Label = null);
+
 /// <summary>固定/临时源条目。</summary>
 public sealed record VideoSourceDescriptor
 {
@@ -61,6 +64,9 @@ public sealed record VideoSourceDescriptor
     public DateTimeOffset? CoverCapturedAt { get; init; }
 
     public DateTimeOffset? LastPlayedAt { get; init; }
+
+    /// <summary>用户自定义的关键事件标记（进度条白点）。</summary>
+    public IReadOnlyList<PlaybackCue> KeyEvents { get; init; } = [];
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
 }
@@ -161,4 +167,20 @@ public sealed record MediaProbeResult
     public int? Width { get; init; }
     public int? Height { get; init; }
     public double? Fps { get; init; }
+
+    /// <summary>轻量探测无法完成协议握手时为 true（需完整后端探测）。</summary>
+    public bool NeedsBackend { get; init; }
+}
+
+/// <summary>首帧封面抓取结果（<see cref="IMediaBackend.CaptureCoverAsync"/>）。</summary>
+public sealed record CoverCaptureResult
+{
+    public bool Ok { get; init; }
+    public byte[]? JpegBytes { get; init; }
+    public VideoErrorCode Error { get; init; } = VideoErrorCode.None;
+    public string? Message { get; init; }
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public string? VideoCodec { get; init; }
+    public double Fps { get; init; }
 }

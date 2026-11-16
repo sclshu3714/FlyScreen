@@ -13,19 +13,10 @@
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13">
   <Window.Resources>
-    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
-    <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
-    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
-    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
-    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
-    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
-    <SolidColorBrush x:Key="Text" Color="#111827"/>
-    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
-    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
-    <SolidColorBrush x:Key="ControlHover" Color="#F9FAFB"/>
-    <Geometry x:Key="GeoClock">M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z</Geometry>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <theme:WpfTheme xmlns:theme="clr-namespace:FlyScreen.Ui.Theme.Wpf;assembly=FlyScreen.Ui.Theme.Wpf"/>
+      </ResourceDictionary.MergedDictionaries>
 
     <!-- 时间输入：自定义模板保证文字垂直居中 -->
     <Style x:Key="TimeTextBox" TargetType="TextBox">
@@ -245,6 +236,7 @@
         </Setter.Value>
       </Setter>
     </Style>
+    </ResourceDictionary>
   </Window.Resources>
 
   <Border Background="{DynamicResource WinBg}" Padding="20">

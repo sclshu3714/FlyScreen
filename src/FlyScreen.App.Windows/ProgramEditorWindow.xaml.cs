@@ -492,7 +492,7 @@ public partial class ProgramEditorWindow : Window
 
         _lastPausedLineLogged = null;
         SetDebugLineHighlight(null);
-        SetDebugTool(Loc.T("Prog.Pause"), "GeoPause");
+        SetDebugTool(Loc.T("Prog.Pause"), "GeoPauseBars");
     }
 
     private void SetDebugLineHighlight(int? line)

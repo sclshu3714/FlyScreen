@@ -257,8 +257,13 @@ public sealed class MauiTextClipboardMonitor : IDisposable
             var data = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
             if (data == null || data.IsEmpty) return;
             var ok = await _sink.ApplyInlineAsync(data).ConfigureAwait(false);
-            if (ok && seq != 0)
-                _transfers.MarkRemoteInlineConsumed(seq);
+            if (ok)
+            {
+                _lastInlineKey = _sink.LastAppliedKey ?? data.BuildKey();
+                _lastClipboardSeq = Win32FileClipboard.GetSequenceNumber();
+                if (seq != 0)
+                    _transfers.MarkRemoteInlineConsumed(seq);
+            }
         }
         catch { /* ignore */ }
         finally { Interlocked.Exchange(ref _armingInline, 0); }

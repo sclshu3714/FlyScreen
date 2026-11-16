@@ -1,4 +1,5 @@
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Network;
 using FlyScreen.ToolSdk;
 
@@ -47,4 +48,7 @@ public sealed class ToolHostServices : ICoreToolHostServices
 
     public void UnregisterService<T>() where T : class
         => _services.Remove(typeof(T));
+
+    public string GetToolDataDirectory(string toolId)
+        => FlyScreenDataPaths.GetToolDataDirectory(toolId);
 }

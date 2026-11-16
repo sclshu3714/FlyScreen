@@ -12,22 +12,24 @@ namespace FlyScreen.AppMaui.Platforms.Windows;
 
 /// <summary>
 /// Maui-Win：跟随淡色/深色设置标题栏与 WinUI RequestedTheme。
-/// Modal（投影弹窗等）会重置标题栏模板为 App.xaml 浅色默认，须跟刷。
+/// 自定义（背景图）主题用半透明标题栏，让壁纸透出。
 /// </summary>
 internal static class MauiWindowChrome
 {
     private static int _followUpSeq;
+    private static bool _translucent;
 
-    public static void ApplyTheme(bool dark, bool scheduleFollowUp = true)
+    public static void ApplyTheme(bool dark, bool scheduleFollowUp = true, bool translucent = false)
     {
-        ApplyThemeCore(dark);
+        _translucent = translucent;
+        ApplyThemeCore(dark, translucent);
         if (scheduleFollowUp)
-            ScheduleFollowUp(dark);
+            ScheduleFollowUp(dark, translucent);
     }
 
     /// <summary>弹窗打开/关闭后强制跟刷，避免左右两截。</summary>
     public static void RefreshAfterModal()
-        => ApplyTheme(MauiThemeServiceIsDark(), scheduleFollowUp: true);
+        => ApplyTheme(MauiThemeServiceIsDark(), scheduleFollowUp: true, translucent: _translucent);
 
     private static bool MauiThemeServiceIsDark()
     {
@@ -39,16 +41,14 @@ internal static class MauiWindowChrome
         catch { return false; }
     }
 
-    private static void ScheduleFollowUp(bool dark)
+    private static void ScheduleFollowUp(bool dark, bool translucent)
     {
         var seq = ++_followUpSeq;
-        // RequestedTheme / PushModal 会异步重刷模板，分帧再涂色
-        // Modal 动画与模板重绑可持续数百毫秒，多档跟刷
         foreach (var ms in new[] { 16, 50, 120, 250, 500, 900 })
-            _ = FollowUpAsync(seq, dark, ms);
+            _ = FollowUpAsync(seq, dark, translucent, ms);
     }
 
-    private static async Task FollowUpAsync(int seq, bool dark, int delayMs)
+    private static async Task FollowUpAsync(int seq, bool dark, bool translucent, int delayMs)
     {
         try
         {
@@ -57,7 +57,7 @@ internal static class MauiWindowChrome
             Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(() =>
             {
                 if (seq != _followUpSeq) return;
-                ApplyThemeCore(dark);
+                ApplyThemeCore(dark, translucent);
             });
         }
         catch
@@ -66,7 +66,7 @@ internal static class MauiWindowChrome
         }
     }
 
-    private static void ApplyThemeCore(bool dark)
+    private static void ApplyThemeCore(bool dark, bool translucent)
     {
         try
         {
@@ -78,7 +78,6 @@ internal static class MauiWindowChrome
                 if (window.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
                     continue;
 
-                // 已是目标主题则勿反复赋值，否则 WinUI 会重刷标题栏模板（浅色默认闪一下）
                 if (native.Content is FrameworkElement root)
                 {
                     var want = dark ? ElementTheme.Dark : ElementTheme.Light;
@@ -92,14 +91,14 @@ internal static class MauiWindowChrome
                     var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
                     var appWindow = AppWindow.GetFromWindowId(id);
                     if (AppWindowTitleBar.IsCustomizationSupported())
-                        PaintTitleBar(appWindow.TitleBar, dark);
+                        PaintTitleBar(appWindow.TitleBar, dark, translucent);
                 }
                 catch
                 {
                     // ignore
                 }
 
-                PaintMauiTitleBarTemplate(native, dark);
+                PaintMauiTitleBarTemplate(native, dark, translucent);
             }
         }
         catch
@@ -108,13 +107,14 @@ internal static class MauiWindowChrome
         }
     }
 
-    private static void PaintTitleBar(AppWindowTitleBar bar, bool dark)
+    private static void PaintTitleBar(AppWindowTitleBar bar, bool dark, bool translucent)
     {
-        // 与 MauiThemeService WinBg / Text 对齐；按钮区与拖拽区必须同色，否则左右两截
-        var bg = dark ? Rgb(0x0F, 0x17, 0x2A) : Rgb(0xF7, 0xF8, 0xFA);
+        var bg = TitleBg(dark, translucent);
         var fg = dark ? Rgb(0xE2, 0xE8, 0xF0) : Rgb(0x11, 0x18, 0x27);
         var muted = dark ? Rgb(0x94, 0xA3, 0xB8) : Rgb(0x6B, 0x72, 0x80);
-        var hover = dark ? Rgb(0x1E, 0x29, 0x3B) : Rgb(0xE5, 0xE7, 0xEB);
+        var hover = translucent
+            ? (dark ? Argb(0x99, 0x1E, 0x29, 0x3B) : Argb(0x99, 0xE5, 0xE7, 0xEB))
+            : (dark ? Rgb(0x1E, 0x29, 0x3B) : Rgb(0xE5, 0xE7, 0xEB));
 
         bar.BackgroundColor = bg;
         bar.ForegroundColor = fg;
@@ -130,17 +130,16 @@ internal static class MauiWindowChrome
         bar.ButtonPressedForegroundColor = fg;
     }
 
-    private static void PaintMauiTitleBarTemplate(Microsoft.UI.Xaml.Window native, bool dark)
+    private static void PaintMauiTitleBarTemplate(Microsoft.UI.Xaml.Window native, bool dark, bool translucent)
     {
         if (native.Content is not DependencyObject tree) return;
 
-        var bg = dark ? Rgb(0x0F, 0x17, 0x2A) : Rgb(0xF7, 0xF8, 0xFA);
+        var bg = TitleBg(dark, translucent);
         var fg = dark ? Rgb(0xE2, 0xE8, 0xF0) : Rgb(0x11, 0x18, 0x27);
         var brushBg = new WinSolidBrush(bg);
         var brushFg = new WinSolidBrush(fg);
         var clear = new WinSolidBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
 
-        // 内容区与按钮区必须同色实心；模板默认 #F7F8FA，Modal 后常被重置
         var barRoot = FindByName(tree, "AppTitleBarRoot") as WinBorder
                       ?? FindByName(tree, "AppTitleBar") as WinBorder;
         if (barRoot != null)
@@ -158,7 +157,6 @@ internal static class MauiWindowChrome
             }
         }
 
-        // 模板重绑后可能换了实例，把含图标的横向条也刷一遍
         PaintNamedBackgrounds(tree, brushBg, "AppTitleBarRoot", "AppTitleBar", "AppTitleBarInner");
 
         if (FindByName(tree, "AppTitleBarInner") is Microsoft.UI.Xaml.Controls.Grid inner)
@@ -175,7 +173,6 @@ internal static class MauiWindowChrome
             projectBtn.Background = clear;
         }
 
-        // 模板重绑会换掉按钮实例；只 Refresh 会改到已经不在树上的旧按钮。
         MauiProjectionTitleBar.Rebind(native);
     }
 
@@ -208,7 +205,18 @@ internal static class MauiWindowChrome
         return null;
     }
 
+    /// <summary>自定义主题：约 35% 白/深色，标题栏透出壁纸。</summary>
+    private static global::Windows.UI.Color TitleBg(bool dark, bool translucent)
+    {
+        if (!translucent)
+            return dark ? Rgb(0x0F, 0x17, 0x2A) : Rgb(0xF7, 0xF8, 0xFA);
+        return dark ? Argb(0x59, 0x0F, 0x17, 0x2A) : Argb(0x59, 0xFF, 0xFF, 0xFF);
+    }
+
     private static global::Windows.UI.Color Rgb(byte r, byte g, byte b)
         => global::Windows.UI.Color.FromArgb(255, r, g, b);
+
+    private static global::Windows.UI.Color Argb(byte a, byte r, byte g, byte b)
+        => global::Windows.UI.Color.FromArgb(a, r, g, b);
 }
 #endif

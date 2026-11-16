@@ -11,76 +11,53 @@
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13">
   <Window.Resources>
-    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="Text" Color="#111827"/>
-    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
-    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
-    <SolidColorBrush x:Key="ControlBg" Color="#F8FAFC"/>
-    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
-    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <theme:WpfTheme xmlns:theme="clr-namespace:FlyScreen.Ui.Theme.Wpf;assembly=FlyScreen.Ui.Theme.Wpf"/>
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
   </Window.Resources>
 
-  <!-- 居中卡片：圆角 + 阴影 -->
-  <Border Margin="12" Background="{StaticResource CardBg}"
-          BorderBrush="{StaticResource Line}" BorderThickness="1"
+  <Border Margin="12" Background="{DynamicResource CardBg}"
+          BorderBrush="{DynamicResource Line}" BorderThickness="1"
           CornerRadius="14" Padding="22,20">
     <Border.Effect>
       <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.22" Color="#000000"/>
     </Border.Effect>
     <StackPanel>
       <TextBlock x:Name="TitleText" FontSize="18" FontWeight="SemiBold"
-                 Foreground="{StaticResource Text}"
+                 Foreground="{DynamicResource Text}"
                  HorizontalAlignment="Center" Margin="0,0,0,14"/>
 
       <TextBlock x:Name="KindLabel" Margin="0,0,0,6" FontSize="12"
-                 Foreground="{StaticResource Muted}"/>
-      <ComboBox x:Name="KindCombo" Margin="0,0,0,12" Height="34"
-                Background="{StaticResource ControlBg}"
-                BorderBrush="{StaticResource ControlBorder}"/>
+                 Foreground="{DynamicResource Muted}"/>
+      <ComboBox x:Name="KindCombo" Margin="0,0,0,12" Height="34"/>
 
       <TextBlock x:Name="ListenAddressLabel" Margin="0,0,0,6" FontSize="12"
-                 Foreground="{StaticResource Muted}"/>
-      <TextBox x:Name="ListenAddressBox" Margin="0,0,0,12" Height="34" Padding="8,4"
-               VerticalContentAlignment="Center"
-               Background="{StaticResource ControlBg}"
-               BorderBrush="{StaticResource ControlBorder}"/>
+                 Foreground="{DynamicResource Muted}"/>
+      <TextBox x:Name="ListenAddressBox" Margin="0,0,0,12"/>
 
       <TextBlock x:Name="ListenPortLabel" Margin="0,0,0,6" FontSize="12"
-                 Foreground="{StaticResource Muted}"/>
-      <TextBox x:Name="ListenPortBox" Margin="0,0,0,12" Height="34" Padding="8,4"
-               VerticalContentAlignment="Center"
-               Background="{StaticResource ControlBg}"
-               BorderBrush="{StaticResource ControlBorder}"/>
+                 Foreground="{DynamicResource Muted}"/>
+      <TextBox x:Name="ListenPortBox" Margin="0,0,0,12"/>
 
       <TextBlock x:Name="ConnectAddressLabel" Margin="0,0,0,6" FontSize="12"
-                 Foreground="{StaticResource Muted}"/>
-      <TextBox x:Name="ConnectAddressBox" Margin="0,0,0,12" Height="34" Padding="8,4"
-               VerticalContentAlignment="Center"
-               Background="{StaticResource ControlBg}"
-               BorderBrush="{StaticResource ControlBorder}"/>
+                 Foreground="{DynamicResource Muted}"/>
+      <TextBox x:Name="ConnectAddressBox" Margin="0,0,0,12"/>
 
       <TextBlock x:Name="ConnectPortLabel" Margin="0,0,0,6" FontSize="12"
-                 Foreground="{StaticResource Muted}"/>
-      <TextBox x:Name="ConnectPortBox" Margin="0,0,0,12" Height="34" Padding="8,4"
-               VerticalContentAlignment="Center"
-               Background="{StaticResource ControlBg}"
-               BorderBrush="{StaticResource ControlBorder}"/>
+                 Foreground="{DynamicResource Muted}"/>
+      <TextBox x:Name="ConnectPortBox" Margin="0,0,0,12"/>
 
       <TextBlock x:Name="ProtocolLabel" Margin="0,0,0,6" FontSize="12"
-                 Foreground="{StaticResource Muted}"/>
-      <TextBox x:Name="ProtocolBox" Margin="0,0,0,16" Height="34" Padding="8,4"
-               Text="tcp" VerticalContentAlignment="Center"
-               Background="{StaticResource ControlBg}"
-               BorderBrush="{StaticResource ControlBorder}"/>
+                 Foreground="{DynamicResource Muted}"/>
+      <TextBox x:Name="ProtocolBox" Margin="0,0,0,16" Text="tcp"/>
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button x:Name="CancelBtn" MinWidth="88" MinHeight="34" Margin="0,0,8,0"
-                Click="CancelBtn_Click" IsCancel="True" Cursor="Hand"
-                Background="{StaticResource ControlBg}"
-                BorderBrush="{StaticResource ControlBorder}" BorderThickness="1"/>
-        <Button x:Name="OkBtn" MinWidth="88" MinHeight="34"
-                Click="OkBtn_Click" IsDefault="True" Cursor="Hand"
-                Background="{StaticResource Blue}" Foreground="White" BorderThickness="0"/>
+        <Button x:Name="CancelBtn" Style="{StaticResource NormalBtn}" Margin="0,0,8,0"
+                Click="CancelBtn_Click" IsCancel="True"/>
+        <Button x:Name="OkBtn" Style="{StaticResource PrimaryBtn}" Margin="0"
+                Click="OkBtn_Click" IsDefault="True"/>
       </StackPanel>
     </StackPanel>
   </Border>

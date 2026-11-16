@@ -31,6 +31,9 @@ public sealed class PublishService
         BeginJobWorkspace(jobId, log);
         try
         {
+            // 清掉历史上残留的 RID 暂存 / stage / 检查目录，避免 artifacts 无限膨胀
+            CleanTransientArtifactRoots(log);
+
             Report(progress, 0, "准备资源…");
             AssetGenerator.EnsurePublisherAssets(
                 Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets"),
@@ -138,22 +141,26 @@ public sealed class PublishService
             ["MSBUILDDISABLENODEREUSE"] = "1"
         };
 
+        // 顺带清掉其它任务残留的 setup-work（含旧版按 RID 命名的目录）
+        PurgeOrphanSetupWork(log, keepJobId: _jobId);
+
         log($"任务工作区: {_workRoot}");
     }
 
     private void CleanupJobWorkspace(Action<string> log)
     {
-        if (string.IsNullOrWhiteSpace(_workRoot) || !Directory.Exists(_workRoot))
-            return;
-
+        var root = _workRoot;
         try
         {
-            Directory.Delete(_workRoot, recursive: true);
-            log($"已清理中间文件: {_workRoot}");
-        }
-        catch (Exception ex)
-        {
-            log($"清理中间文件失败（可稍后手动删除）: {_workRoot} — {ex.Message}");
+            if (!string.IsNullOrWhiteSpace(root) && Directory.Exists(root))
+            {
+                if (TryDeleteDirectory(root, retries: 8))
+                    log($"已清理中间文件: {root}");
+                else
+                    log($"清理中间文件失败（可稍后运行 build/Clean-Artifacts.ps1）: {root}");
+            }
+
+            PurgeOrphanSetupWork(log, keepJobId: null);
         }
         finally
         {
@@ -161,6 +168,115 @@ public sealed class PublishService
             _jobId = "";
             _jobEnv = null;
         }
+    }
+
+    /// <summary>
+    /// 删除 artifacts 下非交付物目录/文件。保留 release、flytools，以及当前任务的 setup-work/{jobId}。
+    /// </summary>
+    private void CleanTransientArtifactRoots(Action<string> log)
+    {
+        var artifacts = Path.Combine(_repoRoot, "artifacts");
+        if (!Directory.Exists(artifacts))
+            return;
+
+        var keepDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "release",
+            "flytools",
+            "setup-work"
+        };
+
+        foreach (var dir in Directory.GetDirectories(artifacts))
+        {
+            var name = Path.GetFileName(dir);
+            if (keepDirs.Contains(name))
+                continue;
+
+            if (TryDeleteDirectory(dir, retries: 4))
+                log($"已清理中间目录: {dir}");
+            else
+                log($"清理中间目录失败: {dir}");
+        }
+
+        foreach (var file in Directory.GetFiles(artifacts))
+        {
+            if (TryDeleteFile(file, retries: 3))
+                log($"已清理中间文件: {file}");
+        }
+    }
+
+    /// <summary>
+    /// 清理 setup-work 下非当前任务的残留（崩溃/锁失败留下的 GUID 目录，以及旧版 linux-x64 等命名目录）。
+    /// </summary>
+    private void PurgeOrphanSetupWork(Action<string> log, string? keepJobId)
+    {
+        var root = Path.Combine(_repoRoot, "artifacts", "setup-work");
+        if (!Directory.Exists(root))
+            return;
+
+        foreach (var dir in Directory.GetDirectories(root))
+        {
+            var name = Path.GetFileName(dir);
+            if (!string.IsNullOrWhiteSpace(keepJobId) &&
+                string.Equals(name, keepJobId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (TryDeleteDirectory(dir, retries: 4))
+                log($"已清理残留工作区: {dir}");
+            else
+                log($"清理残留工作区失败: {dir}");
+        }
+
+        // 空 setup-work 可保留；有残留子目录则留给下次再清
+    }
+
+    private static bool TryDeleteDirectory(string path, int retries = 5)
+    {
+        for (var i = 0; i < retries; i++)
+        {
+            try
+            {
+                if (!Directory.Exists(path))
+                    return true;
+
+                foreach (var info in new DirectoryInfo(path)
+                             .EnumerateFileSystemInfos("*", SearchOption.AllDirectories))
+                {
+                    try { info.Attributes = FileAttributes.Normal; }
+                    catch { /* ignore */ }
+                }
+
+                Directory.Delete(path, recursive: true);
+                return true;
+            }
+            catch
+            {
+                Thread.Sleep(200 * (i + 1));
+            }
+        }
+
+        return !Directory.Exists(path);
+    }
+
+    private static bool TryDeleteFile(string path, int retries = 3)
+    {
+        for (var i = 0; i < retries; i++)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                    return true;
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+                return true;
+            }
+            catch
+            {
+                Thread.Sleep(150 * (i + 1));
+            }
+        }
+
+        return !File.Exists(path);
     }
 
     private string JobPath(params string[] parts)
@@ -894,8 +1010,8 @@ public sealed class PublishService
 
     private static void PrepareCleanDir(string dir)
     {
-        if (Directory.Exists(dir))
-            Directory.Delete(dir, recursive: true);
+        if (Directory.Exists(dir) && !TryDeleteDirectory(dir, retries: 6))
+            throw new IOException($"无法清空目录（可能被占用）: {dir}");
         Directory.CreateDirectory(dir);
     }
 }

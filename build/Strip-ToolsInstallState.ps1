@@ -7,7 +7,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# MSBuild Exec 若把路径写成 ...\dir\" ，引号会被吞进参数；去掉尾部 \ 与误入的 "
+if ($null -eq $Root) { $Root = '' }
+$Root = $Root.Trim().TrimEnd('\', '/', '"')
+if ([string]::IsNullOrWhiteSpace($Root)) {
+    Write-Host "跳过工具安装态清理：Root 为空"
+    exit 0
+}
 $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
+$Root = $Root.TrimEnd('\', '/')
 if (-not (Test-Path -LiteralPath $Root)) {
     Write-Host "跳过工具安装态清理：目录不存在 $Root"
     exit 0

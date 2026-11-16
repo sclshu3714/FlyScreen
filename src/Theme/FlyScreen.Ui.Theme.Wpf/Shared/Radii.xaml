@@ -1,0 +1,10 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+  <sys:Double x:Key="Radius.Sm">6</sys:Double>
+  <sys:Double x:Key="Radius.Md">8</sys:Double>
+  <sys:Double x:Key="Radius.Lg">12</sys:Double>
+  <CornerRadius x:Key="Corner.Sm">6</CornerRadius>
+  <CornerRadius x:Key="Corner.Md">8</CornerRadius>
+  <CornerRadius x:Key="Corner.Lg">12</CornerRadius>
+</ResourceDictionary>

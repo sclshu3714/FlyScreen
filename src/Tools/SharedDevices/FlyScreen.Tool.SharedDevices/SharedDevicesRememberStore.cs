@@ -18,7 +18,9 @@ public sealed class SharedDevicesRememberStore
 
     public SharedDevicesRememberStore(string? path = null)
     {
-        _path = path ?? FlyScreenDataPaths.SharedDevicesRememberFile;
+        _path = path ?? Path.Combine(
+            FlyScreenDataPaths.GetToolDataDirectory("shared-devices"),
+            "shared-devices-remember.json");
         Reload();
     }
 

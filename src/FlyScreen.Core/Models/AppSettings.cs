@@ -68,8 +68,13 @@ public sealed class AppSettings
     public bool AutoStart { get; set; }
     /// <summary>启动时静默检查更新（GitHub，失败改用 Gitee）。</summary>
     public bool CheckUpdatesOnStartup { get; set; } = true;
-    /// <summary>界面主题：Light（淡色，默认）/ Dark（深色，待实现）。</summary>
+    /// <summary>界面主题：Light / Dark / Custom（可扩展注册）。</summary>
     public string UiTheme { get; set; } = "Light";
+    /// <summary>
+    /// 主界面背景图路径（相对路径如 <c>Ui/Wallpaper/wallpaper.jpg</c>，相对安装目录或 AppData）。
+    /// 导入优先写安装目录，无权限则回退 AppData。仅自定义主题生效；清除会删两边副本。
+    /// </summary>
+    public string UiWallpaperPath { get; set; } = "";
     /// <summary>界面语言文化代码，默认 zh-CN。</summary>
     public string UiLanguage { get; set; } = "zh-CN";
     public int TcpPort { get; set; } = 15155;

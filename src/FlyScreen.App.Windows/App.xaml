@@ -6,7 +6,7 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
-        <ResourceDictionary Source="Themes/ScrollBarStyles.xaml"/>
+        <theme:WpfTheme xmlns:theme="clr-namespace:FlyScreen.Ui.Theme.Wpf;assembly=FlyScreen.Ui.Theme.Wpf"/>
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>

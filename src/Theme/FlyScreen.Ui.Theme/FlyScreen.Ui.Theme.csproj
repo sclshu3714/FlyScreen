@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Ui.Theme</RootNamespace>
+    <AssemblyName>FlyScreen.Ui.Theme</AssemblyName>
+    <Description>玄鸟 UI 主题令牌与图标码目录（无 UI 框架依赖）</Description>
+  </PropertyGroup>
+</Project>

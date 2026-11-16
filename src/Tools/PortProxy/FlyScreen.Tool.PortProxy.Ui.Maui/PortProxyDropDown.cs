@@ -47,7 +47,7 @@ internal sealed class PortProxyDropDown : ContentView
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto)
             },
-            HeightRequest = 34
+            HeightRequest = 32
         };
         row.Add(_valueLabel, 0, 0);
         row.Add(arrow, 1, 0);
@@ -58,9 +58,9 @@ internal sealed class PortProxyDropDown : ContentView
             StrokeThickness = 1,
             BackgroundColor = background,
             Padding = new Thickness(12, 0),
-            HeightRequest = 36,
+            HeightRequest = 32,
             HorizontalOptions = LayoutOptions.Fill,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
             Content = row
         };
         var tap = new TapGestureRecognizer();

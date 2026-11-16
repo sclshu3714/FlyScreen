@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:FlyScreen.Ui.Avalonia"
+        x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.ScanDevicesWindow"
+        Width="640" Height="520" MinWidth="520" MinHeight="400"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True" ShowInTaskbar="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13">
+  <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" RowSpacing="10">
+    <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold"
+               Foreground="{DynamicResource Text}"/>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,140,Auto" ColumnSpacing="10">
+      <StackPanel>
+        <TextBlock x:Name="SubnetLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <ComboBox x:Name="SubnetCombo" Height="34" IsEditable="True" HorizontalAlignment="Stretch"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1">
+        <TextBlock x:Name="VendorLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <ComboBox x:Name="VendorCombo" Height="34" HorizontalAlignment="Stretch"/>
+      </StackPanel>
+      <Button x:Name="RescanBtn" Grid.Column="2" Classes="primary" VerticalAlignment="Bottom"
+              Padding="14,8" Click="RescanBtn_Click"/>
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="8">
+      <StackPanel>
+        <TextBlock x:Name="UserLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <TextBox x:Name="UserBox" Height="34"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1">
+        <TextBlock x:Name="PassLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <ui:SecurePasswordBox x:Name="PassBox" Height="34"/>
+      </StackPanel>
+    </Grid>
+
+    <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8"
+            Background="{DynamicResource ListBg}" ClipToBounds="True">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="12,8">
+          <Grid ColumnDefinitions="1.2*,0.8*,*,110">
+            <TextBlock x:Name="HdrHost" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+            <TextBlock x:Name="HdrKind" Grid.Column="1" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+            <TextBlock x:Name="HdrPorts" Grid.Column="2" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+            <TextBlock x:Name="HdrActions" Grid.Column="3" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+          </Grid>
+        </Border>
+        <ListBox x:Name="DeviceList" BorderThickness="0"
+                 Background="{DynamicResource ListBg}"
+                 Foreground="{DynamicResource Text}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:CompileBindings="False">
+              <Grid ColumnDefinitions="1.2*,0.8*,*,110" Margin="4,4">
+                <TextBlock Text="{Binding Host}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="1" Text="{Binding KindHint}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}"/>
+                <TextBlock Grid.Column="2" Text="{Binding PortsText}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+                <Button Grid.Column="3" Classes="primary" Content="{Binding ActionLabel}" IsEnabled="{Binding CanAdd}"
+                        Tag="{Binding}" Click="AddDevice_Click" Padding="8,4" HorizontalAlignment="Left"/>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <TextBlock x:Name="StatusText" Grid.Row="4" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+    <Button x:Name="CloseBtn" Grid.Row="5" Classes="normal" HorizontalAlignment="Right" Padding="14,8"
+            Click="CloseBtn_Click"/>
+  </Grid>
+</Window>

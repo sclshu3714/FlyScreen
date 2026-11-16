@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+  <sys:Double x:Key="Space.Xs">4</sys:Double>
+  <sys:Double x:Key="Space.Sm">8</sys:Double>
+  <sys:Double x:Key="Space.Md">12</sys:Double>
+  <sys:Double x:Key="Space.Lg">16</sys:Double>
+  <sys:Double x:Key="Space.Xl">18</sys:Double>
+  <sys:Double x:Key="Space.Xxl">24</sys:Double>
+  <Thickness x:Key="Pad.Card">18</Thickness>
+  <sys:Double x:Key="Control.Height">34</sys:Double>
+  <sys:Double x:Key="Control.HeightTall">36</sys:Double>
+  <sys:Double x:Key="Button.MinWidth">88</sys:Double>
+</ResourceDictionary>

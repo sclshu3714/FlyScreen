@@ -37,6 +37,7 @@ public enum TilePlayState
     Connecting,
     Buffering,
     Playing,
+    Paused,
     Stalled,
     Reconnecting,
     Failed,

@@ -389,6 +389,9 @@ manifest MUST 声明 `permissions`（可空）。
 | `virtualAudio` | 电脑端虚拟声卡 |
 | `peerNetwork` | 经玄鸟已有连接发工具信封 |
 | `fileSystem.inbox` | 读写玄鸟收件箱类目录 |
+| `networkStream` | 可连接你添加的视频地址与局域网摄像头/NVR；可在你点「扫描」时对选定网段做短时 TCP 端口探测（不后台常驻、不爆破口令） |
+| `localFile.open` | 经系统文件选择器读取你选中的视频文件 |
+| `localMediaListen` | 仅媒体入流（RTP/SIP）可在授权下绑定本机端口；不得承载工具信封 |
 
 **禁止出现在工具 manifest 中的权限（出现则 MUST 拒绝安装整包）：**
 
@@ -426,7 +429,8 @@ Android：摄像头/麦克风/录屏仍走系统运行时权限。
 
 | 规则 | MUST |
 |------|------|
-| 加载路径 | 仅 `%AppData%/FlyScreen/Tools/<id>/<version>/`（或各端等价目录） |
+| 加载路径 | 桌面仅 `{BaseDirectory}/Tools/Installed/<id>/<version>/`（**不**写 `%AppData%`）；移动端为应用私有 files 下等价目录 |
+| 原生库缓存 | 含原生依赖的工具（如视频墙 LibVLC）优先使用 `Tools/_native/`，与 Installed 版本目录解耦，避免 LoadLibrary 锁死卸载路径；占用目录可改名为 `.orphaned-*` 后重装，启动时尽力清理 |
 | 复验 | 加载前 contentHash 一致 |
 | API | 仅 `IToolHostServices` 中的**白名单**方法；未声明权限 MUST 拒绝；§5.5.9 所列能力 MUST 永不挂到该接口 |
 | 卸载 | 删目录与记录；停会话；清 Caps/标题栏 |
@@ -813,7 +817,7 @@ ToolEnvelope {
 | `TitleBarToolSlot` | 注册贡献、状态切换、下拉、多端 UI（WPF/Maui/Avalonia） |
 | `IToolModule` | 工具实现接口：`Install/Uninstall/Repair?`、`HandleMessage?`、`GetTitleBarContribution?`；内含发送与接收角色 |
 
-主程序保留：TCP 连接、密钥、Bulk、穿边拓扑暂停/摘除 API、键鼠注入 API。工具 MUST 通过这些 API 协作，MUST NOT 自开监听端口做跨机通信。
+主程序保留：TCP 连接、密钥、Bulk、穿边拓扑暂停/摘除 API、键鼠注入 API。工具 MUST 通过这些 API 协作，MUST NOT 自开监听端口做跨机通信（**例外**：声明 `localMediaListen` 时，仅允许绑定本机端口接收 RTP/SIP 等媒体入流，且不得承载 FlyScreen 工具信封或跨机业务）。
 
 文件关联：Windows/macOS/Linux SHOULD 注册 `.flytool` → 玄鸟（外装方式 C）。
 

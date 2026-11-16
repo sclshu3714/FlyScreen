@@ -1,5 +1,6 @@
 # FlyScreen.Relay — 自托管信令 + STUN + 中继
-# 构建: tools/pack-docker.ps1  或  docker build -t flyscreen-relay .
+# 构建: tools/pack-docker.ps1  或  DOCKER_BUILDKIT=1 docker build -t flyscreen-relay .
+# 请用 BuildKit（脚本已强制开启），否则旧 builder 会把 SDK 中间阶段落成大量 <none> 镜像。
 #
 # 国内拉取慢时可换基础镜像前缀，例如:
 #   docker build --build-arg SDK_IMAGE=mcr.m.daocloud.io/dotnet/sdk:10.0 \

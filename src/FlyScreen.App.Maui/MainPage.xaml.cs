@@ -13,11 +13,12 @@ using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
+using FlyScreen.Ui.Theme;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.AppMaui;
 
-public partial class MainPage : ContentPage
+public partial class MainPage : ContentPage, IWallpaperHost
 {
     private readonly MauiAppHost _host;
     private ObservableCollection<DiscoveredPeer> _discovery = [];
@@ -133,9 +134,10 @@ public partial class MainPage : ContentPage
     {
         if (_uiPrepared) return;
         Loc.SetCulture(_host.Settings.UiLanguage);
-        MauiThemeService.Apply(_host.Settings.UiTheme, this);
+        MauiThemeService.Apply(_host.Settings.UiTheme, this, _host.Settings.UiWallpaperPath);
         LoadUi();
         ApplyLocalizedUi();
+        RefreshWallpaperUi();
         RebuildMatrix();
         PlatformLabel.Text = _host.PlatformBanner;
         WireHostOnce();
@@ -200,7 +202,7 @@ public partial class MainPage : ContentPage
         });
         _onSecurityKeySynced = from => RunOnUi(() =>
         {
-            KeyEntry.Text = _host.Settings.SecurityKey ?? "";
+            KeyEntry.Password = _host.Settings.SecurityKey ?? "";
             StatusLabel.Text = $"已同步安全密钥 ← {from}";
         });
         _onPeersUpdated = _ => RunOnUi(RefreshDiscovery);
@@ -946,11 +948,11 @@ public partial class MainPage : ContentPage
             Grid.SetColumn(SysCard, 0);
             Grid.SetColumnSpan(SysCard, 1);
 
-            // 快捷键输入改为单列：标签 + 输入
+            // 快捷键输入改为单列：标签 Auto + 输入填满
             HotKeysGrid.ColumnDefinitions = new ColumnDefinitionCollection
             {
-                new(GridLength.Star),
-                new(68)
+                new(GridLength.Auto),
+                new(GridLength.Star)
             };
             Grid.SetRow(HotSettingsLabel, 0);
             Grid.SetColumn(HotSettingsLabel, 0);
@@ -1015,10 +1017,10 @@ public partial class MainPage : ContentPage
             HotKeysGrid.ColumnDefinitions = new ColumnDefinitionCollection
             {
                 new(GridLength.Auto),
-                new(68),
+                new(GridLength.Star),
                 new(new GridLength(12)),
                 new(GridLength.Auto),
-                new(68)
+                new(GridLength.Star)
             };
             Grid.SetRow(HotSettingsLabel, 0);
             Grid.SetColumn(HotSettingsLabel, 0);
@@ -1179,9 +1181,10 @@ public partial class MainPage : ContentPage
     {
         var s = _host.Settings;
         s.EnsureLocalMachineSlot();
-        KeyEntry.Text = s.SecurityKey;
-        KeyEntry.IsPassword = true;
-        ShowKeyCheck.IsChecked = false;
+        KeyEntry.Password = s.SecurityKey ?? "";
+        KeyEntry.IsRevealed = false;
+        KeyEntry.InnerEntry.StyleClass = new List<string> { "Mono" };
+        KeyEntry.InnerEntry.FontSize = 14;
         _twoRow = s.TwoRow;
         ApplyLayoutModeButtons();
 
@@ -1208,8 +1211,7 @@ public partial class MainPage : ContentPage
         HotF.IsChecked = s.SwitchHotkeyMode == 0;
         HotNum.IsChecked = s.SwitchHotkeyMode == 1;
         HotOff.IsChecked = s.SwitchHotkeyMode == 2;
-        ThemeDark.IsChecked = string.Equals(s.UiTheme, "Dark", StringComparison.OrdinalIgnoreCase);
-        ThemeLight.IsChecked = !ThemeDark.IsChecked;
+        BindThemePicker(s.UiTheme);
 
         LanguagePicker.ItemsSource = Loc.Languages.ToList();
         LanguagePicker.SelectedItem = Loc.Languages.FirstOrDefault(l =>
@@ -1249,7 +1251,8 @@ public partial class MainPage : ContentPage
         TrayBtn.Text = _host.Platform.SupportsTray ? Loc.T("Btn.HideTray") : "后台运行";
 
         SecurityTitleText.Text = Loc.T("Sec.Title");
-        ShowKeyLabel.Text = Loc.T("Sec.Show");
+        KeyEntry.ShowPasswordTip = Loc.T("Sec.ShowPassword");
+        KeyEntry.HidePasswordTip = Loc.T("Sec.HidePassword");
         NewKeyBtn.Text = Loc.T("Sec.NewKey");
         if (SyncKeyBtn != null) SyncKeyBtn.Text = Loc.T("Sec.SyncKey");
         SecurityHintText.Text = Loc.T("Sec.Hint");
@@ -1301,8 +1304,11 @@ public partial class MainPage : ContentPage
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
-        MauiRadioTheme.SetContent(ThemeLight, Loc.T("Sys.StyleLight"));
-        MauiRadioTheme.SetContent(ThemeDark, Loc.T("Sys.StyleDark"));
+        if (SysWallpaperLabel != null) SysWallpaperLabel.Text = Loc.T("Sys.Wallpaper");
+        if (WallpaperPickBtn != null) WallpaperPickBtn.Text = Loc.T("Sys.WallpaperPick");
+        if (WallpaperClearBtn != null) WallpaperClearBtn.Text = Loc.T("Sys.WallpaperClear");
+        RefreshThemePickerLabels();
+        RefreshWallpaperUi();
 
         NicTitleText.Text = Loc.T("Net.NicTitle");
         if (NicHintText != null) NicHintText.Text = Loc.T("Net.NicHint");
@@ -3799,8 +3805,9 @@ public partial class MainPage : ContentPage
             {
                 if (row.IsInstalling) return;
                 var r = await ToolService.Instance.InstallAsync(row.Id);
-                StatusLabel.Text = r.Message;
-                if (!r.Success)
+                if (r.Success)
+                    StatusLabel.Text = r.Message;
+                else
                     await DisplayAlertAsync(Loc.T("Tool.Install"), r.Message, "OK");
                 RefreshToolsPage();
                 return;
@@ -3809,7 +3816,10 @@ public partial class MainPage : ContentPage
             if (!primary && row.IsInstalled)
             {
                 var r = await ToolService.Instance.UninstallAsync(row.Id);
-                StatusLabel.Text = r.Message;
+                if (r.Success)
+                    StatusLabel.Text = r.Message;
+                else
+                    await DisplayAlertAsync(Loc.T("Tool.Install"), r.Message, "OK");
                 RefreshToolsPage();
                 return;
             }
@@ -4221,7 +4231,8 @@ public partial class MainPage : ContentPage
                 ReplaceLogItems(delta.Items);
             else
                 ReplaceLogItems(page.Items);
-            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1].Entry : null;
+            // 始终记下尾部水印；DeltaSince 用 SameEntry 兜底，避免每条日志 Reset 整表
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1].Entry : null;
             _logStickToBottom = true;
             ScrollLogToEnd();
         }
@@ -4627,19 +4638,16 @@ public partial class MainPage : ContentPage
         RebuildMatrix();
     }
 
-    private void ShowKey_Changed(object? sender, CheckedChangedEventArgs e)
-        => KeyEntry.IsPassword = !e.Value;
-
     private void NewKey_Clicked(object? sender, EventArgs e)
     {
-        KeyEntry.Text = AppSettings.GenerateKey();
-        KeyEntry.IsPassword = ShowKeyCheck.IsChecked != true;
+        KeyEntry.Password = AppSettings.GenerateKey();
+        KeyEntry.IsRevealed = true;
     }
 
     private async void SyncKey_Clicked(object? sender, EventArgs e)
     {
         var prevKey = _host.Settings.SecurityKey ?? "";
-        _host.Settings.SecurityKey = (KeyEntry.Text ?? "").Trim();
+        _host.Settings.SecurityKey = (KeyEntry.Password ?? "").Trim();
         _host.Settings.Save();
         var (ok, msg) = await _host.SyncSecurityKeyAsync();
         if (ok)
@@ -4677,7 +4685,9 @@ public partial class MainPage : ContentPage
         _host.Settings.ConnectionEndpoints = _endpoints.ToList();
 
         var switchMode = HotF.IsChecked == true ? 0 : HotNum.IsChecked == true ? 1 : 2;
-        var theme = ThemeDark.IsChecked == true ? MauiThemeService.Dark : MauiThemeService.Light;
+        var theme = ThemePicker.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : MauiThemeService.Light;
         var lang = ReadSelectedLanguage();
 
         var prevSlots = _host.Settings.MachineSlots.ToList();
@@ -4691,7 +4701,7 @@ public partial class MainPage : ContentPage
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
         _host.ApplyFromUi(
-            KeyEntry.Text ?? "",
+            KeyEntry.Password ?? "",
             newSlots,
             _twoRow,
             tcp,
@@ -4718,9 +4728,10 @@ public partial class MainPage : ContentPage
             ReadEdgeCrossModeUi());
 
         Loc.SetCulture(lang);
-        MauiThemeService.Apply(theme, this);
+        MauiThemeService.Apply(theme, this, _host.Settings.UiWallpaperPath);
         LoadUi();
         ApplyLocalizedUi();
+        RefreshWallpaperUi();
         if (PageTools.IsVisible)
             RefreshToolsPage();
         // 本地化会改 Radio 文案；再强制字色（含延迟，避免 WinUI 仍用旧主题前景）
@@ -6254,6 +6265,126 @@ public partial class MainPage : ContentPage
         };
     }
 #endif
+
+    private void BindThemePicker(string? selectedId)
+    {
+        var items = ThemePalette.All
+            .Select(t => new ThemeListItem(t.Id, Loc.T(t.DisplayLocKey)))
+            .ToList();
+        ThemePicker.ItemsSource = items;
+        ThemePicker.SelectedItem = items.FirstOrDefault(i =>
+                                       string.Equals(i.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                                   ?? items.FirstOrDefault();
+    }
+
+    private void RefreshThemePickerLabels()
+    {
+        var id = ThemePicker.SelectedItem is ThemeListItem cur ? cur.Id : MauiThemeService.Current;
+        BindThemePicker(id);
+    }
+
+    private void ThemePicker_SelectedIndexChanged(object? sender, EventArgs e)
+        => RefreshWallpaperUi();
+
+    private void RefreshWallpaperUi()
+    {
+        if (WallpaperPanel == null || WallpaperPathText == null) return;
+        var themeId = ThemePicker.SelectedItem is ThemeListItem ti ? ti.Id : MauiThemeService.Current;
+        WallpaperPanel.IsVisible = ThemePalette.SupportsWallpaper(themeId);
+        var name = UiWallpaperStore.DisplayName(_host.Settings.UiWallpaperPath);
+        WallpaperPathText.Text = string.IsNullOrEmpty(name) ? Loc.T("Sys.WallpaperNone") : name;
+        // 面板显隐后重测高级页高度，避免 Win 禁用滚动时底部按钮落在裁切区外
+        Dispatcher.Dispatch(() =>
+        {
+            OptionsContentRoot?.InvalidateMeasure();
+            EnsureOptionsScrollPolicy();
+        });
+    }
+
+    public void ApplyWallpaper(string? absolutePath)
+    {
+        if (WallpaperImage == null || WallpaperScrim == null) return;
+        if (!string.IsNullOrWhiteSpace(absolutePath) && File.Exists(absolutePath))
+        {
+            try
+            {
+                WallpaperImage.Source = ImageSource.FromFile(absolutePath);
+                WallpaperImage.IsVisible = true;
+                WallpaperImage.InputTransparent = true;
+                WallpaperScrim.IsVisible = true;
+                WallpaperScrim.InputTransparent = true;
+                return;
+            }
+            catch { /* fall through */ }
+        }
+
+        WallpaperImage.Source = null;
+        WallpaperImage.IsVisible = false;
+        WallpaperScrim.IsVisible = false;
+    }
+
+    private async void WallpaperPick_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            string? path;
+#if WINDOWS
+            // 与工具导入一致：unpackaged / 管理员下 MAUI FilePicker 常 COMException
+            path = await MainThread.InvokeOnMainThreadAsync(() =>
+                Platforms.Windows.Win32PathPicker.PickSingleFile(
+                    title: Loc.T("Sys.Wallpaper"),
+                    filter: "图片 (*.jpg;*.jpeg;*.png;*.bmp;*.webp)\0*.jpg;*.jpeg;*.png;*.bmp;*.webp\0所有文件 (*.*)\0*.*\0\0"));
+#else
+            var result = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = Loc.T("Sys.Wallpaper"),
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    [DevicePlatform.Android] = ["image/*"],
+                    [DevicePlatform.iOS] = ["public.image"],
+                    [DevicePlatform.MacCatalyst] = ["public.image"]
+                })
+            });
+            path = result?.FullPath;
+#endif
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return;
+            var rel = UiWallpaperStore.Import(path, out var err);
+            if (rel == null)
+            {
+                StatusLabel.Text = string.Format(Loc.T("Sys.WallpaperImportFail"), err ?? "");
+                return;
+            }
+
+            _host.Settings.UiWallpaperPath = rel;
+            _host.Settings.Save();
+            RefreshWallpaperUi();
+            // 下拉已选自定义但未点「应用」时，Current 可能仍是淡色；以选择器为准立即预览
+            var themeId = ThemePicker.SelectedItem is ThemeListItem ti
+                ? ti.Id
+                : MauiThemeService.Current;
+            if (ThemePalette.SupportsWallpaper(themeId))
+                MauiThemeService.Apply(themeId, this, _host.Settings.UiWallpaperPath);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = string.Format(Loc.T("Sys.WallpaperImportFail"), ex.Message);
+        }
+    }
+
+    private void WallpaperClear_Clicked(object? sender, EventArgs e)
+    {
+        _host.Settings.UiWallpaperPath = "";
+        UiWallpaperStore.ClearFiles();
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemePicker.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : MauiThemeService.Current;
+        MauiThemeService.Apply(themeId, this, null);
+    }
+
+    private sealed record ThemeListItem(string Id, string Display);
 
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
     {

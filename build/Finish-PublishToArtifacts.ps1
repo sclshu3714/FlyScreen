@@ -21,7 +21,10 @@ param(
 
     [string]$RepoRoot = '',
     [string]$OutDir = '',
-    [string]$Version = ''
+    [string]$Version = '',
+
+    # 默认：若 SourceDir 位于 artifacts 且不是 release/flytools，命名完成后删除该暂存目录
+    [switch]$KeepSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -105,4 +108,30 @@ else {
     if ($OutDir) { $nameArgs.OutDir = $OutDir }
     if ($Version) { $nameArgs.Version = $Version }
     & (Join-Path $PSScriptRoot 'Name-FlyScreenPackage.ps1') @nameArgs
+}
+
+# 命令行直出到 artifacts/{rid} 的场景：命名进 release 后删掉暂存，避免中间目录堆积。
+# Setup 任务工作区（setup-work/{jobId}）由 PublishService 统一清理，这里不碰。
+if (-not $KeepSource) {
+    $artifactsRoot = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'artifacts'))
+    $sourceFull = [IO.Path]::GetFullPath($SourceDir)
+    $releaseRoot = [IO.Path]::GetFullPath((Join-Path $artifactsRoot 'release'))
+    $flytoolsRoot = [IO.Path]::GetFullPath((Join-Path $artifactsRoot 'flytools'))
+    $setupWorkRoot = [IO.Path]::GetFullPath((Join-Path $artifactsRoot 'setup-work'))
+
+    $underArtifacts = $sourceFull.StartsWith($artifactsRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) `
+        -or $sourceFull.Equals($artifactsRoot, [StringComparison]::OrdinalIgnoreCase)
+    $isProtected = $sourceFull.StartsWith($releaseRoot, [StringComparison]::OrdinalIgnoreCase) `
+        -or $sourceFull.StartsWith($flytoolsRoot, [StringComparison]::OrdinalIgnoreCase) `
+        -or $sourceFull.StartsWith($setupWorkRoot, [StringComparison]::OrdinalIgnoreCase)
+
+    if ($underArtifacts -and -not $isProtected -and (Test-Path -LiteralPath $sourceFull)) {
+        try {
+            Remove-Item -LiteralPath $sourceFull -Recurse -Force -ErrorAction Stop
+            Write-Host "已清理发布暂存: $sourceFull"
+        }
+        catch {
+            Write-Host "清理发布暂存失败（可稍后运行 build/Clean-Artifacts.ps1）: $sourceFull — $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
 }

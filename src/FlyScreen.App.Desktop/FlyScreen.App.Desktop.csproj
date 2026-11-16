@@ -22,9 +22,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Controls\FlyScreen.Ui.Avalonia\FlyScreen.Ui.Avalonia.csproj" />
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\Theme\FlyScreen.Ui.Theme.Avalonia\FlyScreen.Ui.Theme.Avalonia.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,6 +38,8 @@
       <Link>Assets\wlogo_tu.ico</Link>
     </AvaloniaResource>
     <AvaloniaResource Include="Themes\**" />
+    <AvaloniaResource Include="..\Theme\FlyScreen.Ui.Theme.Avalonia\Styles\ActionStyles.axaml" Link="Themes\ActionStyles.axaml" />
+    <AvaloniaResource Include="..\Theme\FlyScreen.Ui.Theme.Avalonia\Styles\ScrollBar.axaml" Link="Themes\ScrollBar.axaml" />
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />

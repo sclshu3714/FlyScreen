@@ -15,6 +15,12 @@ public interface IMediaBackend
     /// <summary>协议探测（不建播放会话）。</summary>
     Task<MediaProbeResult> ProbeAsync(VideoEndpoint endpoint, CancellationToken ct = default);
 
+    /// <summary>
+    /// 抓取单帧封面 JPEG（不建常驻播放会话；理想输出 320×180 q80）。
+    /// 后端不可用时返回 <see cref="CoverCaptureResult.Ok"/> = false。
+    /// </summary>
+    Task<CoverCaptureResult> CaptureCoverAsync(VideoEndpoint endpoint, CancellationToken ct = default);
+
     /// <summary>创建单路播放器（一个 MediaPlayer 对应一格）。</summary>
     IMediaPlayer CreatePlayer(VideoEndpoint endpoint, MediaPlayerOptions options);
 }
@@ -37,6 +43,15 @@ public interface IMediaPlayer
 
     VideoErrorCode ErrorCode { get; }
 
+    /// <summary>当前进度（毫秒）；未知为 0。</summary>
+    long TimeMs { get; }
+
+    /// <summary>总时长（毫秒）；直播/未知为 0。</summary>
+    long LengthMs { get; }
+
+    /// <summary>是否可 seek（本地文件/VOD 通常为 true）。</summary>
+    bool CanSeek { get; }
+
     event Action<TilePlayState>? StateChanged;
 
     event Action<MediaStats>? StatsChanged;
@@ -44,13 +59,37 @@ public interface IMediaPlayer
     /// <summary>更新渲染区域（布局切换/全屏时调用，不重建连接）。</summary>
     void SetRenderTarget(IntPtr target);
 
+    /// <summary>
+    /// 绑定软件帧接收面（与 HWND 互斥）。须在 <see cref="StartAsync"/> 之前调用；
+    /// 传 null 表示不使用回调出画（墙格等继续走 HWND）。
+    /// </summary>
+    void AttachFrameSink(IVideoFrameSink? sink);
+
     Task StartAsync(CancellationToken ct = default);
 
+    /// <summary>暂停（可 <see cref="Resume"/>）。</summary>
+    void Pause();
+
+    /// <summary>从暂停继续。</summary>
+    void Resume();
+
     Task StopAsync();
+
+    /// <summary>跳转到指定毫秒；超出范围会被夹紧。</summary>
+    void SeekTo(long timeMs);
+
+    /// <summary>相对跳转（快进/快退），单位毫秒。</summary>
+    void SeekBy(long deltaMs);
 
     void SetVolume(int volume0To100);
 
     void SetMuted(bool muted);
+
+    /// <summary>播放速率（1.0 = 正常）。不支持时忽略。</summary>
+    void SetRate(float rate);
+
+    /// <summary>播放结束后是否循环（从头重播）。</summary>
+    void SetLoop(bool loop);
 }
 
 /// <summary>

@@ -33,9 +33,9 @@ internal sealed class PortProxyRuleCardPage : ContentPage
     private readonly Entry _listenPort;
     private readonly Entry _connectAddress;
     private readonly Entry _connectPort;
-    private readonly PortProxyDropDown _protocolDrop;
+    private readonly Entry _protocolEntry;
+    private readonly bool _isEdit;
     private string _kindToken;
-    private string _protocol;
     private bool _done;
 
     static PortProxyRuleCardPage()
@@ -61,8 +61,9 @@ internal sealed class PortProxyRuleCardPage : ContentPage
     public PortProxyRuleCardPage(bool isEdit, PortProxyRuleInfo seed, TaskCompletionSource<PortProxyRuleInfo?> tcs)
     {
         _tcs = tcs;
+        _isEdit = isEdit;
         _kindToken = seed.KindToken;
-        _protocol = string.IsNullOrWhiteSpace(seed.Protocol) ? "tcp" : seed.Protocol.Trim();
+        var protocol = string.IsNullOrWhiteSpace(seed.Protocol) ? "tcp" : seed.Protocol.Trim();
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = Color.FromRgba(15, 23, 42, 140);
 
@@ -95,10 +96,7 @@ internal sealed class PortProxyRuleCardPage : ContentPage
         _connectPort = MakeEntry(seed.ConnectPort, text, false);
         _connectPort.Keyboard = Keyboard.Numeric;
 
-        _protocolDrop = new PortProxyDropDown(text, muted, line, fieldBg) { Value = _protocol };
-        _protocolDrop.SetOptions("tcp");
-        _protocolDrop.BindFlyout(flyout);
-        _protocolDrop.SelectionChanged += v => _protocol = v;
+        _protocolEntry = MakeEntry(protocol, text, readOnly: false);
 
         var cancel = new Button
         {
@@ -153,7 +151,7 @@ internal sealed class PortProxyRuleCardPage : ContentPage
                 FieldBlock(Loc.T("Tool.PortProxy.ListenPort"), muted, _listenPort),
                 FieldBlock(Loc.T("Tool.PortProxy.ConnectAddress"), muted, _connectAddress),
                 FieldBlock(Loc.T("Tool.PortProxy.ConnectPort"), muted, _connectPort),
-                FieldBlock(Loc.T("Tool.PortProxy.Protocol"), muted, _protocolDrop),
+                FieldBlock(Loc.T("Tool.PortProxy.Protocol"), muted, _protocolEntry),
                 btnRow
             }
         };
@@ -184,7 +182,6 @@ internal sealed class PortProxyRuleCardPage : ContentPage
         dimTap.Tapped += async (_, _) =>
         {
             _kindDrop.Close();
-            _protocolDrop.Close();
             await Close(null);
         };
         pageBody.GestureRecognizers.Add(dimTap);
@@ -237,7 +234,7 @@ internal sealed class PortProxyRuleCardPage : ContentPage
             || p is < 1 or > 65535)
         {
             await DisplayAlertAsync(
-                Loc.T("Tool.PortProxy.DialogAdd"),
+                DialogTitle(),
                 Loc.T("Tool.PortProxy.ValidationPort"),
                 Loc.T("Tool.PortProxy.Ok"));
             return;
@@ -247,7 +244,7 @@ internal sealed class PortProxyRuleCardPage : ContentPage
         if (string.IsNullOrWhiteSpace(connectAddress))
         {
             await DisplayAlertAsync(
-                Loc.T("Tool.PortProxy.DialogAdd"),
+                DialogTitle(),
                 Loc.T("Tool.PortProxy.ValidationConnect"),
                 Loc.T("Tool.PortProxy.Ok"));
             return;
@@ -264,6 +261,10 @@ internal sealed class PortProxyRuleCardPage : ContentPage
         if (string.IsNullOrWhiteSpace(connectPort))
             connectPort = listenPort;
 
+        var protocol = _protocolEntry.Text?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(protocol))
+            protocol = "tcp";
+
         await Close(new PortProxyRuleInfo
         {
             Kind = kind,
@@ -271,9 +272,12 @@ internal sealed class PortProxyRuleCardPage : ContentPage
             ListenPort = listenPort,
             ConnectAddress = connectAddress,
             ConnectPort = connectPort,
-            Protocol = string.IsNullOrWhiteSpace(_protocol) ? "tcp" : _protocol
+            Protocol = protocol
         });
     }
+
+    private string DialogTitle()
+        => Loc.T(_isEdit ? "Tool.PortProxy.DialogEdit" : "Tool.PortProxy.DialogAdd");
 
     private async Task Close(PortProxyRuleInfo? result)
     {

@@ -1,0 +1,89 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:FlyScreen.Tool.VideoWall.Ui.Desktop"
+             x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.VideoWallPanel"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+  <Grid Margin="4" RowDefinitions="Auto,*,Auto">
+    <!-- 与 Win 对齐：添加 | 删除 | 源/墙分段 | 布局 | 搜索 -->
+    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+      <Button x:Name="AddBtn" Click="AddBtn_Click"/>
+      <Button x:Name="ScanBtn" Click="ScanBtn_Click"/>
+      <Button x:Name="DeleteBtn" Click="DeleteBtn_Click"/>
+      <Border BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+        <StackPanel Orientation="Horizontal" Spacing="0">
+          <Button x:Name="ViewCardBtn" Click="ViewCardBtn_Click" Padding="10,6" BorderThickness="0"/>
+          <Button x:Name="ViewListBtn" Click="ViewListBtn_Click" Padding="10,6" BorderThickness="0"/>
+          <Button x:Name="ViewCanvasBtn" Click="ViewCanvasBtn_Click" Padding="10,6" BorderThickness="0"/>
+        </StackPanel>
+      </Border>
+      <StackPanel x:Name="LayoutButtons" Orientation="Horizontal" Spacing="4" IsVisible="False">
+        <Button x:Name="Layout1Btn" Tag="1" Click="LayoutBtn_Click" Content="1×1"/>
+        <Button x:Name="Layout2Btn" Tag="2" Click="LayoutBtn_Click" Content="2×2"/>
+        <Button x:Name="Layout3Btn" Tag="3" Click="LayoutBtn_Click" Content="3×3"/>
+        <Button x:Name="Layout4Btn" Tag="4" Click="LayoutBtn_Click" Content="4×4"/>
+        <CheckBox x:Name="CarouselToggle" IsCheckedChanged="CarouselToggle_Changed" Margin="8,0,0,0"/>
+        <TextBlock x:Name="CarouselPageText" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
+      </StackPanel>
+      <TextBox x:Name="SearchBox" Width="180" Watermark=""/>
+    </StackPanel>
+
+    <Grid Grid.Row="1">
+      <DockPanel x:Name="SourcesPane">
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,4" ColumnDefinitions="36,*,100,2*,80,200">
+          <CheckBox x:Name="HdrSelectAll" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    IsCheckedChanged="HdrSelectAll_IsCheckedChanged"/>
+          <TextBlock x:Name="HdrName" Grid.Column="1" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrKind" Grid.Column="2" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrAddress" Grid.Column="3" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrStatus" Grid.Column="4" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+          <TextBlock x:Name="HdrActions" Grid.Column="5" FontWeight="SemiBold" Opacity="0.7" VerticalAlignment="Center"/>
+        </Grid>
+        <ListBox x:Name="SourcesList" SelectionMode="Multiple" DoubleTapped="SourcesList_DoubleTapped"
+                 SelectionChanged="SourcesList_SelectionChanged">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:CompileBindings="False">
+              <Grid ColumnDefinitions="36,*,100,2*,80,200" Margin="0,2">
+                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                          IsCheckedChanged="RowCheck_IsCheckedChanged"/>
+                <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="2" Text="{Binding KindText}" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Grid.Column="3" Text="{Binding AddressRedacted}" VerticalAlignment="Center"
+                           Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="4" Text="{Binding StatusText}" VerticalAlignment="Center" Opacity="0.7"/>
+                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
+                  <Button Content="{Binding PlayLabel}" Tag="{Binding Id}" Click="RowPlay_Click" Padding="8,2"/>
+                  <Button Content="{Binding EditLabel}" Tag="{Binding Id}" Click="RowEdit_Click" Padding="8,2"/>
+                  <Button Content="{Binding DeleteLabel}" Tag="{Binding Id}" Click="RowDelete_Click" Padding="8,2"/>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+      <Grid x:Name="WallHost" IsVisible="False" Background="Transparent"
+            PointerEntered="WallHost_PointerEntered" PointerExited="WallHost_PointerExited">
+        <UniformGrid x:Name="WallGrid" Rows="3" Columns="3"/>
+        <Button x:Name="CarouselPrevBtn" Classes="icon-action" Width="36" Height="36"
+                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0"
+                IsVisible="False" Click="CarouselPrevBtn_Click" ZIndex="2">
+          <Viewbox Width="16" Height="16">
+            <Path Fill="White" Data="{StaticResource GeoChevronLeft}"/>
+          </Viewbox>
+        </Button>
+        <Button x:Name="CarouselNextBtn" Classes="icon-action" Width="36" Height="36"
+                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"
+                IsVisible="False" Click="CarouselNextBtn_Click" ZIndex="2">
+          <Viewbox Width="16" Height="16">
+            <Path Fill="White" Data="{StaticResource GeoChevronRight}"/>
+          </Viewbox>
+        </Button>
+        <StackPanel x:Name="CarouselDots" Orientation="Horizontal" HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom" Margin="0,0,0,14" Spacing="6" ZIndex="2"
+                    IsVisible="False"/>
+      </Grid>
+      <local:VideoWallPlayerControl x:Name="Player" IsVisible="False"/>
+    </Grid>
+
+    <TextBlock x:Name="StatusBar" Grid.Row="2" FontSize="11" Opacity="0.7" Margin="0,6,0,0"/>
+  </Grid>
+</UserControl>

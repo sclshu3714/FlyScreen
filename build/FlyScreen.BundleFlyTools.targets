@@ -1,34 +1,61 @@
 <!--
-  将 artifacts/flytools/*.flytool 复制到宿主输出 Tools/Bundled，不 ProjectReference 工具工程。
-  若产物缺失则先跑 Pack-FlyTools.ps1（组包逻辑/UI DLL）。
-  设 FlyScreenSkipFlyTools=true 可跳过。
+  将 artifacts/flytools/*.flytool 复制到宿主输出目录 $(TargetDir)/Tools/Bundled。
+  禁止写入 src/**/Tools/Bundled（源码树）、禁止 AppData。
+  每次构建增量跑 Pack-FlyTools.ps1（dll/manifest 新于 .flytool 才重打）。
+  设 FlyScreenSkipFlyTools=true 可跳过；FlyScreenForceFlyTools=true 强制全量重打。
+
+  路径规则（永久）：
+  - 仅用 MSBuild::NormalizePath 得到绝对路径，落在 bin/obj（或 artifacts）。
+  - 传给 powershell -Path 的参数不得以 \ 结尾（\" 会吃掉收尾引号）。
 -->
 <Project>
   <PropertyGroup>
     <_FsFlyToolsScript>$(MSBuildThisFileDirectory)Pack-FlyTools.ps1</_FsFlyToolsScript>
-    <_FsFlyToolsOut Condition="'$(_FsFlyToolsOut)' == ''">$(MSBuildThisFileDirectory)..\artifacts\flytools</_FsFlyToolsOut>
-    <_FsFlyToolsBundledDir>$(TargetDir)Tools\Bundled\</_FsFlyToolsBundledDir>
+    <_FsGuardScript>$(MSBuildThisFileDirectory)Guard-FlyToolsDest.ps1</_FsGuardScript>
+    <_FsFlyToolsOut Condition="'$(_FsFlyToolsOut)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\artifacts\flytools'))</_FsFlyToolsOut>
   </PropertyGroup>
 
-  <Target Name="FlyScreen_EnsureFlyToolsPacked"
+  <Target Name="FlyScreen_ResolveFlyToolsBundledDir">
+    <PropertyGroup>
+      <_FsFlyToolsBundledDir></_FsFlyToolsBundledDir>
+      <!-- Prefer TargetDir (absolute output). Never emit relative Tools\Bundled. -->
+      <_FsFlyToolsBundledDir Condition="'$(TargetDir)' != ''">$([MSBuild]::NormalizePath('$(TargetDir)', 'Tools', 'Bundled'))</_FsFlyToolsBundledDir>
+      <_FsFlyToolsBundledDir Condition="'$(_FsFlyToolsBundledDir)' == '' And '$(OutputPath)' != ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(OutputPath)', 'Tools', 'Bundled'))</_FsFlyToolsBundledDir>
+      <!-- powershell -Path/-Root 不得以 \ 结尾，否则 \" 会吞掉收尾引号 -->
+      <_FsFlyToolsBundledDirArg>$([MSBuild]::NormalizePath('$(_FsFlyToolsBundledDir)', '.'))</_FsFlyToolsBundledDirArg>
+      <_FsStripRootArg Condition="'$(TargetDir)' != ''">$([MSBuild]::NormalizePath('$(TargetDir)', '.'))</_FsStripRootArg>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="FlyScreen_GuardFlyToolsDest"
+          DependsOnTargets="FlyScreen_ResolveFlyToolsBundledDir"
           BeforeTargets="FlyScreen_CopyBundledFlyTools"
           Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
+    <Error Text="FlyScreen: 无法解析 .flytool 输出目录（TargetDir/OutputPath 皆空）。"
+           Condition="'$(_FsFlyToolsBundledDirArg)' == ''" />
+    <Error Text="FlyScreen: .flytool 目标不是绝对路径：$(_FsFlyToolsBundledDirArg)"
+           Condition="'$(_FsFlyToolsBundledDirArg)' != '' And !$([System.IO.Path]::IsPathRooted('$(_FsFlyToolsBundledDirArg)'))" />
+    <Error Text="FlyScreen: 禁止写入源码树 Tools（非 bin/obj）：$(_FsFlyToolsBundledDirArg)"
+           Condition="'$(_FsFlyToolsBundledDirArg)' != '' And $([System.String]::Copy('$(_FsFlyToolsBundledDirArg)').ToLowerInvariant().Contains('\src\')) And !$([System.String]::Copy('$(_FsFlyToolsBundledDirArg)').ToLowerInvariant().Contains('\bin\')) And !$([System.String]::Copy('$(_FsFlyToolsBundledDirArg)').ToLowerInvariant().Contains('\obj\'))" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsGuardScript)&quot; -Path &quot;$(_FsFlyToolsBundledDirArg)&quot;"
+          Condition="Exists('$(_FsGuardScript)') And '$(_FsFlyToolsBundledDirArg)' != ''"
+          IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="FlyScreen_EnsureFlyToolsPacked"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
     <PropertyGroup>
-      <_FsFlyToolsNeedPack>false</_FsFlyToolsNeedPack>
-      <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\color-picker.flytool')">true</_FsFlyToolsNeedPack>
-      <_FsFlyToolsNeedPack Condition="!Exists('$(_FsFlyToolsOut)\shared-devices.flytool')">true</_FsFlyToolsNeedPack>
+      <_FsForcePackSwitch Condition="'$(FlyScreenForceFlyTools)' == 'true'"> -Force</_FsForcePackSwitch>
     </PropertyGroup>
-    <Message Importance="High"
-             Text="打包 .flytool → $(_FsFlyToolsOut)"
-             Condition="'$(_FsFlyToolsNeedPack)' == 'true'" />
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsFlyToolsScript)&quot; -Configuration &quot;$(Configuration)&quot; -OutRoot &quot;$(_FsFlyToolsOut)&quot; -SkipAppCopy"
-          Condition="'$(_FsFlyToolsNeedPack)' == 'true'"
+    <Message Importance="High" Text="增量打包 .flytool → $(_FsFlyToolsOut)（dll/manifest 新于包才重打）" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsFlyToolsScript)&quot; -Configuration &quot;$(Configuration)&quot; -OutRoot &quot;$(_FsFlyToolsOut)&quot; -SkipAppCopy$(_FsForcePackSwitch)"
           IgnoreStandardErrorWarningFormat="true" />
   </Target>
 
   <!--
-    桌面宿主：用 Content+CopyToOutputDirectory 参与增量判定。
-    仅 AfterTargets=Build 时，项目 up-to-date 会跳过复制，导致 Tools/Bundled 空、卡片显示 Loc Key。
+    桌面宿主：Content 参与增量复制到 $(TargetDir)。
+    Link 使用 _flytools\ 前缀，避免 VS 在项目目录物化 Tools\Bundled 文件夹。
+    TargetPath 仍是 Tools\Bundled\...（运行时路径不变）。
   -->
   <Target Name="FlyScreen_IncludeDesktopFlyToolContent"
           DependsOnTargets="FlyScreen_EnsureFlyToolsPacked"
@@ -38,12 +65,12 @@
       <_FsDesktopFlyTool Include="$(_FsFlyToolsOut)\*.flytool" />
       <_FsDesktopFlyIndex Include="$(_FsFlyToolsOut)\tools-index.json" Condition="Exists('$(_FsFlyToolsOut)\tools-index.json')" />
       <Content Include="@(_FsDesktopFlyTool)">
-        <Link>Tools\Bundled\%(Filename)%(Extension)</Link>
+        <Link>_flytools\Bundled\%(Filename)%(Extension)</Link>
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         <TargetPath>Tools\Bundled\%(Filename)%(Extension)</TargetPath>
       </Content>
       <Content Include="@(_FsDesktopFlyIndex)">
-        <Link>Tools\Bundled\%(Filename)%(Extension)</Link>
+        <Link>_flytools\Bundled\%(Filename)%(Extension)</Link>
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         <TargetPath>Tools\Bundled\%(Filename)%(Extension)</TargetPath>
       </Content>
@@ -52,28 +79,29 @@
 
   <Target Name="FlyScreen_CopyBundledFlyTools"
           AfterTargets="Build;Publish"
+          DependsOnTargets="FlyScreen_ResolveFlyToolsBundledDir;FlyScreen_GuardFlyToolsDest"
           Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
     <ItemGroup>
       <_FsFlyToolPack Include="$(_FsFlyToolsOut)\*.flytool" />
       <_FsFlyToolIndex Include="$(_FsFlyToolsOut)\tools-index.json" Condition="Exists('$(_FsFlyToolsOut)\tools-index.json')" />
     </ItemGroup>
-    <MakeDir Directories="$(_FsFlyToolsBundledDir)" Condition="'@(_FsFlyToolPack)' != ''" />
+    <MakeDir Directories="$(_FsFlyToolsBundledDirArg)" Condition="'@(_FsFlyToolPack)' != '' And '$(_FsFlyToolsBundledDirArg)' != ''" />
     <Copy SourceFiles="@(_FsFlyToolPack)"
-          DestinationFolder="$(_FsFlyToolsBundledDir)"
+          DestinationFolder="$(_FsFlyToolsBundledDirArg)"
           SkipUnchangedFiles="false"
           OverwriteReadOnlyFiles="true"
-          Condition="'@(_FsFlyToolPack)' != ''" />
+          Condition="'@(_FsFlyToolPack)' != '' And '$(_FsFlyToolsBundledDirArg)' != ''" />
     <Copy SourceFiles="@(_FsFlyToolIndex)"
-          DestinationFolder="$(_FsFlyToolsBundledDir)"
+          DestinationFolder="$(_FsFlyToolsBundledDirArg)"
           SkipUnchangedFiles="false"
           OverwriteReadOnlyFiles="true"
-          Condition="'@(_FsFlyToolIndex)' != ''" />
+          Condition="'@(_FsFlyToolIndex)' != '' And '$(_FsFlyToolsBundledDirArg)' != ''" />
     <Message Importance="High"
-             Text="已复制 Bundled flytool → $(_FsFlyToolsBundledDir) (@(_FsFlyToolPack->Count()) 个)"
-             Condition="'@(_FsFlyToolPack)' != ''" />
+             Text="已复制 Bundled flytool → $(_FsFlyToolsBundledDirArg) (@(_FsFlyToolPack->Count()) 个)"
+             Condition="'@(_FsFlyToolPack)' != '' And '$(_FsFlyToolsBundledDirArg)' != ''" />
   </Target>
 
-  <!-- Maui：同时打进包内 Raw，便于 Android 私有 files 启动时种子拷贝 -->
+  <!-- Maui：打进包内 Raw（LogicalName），运行时种子到应用私有 files/Tools 或 exe 旁 Tools -->
   <Target Name="FlyScreen_IncludeMauiFlyToolAssets"
           DependsOnTargets="FlyScreen_EnsureFlyToolsPacked"
           BeforeTargets="PrepareForBuild;AssignTargetPaths"
@@ -92,15 +120,16 @@
     </ItemGroup>
   </Target>
 
-  <!-- 构建/发布后去掉输出目录中的 Installed 与安装记录，避免打进桌面旁路或 Android APK -->
+  <!-- 构建/发布后去掉输出目录中的 Installed 与安装记录 -->
   <Target Name="FlyScreen_StripToolsInstallState"
           AfterTargets="FlyScreen_CopyBundledFlyTools"
+          DependsOnTargets="FlyScreen_ResolveFlyToolsBundledDir"
           Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
     <PropertyGroup>
       <_FsStripToolsScript>$(MSBuildThisFileDirectory)Strip-ToolsInstallState.ps1</_FsStripToolsScript>
     </PropertyGroup>
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsStripToolsScript)&quot; -Root &quot;$(TargetDir.TrimEnd('\'))&quot;"
-          Condition="Exists('$(TargetDir)') And Exists('$(_FsStripToolsScript)')"
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsStripToolsScript)&quot; -Root &quot;$(_FsStripRootArg)&quot;"
+          Condition="Exists('$(_FsStripToolsScript)') And '$(_FsStripRootArg)' != ''"
           IgnoreStandardErrorWarningFormat="true"
           ContinueOnError="true" />
   </Target>

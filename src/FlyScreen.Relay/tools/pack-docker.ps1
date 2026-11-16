@@ -42,6 +42,10 @@ param(
   [Parameter(ParameterSetName = "Build")]
   [string]$RuntimeImage = "",
 
+  # 构建后不清理悬空 <none> 镜像（默认会 prune，避免多阶段/重复打包堆积）
+  [Parameter(ParameterSetName = "Build")]
+  [switch]$NoPrune,
+
   [Parameter(ParameterSetName = "Load")]
   [string]$LoadPath = ""
 )
@@ -110,12 +114,16 @@ if ($PSCmdlet.ParameterSetName -eq "Load") {
   exit 0
 }
 
+# BuildKit：中间阶段进缓存，不会像旧 builder 那样留下大量 <none> 镜像
+$env:DOCKER_BUILDKIT = "1"
+
 $resolvedTag = Resolve-Tag $Tag
 $imageRefs = Get-ImageRefs $ImageName $resolvedTag $Registry
 $primary = $imageRefs[0]
 
 Write-Host "==> 工程目录: $RelayRoot"
 Write-Host "==> 镜像标签: $($imageRefs -join ', ')"
+Write-Host "==> DOCKER_BUILDKIT=1"
 
 if (-not (Test-Path -LiteralPath (Join-Path $RelayRoot "Dockerfile"))) {
   throw "未找到 Dockerfile: $RelayRoot"
@@ -144,6 +152,15 @@ $buildArgs += "."
 Write-Host "==> docker $($buildArgs -join ' ')"
 & docker @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "docker build 失败 (exit $LASTEXITCODE)" }
+
+if (-not $NoPrune) {
+  # 去掉本次/历史重建顶掉标签后的悬空镜像；不影响已打标签的 flyscreen-relay:*
+  Write-Host "==> docker image prune -f  （清理悬空 <none> 镜像）"
+  docker image prune -f
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "docker image prune 失败 (exit $LASTEXITCODE)，可稍后手动执行: docker image prune -f"
+  }
+}
 
 $exportPath = $null
 if ($Save) {

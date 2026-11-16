@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Tools;
 using FlyScreen.ToolSdk;
@@ -14,12 +15,14 @@ public partial class PortProxyPanel : UserControl
     private readonly ObservableCollection<PortProxyRuleRow> _rows = new();
     private bool _busy;
     private bool _suppressSelectAll;
+    private bool _suppressFilter;
 
     public Action<string>? StatusReporter { get; set; }
 
     public PortProxyPanel()
     {
         InitializeComponent();
+        InheritHostBrushes(Window.GetWindow(this) ?? (FrameworkElement?)Parent);
         _service = ToolService.Instance.PortProxy
                    ?? ToolService.Instance.GetToolService<IPortProxyService>();
         RulesGrid.ItemsSource = _rows;
@@ -41,10 +44,27 @@ public partial class PortProxyPanel : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        InheritHostBrushes(Window.GetWindow(this) as FrameworkElement ?? this);
         if (_service == null) return;
         _service.RulesChanged += OnRulesChanged;
         _service.SessionChanged += OnSessionChanged;
         _ = RefreshAsync();
+    }
+
+    /// <summary>从宿主窗口拷贝主题色，使工具区与主程序浅/深色一致。</summary>
+    private void InheritHostBrushes(FrameworkElement? host)
+    {
+        if (host is null) return;
+        foreach (var key in new[]
+                 {
+                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
+                     "WinBg", "CardBg", "ListBg", "SubtleBg", "ControlBg", "ControlBorder",
+                     "ControlHover", "WarnSoft", "Success", "SuccessSoft"
+                 })
+        {
+            if (host.TryFindResource(key) is SolidColorBrush brush)
+                Resources[key] = brush.Clone();
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -75,7 +95,6 @@ public partial class PortProxyPanel : UserControl
         DeleteBtn.Content = Loc.T("Tool.PortProxy.Delete");
         ResetBtn.Content = Loc.T("Tool.PortProxy.Reset");
         DumpBtn.Content = Loc.T("Tool.PortProxy.Dump");
-        FilterAll.Content = Loc.T("Tool.PortProxy.TabAll");
         ColKind.Header = Loc.T("Tool.PortProxy.ColKind");
         ColListenAddress.Header = Loc.T("Tool.PortProxy.ColListenAddress");
         ColListenPort.Header = Loc.T("Tool.PortProxy.ColListenPort");
@@ -83,6 +102,44 @@ public partial class PortProxyPanel : UserControl
         ColConnectPort.Header = Loc.T("Tool.PortProxy.ColConnectPort");
         ColProtocol.Header = Loc.T("Tool.PortProxy.ColProtocol");
         ColActions.Header = Loc.T("Tool.PortProxy.ColActions");
+        FilterCombo.ToolTip = Loc.T("Tool.PortProxy.Filter");
+        PopulateFilterCombo();
+    }
+
+    private void PopulateFilterCombo()
+    {
+        _suppressFilter = true;
+        try
+        {
+            var selectedTag = (FilterCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+            FilterCombo.Items.Clear();
+            FilterCombo.Items.Add(new ComboBoxItem
+            {
+                Content = Loc.T("Tool.PortProxy.TabAll"),
+                Tag = ""
+            });
+            foreach (var token in new[] { "v4tov4", "v4tov6", "v6tov4", "v6tov6" })
+                FilterCombo.Items.Add(new ComboBoxItem { Content = token, Tag = token });
+
+            if (!string.IsNullOrEmpty(selectedTag))
+            {
+                for (var i = 0; i < FilterCombo.Items.Count; i++)
+                {
+                    if (FilterCombo.Items[i] is ComboBoxItem { Tag: string t }
+                        && string.Equals(t, selectedTag, StringComparison.OrdinalIgnoreCase))
+                    {
+                        FilterCombo.SelectedIndex = i;
+                        return;
+                    }
+                }
+            }
+
+            FilterCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _suppressFilter = false;
+        }
     }
 
     private void UpdateAdminBanner()
@@ -123,11 +180,16 @@ public partial class PortProxyPanel : UserControl
 
     private PortProxyMappingKind? CurrentFilter()
     {
-        if (FilterV4ToV4.IsChecked == true) return PortProxyMappingKind.V4ToV4;
-        if (FilterV4ToV6.IsChecked == true) return PortProxyMappingKind.V4ToV6;
-        if (FilterV6ToV4.IsChecked == true) return PortProxyMappingKind.V6ToV4;
-        if (FilterV6ToV6.IsChecked == true) return PortProxyMappingKind.V6ToV6;
-        return null;
+        var tag = (FilterCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        if (string.IsNullOrWhiteSpace(tag)) return null;
+        return tag.ToLowerInvariant() switch
+        {
+            "v4tov4" => PortProxyMappingKind.V4ToV4,
+            "v4tov6" => PortProxyMappingKind.V4ToV6,
+            "v6tov4" => PortProxyMappingKind.V6ToV4,
+            "v6tov6" => PortProxyMappingKind.V6ToV6,
+            _ => null
+        };
     }
 
     private async Task RefreshAsync()
@@ -159,6 +221,7 @@ public partial class PortProxyPanel : UserControl
         DeleteBtn.IsEnabled = enable;
         ResetBtn.IsEnabled = enable;
         DumpBtn.IsEnabled = enable;
+        FilterCombo.IsEnabled = enable;
     }
 
     private void Report(string msg)
@@ -172,9 +235,9 @@ public partial class PortProxyPanel : UserControl
     private IReadOnlyList<PortProxyRuleInfo> SelectedRules()
         => _rows.Where(r => r.IsSelected).Select(r => r.Rule).ToList();
 
-    private void Filter_Checked(object sender, RoutedEventArgs e)
+    private void FilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || _service == null) return;
+        if (_suppressFilter || !IsLoaded || _service == null) return;
         BindRules();
     }
 
@@ -223,7 +286,7 @@ public partial class PortProxyPanel : UserControl
             ConnectAddress = "127.0.0.1",
             ConnectPort = "",
             Protocol = "tcp"
-        })
+        }, themeHost: this)
         {
             Owner = OwnerWindow()
         };
@@ -292,7 +355,7 @@ public partial class PortProxyPanel : UserControl
     private async Task EditRuleAsync(PortProxyRuleInfo rule)
     {
         if (_service == null) return;
-        var dlg = new PortProxyRuleDialog(isEdit: true, seed: rule.Clone())
+        var dlg = new PortProxyRuleDialog(isEdit: true, seed: rule.Clone(), themeHost: this)
         {
             Owner = OwnerWindow()
         };
@@ -357,7 +420,7 @@ public partial class PortProxyPanel : UserControl
             }
 
             var text = string.IsNullOrWhiteSpace(r.StdOut) ? r.Message : r.StdOut;
-            var dlg = new PortProxyDumpDialog(text) { Owner = OwnerWindow() };
+            var dlg = new PortProxyDumpDialog(text, themeHost: this) { Owner = OwnerWindow() };
             dlg.ShowDialog();
         }
         finally { SetBusy(false); }

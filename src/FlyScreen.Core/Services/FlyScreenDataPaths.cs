@@ -35,8 +35,9 @@ public static class FlyScreenDataPaths
     public static bool HasOverride => !string.IsNullOrWhiteSpace(_rootOverride);
 
     /// <summary>
-    /// 工具根目录。桌面默认 <c>{BaseDirectory}/Tools</c>；
-    /// 当 BaseDirectory 不可写（或已 SetRoot 的移动端）时回落到 <c>{Root}/Tools</c>。
+    /// 工具根目录。桌面<strong>仅</strong> <c>{BaseDirectory}/Tools</c>（安装目录 / exe 旁），
+    /// MUST NOT 再回退到 <c>%AppData%/FlyScreen/Tools</c>。
+    /// 移动端（已 <see cref="SetRoot"/>）跟应用私有 files 下的 Tools。
     /// </summary>
     public static string ToolsRoot
     {
@@ -49,12 +50,8 @@ public static class FlyScreenDataPaths
             if (!string.IsNullOrWhiteSpace(_rootOverride))
                 return Path.Combine(_rootOverride!, "Tools");
 
-            var beside = Path.Combine(AppContext.BaseDirectory.TrimEnd(
+            return Path.Combine(AppContext.BaseDirectory.TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), "Tools");
-            if (CanWriteDirectory(beside))
-                return beside;
-
-            return Path.Combine(Root, "Tools");
         }
     }
 
@@ -73,6 +70,11 @@ public static class FlyScreenDataPaths
 
     public static string ToolsInstalledDirectory => Path.Combine(ToolsRoot, "Installed");
 
+    /// <summary>
+    /// 工具共享原生库缓存（如 LibVLC）。与 Installed 版本目录解耦，避免 LoadLibrary 锁死卸载路径。
+    /// </summary>
+    public static string ToolsNativeDirectory => Path.Combine(ToolsRoot, "_native");
+
     /// <summary>工具安装记录（不进 BehaviorSync；位于 Tools 根下）。</summary>
     public static string ToolsInstallStateFile => Path.Combine(ToolsRoot, "tools-install.json");
 
@@ -85,10 +87,13 @@ public static class FlyScreenDataPaths
     /// <summary>远程 tools-index 本地缓存。</summary>
     public static string ToolsIndexCacheFile => Path.Combine(ToolsRoot, "tools-index.cache.json");
 
-    /// <summary>共享设备「记住适配」记录。</summary>
-    public static string SharedDevicesRememberFile => Path.Combine(Root, "shared-devices-remember.json");
-    /// <summary>共享设备提供方本机选用（扬声器/麦克风/摄像头 Id）。</summary>
-    public static string SharedDevicesSelectionFile => Path.Combine(Root, "shared-devices-selection.json");
+    /// <summary>共享设备「记住适配」：仅 Tools/ToolData（不得写 AppData）。</summary>
+    public static string SharedDevicesRememberFile
+        => Path.Combine(ToolsRoot, "ToolData", "shared-devices", "shared-devices-remember.json");
+
+    /// <summary>共享设备提供方本机选用：仅 Tools/ToolData（不得写 AppData）。</summary>
+    public static string SharedDevicesSelectionFile
+        => Path.Combine(ToolsRoot, "ToolData", "shared-devices", "shared-devices-selection.json");
     public static string InboxDirectory
         => !string.IsNullOrWhiteSpace(_inboxOverride)
             ? _inboxOverride!
@@ -98,7 +103,22 @@ public static class FlyScreenDataPaths
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string TransferHistoryFile => Path.Combine(Root, "transfer-history.json");
 
-    /// <summary>覆盖工具根。传 null 恢复默认。</summary>
+    /// <summary>
+    /// 工具专属数据目录：仅 <c>{ToolsRoot}/ToolData/{toolId}/</c>
+    /// （桌面=exe 旁 Tools；MUST NOT 写 %AppData%/FlyScreen）。
+    /// </summary>
+    public static string GetToolDataDirectory(string toolId)
+    {
+        if (string.IsNullOrWhiteSpace(toolId))
+            throw new ArgumentException("toolId 不能为空", nameof(toolId));
+        EnsureToolsLayout();
+        var dir = Path.Combine(ToolsRoot, "ToolData", toolId.Trim());
+        ThrowIfForbiddenToolsPath(dir, nameof(GetToolDataDirectory));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    /// <summary>覆盖工具根。传 null 恢复默认。禁止 AppData / 源码树路径。</summary>
     public static void SetToolsRoot(string? absolutePath)
     {
         if (string.IsNullOrWhiteSpace(absolutePath))
@@ -107,9 +127,46 @@ public static class FlyScreenDataPaths
             return;
         }
 
-        var path = absolutePath.Trim();
+        var path = Path.GetFullPath(absolutePath.Trim());
+        ThrowIfForbiddenToolsPath(path, nameof(SetToolsRoot));
         EnsureToolsTree(path);
         _toolsRootOverride = path;
+    }
+
+    /// <summary>
+    /// 工具路径禁区：%AppData%/FlyScreen、以及仓库 <c>src/FlyScreen.App.*/Tools</c>
+    /// （不含 bin/obj 输出目录）。
+    /// </summary>
+    public static bool IsForbiddenToolsPath(string? absolutePath)
+    {
+        if (string.IsNullOrWhiteSpace(absolutePath))
+            return true;
+
+        string norm;
+        try { norm = Path.GetFullPath(absolutePath).Replace('/', '\\'); }
+        catch { return true; }
+
+        var lower = norm.ToLowerInvariant();
+
+        if (lower.Contains("\\appdata\\roaming\\flyscreen", StringComparison.Ordinal)
+            || lower.Contains("\\appdata\\local\\flyscreen", StringComparison.Ordinal))
+            return true;
+
+        // 源码树 App 工程下的 Tools（误把包写进项目目录）
+        if (lower.Contains("\\src\\flyscreen.app.", StringComparison.Ordinal)
+            && lower.Contains("\\tools", StringComparison.Ordinal)
+            && !lower.Contains("\\bin\\", StringComparison.Ordinal)
+            && !lower.Contains("\\obj\\", StringComparison.Ordinal))
+            return true;
+
+        return false;
+    }
+
+    private static void ThrowIfForbiddenToolsPath(string path, string caller)
+    {
+        if (!IsForbiddenToolsPath(path)) return;
+        throw new InvalidOperationException(
+            $"{caller}: 禁止将工具数据写到 AppData 或源码树。路径={path}；仅允许安装目录/exe 旁 Tools。");
     }
 
     /// <summary>
@@ -155,7 +212,9 @@ public static class FlyScreenDataPaths
     /// <summary>确保 Tools 子树存在；并尝试从 Roaming 旧路径迁移一次。</summary>
     public static void EnsureToolsLayout()
     {
-        EnsureToolsTree(ToolsRoot);
+        var root = ToolsRoot;
+        ThrowIfForbiddenToolsPath(root, nameof(EnsureToolsLayout));
+        EnsureToolsTree(root);
         TryMigrateLegacyToolsFromAppData();
     }
 
@@ -202,6 +261,9 @@ public static class FlyScreenDataPaths
             var legacyState = Path.Combine(legacyRoot, "tools-install.json");
             var destRoot = ToolsRoot;
 
+            if (!Directory.Exists(legacyTools) && !File.Exists(legacyState))
+                return;
+
             if (string.Equals(
                     Path.GetFullPath(legacyTools),
                     Path.GetFullPath(destRoot),
@@ -217,15 +279,58 @@ public static class FlyScreenDataPaths
 
             if (Directory.Exists(legacyTools))
             {
-                // 旧布局：Tools/<id>/<ver>/  → 新：Installed/<id>/<ver>/
+                // 旧 Bundled / Cache → 程序旁 Tools/Bundled
+                var legacyBundled = Path.Combine(legacyTools, "Bundled");
+                if (Directory.Exists(legacyBundled))
+                {
+                    Directory.CreateDirectory(ToolsBundledDirectory);
+                    foreach (var file in Directory.EnumerateFiles(legacyBundled, "*.flytool", SearchOption.TopDirectoryOnly))
+                    {
+                        var dest = Path.Combine(ToolsBundledDirectory, Path.GetFileName(file));
+                        if (!File.Exists(dest))
+                            File.Copy(file, dest, overwrite: false);
+                    }
+                }
+
+                var legacyCache = Path.Combine(legacyTools, "Cache");
+                if (Directory.Exists(legacyCache))
+                {
+                    Directory.CreateDirectory(ToolsBundledDirectory);
+                    foreach (var file in Directory.EnumerateFiles(legacyCache, "*.flytool", SearchOption.TopDirectoryOnly))
+                    {
+                        var dest = Path.Combine(ToolsBundledDirectory, Path.GetFileName(file));
+                        if (!File.Exists(dest))
+                            File.Copy(file, dest, overwrite: false);
+                    }
+                }
+
+                // 旧布局：Tools/<id>/<ver>/ 或 Tools/Installed/<id>/<ver>/ → Installed/
                 foreach (var idDir in Directory.EnumerateDirectories(legacyTools))
                 {
                     var id = Path.GetFileName(idDir);
                     if (string.IsNullOrEmpty(id)
                         || id.Equals("Bundled", StringComparison.OrdinalIgnoreCase)
-                        || id.Equals("Cache", StringComparison.OrdinalIgnoreCase)
-                        || id.Equals("Installed", StringComparison.OrdinalIgnoreCase))
+                        || id.Equals("Cache", StringComparison.OrdinalIgnoreCase))
                         continue;
+
+                    if (id.Equals("Installed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var installedIdDir in Directory.EnumerateDirectories(idDir))
+                        {
+                            var toolId = Path.GetFileName(installedIdDir);
+                            if (string.IsNullOrEmpty(toolId)) continue;
+                            foreach (var verDir in Directory.EnumerateDirectories(installedIdDir))
+                            {
+                                var ver = Path.GetFileName(verDir);
+                                if (string.IsNullOrEmpty(ver)) continue;
+                                var dest = Path.Combine(ToolsInstalledDirectory, toolId, ver);
+                                if (Directory.Exists(dest)) continue;
+                                CopyDirectoryRecursive(verDir, dest);
+                            }
+                        }
+
+                        continue;
+                    }
 
                     foreach (var verDir in Directory.EnumerateDirectories(idDir))
                     {
@@ -247,9 +352,29 @@ public static class FlyScreenDataPaths
                 {
                     text = text.Replace(legacyTools.Replace('\\', '/'), ToolsInstalledDirectory.Replace('\\', '/'));
                     text = text.Replace(legacyTools, ToolsInstalledDirectory);
-                    // 旧 Path 可能是 Tools/id/ver，新为 Installed/id/ver —— 若仍含 /Tools/ 且不含 Installed，再兜底
                     File.WriteAllText(destState, text);
                 }
+            }
+
+            // 旧版误落在 AppData Root 的工具偏好 → ToolData
+            TryMigrateFile(
+                Path.Combine(legacyRoot, "shared-devices-remember.json"),
+                SharedDevicesRememberFile);
+            TryMigrateFile(
+                Path.Combine(legacyRoot, "shared-devices-selection.json"),
+                SharedDevicesSelectionFile);
+
+            // 迁移完成后删掉 Roaming 下错误的 Tools（个人配置 Root 其它文件不动）
+            try
+            {
+                if (Directory.Exists(legacyTools))
+                    Directory.Delete(legacyTools, recursive: true);
+                if (File.Exists(legacyState))
+                    File.Delete(legacyState);
+            }
+            catch
+            {
+                // 占用时下次启动再试
             }
         }
         catch
@@ -260,10 +385,47 @@ public static class FlyScreenDataPaths
 
     private static void EnsureToolsTree(string toolsRoot)
     {
+        ThrowIfForbiddenToolsPath(toolsRoot, nameof(EnsureToolsTree));
         Directory.CreateDirectory(toolsRoot);
         Directory.CreateDirectory(Path.Combine(toolsRoot, "Bundled"));
         Directory.CreateDirectory(Path.Combine(toolsRoot, "Installed"));
+        Directory.CreateDirectory(Path.Combine(toolsRoot, "_native"));
+        Directory.CreateDirectory(Path.Combine(toolsRoot, "ToolData"));
         TryMergeLegacyToolsCache(toolsRoot);
+        TryCleanupOrphanedToolDirs(Path.Combine(toolsRoot, "Installed"));
+    }
+
+    private static void TryMigrateFile(string source, string dest)
+    {
+        try
+        {
+            if (!File.Exists(source) || File.Exists(dest)) return;
+            var dir = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+            File.Copy(source, dest, overwrite: false);
+            try { File.Delete(source); }
+            catch { /* 占用则保留源，下次再迁 */ }
+        }
+        catch
+        {
+            // 迁移失败不阻断
+        }
+    }
+
+    /// <summary>启动时尽力清理卸载/重装留下的 <c>.orphaned-*</c> 目录。</summary>
+    private static void TryCleanupOrphanedToolDirs(string installedRoot)
+    {
+        try
+        {
+            if (!Directory.Exists(installedRoot)) return;
+            foreach (var dir in Directory.EnumerateDirectories(installedRoot, ".orphaned-*", SearchOption.AllDirectories))
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch { /* 仍被占用则下次再试 */ }
+            }
+        }
+        catch { /* ignore */ }
     }
 
     /// <summary>旧版 Tools/Cache/*.flytool 并入 Bundled 后删除 Cache 目录。</summary>
@@ -292,22 +454,6 @@ public static class FlyScreenDataPaths
         catch
         {
             // 迁移失败不阻断
-        }
-    }
-
-    private static bool CanWriteDirectory(string dir)
-    {
-        try
-        {
-            Directory.CreateDirectory(dir);
-            var probe = Path.Combine(dir, ".write-probe");
-            File.WriteAllText(probe, "1");
-            File.Delete(probe);
-            return true;
-        }
-        catch
-        {
-            return false;
         }
     }
 

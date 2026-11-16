@@ -18,7 +18,9 @@ public sealed class SharedDevicesSelectionStore
 
     public SharedDevicesSelectionStore(string? path = null)
     {
-        _path = path ?? FlyScreenDataPaths.SharedDevicesSelectionFile;
+        _path = path ?? Path.Combine(
+            FlyScreenDataPaths.GetToolDataDirectory("shared-devices"),
+            "shared-devices-selection.json");
         Reload();
     }
 

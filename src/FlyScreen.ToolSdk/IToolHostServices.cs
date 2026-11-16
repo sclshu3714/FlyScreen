@@ -17,6 +17,9 @@ public interface IToolHostServices
 
     /// <summary>卸载时取消注册，避免宿主字典钉住工具程序集导致无法删 DLL。</summary>
     void UnregisterService<T>() where T : class;
+
+    /// <summary>工具专属可写数据目录（源清单/场景/凭据/封面）。</summary>
+    string GetToolDataDirectory(string toolId);
 }
 
 /// <summary>工具工作区页签。</summary>

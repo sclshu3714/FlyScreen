@@ -36,6 +36,9 @@ public sealed record SourceFieldSpec
 
     public IReadOnlyList<SourceFieldOption> Options { get; init; } = [];
 
+    /// <summary>允许在下拉之外自由输入（如分组：选已有或键入新建）。</summary>
+    public bool AllowCustomValue { get; init; }
+
     public string? VisibleWhen { get; init; }
 
     public int? Min { get; init; }
@@ -123,7 +126,9 @@ public static class SourceFormSchema
     {
         Key = "groupId",
         LabelKey = "Tool.VideoWall.Field.Group",
-        Kind = SourceFieldKind.Select
+        Kind = SourceFieldKind.Select,
+        AllowCustomValue = true,
+        Placeholder = "Tool.VideoWall.Field.GroupPlaceholder"
     };
 
     private static readonly SourceFieldSpec DecodeField = new()

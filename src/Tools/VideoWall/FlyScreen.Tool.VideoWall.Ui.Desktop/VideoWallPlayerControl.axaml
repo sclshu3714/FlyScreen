@@ -1,0 +1,259 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:FlyScreen.Ui.Avalonia;assembly=FlyScreen.Ui.Avalonia"
+             x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.VideoWallPlayerControl"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+             Background="#000000"
+             SizeChanged="Root_SizeChanged">
+  <UserControl.Styles>
+    <Style Selector="Button.chrome">
+      <Setter Property="Width" Value="34"/>
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0,0,4,0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.chromeText">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Padding" Value="10,6"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </UserControl.Styles>
+  <UserControl.Resources>
+    <LinearGradientBrush x:Key="PlaybackVolumeGradient" StartPoint="0,1" EndPoint="0,0">
+      <GradientStop Color="Lime" Offset="0"/>
+      <GradientStop Color="Cyan" Offset="0.5"/>
+      <GradientStop Color="SkyBlue" Offset="1"/>
+    </LinearGradientBrush>
+  </UserControl.Resources>
+
+  <!-- 近透明底保证 PointerMoved 覆盖整块播放区；纯透明时悬停不触发 -->
+  <Grid x:Name="PlaybackRoot" Background="#01000000"
+        PointerMoved="Root_PointerMoved" PointerEntered="Root_PointerEntered"
+        PointerReleased="Root_PointerReleased">
+    <Border x:Name="PlaybackVideoHost" MinHeight="200" Background="Black"
+            CornerRadius="0" Margin="0">
+      <Grid>
+        <Image x:Name="PlaybackFrameImage" Stretch="Uniform"
+               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+        <ui:LoadingOverlay x:Name="PlaybackLoading" ZIndex="1"/>
+      </Grid>
+    </Border>
+
+    <Border x:Name="PlaybackTitleBarHost" Height="56" VerticalAlignment="Top" ZIndex="2">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+          <GradientStop Color="#F20B1220" Offset="0"/>
+          <GradientStop Color="#CC0B1220" Offset="0.55"/>
+          <GradientStop Color="#000B1220" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
+      <Grid x:Name="PlaybackTitleBar" Margin="12,0,12,8" Height="44" VerticalAlignment="Top">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="PlaybackBackBtn" Classes="chrome"
+                Click="PlaybackBackBtn_Click" Margin="0,0,8,0">
+          <Path Width="18" Height="18" Fill="White" Stretch="Uniform"
+                Data="{StaticResource GeoBack}"/>
+        </Button>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+          <TextBlock x:Name="PlaybackTitle" FontSize="15" FontWeight="SemiBold" Foreground="White"
+                     TextTrimming="CharacterEllipsis" MaxWidth="520"/>
+          <TextBlock x:Name="PlaybackTitleDuration" FontSize="13" Foreground="#94A3B8"
+                     FontFamily="Consolas" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border x:Name="PlaybackTransportBar" VerticalAlignment="Bottom" CornerRadius="0"
+            Padding="16,28,16,14" BorderThickness="0" ZIndex="2">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+          <GradientStop Color="#000B1220" Offset="0"/>
+          <GradientStop Color="#990B1220" Offset="0.35"/>
+          <GradientStop Color="#E60B1220" Offset="0.75"/>
+          <GradientStop Color="#F20B1220" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
+      <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+        <Grid Height="40">
+          <Slider x:Name="PlaybackSeekBar" Minimum="0" Maximum="1000" Value="0"
+                  Height="16" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                  PointerPressed="PlaybackSeekBar_PointerPressed"
+                  PointerMoved="PlaybackSeekBar_PointerMoved"
+                  PointerReleased="PlaybackSeekBar_PointerReleased"
+                  SizeChanged="PlaybackSeekBar_SizeChanged"/>
+          <!-- 关键事件白点：点击跳转，右键进度条添加，右键白点删除 -->
+          <Canvas x:Name="PlaybackCueLayer" Height="16" VerticalAlignment="Bottom"
+                  Margin="0,0,0,8"/>
+          <TextBlock x:Name="PlaybackTimeText" Text="00:00" Foreground="#CCE5E7EB" FontSize="11"
+                     FontFamily="Consolas" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                     IsHitTestVisible="False"/>
+          <TextBlock x:Name="PlaybackLengthText" Text="00:00" Foreground="#CCE5E7EB" FontSize="11"
+                     FontFamily="Consolas" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                     IsHitTestVisible="False"/>
+        </Grid>
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto">
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Button x:Name="PlaybackPlayPauseBtn" Classes="chrome" Click="PlaybackPlayPause_Click">
+              <Path x:Name="PlaybackPlayPauseIcon" Width="22" Height="22" Fill="White" Stretch="Uniform"
+                    Data="{StaticResource GeoPause}"/>
+            </Button>
+            <Button x:Name="PlaybackSeekFwdBtn" Classes="chrome" Click="PlaybackSeekFwd_Click">
+              <Path Width="20" Height="20" Fill="White" Stretch="Uniform"
+                    Data="{StaticResource GeoNext}"/>
+            </Button>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <Button x:Name="PlaybackSpeedBtn" Classes="chromeText" Content="倍速"
+                    Click="PlaybackSpeedBtn_Click"/>
+
+            <!-- 清晰度 -->
+            <Panel>
+              <Button x:Name="PlaybackQualityBtn" Classes="chromeText" Content="智能"
+                      Click="PlaybackQualityBtn_Click"/>
+              <Popup x:Name="PlaybackQualityPopup" Placement="Top" PlacementTarget="PlaybackQualityBtn"
+                     IsLightDismissEnabled="True" Closed="MenuPopup_Closed">
+                <Border Background="#F2161B26" CornerRadius="10" Padding="8"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" MinWidth="140">
+                  <StackPanel Spacing="6">
+                    <TextBlock x:Name="PlaybackQualityTitle" Foreground="#94A3B8" FontSize="11"
+                               Margin="8,2,8,0"/>
+                    <Border Background="#22FFFFFF" CornerRadius="6" Padding="12,7">
+                      <TextBlock x:Name="PlaybackQualityAutoText" Foreground="#00D4C8" FontSize="13"/>
+                    </Border>
+                    <TextBlock x:Name="PlaybackQualityCurrentText" Foreground="#CCE5E7EB" FontSize="12"
+                               Margin="12,2,12,2"/>
+                  </StackPanel>
+                </Border>
+              </Popup>
+            </Panel>
+
+            <!-- 选集 -->
+            <Panel>
+              <Button x:Name="PlaybackEpisodesBtn" Classes="chromeText" Content="选集"
+                      Click="PlaybackEpisodesBtn_Click"/>
+              <Popup x:Name="PlaybackEpisodesPopup" Placement="Top" PlacementTarget="PlaybackEpisodesBtn"
+                     IsLightDismissEnabled="True" Closed="MenuPopup_Closed">
+                <Border Background="#F2161B26" CornerRadius="10" Padding="8"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" MinWidth="200" MaxWidth="320">
+                  <StackPanel Spacing="6">
+                    <TextBlock x:Name="PlaybackEpisodesTitle" Foreground="#94A3B8" FontSize="11"
+                               Margin="8,2,8,0"/>
+                    <ListBox x:Name="PlaybackEpisodesList" Background="Transparent" Foreground="#E5E7EB"
+                             BorderThickness="0" MaxHeight="260"
+                             SelectionChanged="PlaybackEpisodesList_SelectionChanged"/>
+                  </StackPanel>
+                </Border>
+              </Popup>
+            </Panel>
+
+            <!-- 设置 -->
+            <Panel>
+              <Button x:Name="PlaybackSettingsBtn" Classes="chrome" Click="PlaybackSettingsBtn_Click">
+                <Path Width="18" Height="18" Fill="White" Stretch="Uniform"
+                      Data="{StaticResource GeoSettings}"/>
+              </Button>
+              <Popup x:Name="PlaybackSettingsPopup" Placement="Top" PlacementTarget="PlaybackSettingsBtn"
+                     IsLightDismissEnabled="True" Closed="MenuPopup_Closed">
+                <Border Background="#F2161B26" CornerRadius="12" Padding="16,14"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" Width="260">
+                  <StackPanel Spacing="8">
+                    <TextBlock x:Name="PlaybackSettingsTitle" Foreground="White" FontSize="14"
+                               FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock x:Name="PlaybackLoopLabel" Foreground="#E5E7EB" FontSize="13"
+                                 VerticalAlignment="Center"/>
+                      <ToggleSwitch x:Name="PlaybackLoopSwitch" Grid.Column="1" OnContent="" OffContent=""
+                                    IsCheckedChanged="PlaybackLoopSwitch_Changed"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock x:Name="PlaybackEpisodeTitleLabel" Foreground="#E5E7EB" FontSize="13"
+                                 VerticalAlignment="Center"/>
+                      <ToggleSwitch x:Name="PlaybackEpisodeTitleSwitch" Grid.Column="1" OnContent="" OffContent=""
+                                    IsChecked="True" IsCheckedChanged="PlaybackEpisodeTitleSwitch_Changed"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock x:Name="PlaybackAspectLabel" Foreground="#E5E7EB" FontSize="13"
+                                 VerticalAlignment="Center"/>
+                      <TextBlock x:Name="PlaybackAspectValue" Grid.Column="1" Foreground="#94A3B8"
+                                 FontSize="12" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Border x:Name="PlaybackDiagRow" Background="Transparent" Cursor="Hand"
+                            PointerReleased="PlaybackDiagRow_PointerReleased">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock x:Name="PlaybackDiagLabel" Foreground="#E5E7EB" FontSize="13"
+                                   VerticalAlignment="Center"/>
+                        <Path Grid.Column="1" Width="14" Height="14" Fill="#94A3B8" Stretch="Uniform"
+                              Data="{StaticResource GeoChevronRight}"/>
+                      </Grid>
+                    </Border>
+                    <TextBlock x:Name="PlaybackDiagText" Foreground="#CCE5E7EB" FontSize="11"
+                               TextWrapping="Wrap" IsVisible="False" FontFamily="Consolas"/>
+                  </StackPanel>
+                </Border>
+              </Popup>
+            </Panel>
+
+            <Panel x:Name="PlaybackVolumeHost" Width="36" Height="34"
+                   PointerEntered="PlaybackVolumeHost_PointerEntered"
+                   PointerExited="PlaybackVolumeHost_PointerExited">
+              <Button x:Name="PlaybackMuteBtn" Classes="chrome" Margin="0"
+                      Click="PlaybackMute_Click">
+                <Path x:Name="PlaybackMuteIcon" Width="18" Height="18" Fill="White" Stretch="Uniform"
+                      Data="{StaticResource GeoVolume}"/>
+              </Button>
+              <Popup x:Name="PlaybackVolumePopup" Placement="Top"
+                     PlacementTarget="PlaybackVolumeHost" IsLightDismissEnabled="False">
+                <Border Background="#E6111827" CornerRadius="10" Padding="10,12"
+                        BorderBrush="#33FFFFFF" BorderThickness="1"
+                        PointerEntered="PlaybackVolumePopup_PointerEntered"
+                        PointerExited="PlaybackVolumePopup_PointerExited">
+                  <StackPanel Spacing="8" HorizontalAlignment="Center">
+                    <TextBlock x:Name="PlaybackVolumePct" Text="100%" Foreground="White"
+                               FontSize="11" HorizontalAlignment="Center"/>
+                    <Slider x:Name="PlaybackVolumeBar" Orientation="Vertical"
+                            Width="28" Height="120" Minimum="0" Maximum="100" Value="100">
+                      <!-- 已播段用 绿→青→蓝 渐变 -->
+                      <Slider.Resources>
+                        <StaticResource x:Key="SliderTrackValueFill" ResourceKey="PlaybackVolumeGradient"/>
+                        <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="PlaybackVolumeGradient"/>
+                        <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="PlaybackVolumeGradient"/>
+                        <SolidColorBrush x:Key="SliderTrackFill" Color="#3B4252"/>
+                        <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#3B4252"/>
+                        <SolidColorBrush x:Key="SliderTrackFillPressed" Color="#3B4252"/>
+                      </Slider.Resources>
+                    </Slider>
+                  </StackPanel>
+                </Border>
+              </Popup>
+            </Panel>
+            <Button x:Name="PlaybackPipBtn" Classes="chrome" Click="PlaybackPip_Click">
+              <Path Width="18" Height="18" Fill="White" Stretch="Uniform"
+                    Data="{StaticResource GeoPip}"/>
+            </Button>
+            <Button x:Name="PlaybackMaximizeBtn" Classes="chrome" Click="PlaybackMaximize_Click">
+              <Path Width="16" Height="16" Fill="White" Stretch="Uniform"
+                    Data="{StaticResource GeoMaximize}"/>
+            </Button>
+            <Button x:Name="PlaybackFullscreenBtn" Classes="chrome" Margin="0"
+                    Click="PlaybackFullscreen_Click">
+              <Path x:Name="PlaybackFullscreenIcon" Width="16" Height="16" Fill="White" Stretch="Uniform"
+                    Data="{StaticResource GeoFullscreen}"/>
+            </Button>
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

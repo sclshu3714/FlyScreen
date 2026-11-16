@@ -277,7 +277,9 @@ public sealed class ClipboardMonitor : IDisposable
                 try
                 {
                     ClipboardBridge.ApplyInlineSuppressing(data);
-                    _lastInlineKey = data.BuildKey();
+                    // 对齐回读后的 key + 当前剪贴板序号，避免抑制结束后重编码再宣告
+                    _lastInlineKey = ClipboardBridge.LastAppliedInlineKey ?? data.BuildKey();
+                    _lastClipboardSeq = ClipboardBridge.GetClipboardSequenceNumber();
                     ok = true;
                 }
                 catch

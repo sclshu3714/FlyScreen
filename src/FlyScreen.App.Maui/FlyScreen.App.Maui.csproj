@@ -139,11 +139,8 @@
          Windows / iOS：勿设不透明 Color（否则 Win 托盘黑底方块）。
          Android 自适应图标画布 108dp，启动器遮罩只保留中心约 66dp（66/108≈0.61）。
          源图圆形徽标几乎贴满 256 画布，ForegroundScale 必须 ≤0.62，否则外圈被圆角/圆形遮罩裁掉。 -->
-    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
-              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'" />
-    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256"
-              Color="#FFF1E8" ForegroundScale="0.60"
-              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
+    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'" />
+    <MauiIcon Include="$(FlyScreenAppPng)" BaseSize="256,256" Color="#FFF1E8" ForegroundScale="0.60" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
     <MauiSplashScreen Include="$(FlyScreenAppPng)" Color="#0F172A" BaseSize="256,256" />
     <MauiImage Include="$(FlyScreenCursorPng)" Link="Resources\Images\cursor.png" />
   </ItemGroup>
@@ -171,7 +168,6 @@
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
   </ItemGroup>
-
   <!-- Fly.Ocr：Google ML Kit 中英 OCR（专有条款，见 docs/THIRD_PARTY.md）。
        纯净开源构建：-p:FlyEnableMlKit=false -->
   <PropertyGroup>
@@ -206,9 +202,27 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Controls\FlyScreen.Ui.Maui\FlyScreen.Ui.Maui.csproj" />
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\Theme\FlyScreen.Ui.Theme.Maui\FlyScreen.Ui.Theme.Maui.csproj" />
+  </ItemGroup>
+
+  <!-- 统一样式源：链接 Theme.Maui 下 Shared/Maui XAML，单点维护 -->
+  <ItemGroup>
+    <MauiXaml Remove="Resources\Styles\Colors.xaml" />
+    <MauiXaml Remove="Resources\Styles\Styles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Colors.xaml" Link="Resources\Styles\Theme\Colors.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Spacing.xaml" Link="Resources\Styles\Theme\Spacing.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Typography.xaml" Link="Resources\Styles\Theme\Typography.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Radii.xaml" Link="Resources\Styles\Theme\Radii.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\EntryStyles.xaml" Link="Resources\Styles\Theme\EntryStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ButtonStyles.xaml" Link="Resources\Styles\Theme\ButtonStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ControlStyles.xaml" Link="Resources\Styles\Theme\ControlStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ListStyles.xaml" Link="Resources\Styles\Theme\ListStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ActionStyles.xaml" Link="Resources\Styles\Theme\ActionStyles.xaml" />
   </ItemGroup>
 
   <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->
@@ -221,24 +235,16 @@
   <Import Project="..\..\build\FlyScreen.Version.targets" />
   <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
   <!-- Windows：TopologyGuard / VddOffline（zip 在 VddOffline\ 下）打进包 -->
-  <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
-  <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+  <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+  <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
 
   <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->
-  <Target Name="FlyScreen_PreClearAndroidIntermediates"
-          BeforeTargets="_CleanMonoAndroidIntermediateDir"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1&quot; -Configuration &quot;$(Configuration)&quot; -TargetFramework &quot;$(TargetFramework)&quot;"
-          IgnoreExitCode="true"
-          Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1')" />
+  <Target Name="FlyScreen_PreClearAndroidIntermediates" BeforeTargets="_CleanMonoAndroidIntermediateDir" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1&quot; -Configuration &quot;$(Configuration)&quot; -TargetFramework &quot;$(TargetFramework)&quot;" IgnoreExitCode="true" Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Clean-MauiAndroid.ps1')" />
   </Target>
 
   <!-- 登记 APK，避免下次 IncrementalClean 把未出现在上一轮 FileWrites 里的 Signed / FlyScreen.apk 删掉。 -->
-  <Target Name="FlyScreen_ProtectApkFileWrites"
-          BeforeTargets="IncrementalClean"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+  <Target Name="FlyScreen_ProtectApkFileWrites" BeforeTargets="IncrementalClean" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <PropertyGroup>
       <_FsPkgId Condition="'$(_AndroidPackage)' != ''">$(_AndroidPackage)</_FsPkgId>
       <_FsPkgId Condition="'$(_FsPkgId)' == ''">$(ApplicationId)</_FsPkgId>
@@ -257,18 +263,13 @@
     不要挂在 _CopyPackage 上，否则会提前生成 -Signed.apk，_Sign 被当成已完成而跳过。
     RestoreAfterVisualStudio 在 IDE 改名之后把 -Signed.apk / FlyScreen.apk 拷回去。
   -->
-  <Target Name="FlyScreen_EnsureSignedApk"
-          AfterTargets="SignAndroidPackage"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+  <Target Name="FlyScreen_EnsureSignedApk" AfterTargets="SignAndroidPackage" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <CallTarget Targets="FlyScreen_EnsureSignedApkCore" />
   </Target>
-  <Target Name="FlyScreen_EnsureSignedApkOnCliBuild"
-          AfterTargets="Build"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(BuildingInsideVisualStudio)' != 'true'">
+  <Target Name="FlyScreen_EnsureSignedApkOnCliBuild" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(BuildingInsideVisualStudio)' != 'true'">
     <CallTarget Targets="FlyScreen_EnsureSignedApkCore" />
   </Target>
-  <Target Name="FlyScreen_EnsureSignedApkCore"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+  <Target Name="FlyScreen_EnsureSignedApkCore" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <PropertyGroup>
       <!-- 末尾不要加 \，否则 powershell -OutDir "....\" 会把引号转义掉 -->
       <_FsApkDir>$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)</_FsApkDir>
@@ -280,21 +281,17 @@
       <_FsIdeRestoreArgs> -RestoreAfterVisualStudio</_FsIdeRestoreArgs>
     </PropertyGroup>
     <!-- 只跑一次。OutDir 用绝对路径，避免和相对 OutDir 再执行一遍。 -->
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsApkDir)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;$(_FsIdeRestoreArgs)"
-          Condition="Exists('$(_FsEnsureScript)')"
-          IgnoreExitCode="true" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsEnsureScript)&quot; -OutDir &quot;$(_FsApkDir)&quot; -PackageId &quot;$(_FsPkgId)&quot; -IntermediateDir &quot;$(_FsInterApkDir)&quot; -KeyStore &quot;$(_FsKeyStore)&quot; -KeyStorePass &quot;$(AndroidSigningStorePass)&quot; -KeyAlias &quot;$(AndroidSigningKeyAlias)&quot; -KeyPass &quot;$(AndroidSigningKeyPass)&quot;$(_FsIdeRestoreArgs)" Condition="Exists('$(_FsEnsureScript)')" IgnoreExitCode="true" />
     <ItemGroup>
       <FileWrites Include="$(_FsApkDir)\$(_FsPkgId).apk" />
       <FileWrites Include="$(_FsApkDir)\$(_FsPkgId)-Signed.apk" />
       <FileWrites Include="$(_FsApkDir)\$(_FsPkgId)-Signed.apk.idsig" />
       <FileWrites Include="$(_FsApkDir)\FlyScreen.apk" />
     </ItemGroup>
-    <Message Importance="High" Text="FlyScreen APK → $(_FsApkDir)\FlyScreen.apk"
-             Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
+    <Message Importance="High" Text="FlyScreen APK → $(_FsApkDir)\FlyScreen.apk" Condition="Exists('$(_FsApkDir)\FlyScreen.apk')" />
   </Target>
 
-  <Target Name="_FlyScreenLogAppleSdkPin" BeforeTargets="Build"
-          Condition="'$(TargetFramework)' == '' and '$(_FsPinAppleSdk)' == 'true'">
+  <Target Name="_FlyScreenLogAppleSdkPin" BeforeTargets="Build" Condition="'$(TargetFramework)' == '' and '$(_FsPinAppleSdk)' == 'true'">
     <Message Importance="High" Text="Apple SDK pin：FlyScreenAppleSdk=$(_FsAppleSdk) → iOS=$(_FsIosTfm) MacCatalyst=$(_FsMacCatalystTfm)（ValidateXcodeVersion=$(ValidateXcodeVersion)）。" />
   </Target>
 

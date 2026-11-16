@@ -1,0 +1,128 @@
+<Window x:Class="FlyScreen.Tool.VideoWall.Ui.Win.ScanDevicesDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:FlyScreen.Ui.Wpf;assembly=FlyScreen.Ui.Wpf"
+        Title="" Width="640" Height="520"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        MinWidth="520" MinHeight="420"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="13">
+  <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <theme:WpfTheme xmlns:theme="clr-namespace:FlyScreen.Ui.Theme.Wpf;assembly=FlyScreen.Ui.Theme.Wpf"/>
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,14"
+               Foreground="{DynamicResource Text}"/>
+
+    <!-- 网段 + 模板 + 扫描 -->
+    <Grid Grid.Row="1" Margin="0,0,0,10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="140"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel>
+        <TextBlock x:Name="SubnetLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <ComboBox x:Name="SubnetCombo" Height="34" IsEditable="True"
+                  VerticalContentAlignment="Center"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Margin="10,0,0,0">
+        <TextBlock x:Name="VendorLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <ComboBox x:Name="VendorCombo" Height="34"/>
+      </StackPanel>
+      <Button x:Name="RescanBtn" Grid.Column="2" Style="{StaticResource DlgPrimaryBtn}"
+              Margin="10,18,0,0" VerticalAlignment="Bottom" Click="RescanBtn_Click"/>
+    </Grid>
+
+    <!-- 凭据 -->
+    <Grid Grid.Row="2" Margin="0,0,0,10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel Margin="0,0,6,0">
+        <TextBlock x:Name="UserLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <TextBox x:Name="UserBox" Height="34"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Margin="6,0,0,0">
+        <TextBlock x:Name="PassLabel" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
+        <ui:SecurePasswordBox x:Name="PassBox" Height="34"/>
+      </StackPanel>
+    </Grid>
+
+    <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8"
+            Background="{DynamicResource ListBg}" Padding="0" ClipToBounds="True">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="12,8">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="1.2*"/>
+              <ColumnDefinition Width="0.8*"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HdrHost" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+            <TextBlock x:Name="HdrKind" Grid.Column="1" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+            <TextBlock x:Name="HdrPorts" Grid.Column="2" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+            <TextBlock x:Name="HdrActions" Grid.Column="3" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource Muted}"/>
+          </Grid>
+        </Border>
+        <ListBox x:Name="DeviceList" BorderThickness="0"
+                 Background="{DynamicResource ListBg}"
+                 Foreground="{DynamicResource Text}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+              <Setter Property="Padding" Value="12,8"/>
+            </Style>
+          </ListBox.ItemContainerStyle>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="1.2*"/>
+                  <ColumnDefinition Width="0.8*"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="100"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Host}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="1" Text="{Binding KindHint}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}"/>
+                <TextBlock Grid.Column="2" Text="{Binding PortsText}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+                <Button Grid.Column="3" Style="{StaticResource DlgPrimaryBtn}" Padding="8,4"
+                        Content="{Binding ActionLabel}" IsEnabled="{Binding CanAdd}"
+                        Tag="{Binding}" Click="AddDevice_Click" HorizontalAlignment="Left"/>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <TextBlock x:Name="StatusText" Grid.Row="4" Margin="0,10,0,8"
+               Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="CloseBtn" Style="{StaticResource DlgBtn}" IsCancel="True" Click="CloseBtn_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>

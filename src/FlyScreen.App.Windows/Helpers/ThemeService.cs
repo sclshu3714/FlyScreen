@@ -1,89 +1,155 @@
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using FlyScreen.Native;
+using FlyScreen.Services;
+using FlyScreen.Ui.Theme;
 using Media = System.Windows.Media;
 using WpfControls = System.Windows.Controls;
+using WpfImage = System.Windows.Controls.Image;
+using WpfBorder = System.Windows.Controls.Border;
 
 namespace FlyScreen.Helpers;
 
 /// <summary>
-/// 淡色 / 深色主题：替换窗口资源画刷，配合 DynamicResource 即时生效。
+/// 界面主题：按 <see cref="ThemePalette"/> 已注册主题覆写资源画刷，配合 DynamicResource 即时生效。
 /// </summary>
 public static class ThemeService
 {
-    public const string Light = "Light";
-    public const string Dark = "Dark";
+    public const string Light = ThemePalette.LightName;
+    public const string Dark = ThemePalette.DarkName;
+    public const string Custom = ThemePalette.CustomName;
 
     public static string Current { get; private set; } = Light;
 
-    public static bool IsDark(string? theme)
-        => string.Equals(theme, Dark, StringComparison.OrdinalIgnoreCase);
+    public static bool IsDark(string? theme) => ThemePalette.IsDark(theme);
 
-    public static void Apply(string? theme, FrameworkElement? root = null)
+    public static void Apply(string? theme, FrameworkElement? root = null, string? wallpaperPath = null)
     {
-        Current = IsDark(theme) ? Dark : Light;
-        var dark = Current == Dark;
+        var info = ThemePalette.Resolve(theme);
+        Current = info.Id;
+        var dark = info.IsDark;
+        var map = ThemePalette.ToResourceMap(info.ResolveColors());
 
         root ??= Application.Current?.MainWindow;
         if (root == null) return;
 
         var rd = root.Resources;
-        Set(rd, "Blue", dark ? "#3B82F6" : "#2563EB");
-        Set(rd, "BlueSoft", dark ? "#1E3A5F" : "#DBEAFE");
-        Set(rd, "BlueHover", dark ? "#243447" : "#EFF6FF");
-        Set(rd, "BluePress", dark ? "#1D4ED8" : "#1D4ED8");
-        Set(rd, "Line", dark ? "#334155" : "#E5E7EB");
-        Set(rd, "Muted", dark ? "#94A3B8" : "#6B7280");
-        Set(rd, "Text", dark ? "#E2E8F0" : "#111827");
-        Set(rd, "Success", dark ? "#34D399" : "#059669");
-        Set(rd, "SuccessSoft", dark ? "#0F3D2E" : "#ECFDF5");
-        Set(rd, "Warn", dark ? "#FBBF24" : "#D97706");
-        Set(rd, "WarnSoft", dark ? "#422006" : "#FEF3C7");
-        Set(rd, "WinBg", dark ? "#0F172A" : "#F7F8FA");
-        Set(rd, "CardBg", dark ? "#1E293B" : "#FFFFFF");
-        Set(rd, "PaneBg", dark ? "#111827" : "#FFFFFF");
-        Set(rd, "SubtleBg", dark ? "#1E293B" : "#F3F4F6");
-        Set(rd, "ControlBg", dark ? "#0F172A" : "#FFFFFF");
-        Set(rd, "ControlBorder", dark ? "#475569" : "#D1D5DB");
-        Set(rd, "ControlHover", dark ? "#334155" : "#F9FAFB");
-        Set(rd, "Placeholder", dark ? "#64748B" : "#9CA3AF");
-        Set(rd, "MatrixBg", dark ? "#0B1220" : "#F8FAFC");
-        Set(rd, "ListBg", dark ? "#0B1220" : "#F9FAFB");
-        // 工具卡片三态底色
-        Set(rd, "ToolCardNotInstalledBg", dark ? "#1E293B" : "#F3F4F6");
-        Set(rd, "ToolCardInstalledBg", dark ? "#0F3D2E" : "#ECFDF5");
-        Set(rd, "ToolCardRunningBg", dark ? "#1E3A5F" : "#DBEAFE");
-        Set(rd, "ToolCardInstallingBg", dark ? "#243447" : "#EFF6FF");
-        Set(rd, "ToolCardProgress", dark ? "#3B82F6" : "#93C5FD");
-        // 细圆角滚动条：与卡片 UI 同色系，避免系统粗箭头条
-        Set(rd, "ScrollTrack", dark ? "#00000000" : "#00000000");
-        Set(rd, "ScrollThumb", dark ? "#64748B" : "#CBD5E1");
-        Set(rd, "ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
-        Set(rd, "ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
+        foreach (var (key, hex) in map)
+            Set(rd, key, hex);
+        // 主窗 Resources 内若还有 Merged 色板副本，一并改色
+        SyncDictionary(rd, map);
 
-        // 覆盖窗口级 SystemColors，避免 ListView/ScrollViewer 默认白底
         OverrideSystemColorsOn(rd, dark);
-        // Application 级：未入树控件 / App 级 DynamicResource 也能解析到同套主题色
-        SyncAppThemeBrushes(dark);
+        SyncAppThemeBrushes(map);
+        // 工具面板等会再合并一份 WpfTheme；只改 App 顶层会导致滚动条仍用浅色令牌
+        SyncVisualTreeResources(root, map);
 
         if (root is Window win)
         {
-            win.Background = BrushOf(rd, "WinBg");
+            // 自定义无壁纸时用实心浅色衬底，避免半透明色板衬系统黑底
+            if (info.SupportsWallpaper && UiWallpaperStore.ResolveExisting(wallpaperPath) == null)
+                win.Background = new Media.SolidColorBrush(Media.Color.FromRgb(0xF7, 0xF8, 0xFA));
+            else if (info.SupportsWallpaper)
+                win.Background = Media.Brushes.Transparent;
+            else
+                win.Background = BrushOf(rd, "WinBg");
             win.Foreground = BrushOf(rd, "Text");
             ApplyNativeTitleBar(win, dark);
             win.Dispatcher.BeginInvoke(() => OverrideListSystemColors(win, rd), DispatcherPriority.Loaded);
             OverrideListSystemColors(win, rd);
         }
 
+        ApplyWallpaper(root, info.SupportsWallpaper, wallpaperPath, rd);
+
         root.InvalidateVisual();
         root.InvalidateArrange();
     }
 
-    /// <summary>
-    /// 同步 DWM 边框色（主窗已自绘标题栏；子窗仍依赖 DWM）。
-    /// Win10 首次显示前常无效，Loaded / ContentRendered / 短延迟再刷。
-    /// </summary>
+    /// <summary>仅 SupportsWallpaper 主题铺图；淡色/深色必清壁纸层。标题/外框跟 PaneBg/WinBg（可含 Alpha）。</summary>
+    private static void ApplyWallpaper(
+        FrameworkElement root, bool supportsWallpaper, string? wallpaperPath, ResourceDictionary rd)
+    {
+        var image = FindName<WpfImage>(root, "WallpaperImage");
+        var scrim = FindName<WpfBorder>(root, "WallpaperScrim");
+        var outer = FindName<WpfBorder>(root, "WindowOuterBorder");
+        var title = FindName<WpfBorder>(root, "AppTitleBar");
+        var winBg = BrushOf(rd, "WinBg");
+        var paneBg = BrushOf(rd, "PaneBg");
+        var path = supportsWallpaper ? UiWallpaperStore.ResolveExisting(wallpaperPath) : null;
+
+        if (image == null && scrim == null) return;
+
+        if (path != null)
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path, UriKind.Absolute);
+                bmp.EndInit();
+                bmp.Freeze();
+                if (image != null)
+                {
+                    image.Source = bmp;
+                    image.Visibility = Visibility.Visible;
+                }
+                if (scrim != null) scrim.Visibility = Visibility.Visible;
+                // 外框透明让壁纸铺满；标题用半透明 PaneBg，不再盖实心 WinBg
+                if (outer != null) outer.Background = Media.Brushes.Transparent;
+                if (title != null) title.Background = paneBg;
+            }
+            catch
+            {
+                ClearWallpaperVisual(image, scrim, outer, title, winBg);
+            }
+        }
+        else
+        {
+            ClearWallpaperVisual(image, scrim, outer, title, winBg);
+            // 自定义无图：外框/标题仍用半透明色板（下有浅色窗衬底）
+            if (supportsWallpaper)
+            {
+                if (outer != null) outer.Background = winBg;
+                if (title != null) title.Background = paneBg;
+            }
+        }
+    }
+
+    private static void ClearWallpaperVisual(
+        WpfImage? image, WpfBorder? scrim, WpfBorder? outer, WpfBorder? title, Media.Brush solidWinBg)
+    {
+        if (image != null)
+        {
+            image.Source = null;
+            image.Visibility = Visibility.Collapsed;
+        }
+        if (scrim != null) scrim.Visibility = Visibility.Collapsed;
+        if (outer != null) outer.Background = solidWinBg;
+        if (title != null) title.Background = solidWinBg;
+    }
+
+    private static T? FindName<T>(FrameworkElement root, string name) where T : class
+    {
+        if (root.FindName(name) is T typed) return typed;
+        if (root is Window { Content: FrameworkElement content } && content.FindName(name) is T nested)
+            return nested;
+        return null;
+    }
+
+    /// <summary>工具工作区等延迟加载的子树：同步其自带 WpfTheme 色板（滚动条 ScrollThumb* 等）。</summary>
+    public static void SyncSubtree(FrameworkElement? root)
+    {
+        if (root is null) return;
+        var map = ThemePalette.ToResourceMap(ThemePalette.Resolve(Current).ResolveColors());
+        SyncVisualTreeResources(root, map);
+        if (Application.Current?.MainWindow is { } main)
+            OverrideListSystemColors(root, main.Resources);
+        root.InvalidateVisual();
+    }
+
     private static void ApplyNativeTitleBar(Window window, bool dark)
     {
         void Apply()
@@ -143,9 +209,6 @@ public static class ThemeService
         _ = dark;
     }
 
-    /// <summary>
-    /// ListView/ListBox 默认模板使用 SystemColors.WindowBrush，需覆盖否则深色下仍为白底。
-    /// </summary>
     private static void OverrideListSystemColors(DependencyObject root, ResourceDictionary theme)
     {
         var windowBg = BrushOf(theme, "ListBg");
@@ -185,49 +248,63 @@ public static class ThemeService
         }
     }
 
-    /// <summary>将当前主题应用到子窗口。</summary>
     public static void ApplyToChildWindow(Window child) => Apply(Current, child);
 
-    private static void SyncAppThemeBrushes(bool dark)
+    private static void SyncAppThemeBrushes(IReadOnlyDictionary<string, string> map)
     {
         var app = Application.Current?.Resources;
         if (app == null) return;
-        Set(app, "Blue", dark ? "#3B82F6" : "#2563EB");
-        Set(app, "BlueSoft", dark ? "#1E3A5F" : "#DBEAFE");
-        Set(app, "BlueHover", dark ? "#243447" : "#EFF6FF");
-        Set(app, "BluePress", dark ? "#1D4ED8" : "#1D4ED8");
-        Set(app, "Line", dark ? "#334155" : "#E5E7EB");
-        Set(app, "Muted", dark ? "#94A3B8" : "#6B7280");
-        Set(app, "Text", dark ? "#E2E8F0" : "#111827");
-        Set(app, "Success", dark ? "#34D399" : "#059669");
-        Set(app, "SuccessSoft", dark ? "#0F3D2E" : "#ECFDF5");
-        Set(app, "Warn", dark ? "#FBBF24" : "#D97706");
-        Set(app, "WarnSoft", dark ? "#422006" : "#FEF3C7");
-        Set(app, "WinBg", dark ? "#0F172A" : "#F7F8FA");
-        Set(app, "CardBg", dark ? "#1E293B" : "#FFFFFF");
-        Set(app, "PaneBg", dark ? "#111827" : "#FFFFFF");
-        Set(app, "SubtleBg", dark ? "#1E293B" : "#F3F4F6");
-        Set(app, "ControlBg", dark ? "#0F172A" : "#FFFFFF");
-        Set(app, "ControlBorder", dark ? "#475569" : "#D1D5DB");
-        Set(app, "ControlHover", dark ? "#334155" : "#F9FAFB");
-        Set(app, "Placeholder", dark ? "#64748B" : "#9CA3AF");
-        Set(app, "MatrixBg", dark ? "#0B1220" : "#F8FAFC");
-        Set(app, "ListBg", dark ? "#0B1220" : "#F9FAFB");
-        Set(app, "ToolCardNotInstalledBg", dark ? "#1E293B" : "#F3F4F6");
-        Set(app, "ToolCardInstalledBg", dark ? "#0F3D2E" : "#ECFDF5");
-        Set(app, "ToolCardRunningBg", dark ? "#1E3A5F" : "#DBEAFE");
-        Set(app, "ToolCardInstallingBg", dark ? "#243447" : "#EFF6FF");
-        Set(app, "ToolCardProgress", dark ? "#3B82F6" : "#93C5FD");
-        Set(app, "ScrollTrack", "#00000000");
-        Set(app, "ScrollThumb", dark ? "#64748B" : "#CBD5E1");
-        Set(app, "ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
-        Set(app, "ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
+        foreach (var (key, hex) in map)
+            Set(app, key, hex);
+        SyncDictionary(app, map);
+    }
+
+    private static void SyncVisualTreeResources(DependencyObject root, IReadOnlyDictionary<string, string> map)
+    {
+        if (root is FrameworkElement { Resources: { } rd } && HasThemeKeys(rd, map))
+            SyncDictionary(rd, map);
+
+        var count = Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+            SyncVisualTreeResources(Media.VisualTreeHelper.GetChild(root, i), map);
+    }
+
+    private static bool HasThemeKeys(ResourceDictionary rd, IReadOnlyDictionary<string, string> map)
+    {
+        foreach (var merged in rd.MergedDictionaries)
+        {
+            if (merged is not null && HasThemeKeys(merged, map))
+                return true;
+        }
+
+        foreach (var key in map.Keys)
+        {
+            if (rd.Contains(key))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>只改写字典里已有的主题键（含 MergedDictionaries），避免工具侧残留浅色 ScrollThumb。</summary>
+    private static void SyncDictionary(ResourceDictionary rd, IReadOnlyDictionary<string, string> map)
+    {
+        foreach (var merged in rd.MergedDictionaries)
+        {
+            if (merged is not null)
+                SyncDictionary(merged, map);
+        }
+
+        foreach (var (key, hex) in map)
+        {
+            if (!rd.Contains(key)) continue;
+            Set(rd, key, hex);
+        }
     }
 
     private static void Set(ResourceDictionary rd, string key, string hex)
     {
         var color = (Media.Color)Media.ColorConverter.ConvertFromString(hex)!;
-        // 原地改 Color，已绑定的 DynamicResource / 画刷引用才能同步变色
         if (rd[key] is Media.SolidColorBrush brush)
         {
             if (brush.IsFrozen)
@@ -236,6 +313,7 @@ public static class ThemeService
             rd[key] = brush;
             return;
         }
+
         rd[key] = new Media.SolidColorBrush(color);
     }
 

@@ -67,6 +67,9 @@ if ($Version) {
 else {
     Push-Location $RepoRoot
     try {
+        # Release 标签常只在远程：未 fetch 时本地仍停在旧 tag（例如已发 v1.1.0 却仍读到 v1.0.11）。
+        # 尽力拉取；离线/无权限时忽略，继续用本地标签。
+        git fetch --tags --quiet 2>$null | Out-Null
         $tags = @(git tag -l "v*.*.*" --sort=-v:refname 2>$null)
     }
     finally {

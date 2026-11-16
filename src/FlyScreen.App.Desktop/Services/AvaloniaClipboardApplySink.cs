@@ -53,7 +53,23 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
         if (data.IsEmpty) return;
         _lastAppliedKey = data.BuildKey();
         Suppress(2500);
-        _ = ApplyInlineAsync(data);
+        _ = ApplyInlineAndRematchAsync(data);
+    }
+
+    private async Task ApplyInlineAndRematchAsync(ClipboardInlineData data)
+    {
+        await ApplyInlineAsync(data).ConfigureAwait(true);
+        try
+        {
+            // 回读对齐 key，避免平台转换后再次宣告
+            var roundtrip = await TryCaptureInlineAsync().ConfigureAwait(true);
+            if (roundtrip != null && !roundtrip.IsEmpty)
+                _lastAppliedKey = roundtrip.BuildKey();
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     public async Task<string?> TryGetTextAsync()

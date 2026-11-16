@@ -30,6 +30,7 @@ using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
+using FlyScreen.Ui.Theme;
 
 namespace FlyScreen.DesktopUi;
 
@@ -890,11 +891,9 @@ public partial class MainWindow : Window
         LanguageCombo.SelectedItem = lang;
         Loc.SetCulture(lang.Code);
 
-        if (string.Equals(s.UiTheme, "Dark", StringComparison.OrdinalIgnoreCase))
-            ThemeDark.IsChecked = true;
-        else
-            ThemeLight.IsChecked = true;
-        DesktopThemeService.Apply(s.UiTheme, this);
+        BindThemeCombo(s.UiTheme);
+        DesktopThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
+        RefreshWallpaperUi();
 
         Title = Loc.T("App.Name");
         ApplyLocalizedChrome();
@@ -914,8 +913,7 @@ public partial class MainWindow : Window
             });
         }
 
-        ShowKeyCheck.IsChecked = false;
-        ShowKey_Changed(null, null);
+        SecurityKeyBox.IsRevealed = false;
         ApplyLayoutGrid();
         RefreshPositionLabels();
         RefreshSlotBoundRemotes();
@@ -987,6 +985,18 @@ public partial class MainWindow : Window
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
+        if (SysTitleText != null) SysTitleText.Text = Loc.T("Sys.Title");
+        if (SysStyleLabel != null) SysStyleLabel.Text = Loc.T("Sys.Style");
+        if (SysLangLabel != null) SysLangLabel.Text = Loc.T("Sys.Language");
+        if (SysWallpaperLabel != null) SysWallpaperLabel.Text = Loc.T("Sys.Wallpaper");
+        if (WallpaperPickBtn != null) WallpaperPickBtn.Content = Loc.T("Sys.WallpaperPick");
+        if (WallpaperClearBtn != null) WallpaperClearBtn.Content = Loc.T("Sys.WallpaperClear");
+        ToolTip.SetTip(ThemeCombo, Loc.T("Sys.StyleTip"));
+        ToolTip.SetTip(LanguageCombo, Loc.T("Sys.LangTip"));
+        if (SysWallpaperLabel != null) ToolTip.SetTip(SysWallpaperLabel, Loc.T("Sys.WallpaperTip"));
+        if (WallpaperPickBtn != null) ToolTip.SetTip(WallpaperPickBtn, Loc.T("Sys.WallpaperTip"));
+        RefreshThemeComboLabels();
+        RefreshWallpaperUi();
         ApplyTrayLocalized();
         if (XferTitleText != null) XferTitleText.Text = Loc.T("Xfer.Title");
         if (XferHintText != null) XferHintText.Text = Loc.T("Xfer.Hint");
@@ -1026,8 +1036,12 @@ public partial class MainWindow : Window
         RefreshNetworkBreadcrumb();
         Title = Loc.T("App.Name");
         if (SecurityTitleText != null) SecurityTitleText.Text = Loc.T("Sec.Title");
+        if (SecurityKeyBox != null)
+        {
+            SecurityKeyBox.ShowPasswordTip = Loc.T("Sec.ShowPassword");
+            SecurityKeyBox.HidePasswordTip = Loc.T("Sec.HidePassword");
+        }
         if (SecurityHintText != null) SecurityHintText.Text = Loc.T("Sec.Hint");
-        if (ShowKeyCheck != null) ShowKeyCheck.Content = Loc.T("Sec.Show");
         if (NewKeyBtn != null) NewKeyBtn.Content = Loc.T("Sec.NewKey");
         if (SyncKeyBtn != null) SyncKeyBtn.Content = Loc.T("Sec.SyncKey");
         if (SecuritySyncHintText != null) SecuritySyncHintText.Text = Loc.T("Sec.SyncHint");
@@ -1191,8 +1205,11 @@ public partial class MainWindow : Window
         else
             s.UiLanguage = Loc.DefaultCulture;
 
-        s.UiTheme = ThemeDark.IsChecked == true ? "Dark" : "Light";
-        DesktopThemeService.Apply(s.UiTheme, this);
+        s.UiTheme = ThemeCombo.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : DesktopThemeService.Light;
+        DesktopThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
+        RefreshWallpaperUi();
         Loc.SetCulture(s.UiLanguage);
         ApplyLocalizedChrome();
 
@@ -1869,7 +1886,8 @@ public partial class MainWindow : Window
             {
                 if (row.IsInstalling) return;
                 var r = await ToolService.Instance.InstallAsync(row.Id);
-                StatusText.Text = r.Message;
+                if (r.Success)
+                    StatusText.Text = r.Message;
                 RefreshToolsPage();
                 return;
             }
@@ -1877,7 +1895,8 @@ public partial class MainWindow : Window
             if (!primary && row.IsInstalled)
             {
                 var r = await ToolService.Instance.UninstallAsync(row.Id);
-                StatusText.Text = r.Message;
+                if (r.Success)
+                    StatusText.Text = r.Message;
                 RefreshToolsPage();
                 return;
             }
@@ -2281,7 +2300,8 @@ public partial class MainWindow : Window
                 ReplaceLogItems(delta.Items);
             else
                 ReplaceLogItems(page.Items);
-            _logWatermark = _logItems.Count > 0 && delta.Items.Count > 0 ? _logItems[^1] : null;
+            // 始终记下尾部水印；DeltaSince 用 SameEntry 兜底，避免每条日志 Reset 整表
+            _logWatermark = _logItems.Count > 0 ? _logItems[^1] : null;
             _logStickToBottom = true;
             Dispatcher.UIThread.Post(ScrollLogToEndQuiet, DispatcherPriority.Loaded);
         }
@@ -2921,34 +2941,15 @@ public partial class MainWindow : Window
         RefreshDiscovery();
     }
 
-    private void ShowKey_Changed(object? sender, RoutedEventArgs? e)
-    {
-        if (ShowKeyCheck.IsChecked == true)
-        {
-            SecurityKeyBox.Text = SecurityKeyPassword.Text;
-            SecurityKeyBox.IsVisible = true;
-            SecurityKeyPassword.IsVisible = false;
-        }
-        else
-        {
-            SecurityKeyPassword.Text = SecurityKeyBox.Text;
-            SecurityKeyPassword.IsVisible = true;
-            SecurityKeyBox.IsVisible = false;
-        }
-    }
+    private string GetSecurityKey() => SecurityKeyBox.Password ?? "";
 
-    private string GetSecurityKey()
-        => ShowKeyCheck.IsChecked == true ? (SecurityKeyBox.Text ?? "") : (SecurityKeyPassword.Text ?? "");
-
-    private void SetSecurityKey(string key)
-    {
-        SecurityKeyBox.Text = key;
-        SecurityKeyPassword.Text = key;
-        ShowKey_Changed(null, null);
-    }
+    private void SetSecurityKey(string key) => SecurityKeyBox.Password = key ?? "";
 
     private void NewKey_Click(object? sender, RoutedEventArgs e)
-        => SetSecurityKey(AppSettings.GenerateKey());
+    {
+        SetSecurityKey(AppSettings.GenerateKey());
+        SecurityKeyBox.IsRevealed = true;
+    }
 
     private async void SyncKey_Click(object? sender, RoutedEventArgs e)
     {
@@ -4255,5 +4256,83 @@ public partial class MainWindow : Window
     {
         if (!FlyScreen.Helpers.PathReveal.TryReveal(item.FullPath, out var error))
             StatusText.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
+    }
+
+    private void BindThemeCombo(string? selectedId)
+    {
+        var items = ThemePalette.All
+            .Select(t => new ThemeListItem(t.Id, Loc.T(t.DisplayLocKey)))
+            .ToList();
+        ThemeCombo.ItemsSource = items;
+        ThemeCombo.SelectedItem = items.FirstOrDefault(i =>
+                                      string.Equals(i.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                                  ?? items.FirstOrDefault();
+    }
+
+    private void RefreshThemeComboLabels()
+    {
+        var id = ThemeCombo.SelectedItem is ThemeListItem cur ? cur.Id : DesktopThemeService.Current;
+        BindThemeCombo(id);
+    }
+
+    private void ThemeCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+        => RefreshWallpaperUi();
+
+    private void RefreshWallpaperUi()
+    {
+        if (WallpaperPanel == null || WallpaperPathText == null) return;
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
+        WallpaperPanel.IsVisible = ThemePalette.SupportsWallpaper(themeId);
+        var name = UiWallpaperStore.DisplayName(_host.Settings.UiWallpaperPath);
+        WallpaperPathText.Text = string.IsNullOrEmpty(name) ? Loc.T("Sys.WallpaperNone") : name;
+    }
+
+    private async void WallpaperPick_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Loc.T("Sys.Wallpaper"),
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Image")
+                {
+                    Patterns = ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp"]
+                }
+            ]
+        });
+        var file = files.FirstOrDefault();
+        if (file == null) return;
+        var local = file.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(local)) return;
+        var rel = UiWallpaperStore.Import(local, out var err);
+        if (rel == null)
+        {
+            if (StatusText != null)
+                StatusText.Text = string.Format(Loc.T("Sys.WallpaperImportFail"), err ?? "");
+            return;
+        }
+
+        _host.Settings.UiWallpaperPath = rel;
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
+        if (ThemePalette.SupportsWallpaper(themeId))
+            DesktopThemeService.Apply(themeId, this, _host.Settings.UiWallpaperPath);
+    }
+
+    private void WallpaperClear_Click(object? sender, RoutedEventArgs e)
+    {
+        _host.Settings.UiWallpaperPath = "";
+        UiWallpaperStore.ClearFiles();
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
+        DesktopThemeService.Apply(themeId, this, null);
+    }
+
+    private sealed record ThemeListItem(string Id, string Display)
+    {
+        public override string ToString() => Display;
     }
 }
