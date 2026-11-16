@@ -47,6 +47,26 @@ public interface IVideoWallService
     /// <summary>停止并回收全部画布格播放（切到列表/卡片或离开墙时调用）。</summary>
     Task StopAllTilesAsync(CancellationToken ct = default);
 
+    /// <summary>画布是否开启自动轮播（关：只显示第 1 页）。</summary>
+    bool CarouselEnabled { get; }
+
+    int CarouselPage { get; }
+    int CarouselPageCount { get; }
+    int CarouselIntervalMs { get; }
+
+    /// <summary>设置参与画布/轮播的源顺序（通常为当前分组+搜索过滤结果）。</summary>
+    void SetCarouselSources(IReadOnlyList<string> sourceIds);
+
+    Task SetCarouselEnabledAsync(bool enabled, CancellationToken ct = default);
+
+    /// <summary>翻到下一页并按布局重绑格（仅 Enabled 时有意义；UI 定时器调用）。</summary>
+    Task AdvanceCarouselAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// 按当前页把源绑到墙格。<paramref name="autoStart"/> 为 false 时由宿主绑帧面后再 StartTile。
+    /// </summary>
+    Task ApplyCarouselPageAsync(bool autoStart = false, CancellationToken ct = default);
+
     Task<AddSourceResult> AddSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);
     Task<AddSourceResult> UpdateSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);
     Task<bool> RemoveSourceAsync(string sourceId, CancellationToken ct = default);

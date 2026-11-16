@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Tools;
 using FlyScreen.Tool.VideoWall.Contracts;
@@ -18,8 +19,14 @@ public partial class VideoWallPanel : UserControl
 
     private readonly IVideoWallService? _service;
     private readonly ObservableCollection<DesktopSourceRow> _rows = new();
+    private readonly Dictionary<int, VideoWallFrameSurface> _tileSurfaces = new();
     private PanelMode _mode = PanelMode.Sources;
     private BrowseView _browseView = BrowseView.List;
+    private bool _suppressCarouselToggle;
+    private readonly DispatcherTimer _carouselTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(WallCarousel.DefaultIntervalMs)
+    };
 
     public Action<string>? StatusReporter
     {
@@ -38,11 +45,23 @@ public partial class VideoWallPanel : UserControl
         InitializeComponent();
         _service = ToolService.Instance.GetToolService<IVideoWallService>();
         SourcesList.ItemsSource = _rows;
-        Player.Closed += () => SetMode(PanelMode.Sources);
+        Player.Closed += OnPlayerClosed;
         Player.RequestInAppMaximize += OnPlayerRequestInAppMaximize;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
-        SearchBox.TextChanged += (_, _) => RefreshSources();
+        SearchBox.TextChanged += (_, _) =>
+        {
+            RefreshSources();
+            if (_mode == PanelMode.Wall)
+                _ = RefreshCanvasAsync();
+        };
+        _carouselTimer.Tick += async (_, _) =>
+        {
+            if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled) return;
+            await _service.AdvanceCarouselAsync();
+            await PresentCarouselPageAsync();
+            UpdateCarouselChrome();
+        };
         ApplyLoc();
 
         if (_service is null)
@@ -61,6 +80,8 @@ public partial class VideoWallPanel : UserControl
         AddBtn.Content = Loc.T("Tool.VideoWall.Add");
         DeleteBtn.Content = Loc.T("Tool.VideoWall.Delete");
         SearchBox.Watermark = Loc.T("Tool.VideoWall.Search");
+        CarouselToggle.Content = Loc.T("Tool.VideoWall.Carousel");
+        ToolTip.SetTip(CarouselToggle, Loc.T("Tool.VideoWall.CarouselHint"));
         HdrName.Text = Loc.T("Tool.VideoWall.ColName");
         HdrKind.Text = Loc.T("Tool.VideoWall.ColKind");
         HdrAddress.Text = Loc.T("Tool.VideoWall.Field.Address");
@@ -80,6 +101,7 @@ public partial class VideoWallPanel : UserControl
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
+        _carouselTimer.Stop();
         Player.AttachService(null);
         _ = Player.StopAsync();
         if (_service is null) return;
@@ -87,13 +109,18 @@ public partial class VideoWallPanel : UserControl
         _service.SessionChanged -= OnChanged;
     }
 
-    private void OnChanged() => Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAll);
+    private void OnChanged() => Dispatcher.UIThread.Post(() =>
+    {
+        RefreshSources();
+        if (_mode == PanelMode.Wall)
+            _ = RefreshCanvasAsync();
+    });
 
     private void RefreshAll()
     {
         RefreshSources();
         if (_mode == PanelMode.Wall)
-            RebuildWall();
+            _ = RefreshCanvasAsync();
     }
 
     private void RefreshSources()
@@ -139,6 +166,10 @@ public partial class VideoWallPanel : UserControl
         ViewCardBtn.IsEnabled = browsing;
         ViewListBtn.IsEnabled = browsing;
         ViewCanvasBtn.IsEnabled = browsing;
+        _suppressCarouselToggle = true;
+        try { CarouselToggle.IsChecked = _service?.CarouselEnabled == true; }
+        finally { _suppressCarouselToggle = false; }
+        UpdateCarouselChrome();
     }
 
     private async void ApplyBrowseView(BrowseView view)
@@ -147,15 +178,113 @@ public partial class VideoWallPanel : UserControl
         _browseView = view;
         if (leavingCanvas && _service is not null)
         {
+            _carouselTimer.Stop();
+            DetachAllTileSurfaces();
             try { await _service.StopAllTilesAsync(); }
             catch { /* ignore */ }
             WallGrid.Children.Clear();
+            _tileSurfaces.Clear();
         }
 
         if (view == BrowseView.Canvas)
+        {
             SetMode(PanelMode.Wall);
+            await RefreshCanvasAsync();
+        }
         else
             SetMode(PanelMode.Sources);
+    }
+
+    private async void OnPlayerClosed()
+    {
+        if (_browseView == BrowseView.Canvas)
+        {
+            SetMode(PanelMode.Wall);
+            await RefreshCanvasAsync();
+        }
+        else
+            SetMode(PanelMode.Sources);
+    }
+
+    private async void CarouselToggle_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressCarouselToggle || _service is null || _mode != PanelMode.Wall) return;
+        await _service.SetCarouselEnabledAsync(CarouselToggle.IsChecked == true);
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    private async Task RefreshCanvasAsync()
+    {
+        if (_service is null || _mode != PanelMode.Wall) return;
+        _service.SetCarouselSources(_rows.Select(r => r.Id).ToList());
+        await _service.ApplyCarouselPageAsync(autoStart: false);
+        RebuildWall();
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    private async Task PresentCarouselPageAsync()
+    {
+        if (_service is null) return;
+        for (var i = 0; i < _service.Layout.TileCount; i++)
+        {
+            if (i >= _service.Tiles.Count) continue;
+            var tile = _service.Tiles[i];
+            if (tile.SourceId is null || !tile.HasPlayer) continue;
+            if (_tileSurfaces.TryGetValue(i, out var surface))
+                tile.AttachFrameSink(surface);
+            try { await _service.StartTileAsync(i); }
+            catch (Exception ex) { StatusReporter?.Invoke($"视频墙格{i}开播失败: {ex.Message}"); }
+        }
+    }
+
+    private void SyncCarouselTimer()
+    {
+        if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled || _service.CarouselPageCount <= 1)
+        {
+            _carouselTimer.Stop();
+            return;
+        }
+
+        _carouselTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1000, _service.CarouselIntervalMs));
+        _carouselTimer.Start();
+    }
+
+    private void UpdateCarouselChrome()
+    {
+        if (_service is null)
+        {
+            CarouselPageText.Text = "";
+            return;
+        }
+
+        CarouselPageText.Text = string.Format(
+            Loc.T("Tool.VideoWall.CarouselPage"),
+            _service.CarouselPage + 1,
+            Math.Max(1, _service.CarouselPageCount));
+    }
+
+    private void DetachAllTileSurfaces()
+    {
+        if (_service is not null)
+        {
+            foreach (var index in _tileSurfaces.Keys.ToList())
+            {
+                if (index < _service.Tiles.Count)
+                {
+                    try { _service.Tiles[index].AttachFrameSink(null); }
+                    catch { /* ignore */ }
+                }
+            }
+        }
+
+        foreach (var surface in _tileSurfaces.Values)
+        {
+            try { surface.Clear(); } catch { /* ignore */ }
+        }
     }
 
     private void ViewCardBtn_Click(object? sender, RoutedEventArgs e)
@@ -225,13 +354,15 @@ public partial class VideoWallPanel : UserControl
         var layout = WallLayout.FromEdge(edge);
         if (layout is null) return;
         await _service.SetLayoutAsync(layout);
-        RebuildWall();
+        await RefreshCanvasAsync();
     }
 
     private void RebuildWall()
     {
         if (_service is null) return;
+        DetachAllTileSurfaces();
         WallGrid.Children.Clear();
+        _tileSurfaces.Clear();
         var layout = _service.Layout;
         // 应用内最大化：只渲染聚焦格并铺满（其余格由服务层暂停）
         var focus = _service.FocusedTileIndex;
@@ -284,58 +415,45 @@ public partial class VideoWallPanel : UserControl
                 RebuildWall();
             };
 
+            var cell = new Grid();
+            if (tile?.SourceId is not null)
+            {
+                var image = new Image
+                {
+                    Stretch = Avalonia.Media.Stretch.Uniform,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+                };
+                cell.Children.Add(image);
+                var surface = new VideoWallFrameSurface(image);
+                _tileSurfaces[i] = surface;
+                if (tile.HasPlayer)
+                    tile.AttachFrameSink(surface);
+            }
+            else
+            {
+                cell.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("Tool.VideoWall.EmptySlot"),
+                    Foreground = Avalonia.Media.Brushes.Gray,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    Margin = new Thickness(8),
+                    IsHitTestVisible = false
+                });
+            }
+
+            cell.Children.Add(restoreBtn);
+            cell.Children.Add(chrome);
+
             var border = new Border
             {
                 Margin = new Thickness(3),
                 Background = Avalonia.Media.Brushes.Black,
                 Tag = i,
-                Child = new Grid
-                {
-                    Children =
-                    {
-                        restoreBtn,
-                        new TextBlock
-                        {
-                            Text = tile?.SourceId is null
-                                ? Loc.T("Tool.VideoWall.EmptyTile")
-                                : Loc.T("Tool.VideoWall.DesktopOnly"),
-                            Foreground = Avalonia.Media.Brushes.Gray,
-                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                            Margin = new Thickness(8),
-                            IsHitTestVisible = false
-                        },
-                        chrome
-                    }
-                }
+                Child = cell
             };
-
-            var menu = new ContextMenu();
-            foreach (var s in _service.Catalog.Sources)
-            {
-                var item = new MenuItem { Header = s.Name };
-                var sourceId = s.Id;
-                var tileIndex = i;
-                item.Click += async (_, _) =>
-                {
-                    await _service.BindTileAsync(tileIndex, sourceId, autoStart: false);
-                    RebuildWall();
-                    await BeginPlaybackAsync(sourceId);
-                };
-                menu.Items.Add(item);
-            }
-
-            menu.Items.Add(new Separator());
-            var clear = new MenuItem { Header = Loc.T("Tool.VideoWall.Stop") };
-            var clearIndex = i;
-            clear.Click += async (_, _) =>
-            {
-                await _service.ClearTileAsync(clearIndex);
-                RebuildWall();
-            };
-            menu.Items.Add(clear);
-            border.ContextMenu = menu;
             border.PointerPressed += Tile_PointerPressed;
             WallGrid.Children.Add(border);
         }
@@ -384,13 +502,7 @@ public partial class VideoWallPanel : UserControl
 
         var tile = index < _service.Tiles.Count ? _service.Tiles[index] : null;
         if (tile?.SourceId is { } id)
-        {
             await BeginPlaybackAsync(id);
-            return;
-        }
-
-        if (sender is Control c && c.ContextMenu is { } menu)
-            menu.Open(c);
     }
 
     private async void SourcesList_DoubleTapped(object? sender, TappedEventArgs e)
@@ -401,6 +513,16 @@ public partial class VideoWallPanel : UserControl
 
     private async Task BeginPlaybackAsync(string id)
     {
+        if (_browseView == BrowseView.Canvas && _mode == PanelMode.Wall && _service is not null)
+        {
+            _carouselTimer.Stop();
+            DetachAllTileSurfaces();
+            try { await _service.StopAllTilesAsync(); }
+            catch { /* ignore */ }
+            WallGrid.Children.Clear();
+            _tileSurfaces.Clear();
+        }
+
         SetMode(PanelMode.Playback);
         var title = ResolvePlaybackTitle(id);
         await Player.PlayAsync(id, title);

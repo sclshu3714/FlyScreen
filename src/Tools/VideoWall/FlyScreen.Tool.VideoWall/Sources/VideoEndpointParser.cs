@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using FlyScreen.Tool.VideoWall.Contracts;
@@ -160,14 +162,15 @@ public static partial class VideoEndpointParser
   {
       if (string.IsNullOrEmpty(address)) return address;
 
-      var at = address.IndexOf('@');
-      if (at <= 0) return RedactSignedQueryValues(address);
-
       var schemeEnd = address.IndexOf("://", StringComparison.Ordinal);
-      if (schemeEnd < 0 || at <= schemeEnd + 3)
+      if (schemeEnd < 0)
           return RedactSignedQueryValues(address);
 
-      var scheme = address[..(schemeEnd + 3)];
+      var authorityStart = schemeEnd + 3;
+      if (!TryFindUserInfoSplit(address, authorityStart, out var at, out _))
+          return RedactSignedQueryValues(address);
+
+      var scheme = address[..authorityStart];
       var afterAt = address[(at + 1)..];
       return RedactSignedQueryValues(scheme + "***@" + afterAt);
   }
@@ -248,13 +251,14 @@ public static partial class VideoEndpointParser
       if (schemeIdx < 0) return false;
 
       var authorityStart = schemeIdx + 3;
-      var at = working.IndexOf('@', authorityStart);
-      if (at < 0) return false;
-
-      var slash = working.IndexOf('/', authorityStart);
-      if (slash >= 0 && at > slash) return false;
+      if (!TryFindUserInfoSplit(working, authorityStart, out var at, out var authorityEnd))
+          return false;
 
       var userInfo = working[authorityStart..at];
+      // 空 userInfo（如 udp://@239.x.x.x）不是凭据，留给组播标记处理
+      if (userInfo.Length == 0)
+          return false;
+
       var colon = userInfo.IndexOf(':');
       if (colon >= 0)
       {
@@ -266,7 +270,121 @@ public static partial class VideoEndpointParser
           user = Uri.UnescapeDataString(userInfo);
       }
 
-      working = working[..authorityStart] + working[(at + 1)..];
+      working = working[..authorityStart] + working[(at + 1)..authorityEnd] + working[authorityEnd..];
+      return true;
+  }
+
+  /// <summary>
+  /// 在 authority 内定位 userinfo 与 host 的 <c>@</c> 切点。
+  /// 密码可含 <c>@</c>：从右往左试切，右侧主机需像 IPv4 / [IPv6] / 域名。
+  /// </summary>
+  private static bool TryFindUserInfoSplit(string input, int authorityStart, out int atIndex, out int authorityEnd)
+  {
+      atIndex = -1;
+      authorityEnd = input.Length;
+      if (authorityStart < 0 || authorityStart >= input.Length)
+          return false;
+
+      for (var i = authorityStart; i < input.Length; i++)
+      {
+          var c = input[i];
+          if (c is '/' or '?' or '#')
+          {
+              authorityEnd = i;
+              break;
+          }
+      }
+
+      if (authorityEnd <= authorityStart)
+          return false;
+
+      var atPositions = new List<int>();
+      for (var i = authorityStart; i < authorityEnd; i++)
+      {
+          if (input[i] == '@')
+              atPositions.Add(i);
+      }
+
+      if (atPositions.Count == 0)
+          return false;
+
+      if (atPositions.Count == 1)
+      {
+          atIndex = atPositions[0];
+          return true;
+      }
+
+      // 多 @：优先选「右侧像合法主机」的切点（从右往左，兼容密码内嵌 @）
+      for (var i = atPositions.Count - 1; i >= 0; i--)
+      {
+          var candidate = atPositions[i];
+          var hostPart = input[(candidate + 1)..authorityEnd];
+          if (LooksLikeAuthorityHost(hostPart))
+          {
+              atIndex = candidate;
+              return true;
+          }
+      }
+
+      // 无法判定时退回最后一个 @（密码含 @ 比主机含 @ 更常见）
+      atIndex = atPositions[^1];
+      return true;
+  }
+
+  /// <summary>authority 中 @ 右侧片段是否像 host[:port]（不含路径）。</summary>
+  private static bool LooksLikeAuthorityHost(string hostAndPort)
+  {
+      if (string.IsNullOrWhiteSpace(hostAndPort))
+          return false;
+
+      // 仍含 @ 说明切早了
+      if (hostAndPort.Contains('@'))
+          return false;
+
+      string host;
+      if (hostAndPort.StartsWith('['))
+      {
+          var close = hostAndPort.IndexOf(']');
+          if (close <= 1)
+              return false;
+          host = hostAndPort[1..close];
+          return IPAddress.TryParse(host, out var ip6)
+                 && ip6.AddressFamily == AddressFamily.InterNetworkV6;
+      }
+
+      var colon = hostAndPort.IndexOf(':');
+      host = colon >= 0 ? hostAndPort[..colon] : hostAndPort;
+      if (host.Length == 0)
+          return false;
+
+      if (IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
+          return true;
+
+      return IsPlausibleHostname(host);
+  }
+
+  private static bool IsPlausibleHostname(string host)
+  {
+      if (host.Length is 0 or > 253)
+          return false;
+
+      // 纯数字且不是合法 IPv4（已在上游失败）→ 更像密码片段
+      if (host.All(char.IsDigit))
+          return false;
+
+      foreach (var label in host.Split('.'))
+      {
+          if (label.Length is 0 or > 63)
+              return false;
+          if (label[0] == '-' || label[^1] == '-')
+              return false;
+          foreach (var c in label)
+          {
+              if (!char.IsAsciiLetterOrDigit(c) && c != '-')
+                  return false;
+          }
+      }
+
       return true;
   }
 

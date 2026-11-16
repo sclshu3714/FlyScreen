@@ -49,7 +49,7 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
         Rebuild();
     }
 
-    public void BeginEdit(VideoSourceDescriptor src)
+    public void BeginEdit(VideoSourceDescriptor src, CredentialStore? credentials = null)
     {
         _kindLocked = true;
         _kind = src.Kind;
@@ -66,6 +66,20 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
             _values["bufferMs"] = buf.ToString();
         if (!string.IsNullOrWhiteSpace(src.Endpoint.Transport))
             _values["transport"] = src.Endpoint.Transport;
+        if (credentials is not null && !string.IsNullOrWhiteSpace(src.Endpoint.CredentialRef))
+        {
+            var cred = credentials.Get(src.Endpoint.CredentialRef);
+            if (cred is not null)
+            {
+                _values["credentialRef"] = src.Endpoint.CredentialRef;
+                _values["auth"] = string.IsNullOrWhiteSpace(cred.AuthKind)
+                    ? SourceFormSchema.AuthBasic
+                    : cred.AuthKind;
+                _values["username"] = cred.Username;
+                _values["password"] = cred.Password;
+            }
+        }
+
         Rebuild();
     }
 
@@ -115,6 +129,12 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
 
         var spec = SourceFormSchema.For(_kind);
         if (spec is null) return;
+
+        foreach (var field in spec.Fields)
+        {
+            if (!_values.ContainsKey(field.Key) && field.DefaultValue is not null)
+                _values[field.Key] = field.DefaultValue;
+        }
 
         foreach (var field in SourceFieldVisibility.VisibleFields(spec, _values))
         {
@@ -172,11 +192,59 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
         return entry;
     }
 
-    private Entry MakePassword(SourceFieldSpec field)
+    private View MakePassword(SourceFieldSpec field)
     {
         var entry = MakeText(field, Keyboard.Default);
         entry.IsPassword = true;
-        return entry;
+        entry.HorizontalOptions = LayoutOptions.Fill;
+
+        var eyeLabel = new Label
+        {
+            Text = "👁",
+            FontSize = 16,
+            TextColor = _muted,
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center
+        };
+        var eyeBtn = new Border
+        {
+            Stroke = _line,
+            StrokeThickness = 1,
+            BackgroundColor = _card,
+            Padding = new Thickness(10, 0),
+            HeightRequest = 36,
+            WidthRequest = 40,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            Content = eyeLabel
+        };
+        var hidden = true;
+        void ApplyEyeChrome()
+        {
+            entry.IsPassword = hidden;
+            eyeLabel.Text = hidden ? "👁" : "🙈";
+            ToolTipProperties.SetText(
+                eyeBtn,
+                Loc.T(hidden ? "Tool.VideoWall.ShowPassword" : "Tool.VideoWall.HidePassword"));
+        }
+
+        var tap = new TapGestureRecognizer();
+        tap.Tapped += (_, _) =>
+        {
+            hidden = !hidden;
+            ApplyEyeChrome();
+        };
+        eyeBtn.GestureRecognizers.Add(tap);
+        ApplyEyeChrome();
+
+        var row = new Grid
+        {
+            ColumnDefinitions = [new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto)],
+            ColumnSpacing = 6
+        };
+        row.Children.Add(entry);
+        Grid.SetColumn(eyeBtn, 1);
+        row.Children.Add(eyeBtn);
+        return row;
     }
 
     private View MakeSelect(SourceFieldSpec field)

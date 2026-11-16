@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
@@ -40,6 +41,7 @@ public partial class AddSourceDialog : Window
                 _values["bufferMs"] = buf.ToString();
             if (!string.IsNullOrWhiteSpace(edit.Endpoint.Transport))
                 _values["transport"] = edit.Endpoint.Transport;
+            LoadCredentialFields(edit);
         }
 
         if (owner is not null)
@@ -101,17 +103,36 @@ public partial class AddSourceDialog : Window
         RebuildFields();
     }
 
+    private void LoadCredentialFields(VideoSourceDescriptor edit)
+    {
+        var credRef = edit.Endpoint.CredentialRef;
+        if (string.IsNullOrWhiteSpace(credRef)) return;
+        var cred = _service.Credentials.Get(credRef);
+        if (cred is null) return;
+
+        _values["credentialRef"] = credRef;
+        _values["auth"] = string.IsNullOrWhiteSpace(cred.AuthKind)
+            ? SourceFormSchema.AuthBasic
+            : cred.AuthKind;
+        _values["username"] = cred.Username;
+        _values["password"] = cred.Password;
+    }
+
     private void RebuildFields()
     {
         FieldsPanel.Children.Clear();
         var spec = SourceFormSchema.For(_kind);
         if (spec is null) return;
 
-        foreach (var field in SourceFieldVisibility.VisibleFields(spec, _values))
+        // 先写入缺省值，再算显隐（否则 auth 未写入时 username/password 会误显示）
+        foreach (var field in spec.Fields)
         {
             if (!_values.ContainsKey(field.Key) && field.DefaultValue is not null)
                 _values[field.Key] = field.DefaultValue;
+        }
 
+        foreach (var field in SourceFieldVisibility.VisibleFields(spec, _values))
+        {
             var label = new TextBlock
             {
                 Text = Loc.T(field.LabelKey),
@@ -157,11 +178,107 @@ public partial class AddSourceDialog : Window
         return tb;
     }
 
-    private PasswordBox CreatePassword(SourceFieldSpec field)
+    private static readonly Geometry EyeOpenGeometry =
+        Geometry.Parse(
+            "M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9Z");
+
+    private static readonly Geometry EyeOffGeometry =
+        Geometry.Parse(
+            "M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.74,7.13 11.35,7 12,7Z");
+
+    /// <summary>密码框：默认掩码回显；右侧嵌入眼睛图标在 PasswordBox / TextBox 间切换。</summary>
+    private UIElement CreatePassword(SourceFieldSpec field)
     {
-        var pb = new PasswordBox { Tag = field.Key };
-        pb.PasswordChanged += (_, _) => _values[field.Key] = pb.Password;
-        return pb;
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var inputHost = new Grid { Tag = field.Key };
+        var initial = _values.TryGetValue(field.Key, out var v) ? v ?? "" : "";
+
+        var pb = new PasswordBox
+        {
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Password = initial
+        };
+        var tb = new TextBox
+        {
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Text = initial,
+            Visibility = Visibility.Collapsed
+        };
+
+        var syncing = false;
+        pb.PasswordChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            tb.Text = pb.Password;
+            _values[field.Key] = pb.Password;
+            syncing = false;
+        };
+        tb.TextChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            pb.Password = tb.Text ?? "";
+            _values[field.Key] = tb.Text;
+            syncing = false;
+        };
+
+        inputHost.Children.Add(pb);
+        inputHost.Children.Add(tb);
+        Grid.SetColumn(inputHost, 0);
+        grid.Children.Add(inputHost);
+
+        var eyePath = new Path
+        {
+            Data = EyeOpenGeometry,
+            Stretch = Stretch.Uniform,
+            Width = 16,
+            Height = 16,
+            Fill = TryFindResource("Muted") as Brush ?? Brushes.Gray
+        };
+        var eyeBtn = new Button
+        {
+            Content = new Viewbox { Width = 16, Height = 16, Child = eyePath },
+            Width = 36,
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(0),
+            ToolTip = Loc.T("Tool.VideoWall.ShowPassword"),
+            Focusable = false,
+            Style = TryFindResource("DlgBtn") as Style
+        };
+        var hidden = true;
+        eyeBtn.Click += (_, _) =>
+        {
+            hidden = !hidden;
+            if (hidden)
+            {
+                syncing = true;
+                pb.Password = tb.Text ?? "";
+                syncing = false;
+                tb.Visibility = Visibility.Collapsed;
+                pb.Visibility = Visibility.Visible;
+                eyePath.Data = EyeOpenGeometry;
+                eyeBtn.ToolTip = Loc.T("Tool.VideoWall.ShowPassword");
+            }
+            else
+            {
+                syncing = true;
+                tb.Text = pb.Password;
+                syncing = false;
+                pb.Visibility = Visibility.Collapsed;
+                tb.Visibility = Visibility.Visible;
+                eyePath.Data = EyeOffGeometry;
+                eyeBtn.ToolTip = Loc.T("Tool.VideoWall.HidePassword");
+                tb.Focus();
+                tb.CaretIndex = tb.Text?.Length ?? 0;
+            }
+        };
+        Grid.SetColumn(eyeBtn, 1);
+        grid.Children.Add(eyeBtn);
+        return grid;
     }
 
     private TextBox CreateNumber(SourceFieldSpec field)

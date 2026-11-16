@@ -10,9 +10,6 @@ using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
 using FlyScreen.ToolSdk;
-using LibVLCSharp.WPF;
-using VlcMediaPlayerNative = LibVLCSharp.Shared.MediaPlayer;
-
 namespace FlyScreen.Tool.VideoWall.Ui.Win;
 
 public partial class VideoWallPanel : UserControl
@@ -22,7 +19,7 @@ public partial class VideoWallPanel : UserControl
 
     private readonly IVideoWallService? _service;
     private readonly ObservableCollection<SourceRowVm> _rows = new();
-    private readonly Dictionary<int, VideoView> _tileViews = new();
+    private readonly Dictionary<int, VideoWallFrameSurface> _tileSurfaces = new();
     private readonly Dictionary<int, TextBlock> _tileTitleBlocks = new();
     private readonly Dictionary<int, TextBlock> _tileStatusBlocks = new();
     private readonly Dictionary<int, Border> _tileBorders = new();
@@ -32,7 +29,12 @@ public partial class VideoWallPanel : UserControl
     private string _groupFilter = "";
     private bool _suppressCombo;
     private bool _suppressSegment;
+    private bool _suppressCarouselToggle;
     private Window? _hostWindow;
+    private readonly DispatcherTimer _carouselTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(WallCarousel.DefaultIntervalMs)
+    };
 
     public Action<string>? StatusReporter
     {
@@ -52,16 +54,30 @@ public partial class VideoWallPanel : UserControl
         _service = ToolService.Instance.GetToolService<IVideoWallService>();
         SourcesGrid.ItemsSource = _rows;
         SourcesCards.ItemsSource = _rows;
-        Player.Closed += () => SetMode(PanelMode.Sources);
+        Player.Closed += OnPlayerClosed;
         Player.RequestInAppMaximize += OnPlayerRequestInAppMaximize;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
-        SearchBox.TextChanged += (_, _) => RefreshSources();
+        SearchBox.TextChanged += (_, _) =>
+        {
+            RefreshSources();
+            if (_mode == PanelMode.Wall)
+                _ = RefreshCanvasAsync();
+        };
         GroupFilter.SelectionChanged += (_, _) =>
         {
             var sel = GroupFilter.SelectedItem as string;
             _groupFilter = string.Equals(sel, Loc.T("Tool.VideoWall.GroupAll"), StringComparison.Ordinal) ? "" : sel ?? "";
             RefreshSources();
+            if (_mode == PanelMode.Wall)
+                _ = RefreshCanvasAsync();
+        };
+        _carouselTimer.Tick += async (_, _) =>
+        {
+            if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled) return;
+            await _service.AdvanceCarouselAsync();
+            await PresentCarouselPageAsync();
+            UpdateCarouselChrome();
         };
         ApplyLoc();
 
@@ -102,6 +118,8 @@ public partial class VideoWallPanel : UserControl
         AddBtn.ToolTip = Loc.T("Tool.VideoWall.Add");
         DeleteBtn.ToolTip = Loc.T("Tool.VideoWall.Delete");
         LayoutCombo.ToolTip = Loc.T("Tool.VideoWall.Layout");
+        CarouselToggle.Content = Loc.T("Tool.VideoWall.Carousel");
+        CarouselToggle.ToolTip = Loc.T("Tool.VideoWall.CarouselHint");
         EmptyTitle.Text = Loc.T("Tool.VideoWall.EmptyTitle");
         EmptyHint.Text = Loc.T("Tool.VideoWall.EmptyHint");
         ColName.Header = Loc.T("Tool.VideoWall.ColName");
@@ -125,9 +143,20 @@ public partial class VideoWallPanel : UserControl
             ViewCardBtn.IsEnabled = browsing;
             ViewListBtn.IsEnabled = browsing;
             ViewCanvasBtn.IsEnabled = browsing;
-            LayoutCombo.Visibility = _browseView == BrowseView.Canvas && browsing
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            var canvasChrome = _browseView == BrowseView.Canvas && browsing;
+            LayoutCombo.Visibility = canvasChrome ? Visibility.Visible : Visibility.Collapsed;
+            CarouselPanel.Visibility = canvasChrome ? Visibility.Visible : Visibility.Collapsed;
+            _suppressCarouselToggle = true;
+            try
+            {
+                CarouselToggle.IsChecked = _service?.CarouselEnabled == true;
+            }
+            finally
+            {
+                _suppressCarouselToggle = false;
+            }
+
+            UpdateCarouselChrome();
             ApplySegmentIconColors();
 
             var edge = _service?.Layout.Rows ?? 2;
@@ -202,7 +231,7 @@ public partial class VideoWallPanel : UserControl
             return;
         }
 
-        // 隐藏到托盘不会 Unload：收起单路 UI，并解绑墙格 VideoView
+        // 隐藏到托盘不会 Unload：收起单路 UI，并解绑墙格帧面
         ReleaseNativeSurfaces();
     }
 
@@ -212,7 +241,7 @@ public partial class VideoWallPanel : UserControl
     private void ReleaseNativeSurfaces()
     {
         Player.SuspendPlaybackUi();
-        DetachAllTileViews();
+        DetachAllTileSurfaces();
     }
 
     /// <summary>从宿主窗口拷贝主题色，使工具区与主程序样式一致。</summary>
@@ -232,6 +261,7 @@ public partial class VideoWallPanel : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _carouselTimer.Stop();
         UnhookHostWindow();
         ReleaseNativeSurfaces();
         Player.AttachService(null);
@@ -261,7 +291,7 @@ public partial class VideoWallPanel : UserControl
         {
             RefreshSources();
             if (_mode == PanelMode.Wall)
-                RefreshWallOverlays();
+                _ = RefreshCanvasAsync();
         });
 
     private void OnSessionChanged()
@@ -400,9 +430,15 @@ public partial class VideoWallPanel : UserControl
         var leavingCanvas = _browseView == BrowseView.Canvas && view != BrowseView.Canvas;
         _browseView = view;
         if (leavingCanvas)
+        {
+            _carouselTimer.Stop();
             await RecycleWallPlaybackAsync();
+        }
         if (view == BrowseView.Canvas)
+        {
             SetMode(PanelMode.Wall);
+            await RefreshCanvasAsync();
+        }
         else
             SetMode(PanelMode.Sources);
     }
@@ -423,19 +459,20 @@ public partial class VideoWallPanel : UserControl
         if (LayoutCombo.SelectedItem is not ComboBoxItem { Tag: int edge }) return;
         var layout = WallLayout.FromEdge(edge);
         if (layout is null) return;
-        // 改布局：先拆 VideoView，再停旧格并重建空壳
-        DetachAllTileViews();
+        DetachAllTileSurfaces();
         await _service.SetLayoutAsync(layout);
         if (_mode != PanelMode.Wall)
             SetMode(PanelMode.Wall);
         else
             RebuildWallGrid();
+        await RefreshCanvasAsync();
     }
 
-    /// <summary>离开画布或改布局前：解绑 HWND 并停止全部格播放，避免残帧/占用。</summary>
+    /// <summary>离开画布或改布局前：解绑帧面并停止全部格播放，避免残帧/占用。</summary>
     private async Task RecycleWallPlaybackAsync()
     {
-        DetachAllTileViews();
+        _carouselTimer.Stop();
+        DetachAllTileSurfaces();
         if (_service is not null)
         {
             try { await _service.StopAllTilesAsync(); }
@@ -443,11 +480,88 @@ public partial class VideoWallPanel : UserControl
         }
 
         WallGrid.Children.Clear();
-        _tileViews.Clear();
+        _tileSurfaces.Clear();
         _tileTitleBlocks.Clear();
         _tileStatusBlocks.Clear();
         _tileBorders.Clear();
         _tileRestoreButtons.Clear();
+    }
+
+    /// <summary>单路返回：画布模式回到墙并按轮播页重建；否则回到列表/卡片。</summary>
+    private async void OnPlayerClosed()
+    {
+        if (_browseView == BrowseView.Canvas)
+        {
+            SetMode(PanelMode.Wall);
+            await RefreshCanvasAsync();
+        }
+        else
+        {
+            SetMode(PanelMode.Sources);
+        }
+    }
+
+    private async void CarouselToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressCarouselToggle || _service is null || _mode != PanelMode.Wall) return;
+        var on = CarouselToggle.IsChecked == true;
+        await _service.SetCarouselEnabledAsync(on);
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    /// <summary>按当前分组/搜索同步源列表并铺当前轮播页。</summary>
+    private async Task RefreshCanvasAsync()
+    {
+        if (_service is null || _mode != PanelMode.Wall) return;
+        var ids = _rows.Select(r => r.Id).ToList();
+        _service.SetCarouselSources(ids);
+        await _service.ApplyCarouselPageAsync(autoStart: false);
+        RebuildWallGrid();
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    private async Task PresentCarouselPageAsync()
+    {
+        if (_service is null) return;
+        for (var i = 0; i < _service.Layout.TileCount; i++)
+        {
+            PopulateTileCell(i, preserveOtherPlayers: true);
+            var tile = i < _service.Tiles.Count ? _service.Tiles[i] : null;
+            if (tile?.SourceId is null || !tile.HasPlayer) continue;
+            AttachTileFrameSink(i);
+            try { await _service.StartTileAsync(i); }
+            catch (Exception ex) { ReportLog($"视频墙格{i}开播失败: {ex.Message}"); }
+        }
+    }
+
+    private void SyncCarouselTimer()
+    {
+        if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled || _service.CarouselPageCount <= 1)
+        {
+            _carouselTimer.Stop();
+            return;
+        }
+
+        _carouselTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1000, _service.CarouselIntervalMs));
+        _carouselTimer.Start();
+    }
+
+    private void UpdateCarouselChrome()
+    {
+        if (_service is null)
+        {
+            CarouselPageText.Text = "";
+            return;
+        }
+
+        CarouselPageText.Text = string.Format(
+            Loc.T("Tool.VideoWall.CarouselPage"),
+            _service.CarouselPage + 1,
+            Math.Max(1, _service.CarouselPageCount));
     }
 
     private void AddBtn_Click(object sender, RoutedEventArgs e)
@@ -512,9 +626,9 @@ public partial class VideoWallPanel : UserControl
     private void RebuildWallGrid()
     {
         if (_service is null) return;
-        DetachAllTileViews();
+        DetachAllTileSurfaces();
         WallGrid.Children.Clear();
-        _tileViews.Clear();
+        _tileSurfaces.Clear();
         _tileTitleBlocks.Clear();
         _tileStatusBlocks.Clear();
         _tileBorders.Clear();
@@ -618,7 +732,7 @@ public partial class VideoWallPanel : UserControl
     }
 
     /// <summary>
-    /// 只重建指定格的内容。绑定/清除时 MUST NOT 整墙重建，否则会拆掉其它格的 VideoView 导致停播。
+    /// 只重建指定格的内容。绑定/清除时 MUST NOT 整墙重建，否则会拆掉其它格的帧面导致停播。
     /// </summary>
     private void PopulateTileCell(int index, bool preserveOtherPlayers)
     {
@@ -631,11 +745,13 @@ public partial class VideoWallPanel : UserControl
             return;
         }
 
-        // 仅卸本格 VideoView
-        if (_tileViews.TryGetValue(index, out var oldView))
+        // 仅卸本格软件帧面
+        if (_tileSurfaces.TryGetValue(index, out var oldSurface))
         {
-            try { oldView.MediaPlayer = null; } catch { /* ignore */ }
-            _tileViews.Remove(index);
+            try { oldSurface.Clear(); } catch { /* ignore */ }
+            if (index < _service.Tiles.Count)
+                _service.Tiles[index].AttachFrameSink(null);
+            _tileSurfaces.Remove(index);
         }
 
         _tileTitleBlocks.Remove(index);
@@ -700,24 +816,26 @@ public partial class VideoWallPanel : UserControl
 
         if (tile?.SourceId is not null)
         {
-            var view = new VideoView
+            // 与单路播放一致：软件帧 Image，避免 LibVLCSharp VideoView ForegroundWindow 黑屏
+            var image = new System.Windows.Controls.Image
             {
                 Tag = index,
+                Stretch = Stretch.Uniform,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
-            Grid.SetRow(view, 1);
-            root.Children.Add(view);
-            _tileViews[index] = view;
-            var captureIndex = index;
-            view.Loaded += (_, _) => AttachTilePlayer(captureIndex);
+            Grid.SetRow(image, 1);
+            root.Children.Add(image);
+            var surface = new VideoWallFrameSurface(image);
+            _tileSurfaces[index] = surface;
+            AttachTileFrameSink(index);
         }
         else
         {
             var empty = new TextBlock
             {
-                Text = Loc.T("Tool.VideoWall.EmptyTile"),
-                Foreground = Brushes.White,
+                Text = Loc.T("Tool.VideoWall.EmptySlot"),
+                Foreground = Brushes.Gray,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center,
@@ -735,7 +853,7 @@ public partial class VideoWallPanel : UserControl
     private string ResolveTileTitle(TileSession? tile)
     {
         if (tile?.SourceId is not { } sid || _service is null)
-            return Loc.T("Tool.VideoWall.EmptyTile");
+            return Loc.T("Tool.VideoWall.EmptySlot");
         return _service.Catalog.Sources.FirstOrDefault(s => s.Id == sid)?.Name ?? sid;
     }
 
@@ -748,13 +866,11 @@ public partial class VideoWallPanel : UserControl
         {
             var tile = i < tiles.Count ? tiles[i] : null;
             var hasSource = tile?.SourceId is not null;
-            var hasView = _tileViews.ContainsKey(i);
-            if (hasSource != hasView)
+            var hasSurface = _tileSurfaces.ContainsKey(i);
+            if (hasSource != hasSurface)
             {
                 // 只修这一格，不动其它正在播的格
                 PopulateTileCell(i, preserveOtherPlayers: true);
-                if (hasSource)
-                    AttachTilePlayer(i);
                 continue;
             }
 
@@ -765,41 +881,50 @@ public partial class VideoWallPanel : UserControl
         }
     }
 
-    private void AttachTilePlayer(int index)
+    private void AttachTileFrameSink(int index)
     {
         if (_service is null) return;
-        if (!_tileViews.TryGetValue(index, out var view)) return;
-        var tile = index < _service.Tiles.Count ? _service.Tiles[index] : null;
-        if (tile?.NativePlaybackEngine is not VlcMediaPlayerNative mp)
-        {
-            try { view.MediaPlayer = null; } catch { /* ignore */ }
-            return;
-        }
-
+        if (!_tileSurfaces.TryGetValue(index, out var surface)) return;
+        if (index >= _service.Tiles.Count) return;
+        var tile = _service.Tiles[index];
+        if (!tile.HasPlayer) return;
         try
         {
-            if (!ReferenceEquals(view.MediaPlayer, mp))
-                view.MediaPlayer = mp;
+            tile.AttachFrameSink(surface);
         }
-        catch { /* VideoView 可能正在重建 */ }
+        catch (Exception ex)
+        {
+            ReportLog($"视频墙格{index}绑帧面失败: {ex.Message}");
+        }
     }
 
-    private void DetachAllTileViews()
+    private void DetachAllTileSurfaces()
     {
-        foreach (var view in _tileViews.Values)
+        if (_service is not null)
         {
-            try { view.MediaPlayer = null; } catch { /* ignore */ }
+            foreach (var index in _tileSurfaces.Keys.ToList())
+            {
+                if (index < _service.Tiles.Count)
+                {
+                    try { _service.Tiles[index].AttachFrameSink(null); }
+                    catch { /* ignore */ }
+                }
+            }
+        }
+
+        foreach (var surface in _tileSurfaces.Values)
+        {
+            try { surface.Clear(); } catch { /* ignore */ }
         }
     }
 
     private async Task BindTileInPlaceAsync(int index, string sourceId)
     {
         if (_service is null) return;
-        // 先建/换本格 VideoView，再 Start；禁止 RebuildWallGrid
+        // 先建播放器 → 铺软件帧面 → AttachFrameSink → Start（与单路出画路径一致）
         await _service.BindTileAsync(index, sourceId, autoStart: false).ConfigureAwait(true);
         PopulateTileCell(index, preserveOtherPlayers: true);
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        AttachTilePlayer(index);
+        AttachTileFrameSink(index);
         await _service.StartTileAsync(index).ConfigureAwait(true);
         if (_tileTitleBlocks.TryGetValue(index, out var title))
             title.Text = ResolveTileTitle(index < _service.Tiles.Count ? _service.Tiles[index] : null);
@@ -816,24 +941,19 @@ public partial class VideoWallPanel : UserControl
         var index = ResolveTileIndex(sender);
         if (index < 0) return;
 
-        // 单击忽略；仅双击
+        // 单击忽略；有源双击进单路（画布由源列表自动铺格，不再双击添加）
         if (e.ClickCount < 2) return;
         e.Handled = true;
 
         var tile = index < _service.Tiles.Count ? _service.Tiles[index] : null;
         if (tile?.SourceId is { } id)
-            BeginPlayback(id); // 有源：进单画面
-        else
-            ShowTileBindMenu(index, sender as FrameworkElement); // 空格：选源绑定
+            BeginPlayback(id);
     }
 
     private void Tile_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (_service is null) return;
-        var index = ResolveTileIndex(sender);
-        if (index < 0) return;
+        // 画布自动铺格：右键菜单绑源已取消
         e.Handled = true;
-        ShowTileBindMenu(index, sender as FrameworkElement);
     }
 
     private static int ResolveTileIndex(object sender)
@@ -859,43 +979,6 @@ public partial class VideoWallPanel : UserControl
         return null;
     }
 
-    private void ShowTileBindMenu(int index, FrameworkElement? placement)
-    {
-        if (_service is null) return;
-        var menu = new ContextMenu();
-        if (placement != null)
-            menu.PlacementTarget = placement;
-
-        if (_service.Catalog.Sources.Count == 0)
-        {
-            var empty = new MenuItem { Header = Loc.T("Tool.VideoWall.EmptyTitle"), IsEnabled = false };
-            menu.Items.Add(empty);
-        }
-        else
-        {
-            foreach (var s in _service.Catalog.Sources)
-            {
-                var item = new MenuItem { Header = s.Name, Tag = (index, s.Id) };
-                item.Click += async (_, _) =>
-                {
-                    if (item.Tag is not ValueTuple<int, string> t) return;
-                    await BindTileInPlaceAsync(t.Item1, t.Item2);
-                };
-                menu.Items.Add(item);
-            }
-        }
-
-        menu.Items.Add(new Separator());
-        var clear = new MenuItem { Header = Loc.T("Tool.VideoWall.Stop") };
-        clear.Click += async (_, _) =>
-        {
-            await _service.ClearTileAsync(index);
-            PopulateTileCell(index, preserveOtherPlayers: true);
-        };
-        menu.Items.Add(clear);
-        menu.IsOpen = true;
-    }
-
     private void SourcesGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         var row = SelectedRow();
@@ -916,8 +999,12 @@ public partial class VideoWallPanel : UserControl
         }
     }
 
-    private void BeginPlayback(string sourceId)
+    private async void BeginPlayback(string sourceId)
     {
+        // 画布进单路：停墙避免同路双开；返回时按轮播页重建
+        if (_browseView == BrowseView.Canvas && _mode == PanelMode.Wall)
+            await RecycleWallPlaybackAsync();
+
         SetMode(PanelMode.Playback);
         _ = Player.PlayAsync(sourceId, ResolvePlaybackTitle(sourceId));
     }

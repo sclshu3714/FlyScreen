@@ -13,6 +13,8 @@ public partial class AddSourceWindow : Window
     private readonly IVideoWallService? _service;
     private readonly string? _editingId;
     private readonly VideoSourceKind? _fixedKind;
+    private bool _passHidden = true;
+    private string? _editingCredentialRef;
 
     /// <summary>供 Avalonia 资源加载器发现；运行时请用带服务参数的构造。</summary>
     public AddSourceWindow()
@@ -35,6 +37,14 @@ public partial class AddSourceWindow : Window
         GroupCombo.ItemsSource = service.Catalog.Groups.Select(g => g.Name).ToList();
         GroupCombo.PlaceholderText = Loc.T("Tool.VideoWall.Field.GroupPlaceholder");
 
+        AuthCombo.ItemsSource = new List<string>
+        {
+            Loc.T("Tool.VideoWall.Auth.None"),
+            Loc.T("Tool.VideoWall.Auth.Basic"),
+            Loc.T("Tool.VideoWall.Auth.Digest")
+        };
+        AuthCombo.SelectedIndex = 0;
+
         if (edit is not null)
         {
             var kinds = SourceFormSchema.Types
@@ -46,21 +56,42 @@ public partial class AddSourceWindow : Window
             NameBox.Text = edit.Name;
             AddressBox.Text = edit.Endpoint.Address;
             GroupCombo.Text = edit.GroupId ?? "";
+            if (!string.IsNullOrWhiteSpace(edit.Endpoint.CredentialRef))
+            {
+                var cred = service.Credentials.Get(edit.Endpoint.CredentialRef);
+                if (cred is not null)
+                {
+                    _editingCredentialRef = edit.Endpoint.CredentialRef;
+                    AuthCombo.SelectedIndex = cred.AuthKind switch
+                    {
+                        SourceFormSchema.AuthDigest => 2,
+                        SourceFormSchema.AuthBasic => 1,
+                        _ => 1
+                    };
+                    UserBox.Text = cred.Username;
+                    PassBox.Text = cred.Password;
+                }
+            }
         }
         else
         {
             TypeCombo.SelectedIndex = 0;
         }
 
-        AuthCombo.ItemsSource = new List<string>
-        {
-            Loc.T("Tool.VideoWall.Auth.None"),
-            Loc.T("Tool.VideoWall.Auth.Basic"),
-            Loc.T("Tool.VideoWall.Auth.Digest")
-        };
-        AuthCombo.SelectedIndex = 0;
+        PassRevealBtn.Content = "👁";
+        ToolTip.SetTip(PassRevealBtn, Loc.T("Tool.VideoWall.ShowPassword"));
         TypeCombo.SelectionChanged += (_, _) => UpdateLocalFileUi();
         UpdateLocalFileUi();
+    }
+
+    private void PassRevealBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        _passHidden = !_passHidden;
+        PassBox.PasswordChar = _passHidden ? '●' : default;
+        PassRevealBtn.Content = _passHidden ? "👁" : "🙈";
+        ToolTip.SetTip(
+            PassRevealBtn,
+            Loc.T(_passHidden ? "Tool.VideoWall.ShowPassword" : "Tool.VideoWall.HidePassword"));
     }
 
     public bool Saved { get; private set; }
@@ -149,6 +180,7 @@ public partial class AddSourceWindow : Window
             ["auth"] = AuthValue(AuthCombo.SelectedIndex),
             ["username"] = UserBox.Text,
             ["password"] = PassBox.Text,
+            ["credentialRef"] = _editingCredentialRef,
             ["decode"] = "auto",
             ["bufferMs"] = "800",
             ["transport"] = "tcp",

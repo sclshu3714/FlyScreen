@@ -30,7 +30,11 @@
         </StackPanel>
         <StackPanel Spacing="4">
           <TextBlock x:Name="PassLabel" FontSize="12" Opacity="0.7"/>
-          <TextBox x:Name="PassBox" PasswordChar="●" MinHeight="36"/>
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+            <TextBox x:Name="PassBox" PasswordChar="●" MinHeight="36"/>
+            <Button x:Name="PassRevealBtn" Grid.Column="1" Width="40" MinHeight="36"
+                    Click="PassRevealBtn_Click" ToolTip.Tip=""/>
+          </Grid>
         </StackPanel>
         <StackPanel Spacing="4">
           <TextBlock x:Name="GroupLabel" FontSize="12" Opacity="0.7"/>

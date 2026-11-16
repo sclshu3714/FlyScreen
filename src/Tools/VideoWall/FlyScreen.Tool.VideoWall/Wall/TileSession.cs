@@ -38,11 +38,21 @@ public sealed class TileSession : IDisposable
 
     public MediaStats? LastStats { get; private set; }
 
-    /// <summary>底层原生播放引擎（LibVLC MediaPlayer），供格内 VideoView 绑定。</summary>
+    /// <summary>底层原生播放引擎（LibVLC MediaPlayer），供格内 VideoView / HWND 绑定。</summary>
     public object? NativePlaybackEngine
         => _player is VlcMediaPlayer vlc ? vlc.NativeMediaPlayer : null;
 
+    /// <summary>是否已创建播放器（可能尚未 Start）。</summary>
+    public bool HasPlayer
+    {
+        get { lock (_gate) return _player is not null; }
+    }
+
     public event Action<TileSession>? Changed;
+
+    /// <summary>绑定软件帧接收面（与 HWND 互斥）。须在 <see cref="StartBoundPlaybackAsync"/> 之前调用。</summary>
+    public void AttachFrameSink(IVideoFrameSink? sink)
+        => _player?.AttachFrameSink(sink);
 
     public async Task BindAsync(
         VideoEndpoint endpoint,

@@ -337,6 +337,8 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Button x:Name="AddBtn" Grid.Column="0" Style="{StaticResource IconPrimaryBtn}"
@@ -378,9 +380,16 @@
         <ComboBox x:Name="LayoutCombo" Grid.Column="3" Style="{StaticResource ToolBarCombo}"
                   Width="84" Margin="0,0,6,0" Visibility="Collapsed"
                   SelectionChanged="LayoutCombo_SelectionChanged"/>
-        <ComboBox x:Name="GroupFilter" Grid.Column="4" Style="{StaticResource ToolBarCombo}"
+        <StackPanel x:Name="CarouselPanel" Grid.Column="4" Orientation="Horizontal"
+                    VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed">
+          <CheckBox x:Name="CarouselToggle" VerticalAlignment="Center" Margin="0,0,6,0"
+                    Checked="CarouselToggle_Changed" Unchecked="CarouselToggle_Changed"/>
+          <TextBlock x:Name="CarouselPageText" VerticalAlignment="Center" FontSize="12"
+                     Foreground="{DynamicResource Muted}"/>
+        </StackPanel>
+        <ComboBox x:Name="GroupFilter" Grid.Column="5" Style="{StaticResource ToolBarCombo}"
                   Width="120" Margin="0,0,6,0"/>
-        <TextBox x:Name="SearchBox" Grid.Column="5" Style="{StaticResource ToolBarTextBox}"/>
+        <TextBox x:Name="SearchBox" Grid.Column="6" Style="{StaticResource ToolBarTextBox}"/>
       </Grid>
     </Border>
 
@@ -434,18 +443,28 @@
               </ListView.View>
             </ListView>
             <ScrollViewer x:Name="SourcesCardsHost" Visibility="Collapsed"
-                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          Padding="4">
               <ItemsControl x:Name="SourcesCards">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
-                    <WrapPanel/>
+                    <WrapPanel Orientation="Horizontal" ItemWidth="220"/>
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemContainerStyle>
+                  <Style TargetType="ContentPresenter">
+                    <Setter Property="Width" Value="220"/>
+                    <Setter Property="Margin" Value="6"/>
+                    <Setter Property="HorizontalAlignment" Value="Left"/>
+                    <Setter Property="VerticalAlignment" Value="Top"/>
+                  </Style>
+                </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <Border Width="180" MinHeight="132" Margin="8" Padding="10" CornerRadius="8"
+                    <Border Width="220" MinHeight="132" Margin="0" Padding="10" CornerRadius="8"
                             BorderBrush="{DynamicResource Line}" BorderThickness="1"
                             Background="{DynamicResource CardBg}" Cursor="Hand"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
                             MouseLeftButtonDown="Card_MouseLeftButtonDown">
                       <Grid>
                         <Grid.RowDefinitions>

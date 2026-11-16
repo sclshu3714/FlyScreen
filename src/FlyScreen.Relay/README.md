@@ -33,6 +33,8 @@ docker compose up -d --build
 
 工程内脚本会构建镜像并打上 `latest` + 版本标签（默认取 git describe，否则用时间戳）。**导出 tar 只含版本标签**，避免 `docker load` / 群晖导入后出现 `latest` 与版本两条。
 
+脚本默认开启 **BuildKit**，构建成功后执行 `docker image prune -f`，避免多阶段构建的 SDK 中间层、以及重复打包顶掉标签后的悬空 `<none>` 镜像堆积。若不需要清理，加 `-NoPrune` / `--no-prune`。
+
 ```powershell
 cd src/FlyScreen.Relay
 
@@ -54,6 +56,12 @@ Linux / macOS：
 ```bash
 chmod +x tools/pack-docker.sh
 ./tools/pack-docker.sh --mirror --tag 1.0.0 --save
+```
+
+已堆积的 `<none>` 可立即清理（只删无标签且未被容器引用的镜像）：
+
+```bash
+docker image prune -f
 ```
 
 导出文件默认在 `out/flyscreen-relay-<tag>.tar`。服务器上：

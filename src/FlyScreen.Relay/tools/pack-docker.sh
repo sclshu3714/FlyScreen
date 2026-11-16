@@ -16,6 +16,7 @@ OUT_DIR=""
 PUSH=0
 NO_CACHE=0
 MIRROR=0
+NO_PRUNE=0
 SDK_IMAGE=""
 RUNTIME_IMAGE=""
 LOAD_PATH=""
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --push) PUSH=1; shift ;;
     --no-cache) NO_CACHE=1; shift ;;
     --mirror) MIRROR=1; shift ;;
+    --no-prune) NO_PRUNE=1; shift ;;
     --sdk-image) SDK_IMAGE="$2"; shift 2 ;;
     --runtime-image) RUNTIME_IMAGE="$2"; shift 2 ;;
     --load) LOAD_PATH="$2"; shift 2 ;;
@@ -78,6 +80,9 @@ if [[ -n "$LOAD_PATH" ]]; then
   exit 0
 }
 
+# BuildKit：中间阶段进缓存，不会像旧 builder 那样留下大量 <none> 镜像
+export DOCKER_BUILDKIT=1
+
 RESOLVED_TAG="$(resolve_tag)"
 REFS=("${IMAGE_NAME}:latest" "${IMAGE_NAME}:${RESOLVED_TAG}")
 if [[ -n "$REGISTRY" ]]; then
@@ -87,6 +92,7 @@ fi
 
 echo "==> 工程目录: $RELAY_ROOT"
 echo "==> 镜像标签: ${REFS[*]}"
+echo "==> DOCKER_BUILDKIT=1"
 
 [[ -f "$RELAY_ROOT/Dockerfile" ]] || { echo "未找到 Dockerfile" >&2; exit 1; }
 
@@ -112,6 +118,12 @@ BUILD_ARGS+=(.)
 
 echo "==> docker ${BUILD_ARGS[*]}"
 docker "${BUILD_ARGS[@]}"
+
+if [[ "$NO_PRUNE" -eq 0 ]]; then
+  # 去掉本次/历史重建顶掉标签后的悬空镜像；不影响已打标签的 flyscreen-relay:*
+  echo "==> docker image prune -f  （清理悬空 <none> 镜像）"
+  docker image prune -f || echo "警告: docker image prune 失败，可稍后手动执行: docker image prune -f" >&2
+fi
 
 EXPORT_PATH=""
 if [[ "$SAVE" -eq 1 ]]; then

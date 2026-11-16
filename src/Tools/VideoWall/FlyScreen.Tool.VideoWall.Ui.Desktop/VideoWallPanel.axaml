@@ -20,6 +20,8 @@
         <Button x:Name="Layout2Btn" Tag="2" Click="LayoutBtn_Click" Content="2×2"/>
         <Button x:Name="Layout3Btn" Tag="3" Click="LayoutBtn_Click" Content="3×3"/>
         <Button x:Name="Layout4Btn" Tag="4" Click="LayoutBtn_Click" Content="4×4"/>
+        <CheckBox x:Name="CarouselToggle" IsCheckedChanged="CarouselToggle_Changed" Margin="8,0,0,0"/>
+        <TextBlock x:Name="CarouselPageText" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
       </StackPanel>
       <TextBox x:Name="SearchBox" Width="180" Watermark=""/>
     </StackPanel>

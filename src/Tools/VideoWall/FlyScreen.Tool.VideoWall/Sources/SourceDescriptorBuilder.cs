@@ -33,17 +33,35 @@ public static class SourceDescriptorBuilder
 
         string? credRef = null;
         var auth = values.GetValueOrDefault("auth") ?? SourceFormSchema.AuthNone;
+        var user = values.GetValueOrDefault("username")?.Trim();
+        var pass = values.GetValueOrDefault("password") ?? "";
+
+        // 地址内嵌 user:pass@（含密码中的 @）已由解析器抽出；表单未填认证时自动入库
+        if (auth == SourceFormSchema.AuthNone && !string.IsNullOrEmpty(parse.User))
+        {
+            auth = SourceFormSchema.AuthBasic;
+            user = parse.User;
+            pass = parse.Password ?? "";
+        }
+        else if (!string.IsNullOrEmpty(parse.User))
+        {
+            if (string.IsNullOrWhiteSpace(user))
+                user = parse.User;
+            if (string.IsNullOrEmpty(pass) && parse.Password is not null)
+                pass = parse.Password;
+        }
+
         if (auth != SourceFormSchema.AuthNone)
         {
-            var user = values.GetValueOrDefault("username")?.Trim();
-            var pass = values.GetValueOrDefault("password") ?? "";
             if (string.IsNullOrWhiteSpace(user))
             {
                 error = "请填写用户名";
                 return null;
             }
 
-            credRef = credentials.Save(null, user, pass, auth);
+            // 编辑时复用原 credentialRef，避免每次保存产生孤儿凭据
+            var existingRef = values.GetValueOrDefault("credentialRef");
+            credRef = credentials.Save(existingRef, user, pass, auth);
         }
 
         int? bufferMs = int.TryParse(values.GetValueOrDefault("bufferMs"), out var buf) ? buf : null;

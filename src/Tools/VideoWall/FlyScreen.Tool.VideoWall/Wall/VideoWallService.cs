@@ -23,6 +23,7 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
     private WallLayout _layout = WallLayout.TwoByTwo;
     private int? _focusedTileIndex;
     private readonly HashSet<int> _pausedByFocus = [];
+    private readonly WallCarousel _carousel = new();
 
     public VideoWallService()
     {
@@ -77,6 +78,80 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
     public int? FocusedTileIndex
     {
         get { lock (_gate) return _focusedTileIndex; }
+    }
+
+    public bool CarouselEnabled
+    {
+        get { lock (_gate) return _carousel.Enabled; }
+    }
+
+    public int CarouselPage
+    {
+        get { lock (_gate) return _carousel.CurrentPage; }
+    }
+
+    public int CarouselPageCount
+    {
+        get { lock (_gate) return _carousel.PageCount; }
+    }
+
+    public int CarouselIntervalMs
+    {
+        get { lock (_gate) return _carousel.IntervalMs; }
+    }
+
+    public void SetCarouselSources(IReadOnlyList<string> sourceIds)
+    {
+        lock (_gate)
+        {
+            _carousel.SetPageSize(_layout.TileCount);
+            _carousel.SetSources(sourceIds);
+        }
+    }
+
+    public Task SetCarouselEnabledAsync(bool enabled, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            _carousel.SetEnabled(enabled);
+            _carousel.SetPageSize(_layout.TileCount);
+        }
+
+        return ApplyCarouselPageAsync(autoStart: false, ct);
+    }
+
+    public Task AdvanceCarouselAsync(CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            if (!_carousel.Enabled)
+                return Task.CompletedTask;
+            _carousel.SetPageSize(_layout.TileCount);
+            _carousel.NextPage();
+        }
+
+        return ApplyCarouselPageAsync(autoStart: false, ct);
+    }
+
+    public async Task ApplyCarouselPageAsync(bool autoStart = false, CancellationToken ct = default)
+    {
+        IReadOnlyList<string?> slots;
+        int tileCount;
+        lock (_gate)
+        {
+            _carousel.SetPageSize(_layout.TileCount);
+            slots = _carousel.GetPageSlots();
+            tileCount = _layout.TileCount;
+        }
+
+        for (var i = 0; i < tileCount; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var sourceId = i < slots.Count ? slots[i] : null;
+            await BindTileAsync(i, sourceId, autoStart, ct).ConfigureAwait(false);
+        }
+
+        RaiseSession();
     }
 
     public Task FocusTileAsync(int? tileIndex, CancellationToken ct = default)
@@ -237,7 +312,10 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         }
 
         lock (_gate)
+        {
             EnsureTiles(layout);
+            _carousel.SetPageSize(layout.TileCount);
+        }
 
         RaiseSession();
     }
