@@ -130,7 +130,7 @@
     <PropertyGroup>
       <_FsMauiWinPub>$(MSBuildThisFileDirectory)bin\publish\maui-win-x64</_FsMauiWinPub>
     </PropertyGroup>
-    <Exec Command="dotnet publish &quot;$(MSBuildProjectFullPath)&quot; -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o &quot;$(_FsMauiWinPub)&quot;" />
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectFullPath)&quot; -c Release -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o &quot;$(_FsMauiWinPub)&quot;" />
     <Message Importance="High" Text="MAUI win-x64 → $(_FsMauiWinPub)" />
   </Target>
 

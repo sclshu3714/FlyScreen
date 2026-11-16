@@ -1,7 +1,9 @@
 namespace FlyScreen.Ui.Theme.Icons;
 
 /// <summary>
-/// 图标码对应的 Path Data 字符串，供 XAML <c>{x:Static}</c> 直接绑定（Maui / Avalonia）。
+/// 图标码对应的 Path Data 字符串，供 XAML <c>{x:Static}</c> 绑定。
+/// Avalonia 的 Path.Data 接受 string；MAUI 的 Path.Data 需要 Geometry，请用
+/// <c>FlyScreen.Ui.Theme.Maui.Icons.MauiIcon</c> 的 Geometry 静态属性。
 /// </summary>
 public static class IconPaths
 {

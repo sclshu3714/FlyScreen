@@ -37,8 +37,10 @@ public static class TargetCatalog
                 Kind = "Exe",
                 ProjectPath = @"src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj",
                 Framework = "net10.0-windows10.0.19041.0",
+                // WindowsAppSDKSelfContained 勿用 -p 全局传入：类库 AnyCPU 无 RID 会报
+                // "requires a supported Windows architecture"。由 App.Maui.csproj 在有 RID 时本地开启。
                 ExtraArgs =
-                    "-p:FlyScreenMauiTfms=windows -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false -p:IncludeAllContentForSelfExtract=true",
+                    "-p:FlyScreenMauiTfms=windows -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:PublishReadyToRun=false -p:IncludeAllContentForSelfExtract=true",
                 SupportsInstaller = true,
                 UsesWindowsSetup = true,
                 SupportsVddOffline = true,
@@ -49,7 +51,7 @@ public static class TargetCatalog
                         Framework = "net10.0-windows10.0.19041.0",
                         Runtimes = ["win-x64", "win-arm64"],
                         ExtraArgsTemplate =
-                            "-p:FlyScreenMauiTfms=windows -p:RuntimeIdentifierOverride={rid} -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:PublishReadyToRun=false -p:IncludeAllContentForSelfExtract=true"
+                            "-p:FlyScreenMauiTfms=windows -p:RuntimeIdentifierOverride={rid} -p:WindowsPackageType=None -p:PublishReadyToRun=false -p:IncludeAllContentForSelfExtract=true"
                     }
                 ]
             },
