@@ -43,7 +43,9 @@ public sealed record ThemeInfo(
     string DisplayLocKey,
     ThemeColors Colors,
     bool IsDark,
-    ThemeColors? MauiColors = null)
+    ThemeColors? MauiColors = null,
+    /// <summary>是否支持主界面背景图（淡色/深色为 false，勿套用壁纸）。</summary>
+    bool SupportsWallpaper = false)
 {
     public ThemeColors ResolveColors(bool maui = false)
         => maui && MauiColors is not null ? MauiColors : Colors;
@@ -54,6 +56,7 @@ public static class ThemePalette
 {
     public const string LightName = "Light";
     public const string DarkName = "Dark";
+    public const string CustomName = "Custom";
 
     public static ThemeColors Light { get; } = new(
         Blue: "#2563EB",
@@ -124,11 +127,43 @@ public static class ThemePalette
     /// <summary>MAUI 暗色 ControlBg 略浅于卡片，保持历史观感。</summary>
     public static ThemeColors DarkMaui { get; } = Dark with { ControlBg = "#0B1220" };
 
+    /// <summary>
+    /// 自定义（背景图）主题：侧栏/卡片/底栏高透明，壁纸透过整窗；
+    /// 控件底略实心，保证按钮字可读。无壁纸时各端须铺浅色衬底，避免半透明衬黑。
+    /// </summary>
+    public static ThemeColors Custom { get; } = Light with
+    {
+        // ~30–45% 不透明度：标题/侧栏/卡片大面积透出壁纸
+        WinBg = "#4DF7F8FA",
+        PaneBg = "#59FFFFFF",
+        CardBg = "#66FFFFFF",
+        SubtleBg = "#4DF3F4F6",
+        ListBg = "#59F9FAFB",
+        MatrixBg = "#4DF8FAFC",
+        // 按钮/输入略实，避免发黑看不清
+        ControlBg = "#B3FFFFFF",
+        ControlHover = "#CCF9FAFB",
+        ControlBorder = "#99D1D5DB",
+        BlueSoft = "#99DBEAFE",
+        BlueHover = "#B3EFF6FF",
+        SuccessSoft = "#99ECFDF5",
+        WarnSoft = "#99FEF3C7",
+        ToolCardNotInstalledBg = "#66F3F4F6",
+        ToolCardInstalledBg = "#66ECFDF5",
+        ToolCardRunningBg = "#66DBEAFE",
+        ToolCardInstallingBg = "#66EFF6FF",
+        Line = "#66E5E7EB",
+        ScrollThumb = "#99CBD5E1",
+        ScrollThumbHover = "#B394A3B8",
+        ScrollThumbDrag = "#CC64748B"
+    };
+
     private static readonly object Gate = new();
     private static readonly List<ThemeInfo> Themes =
     [
         new(LightName, "Sys.StyleLight", Light, IsDark: false),
-        new(DarkName, "Sys.StyleDark", Dark, IsDark: true, MauiColors: DarkMaui)
+        new(DarkName, "Sys.StyleDark", Dark, IsDark: true, MauiColors: DarkMaui),
+        new(CustomName, "Sys.StyleCustom", Custom, IsDark: false, SupportsWallpaper: true)
     ];
 
     /// <summary>已注册主题（只读快照，按注册顺序）。</summary>
@@ -177,6 +212,9 @@ public static class ThemePalette
 
     public static bool IsDark(string? theme)
         => Resolve(theme).IsDark;
+
+    public static bool SupportsWallpaper(string? theme)
+        => Resolve(theme).SupportsWallpaper;
 
     /// <summary>按 Id 取色板；未知回退淡色。</summary>
     public static ThemeColors Get(string? id, bool maui = false)

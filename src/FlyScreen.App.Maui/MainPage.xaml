@@ -17,7 +17,11 @@
     </ContentPage.Resources>
 
     <Grid>
-    <Grid x:Name="RootGrid" RowDefinitions="Auto,*">
+    <Image x:Name="WallpaperImage" Aspect="AspectFill" IsVisible="False" InputTransparent="True"
+           HorizontalOptions="Fill" VerticalOptions="Fill" ZIndex="0"/>
+    <BoxView x:Name="WallpaperScrim" Color="#10000000" IsVisible="False" InputTransparent="True"
+             HorizontalOptions="Fill" VerticalOptions="Fill" ZIndex="0"/>
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,*" ZIndex="1">
         <!-- 手机顶栏：汉堡 + 标题 + 投影（对齐电脑标题栏入口；触控板页另有同名按钮） -->
         <Grid x:Name="PhoneTopBar" IsVisible="False" HeightRequest="48" Padding="4,0,8,0"
               ColumnDefinitions="Auto,*,Auto"
@@ -296,14 +300,48 @@
                             </Border>
 
                             <Border x:Name="SysCard" Grid.Column="2" Style="{StaticResource Card}" Padding="12,8">
-                                <VerticalStackLayout Spacing="4">
+                                <VerticalStackLayout Spacing="8">
                                     <Label x:Name="SysTitleText" Text="系统设置" FontAttributes="Bold" />
-                                    <Label x:Name="SysStyleLabel" Text="样式" Margin="0,4,0,2" />
-                                    <Picker x:Name="ThemePicker" HeightRequest="40" MinimumHeightRequest="34"
-                                            Margin="0,0,0,8" ItemDisplayBinding="{Binding Display}" />
-                                    <Label x:Name="SysLangLabel" Text="语言" Margin="0,0,0,4" />
-                                    <Picker x:Name="LanguagePicker" HeightRequest="40" MinimumHeightRequest="34"
-                                            ItemDisplayBinding="{Binding NativeName}" />
+                                    <!-- 标签固定宽，与选择框垂直居中同一行 -->
+                                    <Grid ColumnDefinitions="56,*" ColumnSpacing="8">
+                                        <Label x:Name="SysStyleLabel" Text="样式" VerticalOptions="Center"
+                                               VerticalTextAlignment="Center" />
+                                        <Picker x:Name="ThemePicker" Grid.Column="1"
+                                                HeightRequest="36" MinimumHeightRequest="34"
+                                                VerticalOptions="Center"
+                                                ItemDisplayBinding="{Binding Display}"
+                                                SelectedIndexChanged="ThemePicker_SelectedIndexChanged" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="56,*" ColumnSpacing="8">
+                                        <Label x:Name="SysLangLabel" Text="语言" VerticalOptions="Center"
+                                               VerticalTextAlignment="Center" />
+                                        <Picker x:Name="LanguagePicker" Grid.Column="1"
+                                                HeightRequest="36" MinimumHeightRequest="34"
+                                                VerticalOptions="Center"
+                                                ItemDisplayBinding="{Binding NativeName}" />
+                                    </Grid>
+                                    <VerticalStackLayout x:Name="WallpaperPanel" IsVisible="False" Spacing="6">
+                                        <Grid ColumnDefinitions="56,*" ColumnSpacing="8">
+                                            <Label x:Name="SysWallpaperLabel" Text="背景图" VerticalOptions="Center"
+                                                   VerticalTextAlignment="Center" />
+                                            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                                <Button x:Name="WallpaperPickBtn" Text="选择…"
+                                                        Style="{StaticResource SoftBlueBtn}"
+                                                        MinimumWidthRequest="64" WidthRequest="64"
+                                                        HeightRequest="34" Padding="6,0"
+                                                        Clicked="WallpaperPick_Clicked" />
+                                                <Button x:Name="WallpaperClearBtn" Text="清除"
+                                                        Style="{StaticResource NormalBtn}"
+                                                        MinimumWidthRequest="56" WidthRequest="56"
+                                                        HeightRequest="34" Padding="6,0"
+                                                        Clicked="WallpaperClear_Clicked" />
+                                            </HorizontalStackLayout>
+                                        </Grid>
+                                        <Label x:Name="WallpaperPathText" Text="未选择" Margin="64,0,0,0"
+                                               LineBreakMode="TailTruncation"
+                                               TextColor="{DynamicResource Muted}"
+                                               InputTransparent="True" />
+                                    </VerticalStackLayout>
                                 </VerticalStackLayout>
                             </Border>
                         </Grid>

@@ -892,7 +892,8 @@ public partial class MainWindow : Window
         Loc.SetCulture(lang.Code);
 
         BindThemeCombo(s.UiTheme);
-        DesktopThemeService.Apply(s.UiTheme, this);
+        DesktopThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
+        RefreshWallpaperUi();
 
         Title = Loc.T("App.Name");
         ApplyLocalizedChrome();
@@ -987,9 +988,15 @@ public partial class MainWindow : Window
         if (SysTitleText != null) SysTitleText.Text = Loc.T("Sys.Title");
         if (SysStyleLabel != null) SysStyleLabel.Text = Loc.T("Sys.Style");
         if (SysLangLabel != null) SysLangLabel.Text = Loc.T("Sys.Language");
+        if (SysWallpaperLabel != null) SysWallpaperLabel.Text = Loc.T("Sys.Wallpaper");
+        if (WallpaperPickBtn != null) WallpaperPickBtn.Content = Loc.T("Sys.WallpaperPick");
+        if (WallpaperClearBtn != null) WallpaperClearBtn.Content = Loc.T("Sys.WallpaperClear");
         ToolTip.SetTip(ThemeCombo, Loc.T("Sys.StyleTip"));
         ToolTip.SetTip(LanguageCombo, Loc.T("Sys.LangTip"));
+        if (SysWallpaperLabel != null) ToolTip.SetTip(SysWallpaperLabel, Loc.T("Sys.WallpaperTip"));
+        if (WallpaperPickBtn != null) ToolTip.SetTip(WallpaperPickBtn, Loc.T("Sys.WallpaperTip"));
         RefreshThemeComboLabels();
+        RefreshWallpaperUi();
         ApplyTrayLocalized();
         if (XferTitleText != null) XferTitleText.Text = Loc.T("Xfer.Title");
         if (XferHintText != null) XferHintText.Text = Loc.T("Xfer.Hint");
@@ -1201,7 +1208,8 @@ public partial class MainWindow : Window
         s.UiTheme = ThemeCombo.SelectedItem is ThemeListItem ti
             ? ti.Id
             : DesktopThemeService.Light;
-        DesktopThemeService.Apply(s.UiTheme, this);
+        DesktopThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
+        RefreshWallpaperUi();
         Loc.SetCulture(s.UiLanguage);
         ApplyLocalizedChrome();
 
@@ -4265,6 +4273,62 @@ public partial class MainWindow : Window
     {
         var id = ThemeCombo.SelectedItem is ThemeListItem cur ? cur.Id : DesktopThemeService.Current;
         BindThemeCombo(id);
+    }
+
+    private void ThemeCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+        => RefreshWallpaperUi();
+
+    private void RefreshWallpaperUi()
+    {
+        if (WallpaperPanel == null || WallpaperPathText == null) return;
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
+        WallpaperPanel.IsVisible = ThemePalette.SupportsWallpaper(themeId);
+        var name = UiWallpaperStore.DisplayName(_host.Settings.UiWallpaperPath);
+        WallpaperPathText.Text = string.IsNullOrEmpty(name) ? Loc.T("Sys.WallpaperNone") : name;
+    }
+
+    private async void WallpaperPick_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Loc.T("Sys.Wallpaper"),
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Image")
+                {
+                    Patterns = ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp"]
+                }
+            ]
+        });
+        var file = files.FirstOrDefault();
+        if (file == null) return;
+        var local = file.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(local)) return;
+        var rel = UiWallpaperStore.Import(local, out var err);
+        if (rel == null)
+        {
+            if (StatusText != null)
+                StatusText.Text = string.Format(Loc.T("Sys.WallpaperImportFail"), err ?? "");
+            return;
+        }
+
+        _host.Settings.UiWallpaperPath = rel;
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
+        if (ThemePalette.SupportsWallpaper(themeId))
+            DesktopThemeService.Apply(themeId, this, _host.Settings.UiWallpaperPath);
+    }
+
+    private void WallpaperClear_Click(object? sender, RoutedEventArgs e)
+    {
+        _host.Settings.UiWallpaperPath = "";
+        UiWallpaperStore.ClearFiles();
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
+        DesktopThemeService.Apply(themeId, this, null);
     }
 
     private sealed record ThemeListItem(string Id, string Display)

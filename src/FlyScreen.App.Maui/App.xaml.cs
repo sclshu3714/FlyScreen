@@ -1,5 +1,6 @@
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
+using FlyScreen.Ui.Theme;
 
 namespace FlyScreen.AppMaui;
 
@@ -11,9 +12,10 @@ public partial class App : Application
         // 尽早落地主题，避免 Android RadioButton 首次绘制吃到系统夜间深色底
         try
         {
-            var theme = MauiAppHost.EnsureCreated().Settings.UiTheme;
+            var settings = MauiAppHost.EnsureCreated().Settings;
+            var theme = settings.UiTheme;
             UserAppTheme = MauiThemeService.IsDark(theme) ? AppTheme.Dark : AppTheme.Light;
-            MauiThemeService.Apply(theme);
+            MauiThemeService.Apply(theme, wallpaperPath: settings.UiWallpaperPath);
         }
         catch
         {
@@ -104,7 +106,7 @@ public partial class App : Application
         window.HandlerChanged += (_, _) =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                ApplyMauiWinChrome();
                 Platforms.Windows.MauiCloseToTray.TryHook(window);
                 Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
                 if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
@@ -113,14 +115,14 @@ public partial class App : Application
         window.Created += (_, _) =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                ApplyMauiWinChrome();
                 Platforms.Windows.MauiCloseToTray.TryHook(window);
                 Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
                 if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
                     Platforms.Windows.MauiAutostartUi.TryHideNative(window);
                 window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), () =>
                 {
-                    Platforms.Windows.MauiWindowChrome.ApplyTheme(MauiThemeService.IsDark(MauiThemeService.Current));
+                    ApplyMauiWinChrome();
                     Platforms.Windows.MauiCloseToTray.TryHook(window);
                     Platforms.Windows.MauiProjectionTitleBar.TryHook(window);
                     if (Platforms.Windows.MauiAutostartUi.IsKeepingHidden)
@@ -205,4 +207,14 @@ public partial class App : Application
             window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), Place);
         });
     }
+
+#if WINDOWS
+    private static void ApplyMauiWinChrome()
+    {
+        var id = MauiThemeService.Current;
+        Platforms.Windows.MauiWindowChrome.ApplyTheme(
+            MauiThemeService.IsDark(id),
+            translucent: ThemePalette.SupportsWallpaper(id));
+    }
+#endif
 }

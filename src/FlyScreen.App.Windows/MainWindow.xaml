@@ -467,6 +467,14 @@
             CornerRadius="8" ClipToBounds="True"
             SnapsToDevicePixels="True">
     <Grid>
+        <!-- 自定义主题壁纸层（淡色/深色保持 Collapsed） -->
+        <Image x:Name="WallpaperImage" Stretch="UniformToFill"
+               Visibility="Collapsed" IsHitTestVisible="False"/>
+        <!-- 仅极淡压噪，避免挡住壁纸；高透明主题靠色板 Alpha -->
+        <Border x:Name="WallpaperScrim" Background="#10000000"
+                Visibility="Collapsed" IsHitTestVisible="False"/>
+
+        <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36"/>
             <RowDefinition Height="*"/>
@@ -934,23 +942,62 @@
 
                         <Border Grid.Column="2" Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock x:Name="SysTitleText" Text="系统设置" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                                <TextBlock x:Name="SysStyleLabel" Text="样式" Margin="0,0,0,8"/>
-                                <ComboBox x:Name="ThemeCombo" Margin="0,0,0,16" MinHeight="34">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <TextBlock x:Name="SysLangLabel" Text="语言" Margin="0,0,0,8"/>
-                                <ComboBox x:Name="LanguageCombo">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
+                                <TextBlock x:Name="SysTitleText" Text="系统设置" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                                <!-- 标签固定宽 + 控件同行垂直居中，三行标签左缘对齐 -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="SysStyleLabel" Text="样式"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="ThemeCombo" Grid.Column="1" MinHeight="34"
+                                              VerticalAlignment="Center">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </Grid>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="SysLangLabel" Text="语言"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="LanguageCombo" Grid.Column="1" MinHeight="34"
+                                              VerticalAlignment="Center">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </Grid>
+                                <StackPanel x:Name="WallpaperPanel" Visibility="Collapsed">
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="56"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="SysWallpaperLabel" Text="背景图"
+                                                   VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                    VerticalAlignment="Center">
+                                            <Button x:Name="WallpaperPickBtn" Content="选择…"
+                                                    Padding="10,0" MinWidth="64" Height="32"
+                                                    Click="WallpaperPick_Click"/>
+                                            <Button x:Name="WallpaperClearBtn" Content="清除"
+                                                    Margin="8,0,0,0" Padding="10,0" MinWidth="56" Height="32"
+                                                    Click="WallpaperClear_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBlock x:Name="WallpaperPathText" Text="未选择" Margin="64,0,0,0"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource Muted}"/>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -1792,6 +1839,7 @@
             </StackPanel>
         </Grid>
         </Grid>
+    </Grid>
     </Grid>
     </Border>
 </Window>

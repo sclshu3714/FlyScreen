@@ -17,7 +17,8 @@
     <Setter Property="FontAttributes" Value="Bold" />
   </Style>
   <Style x:Key="NormalBtn" TargetType="Button">
-    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <!-- 用 ControlBg（自定义主题更实心），避免高透明 CardBg 上字发虚 -->
+    <Setter Property="BackgroundColor" Value="{DynamicResource ControlBg}" />
     <Setter Property="TextColor" Value="{DynamicResource Text}" />
     <Setter Property="BorderColor" Value="{DynamicResource Line}" />
     <Setter Property="BorderWidth" Value="1" />
@@ -25,6 +26,34 @@
     <Setter Property="CornerRadius" Value="8" />
     <Setter Property="MinimumWidthRequest" Value="88" />
     <Setter Property="Padding" Value="14,0" />
+    <!-- Normal 必须显式写回色板：空 Normal 会导致 PointerOver/Pressed 本地值残留（退出钮发黑） -->
+    <Setter Property="VisualStateManager.VisualStateGroups">
+      <VisualStateGroupList>
+        <VisualStateGroup x:Name="CommonStates">
+          <VisualState x:Name="Normal">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource ControlBg}" />
+              <Setter Property="TextColor" Value="{DynamicResource Text}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="PointerOver">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource ControlHover}" />
+              <Setter Property="TextColor" Value="{DynamicResource Text}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Pressed">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource SubtleBg}" />
+              <Setter Property="TextColor" Value="{DynamicResource Text}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+            </VisualState.Setters>
+          </VisualState>
+        </VisualStateGroup>
+      </VisualStateGroupList>
+    </Setter>
   </Style>
   <Style x:Key="SoftBlueBtn" TargetType="Button">
     <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
@@ -35,6 +64,33 @@
     <Setter Property="CornerRadius" Value="8" />
     <Setter Property="MinimumWidthRequest" Value="88" />
     <Setter Property="Padding" Value="14,0" />
+    <Setter Property="VisualStateManager.VisualStateGroups">
+      <VisualStateGroupList>
+        <VisualStateGroup x:Name="CommonStates">
+          <VisualState x:Name="Normal">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+              <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="PointerOver">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource BlueHover}" />
+              <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Pressed">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+              <Setter Property="TextColor" Value="{DynamicResource BluePress}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+            </VisualState.Setters>
+          </VisualState>
+        </VisualStateGroup>
+      </VisualStateGroupList>
+    </Setter>
   </Style>
   <Style x:Key="SoftWarnBtn" TargetType="Button">
     <Setter Property="BackgroundColor" Value="{DynamicResource WarnSoft}" />

@@ -18,7 +18,7 @@ using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.AppMaui;
 
-public partial class MainPage : ContentPage
+public partial class MainPage : ContentPage, IWallpaperHost
 {
     private readonly MauiAppHost _host;
     private ObservableCollection<DiscoveredPeer> _discovery = [];
@@ -134,9 +134,10 @@ public partial class MainPage : ContentPage
     {
         if (_uiPrepared) return;
         Loc.SetCulture(_host.Settings.UiLanguage);
-        MauiThemeService.Apply(_host.Settings.UiTheme, this);
+        MauiThemeService.Apply(_host.Settings.UiTheme, this, _host.Settings.UiWallpaperPath);
         LoadUi();
         ApplyLocalizedUi();
+        RefreshWallpaperUi();
         RebuildMatrix();
         PlatformLabel.Text = _host.PlatformBanner;
         WireHostOnce();
@@ -1303,7 +1304,11 @@ public partial class MainPage : ContentPage
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
+        if (SysWallpaperLabel != null) SysWallpaperLabel.Text = Loc.T("Sys.Wallpaper");
+        if (WallpaperPickBtn != null) WallpaperPickBtn.Text = Loc.T("Sys.WallpaperPick");
+        if (WallpaperClearBtn != null) WallpaperClearBtn.Text = Loc.T("Sys.WallpaperClear");
         RefreshThemePickerLabels();
+        RefreshWallpaperUi();
 
         NicTitleText.Text = Loc.T("Net.NicTitle");
         if (NicHintText != null) NicHintText.Text = Loc.T("Net.NicHint");
@@ -4723,9 +4728,10 @@ public partial class MainPage : ContentPage
             ReadEdgeCrossModeUi());
 
         Loc.SetCulture(lang);
-        MauiThemeService.Apply(theme, this);
+        MauiThemeService.Apply(theme, this, _host.Settings.UiWallpaperPath);
         LoadUi();
         ApplyLocalizedUi();
+        RefreshWallpaperUi();
         if (PageTools.IsVisible)
             RefreshToolsPage();
         // 本地化会改 Radio 文案；再强制字色（含延迟，避免 WinUI 仍用旧主题前景）
@@ -6275,6 +6281,107 @@ public partial class MainPage : ContentPage
     {
         var id = ThemePicker.SelectedItem is ThemeListItem cur ? cur.Id : MauiThemeService.Current;
         BindThemePicker(id);
+    }
+
+    private void ThemePicker_SelectedIndexChanged(object? sender, EventArgs e)
+        => RefreshWallpaperUi();
+
+    private void RefreshWallpaperUi()
+    {
+        if (WallpaperPanel == null || WallpaperPathText == null) return;
+        var themeId = ThemePicker.SelectedItem is ThemeListItem ti ? ti.Id : MauiThemeService.Current;
+        WallpaperPanel.IsVisible = ThemePalette.SupportsWallpaper(themeId);
+        var name = UiWallpaperStore.DisplayName(_host.Settings.UiWallpaperPath);
+        WallpaperPathText.Text = string.IsNullOrEmpty(name) ? Loc.T("Sys.WallpaperNone") : name;
+        // 面板显隐后重测高级页高度，避免 Win 禁用滚动时底部按钮落在裁切区外
+        Dispatcher.Dispatch(() =>
+        {
+            OptionsContentRoot?.InvalidateMeasure();
+            EnsureOptionsScrollPolicy();
+        });
+    }
+
+    public void ApplyWallpaper(string? absolutePath)
+    {
+        if (WallpaperImage == null || WallpaperScrim == null) return;
+        if (!string.IsNullOrWhiteSpace(absolutePath) && File.Exists(absolutePath))
+        {
+            try
+            {
+                WallpaperImage.Source = ImageSource.FromFile(absolutePath);
+                WallpaperImage.IsVisible = true;
+                WallpaperImage.InputTransparent = true;
+                WallpaperScrim.IsVisible = true;
+                WallpaperScrim.InputTransparent = true;
+                return;
+            }
+            catch { /* fall through */ }
+        }
+
+        WallpaperImage.Source = null;
+        WallpaperImage.IsVisible = false;
+        WallpaperScrim.IsVisible = false;
+    }
+
+    private async void WallpaperPick_Clicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            string? path;
+#if WINDOWS
+            // 与工具导入一致：unpackaged / 管理员下 MAUI FilePicker 常 COMException
+            path = await MainThread.InvokeOnMainThreadAsync(() =>
+                Platforms.Windows.Win32PathPicker.PickSingleFile(
+                    title: Loc.T("Sys.Wallpaper"),
+                    filter: "图片 (*.jpg;*.jpeg;*.png;*.bmp;*.webp)\0*.jpg;*.jpeg;*.png;*.bmp;*.webp\0所有文件 (*.*)\0*.*\0\0"));
+#else
+            var result = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = Loc.T("Sys.Wallpaper"),
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    [DevicePlatform.Android] = ["image/*"],
+                    [DevicePlatform.iOS] = ["public.image"],
+                    [DevicePlatform.MacCatalyst] = ["public.image"]
+                })
+            });
+            path = result?.FullPath;
+#endif
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return;
+            var rel = UiWallpaperStore.Import(path, out var err);
+            if (rel == null)
+            {
+                StatusLabel.Text = string.Format(Loc.T("Sys.WallpaperImportFail"), err ?? "");
+                return;
+            }
+
+            _host.Settings.UiWallpaperPath = rel;
+            _host.Settings.Save();
+            RefreshWallpaperUi();
+            // 下拉已选自定义但未点「应用」时，Current 可能仍是淡色；以选择器为准立即预览
+            var themeId = ThemePicker.SelectedItem is ThemeListItem ti
+                ? ti.Id
+                : MauiThemeService.Current;
+            if (ThemePalette.SupportsWallpaper(themeId))
+                MauiThemeService.Apply(themeId, this, _host.Settings.UiWallpaperPath);
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = string.Format(Loc.T("Sys.WallpaperImportFail"), ex.Message);
+        }
+    }
+
+    private void WallpaperClear_Clicked(object? sender, EventArgs e)
+    {
+        _host.Settings.UiWallpaperPath = "";
+        UiWallpaperStore.ClearFiles();
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemePicker.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : MauiThemeService.Current;
+        MauiThemeService.Apply(themeId, this, null);
     }
 
     private sealed record ThemeListItem(string Id, string Display);

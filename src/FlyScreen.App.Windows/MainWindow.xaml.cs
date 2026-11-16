@@ -549,7 +549,10 @@ public partial class MainWindow : Window
         Loc.SetCulture(lang.Code);
 
         BindThemeCombo(s.UiTheme);
-        ThemeService.Apply(s.UiTheme, this);
+        ThemeCombo.SelectionChanged -= ThemeCombo_SelectionChanged;
+        ThemeCombo.SelectionChanged += ThemeCombo_SelectionChanged;
+        ThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
+        RefreshWallpaperUi();
 
         ApplyLocalizedUi();
 
@@ -908,7 +911,8 @@ public partial class MainWindow : Window
         s.UiTheme = ThemeCombo.SelectedItem is ThemeListItem ti
             ? ti.Id
             : ThemeService.Light;
-        ThemeService.Apply(s.UiTheme, this);
+        ThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
+        RefreshWallpaperUi();
 
         Loc.SetCulture(s.UiLanguage);
         ApplyLocalizedUi();
@@ -1087,11 +1091,18 @@ public partial class MainWindow : Window
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
+        SysWallpaperLabel.Text = Loc.T("Sys.Wallpaper");
         SysStyleLabel.ToolTip = Loc.T("Sys.StyleTip");
         SysLangLabel.ToolTip = Loc.T("Sys.LangTip");
+        SysWallpaperLabel.ToolTip = Loc.T("Sys.WallpaperTip");
         ThemeCombo.ToolTip = Loc.T("Sys.StyleTip");
         LanguageCombo.ToolTip = Loc.T("Sys.LangTip");
+        WallpaperPickBtn.Content = Loc.T("Sys.WallpaperPick");
+        WallpaperClearBtn.Content = Loc.T("Sys.WallpaperClear");
+        WallpaperPickBtn.ToolTip = Loc.T("Sys.WallpaperTip");
+        WallpaperClearBtn.ToolTip = Loc.T("Sys.WallpaperTip");
         RefreshThemeComboLabels();
+        RefreshWallpaperUi();
 
         SetOpt(WrapMouseCheck, "Opt.WrapMouse", "Tip.WrapMouse");
         SetOpt(ShareClipboardCheck, "Opt.ShareClipboard", "Tip.ShareClipboard");
@@ -1119,7 +1130,7 @@ public partial class MainWindow : Window
             slot.RefreshStatus();
 
         // 强制刷新列表主题（避免系统默认白底）
-        ThemeService.Apply(ThemeService.Current, this);
+        ThemeService.Apply(ThemeService.Current, this, _host.Settings.UiWallpaperPath);
         TransferList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
         TransferList.Foreground = (System.Windows.Media.Brush)Resources["Text"];
         DiscoveryList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
@@ -4185,6 +4196,55 @@ public partial class MainWindow : Window
     {
         var id = ThemeCombo.SelectedItem is ThemeListItem cur ? cur.Id : ThemeService.Current;
         BindThemeCombo(id);
+    }
+
+    private void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => RefreshWallpaperUi();
+
+    private void RefreshWallpaperUi()
+    {
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : ThemeService.Current;
+        var show = ThemePalette.SupportsWallpaper(themeId);
+        WallpaperPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        var name = UiWallpaperStore.DisplayName(_host.Settings.UiWallpaperPath);
+        WallpaperPathText.Text = string.IsNullOrEmpty(name) ? Loc.T("Sys.WallpaperNone") : name;
+    }
+
+    private void WallpaperPick_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Loc.T("Sys.Wallpaper"),
+            Filter = "Image|*.jpg;*.jpeg;*.png;*.bmp;*.webp|All|*.*"
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        var rel = UiWallpaperStore.Import(dlg.FileName, out var err);
+        if (rel == null)
+        {
+            MessageBox.Show(this,
+                string.Format(Loc.T("Sys.WallpaperImportFail"), err ?? ""),
+                Loc.T("Sys.Wallpaper"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        _host.Settings.UiWallpaperPath = rel;
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : ThemeService.Current;
+        if (ThemePalette.SupportsWallpaper(themeId))
+            ThemeService.Apply(themeId, this, _host.Settings.UiWallpaperPath);
+    }
+
+    private void WallpaperClear_Click(object sender, RoutedEventArgs e)
+    {
+        _host.Settings.UiWallpaperPath = "";
+        UiWallpaperStore.ClearFiles();
+        _host.Settings.Save();
+        RefreshWallpaperUi();
+        var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : ThemeService.Current;
+        ThemeService.Apply(themeId, this, null);
     }
 
     private sealed record ThemeListItem(string Id, string Display);
