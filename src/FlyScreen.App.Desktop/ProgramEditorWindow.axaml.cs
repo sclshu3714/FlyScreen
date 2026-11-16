@@ -567,7 +567,7 @@ public partial class ProgramEditorWindow : Window
 
         _lastPausedLineLogged = null;
         SetDebugLineHighlight(null);
-        SetDebugTool(Loc.T("Prog.Pause"), "GeoPause");
+        SetDebugTool(Loc.T("Prog.Pause"), "GeoPauseBars");
     }
 
     private void SetDebugLineHighlight(int? line)
@@ -582,7 +582,7 @@ public partial class ProgramEditorWindow : Window
     {
         BtnDebugText.Text = label;
         ToolTip.SetTip(BtnDebug, label + " (F9 断点 · F10 逐过程 · F11 逐语句)");
-        if (Resources.TryGetResource(geoKey, null, out var r) && r is Geometry g)
+        if (this.TryGetResource(geoKey, ActualThemeVariant, out var r) && r is Geometry g)
             BtnDebugIcon.Data = g;
     }
 

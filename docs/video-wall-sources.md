@@ -147,6 +147,23 @@ libVLC 一期能覆盖绝大多数 ①②③ 的组合，但**国标 GB28181、O
 
 ---
 
+## 4.1 局域网 TCP 端口探测（P0，用户显式）
+
+与 ONVIF 发现互补：不依赖组播，对用户选定 CIDR 做短时 TCP connect。
+
+| 项 | 规格 |
+|----|------|
+| 实现 | `LanDeviceScanService`（`Sources/`） |
+| 网段 | `ListLocalCidrs()`：活动网卡 IPv4（跳过 loopback / tunnel / 169.254），按前缀归一为网络地址并去重 |
+| 端口 | `ProbePorts`：554、8554、80、8080、8000、37777、34567 |
+| 约束 | 连接超时约 350ms；主机数上限；并发度有限；前缀建议 16–30 |
+| 产出 | `ScannedLanDevice`（Host / RtspPort / KindHint / OpenPorts）；UI「添加到源」按厂商模板组 RTSP |
+| 禁止 | 后台常驻、口令爆破、未经用户点击的扫网 |
+
+详见 [video-wall.md](video-wall.md) §3.1.2。
+
+---
+
 ## 5. ONVIF（P1）
 
 | 能力 | 实现 | 备注 |

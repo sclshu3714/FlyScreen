@@ -39,14 +39,13 @@ public sealed class PortProxyPanel : ContentView
         _service = ToolService.Instance.PortProxy
                    ?? ToolService.Instance.GetToolService<IPortProxyService>();
 
-        var dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-        _text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
-        _muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
-        _line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
-        _subtle = Color.FromArgb(dark ? "#0F172A" : "#F3F4F6");
-        _card = Color.FromArgb(dark ? "#1E293B" : "#FFFFFF");
-        _blue = Color.FromArgb("#2563EB");
-        _warn = Color.FromArgb("#DC2626");
+        _text = ResolveColor("Text", "#111827");
+        _muted = ResolveColor("Muted", "#6B7280");
+        _line = ResolveColor("Line", "#E5E7EB");
+        _subtle = ResolveColor("SubtleBg", "#F3F4F6");
+        _card = ResolveColor("CardBg", "#FFFFFF");
+        _blue = ResolveColor("Blue", "#2563EB");
+        _warn = ResolveColor("Warn", "#DC2626");
 
         _hint = new Label
         {
@@ -335,19 +334,38 @@ public sealed class PortProxyPanel : ContentView
     }
 
     private Button MakeRowBtn(string text, bool danger = false)
-        => new()
+    {
+        var btn = new Button
         {
             Text = text,
             FontSize = 12,
-            Padding = new Thickness(8, 4),
+            Padding = new Thickness(6, 0),
+            WidthRequest = 52,
             HeightRequest = 28,
             MinimumHeightRequest = 28,
-            BackgroundColor = _card,
-            TextColor = danger ? _warn : _text,
-            BorderColor = danger ? Color.FromArgb("#FECACA") : _line,
-            BorderWidth = 1,
-            CornerRadius = 8
+            MinimumWidthRequest = 0,
+            BackgroundColor = Colors.Transparent,
+            TextColor = danger ? _warn : _blue,
+            BorderColor = Colors.Transparent,
+            BorderWidth = 0,
+            CornerRadius = 6
         };
+        if (Application.Current?.Resources.TryGetValue("ProgIconBtn", out var style) == true
+            && style is Style s)
+            btn.Style = s;
+        return btn;
+    }
+
+    private static Color ResolveColor(string key, string fallbackHex)
+    {
+        if (Application.Current?.Resources.TryGetValue(key, out var value) == true)
+        {
+            if (value is Color c) return c;
+            if (value is SolidColorBrush b) return b.Color;
+        }
+
+        return Color.FromArgb(fallbackHex);
+    }
 
     private static Button MakeToolBarBtn(string text, Color bg, Color fg, Color? border = null, int marginRight = 8)
         => new()

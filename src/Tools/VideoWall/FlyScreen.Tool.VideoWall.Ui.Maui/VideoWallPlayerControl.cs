@@ -1,6 +1,7 @@
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Wall;
+using FlyScreen.Ui.Maui;
 using Microsoft.Maui.Controls.Shapes;
 using Grid = Microsoft.Maui.Controls.Grid;
 using Path = Microsoft.Maui.Controls.Shapes.Path;
@@ -29,6 +30,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private readonly Grid _root;
     private readonly Label _playbackTitle;
     private readonly Border _playbackVideoHost;
+    private readonly LoadingOverlay _playbackLoading;
 #if WINDOWS
     private readonly VideoWallFrameSurface _playbackSurface;
 #else
@@ -59,6 +61,7 @@ public sealed class VideoWallPlayerControl : ContentView
 
     private IVideoWallService? _service;
     private string? _pendingPlayId;
+    private bool _hasPresentedFrame;
     private bool _seekDragging;
     private long _seekHoldMs = -1;
     private long _seekHoldUntilTick;
@@ -574,6 +577,8 @@ public sealed class VideoWallPlayerControl : ContentView
             Content = _playbackTitleBar
         };
 
+        _playbackLoading = new LoadingOverlay();
+
         // 画面全铺 + chrome 叠层（软件帧，非 HWND）；禁止 inset，避免压画面/假透明
         _root = new Grid
         {
@@ -581,6 +586,7 @@ public sealed class VideoWallPlayerControl : ContentView
             Children =
             {
                 _playbackVideoHost,
+                _playbackLoading,
                 _playbackTitleBarHost,
                 _playbackTransportBar,
                 _menuHost
@@ -628,6 +634,8 @@ public sealed class VideoWallPlayerControl : ContentView
         _cueLengthMs = -1;
         RefreshCueLayer();
         UpdateQualityUi(null);
+        _hasPresentedFrame = false;
+        SetLoadingOverlay(true, Loc.T("Tool.VideoWall.StatusConnecting"));
         ShowPlaybackChrome();
         BumpPlaybackChrome();
         ReportLog($"视频墙连接中: {title}");
@@ -646,8 +654,10 @@ public sealed class VideoWallPlayerControl : ContentView
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
         _pendingPlayId = null;
+        _hasPresentedFrame = false;
         _playbackTitle.Text = "";
         ResetSeekUi();
+        SetLoadingOverlay(false);
         _playbackTitleBarHost.IsVisible = false;
         _playbackTransportBar.IsVisible = false;
         _playbackVolumePopup.IsVisible = false;
@@ -695,6 +705,8 @@ public sealed class VideoWallPlayerControl : ContentView
         MainThread.BeginInvokeOnMainThread(() =>
         {
             UpdateQualityUi(stats);
+            if (stats.Width > 0 || stats.FirstFrameMs >= 0)
+                MarkFramePresented();
             if (stats.Width > 0)
                 ReportLog(
                     $"视频墙播放中 {_playbackTitle.Text}: {stats.Width}×{stats.Height} @ {stats.Fps:F1} fps");
@@ -704,6 +716,9 @@ public sealed class VideoWallPlayerControl : ContentView
         MainThread.BeginInvokeOnMainThread(() =>
         {
             UpdateTransportChrome(state);
+            if (state is TilePlayState.Playing)
+                _hasPresentedFrame = true;
+            UpdateLoadingFromState(state);
             if (state is TilePlayState.Playing or TilePlayState.Paused or TilePlayState.Buffering)
                 _progressTimer?.Start();
             else if (state is TilePlayState.Stopped or TilePlayState.Failed or TilePlayState.Idle)
@@ -718,6 +733,31 @@ public sealed class VideoWallPlayerControl : ContentView
                     : $"视频墙播放失败{title}: {StatusTextFor(state)} ({code})");
             }
         });
+
+    private void MarkFramePresented()
+    {
+        if (_hasPresentedFrame) return;
+        _hasPresentedFrame = true;
+        UpdateLoadingFromState(_service?.SinglePlayback.State ?? TilePlayState.Idle);
+    }
+
+    private void UpdateLoadingFromState(TilePlayState state)
+    {
+        if (TilePlayStateUi.ShowsLoading(state, _hasPresentedFrame))
+            SetLoadingOverlay(true, StatusTextFor(state));
+        else
+            SetLoadingOverlay(false);
+    }
+
+    private void SetLoadingOverlay(bool visible, string? text = null)
+    {
+        if (visible)
+            _playbackLoading.Show(string.IsNullOrWhiteSpace(text)
+                ? Loc.T("Tool.VideoWall.StatusLoading")
+                : text);
+        else
+            _playbackLoading.Hide();
+    }
 
     private void ReportLog(string message)
     {
@@ -1412,6 +1452,7 @@ public sealed class VideoWallPlayerControl : ContentView
 
     private static string StatusTextFor(TilePlayState state) => state switch
     {
+        TilePlayState.Resolving => Loc.T("Tool.VideoWall.StatusResolving"),
         TilePlayState.Connecting => Loc.T("Tool.VideoWall.StatusConnecting"),
         TilePlayState.Buffering => Loc.T("Tool.VideoWall.StatusBuffering"),
         TilePlayState.Stalled => Loc.T("Tool.VideoWall.StatusStalled"),

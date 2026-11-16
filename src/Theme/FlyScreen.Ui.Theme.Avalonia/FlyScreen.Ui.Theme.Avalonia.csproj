@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Ui.Theme.Avalonia</RootNamespace>
+    <AssemblyName>FlyScreen.Ui.Theme.Avalonia</AssemblyName>
+    <Description>Avalonia 主题样式源（ActionStyles / ScrollBar；由宿主 App.Desktop Link 编译）</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Styles\**\*.axaml" />
+  </ItemGroup>
+</Project>

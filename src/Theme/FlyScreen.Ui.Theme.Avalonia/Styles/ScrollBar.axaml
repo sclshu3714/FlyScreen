@@ -1,6 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!-- 与 Win 细圆角滚动条对齐：无粗箭头，滑块随主题色 -->
+  <!-- 与 Win 细圆角滚动条对齐：无粗箭头，滑块随主题色 ScrollTrack / ScrollThumb* -->
   <Style Selector="ScrollBar">
     <Setter Property="Opacity" Value="1"/>
   </Style>

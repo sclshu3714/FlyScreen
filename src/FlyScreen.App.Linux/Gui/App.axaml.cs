@@ -5,6 +5,7 @@ using Avalonia.Media;
 using FlyScreen.DesktopUi;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Linux;
+using FlyScreen.Ui.Avalonia;
 
 namespace FlyScreen.LinuxApp.Gui;
 
@@ -24,6 +25,7 @@ public partial class App : Application
             Resources["UiFont"] = new FontFamily(LinuxFontSetup.InterFamilyKey);
         }
 
+        AvaloniaIcon.RegisterToApplication();
         var host = LinuxAppHost.EnsureCreated();
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

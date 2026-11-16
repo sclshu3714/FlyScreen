@@ -72,7 +72,8 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player = new MediaPlayer(libVlc);
 
         _player.Opening += (_, _) => SetState(TilePlayState.Connecting);
-        _player.Buffering += (_, _) => SetState(TilePlayState.Buffering);
+        // 直播/RTSP 常持续上报 Buffering；已 Playing/Paused 时勿降级，否则 UI 加载层卡死
+        _player.Buffering += OnBuffering;
         _player.Playing += OnPlaying;
         _player.Paused += (_, _) => SetState(TilePlayState.Paused);
         _player.Stopped += OnStopped;
@@ -513,11 +514,25 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         try
         {
             sink.OnVideoFrame(_frameAligned, (int)_frameWidth, (int)_frameHeight, (int)_framePitch);
+            // 直播源常只报 Buffering、不二次 Playing；有帧即升为 Playing，UI 才能收加载层
+            PromotePlayingFromFrame();
         }
         catch
         {
             /* 宿主侧异常不影响解码 */
         }
+    }
+
+    private void PromotePlayingFromFrame()
+    {
+        TilePlayState cur;
+        lock (_gate)
+            cur = _state;
+        if (cur is not (TilePlayState.Resolving or TilePlayState.Connecting
+            or TilePlayState.Buffering or TilePlayState.Reconnecting))
+            return;
+        SetState(TilePlayState.Playing);
+        _lastProgressUtc = DateTime.UtcNow;
     }
 
     private void EnsureFrameBuffer(int size)
@@ -540,6 +555,32 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _frameAlloc = IntPtr.Zero;
         _frameAligned = IntPtr.Zero;
         _frameAllocSize = 0;
+    }
+
+    private void OnBuffering(object? sender, MediaPlayerBufferingEventArgs e)
+    {
+        lock (_gate)
+        {
+            if (_state is TilePlayState.Playing or TilePlayState.Paused
+                or TilePlayState.Stopping or TilePlayState.Stopped or TilePlayState.Failed)
+                return;
+        }
+
+        // 缓存打满且内核已在播 → 升为 Playing（部分源不二次发 Playing）
+        if (e.Cache >= 99.5f && _player.IsPlaying)
+        {
+            SetState(TilePlayState.Playing);
+            _lastProgressUtc = DateTime.UtcNow;
+            return;
+        }
+
+        if (_player.IsPlaying)
+        {
+            SetState(TilePlayState.Playing);
+            return;
+        }
+
+        SetState(TilePlayState.Buffering);
     }
 
     private void OnPlaying(object? sender, EventArgs e)

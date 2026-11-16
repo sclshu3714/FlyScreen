@@ -15,5 +15,6 @@
     <ProjectReference Include="..\FlyScreen.Tool.PortProxy\FlyScreen.Tool.PortProxy.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\Theme\FlyScreen.Ui.Theme.Maui\FlyScreen.Ui.Theme.Maui.csproj" />
   </ItemGroup>
 </Project>

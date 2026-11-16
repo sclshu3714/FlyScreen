@@ -15,6 +15,7 @@
     <ProjectReference Include="..\FlyScreen.Tool.ColorPicker\FlyScreen.Tool.ColorPicker.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\Theme\FlyScreen.Ui.Theme.Maui\FlyScreen.Ui.Theme.Maui.csproj" />
   </ItemGroup>
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ProjectReference Include="..\..\..\FlyScreen.Windows\FlyScreen.Windows.csproj" />

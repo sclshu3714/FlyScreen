@@ -21,6 +21,7 @@ using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
 using FlyScreen.Tray;
+using FlyScreen.Ui.Theme;
 using WinForms = System.Windows.Forms;
 using Media = System.Windows.Media;
 
@@ -547,10 +548,7 @@ public partial class MainWindow : Window
         LanguageCombo.SelectedItem = lang;
         Loc.SetCulture(lang.Code);
 
-        if (string.Equals(s.UiTheme, ThemeService.Dark, StringComparison.OrdinalIgnoreCase))
-            ThemeDark.IsChecked = true;
-        else
-            ThemeLight.IsChecked = true;
+        BindThemeCombo(s.UiTheme);
         ThemeService.Apply(s.UiTheme, this);
 
         ApplyLocalizedUi();
@@ -907,7 +905,9 @@ public partial class MainWindow : Window
         else
             s.UiLanguage = Loc.DefaultCulture;
 
-        s.UiTheme = ThemeDark.IsChecked == true ? ThemeService.Dark : ThemeService.Light;
+        s.UiTheme = ThemeCombo.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : ThemeService.Light;
         ThemeService.Apply(s.UiTheme, this);
 
         Loc.SetCulture(s.UiLanguage);
@@ -1087,13 +1087,11 @@ public partial class MainWindow : Window
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
-        ThemeLight.Content = Loc.T("Sys.StyleLight");
-        ThemeDark.Content = Loc.T("Sys.StyleDark");
         SysStyleLabel.ToolTip = Loc.T("Sys.StyleTip");
         SysLangLabel.ToolTip = Loc.T("Sys.LangTip");
-        ThemeLight.ToolTip = Loc.T("Sys.StyleTip");
-        ThemeDark.ToolTip = Loc.T("Sys.StyleTip");
+        ThemeCombo.ToolTip = Loc.T("Sys.StyleTip");
         LanguageCombo.ToolTip = Loc.T("Sys.LangTip");
+        RefreshThemeComboLabels();
 
         SetOpt(WrapMouseCheck, "Opt.WrapMouse", "Tip.WrapMouse");
         SetOpt(ShareClipboardCheck, "Opt.ShareClipboard", "Tip.ShareClipboard");
@@ -3915,6 +3913,21 @@ public partial class MainWindow : Window
                 if (ToolsWorkspaceHost.Content == null
                     || ToolsWorkspaceHost.Content.GetType() != content.GetType())
                     ToolsWorkspaceHost.Content = content;
+
+                // 工具控件常自带一份 WpfTheme；打开后再同步色板，避免滚动条仍用浅色令牌
+                if (ToolsWorkspaceHost.Content is FrameworkElement toolRoot)
+                {
+                    void SyncToolTheme(object? _, RoutedEventArgs __)
+                    {
+                        toolRoot.Loaded -= SyncToolTheme;
+                        ThemeService.SyncSubtree(toolRoot);
+                    }
+
+                    if (toolRoot.IsLoaded)
+                        ThemeService.SyncSubtree(toolRoot);
+                    else
+                        toolRoot.Loaded += SyncToolTheme;
+                }
             }
         }
     }
@@ -4156,4 +4169,23 @@ public partial class MainWindow : Window
             MessageBox.Show(this, ex.Message, Loc.T("Tool.Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    private void BindThemeCombo(string? selectedId)
+    {
+        var items = ThemePalette.All
+            .Select(t => new ThemeListItem(t.Id, Loc.T(t.DisplayLocKey)))
+            .ToList();
+        ThemeCombo.ItemsSource = items;
+        ThemeCombo.SelectedItem = items.FirstOrDefault(i =>
+                                      string.Equals(i.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                                  ?? items.FirstOrDefault();
+    }
+
+    private void RefreshThemeComboLabels()
+    {
+        var id = ThemeCombo.SelectedItem is ThemeListItem cur ? cur.Id : ThemeService.Current;
+        BindThemeCombo(id);
+    }
+
+    private sealed record ThemeListItem(string Id, string Display);
 }

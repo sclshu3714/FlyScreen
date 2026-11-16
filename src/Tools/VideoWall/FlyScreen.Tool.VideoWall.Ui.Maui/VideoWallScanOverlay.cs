@@ -16,9 +16,10 @@ public sealed class VideoWallScanOverlay
     private readonly Color _muted;
     private readonly Color _line;
     private readonly Color _card;
+    private readonly Color _listBg;
     private readonly Color _blue;
     private readonly ObservableCollection<ScanRow> _rows = new();
-    private readonly Entry _subnet;
+    private readonly Picker _subnet;
     private readonly Entry _user;
     private readonly SecurePasswordBox _pass;
     private readonly Picker _vendor;
@@ -34,21 +35,23 @@ public sealed class VideoWallScanOverlay
 
     public VideoWallScanOverlay(
         IVideoWallService service,
-        Color text, Color muted, Color line, Color card, Color blue)
+        Color text, Color muted, Color line, Color card, Color listBg, Color blue)
     {
         _service = service;
         _text = text;
         _muted = muted;
         _line = line;
         _card = card;
+        _listBg = listBg;
         _blue = blue;
 
-        _subnet = new Entry
+        var cidrs = LanDeviceScanService.ListLocalCidrs();
+        _subnet = new Picker
         {
-            Text = LanDeviceScanService.SuggestLocalCidr(),
+            Title = Loc.T("Tool.VideoWall.Scan.Subnet"),
             TextColor = _text,
-            Placeholder = Loc.T("Tool.VideoWall.Scan.SubnetHint"),
-            PlaceholderColor = _muted
+            ItemsSource = cidrs.ToList(),
+            SelectedIndex = 0
         };
         _user = new Entry { TextColor = _text, Placeholder = Loc.T("Tool.VideoWall.Scan.Username"), PlaceholderColor = _muted };
         _pass = new SecurePasswordBox
@@ -197,11 +200,12 @@ public sealed class VideoWallScanOverlay
         };
         Grid.SetRow(credRow, 2);
 
+        _list.BackgroundColor = _listBg;
         var listBorder = new Border
         {
             Stroke = _line,
             StrokeThickness = 1,
-            BackgroundColor = Color.FromArgb("#0A000000"),
+            BackgroundColor = _listBg,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
             Padding = 4,
             Content = _list
@@ -303,8 +307,9 @@ public sealed class VideoWallScanOverlay
             var progress = new Progress<LanScanProgress>(p =>
                 _status.Text = string.Format(Loc.T("Tool.VideoWall.Scan.Scanning"), p.Done, p.Total, p.Found));
 
+            var subnet = _subnet.SelectedItem as string ?? "";
             await foreach (var device in new LanDeviceScanService()
-                               .ScanAsync(_subnet.Text ?? "", progress, ct)
+                               .ScanAsync(subnet, progress, ct)
                                .ConfigureAwait(true))
             {
                 var added = LanDeviceScanService.IsAlreadyAdded(_service, device);

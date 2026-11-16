@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Tools;
 using FlyScreen.ToolSdk;
@@ -21,6 +22,7 @@ public partial class PortProxyPanel : UserControl
     public PortProxyPanel()
     {
         InitializeComponent();
+        InheritHostBrushes(Window.GetWindow(this) ?? (FrameworkElement?)Parent);
         _service = ToolService.Instance.PortProxy
                    ?? ToolService.Instance.GetToolService<IPortProxyService>();
         RulesGrid.ItemsSource = _rows;
@@ -42,10 +44,27 @@ public partial class PortProxyPanel : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        InheritHostBrushes(Window.GetWindow(this) as FrameworkElement ?? this);
         if (_service == null) return;
         _service.RulesChanged += OnRulesChanged;
         _service.SessionChanged += OnSessionChanged;
         _ = RefreshAsync();
+    }
+
+    /// <summary>从宿主窗口拷贝主题色，使工具区与主程序浅/深色一致。</summary>
+    private void InheritHostBrushes(FrameworkElement? host)
+    {
+        if (host is null) return;
+        foreach (var key in new[]
+                 {
+                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
+                     "WinBg", "CardBg", "ListBg", "SubtleBg", "ControlBg", "ControlBorder",
+                     "ControlHover", "WarnSoft", "Success", "SuccessSoft"
+                 })
+        {
+            if (host.TryFindResource(key) is SolidColorBrush brush)
+                Resources[key] = brush.Clone();
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -267,7 +286,7 @@ public partial class PortProxyPanel : UserControl
             ConnectAddress = "127.0.0.1",
             ConnectPort = "",
             Protocol = "tcp"
-        })
+        }, themeHost: this)
         {
             Owner = OwnerWindow()
         };
@@ -336,7 +355,7 @@ public partial class PortProxyPanel : UserControl
     private async Task EditRuleAsync(PortProxyRuleInfo rule)
     {
         if (_service == null) return;
-        var dlg = new PortProxyRuleDialog(isEdit: true, seed: rule.Clone())
+        var dlg = new PortProxyRuleDialog(isEdit: true, seed: rule.Clone(), themeHost: this)
         {
             Owner = OwnerWindow()
         };
@@ -401,7 +420,7 @@ public partial class PortProxyPanel : UserControl
             }
 
             var text = string.IsNullOrWhiteSpace(r.StdOut) ? r.Message : r.StdOut;
-            var dlg = new PortProxyDumpDialog(text) { Owner = OwnerWindow() };
+            var dlg = new PortProxyDumpDialog(text, themeHost: this) { Owner = OwnerWindow() };
             dlg.ShowDialog();
         }
         finally { SetBusy(false); }

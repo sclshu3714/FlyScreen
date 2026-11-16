@@ -1,51 +1,33 @@
+using FlyScreen.Ui.Theme;
+using FlyScreen.Ui.Theme.Maui;
+
 namespace FlyScreen.AppMaui.Helpers;
 
 /// <summary>
-/// MAUI 淡色/深色：覆盖 Colors 资源键，配合 DynamicResource 即时生效；
-/// Win 上同步 RequestedTheme / 标题栏，并强制刷新 RadioButton 前景（否则切换后字色卡住）。
+/// MAUI 界面主题：按 <see cref="ThemePalette"/> 已注册主题覆写 Colors 资源键；
+/// Win 上同步 RequestedTheme / 标题栏，并强制刷新 RadioButton 前景。
 /// </summary>
 public static class MauiThemeService
 {
-    public const string Light = "Light";
-    public const string Dark = "Dark";
+    public const string Light = ThemePalette.LightName;
+    public const string Dark = ThemePalette.DarkName;
 
     public static string Current { get; private set; } = Light;
 
-    public static bool IsDark(string? theme)
-        => string.Equals(theme, Dark, StringComparison.OrdinalIgnoreCase);
+    public static bool IsDark(string? theme) => ThemePalette.IsDark(theme);
 
     public static void Apply(string? theme, Page? page = null)
     {
-        Current = IsDark(theme) ? Dark : Light;
-        var dark = Current == Dark;
+        var info = ThemePalette.Resolve(theme);
+        Current = info.Id;
+        var dark = info.IsDark;
 
         var app = Application.Current;
         if (app != null)
             app.UserAppTheme = dark ? AppTheme.Dark : AppTheme.Light;
 
-        Set("Blue", dark ? "#3B82F6" : "#2563EB");
-        Set("BlueSoft", dark ? "#1E3A5F" : "#DBEAFE");
-        Set("BlueHover", dark ? "#243447" : "#EFF6FF");
-        Set("Line", dark ? "#334155" : "#E5E7EB");
-        Set("Muted", dark ? "#94A3B8" : "#6B7280");
-        Set("Text", dark ? "#E2E8F0" : "#111827");
-        Set("Success", dark ? "#34D399" : "#059669");
-        Set("SuccessSoft", dark ? "#0F3D2E" : "#ECFDF5");
-        Set("Warn", dark ? "#FBBF24" : "#D97706");
-        Set("WarnSoft", dark ? "#422006" : "#FEF3C7");
-        Set("WinBg", dark ? "#0F172A" : "#F7F8FA");
-        Set("CardBg", dark ? "#1E293B" : "#FFFFFF");
-        Set("PaneBg", dark ? "#111827" : "#FFFFFF");
-        Set("SubtleBg", dark ? "#1E293B" : "#F3F4F6");
-        Set("MatrixBg", dark ? "#0B1220" : "#F8FAFC");
-        Set("ListBg", dark ? "#0B1220" : "#F9FAFB");
-        // 输入/下拉底：暗色用略浅于卡片的底，避免白块刺眼
-        Set("ControlBg", dark ? "#0B1220" : "#FFFFFF");
-        Set("ControlBorder", dark ? "#475569" : "#D1D5DB");
-        Set("Primary", dark ? "#3B82F6" : "#2563EB");
-        Set("ScrollThumb", dark ? "#64748B" : "#CBD5E1");
-        Set("ScrollThumbHover", dark ? "#94A3B8" : "#94A3B8");
-        Set("ScrollThumbDrag", dark ? "#CBD5E1" : "#64748B");
+        if (app?.Resources != null)
+            MauiTheme.ApplyColors(app.Resources, info.ResolveColors(maui: true));
 
         page ??= TryGetMainPage();
         if (page != null && ColorOf("WinBg") is { } winBg)
@@ -56,7 +38,6 @@ public static class MauiThemeService
         Platforms.Windows.MauiWindowChrome.ApplyTheme(dark);
 #endif
 
-        // WinUI Radio 字符串 Content 的前景常卡住 → Label 内容 + 原生 TextBlock 强制刷色
         MauiRadioTheme.RefreshAll(page);
         if (page != null)
         {
@@ -67,7 +48,6 @@ public static class MauiThemeService
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(dark);
 #endif
             });
-            // 再延迟一帧：LoadUi/本地化改完 Content 后字色仍可能是旧主题
             _ = page.Dispatcher.DispatchAsync(async () =>
             {
                 await Task.Delay(50);
@@ -95,13 +75,6 @@ public static class MauiThemeService
                 return window.Page;
         }
         return null;
-    }
-
-    private static void Set(string key, string hex)
-    {
-        var app = Application.Current;
-        if (app == null) return;
-        app.Resources[key] = Color.FromArgb(hex);
     }
 
     private static Color? ColorOf(string key)

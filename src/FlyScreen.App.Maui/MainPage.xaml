@@ -5,6 +5,7 @@
              xmlns:helpers="clr-namespace:FlyScreen.AppMaui.Helpers"
              xmlns:models="clr-namespace:FlyScreen.Models;assembly=FlyScreen.Core"
              xmlns:ui="clr-namespace:FlyScreen.Ui.Maui;assembly=FlyScreen.Ui.Maui"
+             xmlns:icons="clr-namespace:FlyScreen.Ui.Theme.Icons;assembly=FlyScreen.Ui.Theme"
              x:Class="FlyScreen.AppMaui.MainPage"
              Title="玄鸟"
              Shell.NavBarIsVisible="False"
@@ -267,20 +268,28 @@
                                             </RadioButton.Content>
                                         </RadioButton>
                                     </HorizontalStackLayout>
-                                    <!-- 宽屏两列；窄屏由代码改为单列 -->
-                                    <Grid x:Name="HotKeysGrid" ColumnDefinitions="Auto,68,12,Auto,68" RowDefinitions="Auto,Auto,Auto,Auto"
-                                          ColumnSpacing="8" RowSpacing="8" VerticalOptions="Center">
-                                        <Label x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
-                                        <Entry x:Name="HotkeySettingsEntry" Grid.Column="1" MaxLength="1" Text="M" HeightRequest="36" WidthRequest="60"
+                                    <!-- 标签 Auto；输入 * 填满。宽屏两列，窄屏由代码改单列 -->
+                                    <Grid x:Name="HotKeysGrid" ColumnDefinitions="Auto,*,12,Auto,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                                          ColumnSpacing="4" RowSpacing="8" VerticalOptions="Center">
+                                        <Label x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12"
+                                               LineBreakMode="NoWrap" />
+                                        <Entry x:Name="HotkeySettingsEntry" Grid.Column="1" MaxLength="1" Text="M"
+                                               HeightRequest="36" MinimumWidthRequest="36"
                                                HorizontalTextAlignment="Center" />
-                                        <Label x:Name="HotReconnectLabel" Grid.Column="3" Text="重新连接 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
-                                        <Entry x:Name="HotkeyReconnectEntry" Grid.Column="4" MaxLength="1" Text="R" HeightRequest="36" WidthRequest="60"
+                                        <Label x:Name="HotReconnectLabel" Grid.Column="3" Text="重新连接 (Ctrl+Alt+)" VerticalOptions="Center"
+                                               FontSize="12" LineBreakMode="NoWrap" />
+                                        <Entry x:Name="HotkeyReconnectEntry" Grid.Column="4" MaxLength="1" Text="R"
+                                               HeightRequest="36" MinimumWidthRequest="36"
                                                HorizontalTextAlignment="Center" />
-                                        <Label x:Name="HotExitLabel" Grid.Row="1" Text="退出程序 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
-                                        <Entry x:Name="HotkeyExitEntry" Grid.Row="1" Grid.Column="1" MaxLength="1" Text="Q" HeightRequest="36" WidthRequest="60"
+                                        <Label x:Name="HotExitLabel" Grid.Row="1" Text="退出程序 (Ctrl+Alt+)" VerticalOptions="Center"
+                                               FontSize="12" LineBreakMode="NoWrap" />
+                                        <Entry x:Name="HotkeyExitEntry" Grid.Row="1" Grid.Column="1" MaxLength="1" Text="Q"
+                                               HeightRequest="36" MinimumWidthRequest="36"
                                                HorizontalTextAlignment="Center" />
-                                        <Label x:Name="HotLockLabel" Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)" VerticalOptions="Center" FontSize="12" LineBreakMode="WordWrap" />
-                                        <Entry x:Name="HotkeyLockEntry" Grid.Row="1" Grid.Column="4" MaxLength="1" Text="L" HeightRequest="36" WidthRequest="60"
+                                        <Label x:Name="HotLockLabel" Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)" VerticalOptions="Center"
+                                               FontSize="12" LineBreakMode="NoWrap" />
+                                        <Entry x:Name="HotkeyLockEntry" Grid.Row="1" Grid.Column="4" MaxLength="1" Text="L"
+                                               HeightRequest="36" MinimumWidthRequest="36"
                                                HorizontalTextAlignment="Center" />
                                     </Grid>
                                 </VerticalStackLayout>
@@ -290,18 +299,8 @@
                                 <VerticalStackLayout Spacing="4">
                                     <Label x:Name="SysTitleText" Text="系统设置" FontAttributes="Bold" />
                                     <Label x:Name="SysStyleLabel" Text="样式" Margin="0,4,0,2" />
-                                    <FlexLayout Wrap="Wrap" AlignItems="Center" Margin="0,0,0,8">
-                                        <RadioButton x:Name="ThemeLight" GroupName="UiTheme" IsChecked="True" Margin="0,0,18,4">
-                                            <RadioButton.Content>
-                                                <Label Text="淡色" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
-                                            </RadioButton.Content>
-                                        </RadioButton>
-                                        <RadioButton x:Name="ThemeDark" GroupName="UiTheme" Margin="0,0,0,4">
-                                            <RadioButton.Content>
-                                                <Label Text="深色" TextColor="{DynamicResource Text}" FontSize="13" VerticalTextAlignment="Center" />
-                                            </RadioButton.Content>
-                                        </RadioButton>
-                                    </FlexLayout>
+                                    <Picker x:Name="ThemePicker" HeightRequest="40" MinimumHeightRequest="34"
+                                            Margin="0,0,0,8" ItemDisplayBinding="{Binding Display}" />
                                     <Label x:Name="SysLangLabel" Text="语言" Margin="0,0,0,4" />
                                     <Picker x:Name="LanguagePicker" HeightRequest="40" MinimumHeightRequest="34"
                                             ItemDisplayBinding="{Binding NativeName}" />
@@ -324,10 +323,8 @@
                                                Text="本机网卡用于局域网；可添加远程/服务（旧端忽略未知配置）。"
                                                TextColor="{DynamicResource Muted}" FontSize="12" LineBreakMode="WordWrap" />
                                     </VerticalStackLayout>
-                                    <Button x:Name="AddEndpointBtn" Grid.Column="1" Text="+" WidthRequest="32" HeightRequest="28"
-                                            Padding="0" FontSize="16" FontAttributes="Bold"
-                                            TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
-                                            Clicked="AddEndpoint_Clicked" />
+                                    <Button x:Name="AddEndpointBtn" Grid.Column="1" Text="+" Style="{StaticResource NetIconOpBtn}"
+                                            WidthRequest="32" FontSize="16" Clicked="AddEndpoint_Clicked" />
                                 </Grid>
                                 <Border Grid.Row="1" BackgroundColor="{DynamicResource ListBg}" Stroke="{DynamicResource Line}"
                                         StrokeThickness="1" StrokeShape="RoundRectangle 8" Padding="12,8">
@@ -342,24 +339,21 @@
                                 <ScrollView Grid.Row="2">
                                     <VerticalStackLayout Spacing="0">
                                         <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
-                                                StrokeThickness="0,0,0,1" Padding="12,10">
+                                                StrokeThickness="1" Padding="12,10">
                                             <Grid ColumnDefinitions="100,*,96" ColumnSpacing="8">
                                                 <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" VerticalOptions="Center"
                                                        HorizontalTextAlignment="Center" HorizontalOptions="Center" />
                                                 <Picker x:Name="NicPicker" Grid.Column="1" HeightRequest="36"
                                                         ItemDisplayBinding="{Binding ShortDisplay}" />
-                                                <Button x:Name="RefreshNicsBtn" Grid.Column="2" Text="↻" HeightRequest="28"
-                                                        Padding="0" FontSize="14" FontAttributes="Bold"
-                                                        TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
-                                                        BorderColor="{DynamicResource Blue}" BorderWidth="1" CornerRadius="6"
-                                                        Clicked="RefreshNics_Clicked" />
+                                                <Button x:Name="RefreshNicsBtn" Grid.Column="2" Text="↻"
+                                                        Style="{StaticResource NetIconOpBtn}" Clicked="RefreshNics_Clicked" />
                                             </Grid>
                                         </Border>
                                         <CollectionView x:Name="EndpointList" HeightRequest="160">
                                             <CollectionView.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
-                                                            StrokeThickness="0,0,0,1" Padding="12,10">
+                                                            StrokeThickness="1" Padding="12,10">
                                                         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="100,*,96" ColumnSpacing="8" RowSpacing="4">
                                                             <Button Text="{Binding KindLabel}" HeightRequest="34" Padding="10,0"
                                                                     FontAttributes="Bold" HorizontalOptions="Center"
@@ -370,13 +364,9 @@
                                                             <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
                                                                    Placeholder="远程 host:port；服务 ws://host:8443 或 host:8443" />
                                                             <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
-                                                                <Button Text="⚡" HeightRequest="28" Padding="0" FontSize="14"
-                                                                        TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
-                                                                        BorderColor="{DynamicResource Blue}" BorderWidth="1" CornerRadius="6"
+                                                                <Button Style="{StaticResource NetIconOpBtn}" Text="⚡"
                                                                         CommandParameter="{Binding}" Clicked="TestEndpoint_Clicked" />
-                                                                <Button Grid.Column="2" Text="−" HeightRequest="28" Padding="0" FontSize="14"
-                                                                        TextColor="{DynamicResource Warn}" BackgroundColor="{DynamicResource WarnSoft}"
-                                                                        BorderColor="{DynamicResource Warn}" BorderWidth="1" CornerRadius="6"
+                                                                <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}" Text="−"
                                                                         CommandParameter="{Binding}" Clicked="DeleteEndpoint_Clicked" />
                                                             </Grid>
                                                             <Label Grid.Row="1" Grid.Column="1" Text="{Binding StatusText}"
@@ -419,7 +409,7 @@
                                 <CollectionView x:Name="DeviceInventoryList" Grid.Row="2" BackgroundColor="{DynamicResource ListBg}">
                                     <CollectionView.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Stroke="{DynamicResource Line}" StrokeThickness="0,0,0,1" Padding="10,8"
+                                            <Border Stroke="{DynamicResource Line}" StrokeThickness="1" Padding="10,8"
                                                     BackgroundColor="{DynamicResource CardBg}">
                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                                     <VerticalStackLayout Spacing="2">
@@ -437,9 +427,7 @@
                                                         </Label>
                                                     </VerticalStackLayout>
                                                     <Grid Grid.Column="1" ColumnDefinitions="*,6,*" WidthRequest="96" VerticalOptions="Center">
-                                                        <Button Text="{Binding PrimaryActionIcon}" HeightRequest="28" Padding="0" FontSize="14"
-                                                                TextColor="{DynamicResource Blue}" BackgroundColor="{DynamicResource BlueSoft}"
-                                                                BorderColor="{DynamicResource Blue}" BorderWidth="1" CornerRadius="6"
+                                                        <Button Style="{StaticResource NetIconOpBtn}" Text="{Binding PrimaryActionIcon}"
                                                                 IsVisible="{Binding PrimaryActionVisible}"
                                                                 CommandParameter="{Binding}" Clicked="DevicePrimaryAction_Clicked">
                                                             <Button.Triggers>
@@ -448,9 +436,7 @@
                                                                 </DataTrigger>
                                                             </Button.Triggers>
                                                         </Button>
-                                                        <Button Grid.Column="2" Text="{Binding SecondaryActionIcon}" HeightRequest="28" Padding="0" FontSize="14"
-                                                                TextColor="{DynamicResource Warn}" BackgroundColor="{DynamicResource WarnSoft}"
-                                                                BorderColor="{DynamicResource Warn}" BorderWidth="1" CornerRadius="6"
+                                                        <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}" Text="{Binding SecondaryActionIcon}"
                                                                 IsVisible="{Binding SecondaryActionVisible}"
                                                                 CommandParameter="{Binding}" Clicked="DeviceSecondaryAction_Clicked" />
                                                     </Grid>
@@ -486,7 +472,7 @@
                                     HeightRequest="34" MinimumWidthRequest="36" Clicked="ClearTransfers_Clicked" />
                         </HorizontalStackLayout>
                     </Border>
-                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
+                    <Border Grid.Row="2" Style="{StaticResource CardList}">
                         <Grid x:Name="TransferListHost" RowDefinitions="Auto,*"
                               SizeChanged="TransferListHost_SizeChanged">
                             <Grid x:Name="TransferListHeader" Padding="10,8" ColumnSpacing="4"
@@ -773,7 +759,7 @@
                             <Button x:Name="NavBasic" Style="{StaticResource SideNavBtnActive}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="basic" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12,5.69L17,10.19V18H15V12H9V18H7V10.19L12,5.69M12,3L2,12H5V20H11V14H13V20H19V12H22L12,3Z"
+                                <Path Data="{x:Static icons:IconPaths.NavHome}"
                                       Fill="#F59E0B" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavBasicText" Text="基础" Style="{StaticResource SideNavLabelActive}"
@@ -784,7 +770,7 @@
                             <Button x:Name="NavNetwork" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="network" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M17.9,17.39C17.64,16.59 16.89,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39Z"
+                                <Path Data="{x:Static icons:IconPaths.NavNetwork}"
                                       Fill="#2563EB" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavNetworkText" Text="网络" Style="{StaticResource SideNavLabel}"
@@ -795,7 +781,7 @@
                             <Button x:Name="NavShare" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="share" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M18,16.08C17.24,16.08 16.56,16.38 16.04,16.85L8.91,12.7C8.96,12.47 9,12.24 9,12C9,11.76 8.96,11.53 8.91,11.3L15.96,7.19C16.5,7.69 17.21,8 18,8A3,3 0 0,0 21,5A3,3 0 0,0 18,2A3,3 0 0,0 15,5C15,5.24 15.04,5.47 15.09,5.7L8.04,9.81C7.5,9.31 6.79,9 6,9A3,3 0 0,0 3,12A3,3 0 0,0 6,15C6.79,15 7.5,14.69 8.04,14.19L15.16,18.34C15.11,18.55 15.08,18.77 15.08,19C15.08,20.61 16.39,21.91 18,21.91C19.61,21.91 20.92,20.61 20.92,19A2.92,2.92 0 0,0 18,16.08Z"
+                                <Path Data="{x:Static icons:IconPaths.NavShare}"
                                       Fill="#10B981" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavShareText" Text="共享" Style="{StaticResource SideNavLabel}"
@@ -806,7 +792,7 @@
                             <Button x:Name="NavSecurity" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="security" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12,1 L3,5 V11 C3,16.55 6.84,21.74 12,23 C17.16,21.74 21,16.55 21,11 V5 Z"
+                                <Path Data="{x:Static icons:IconPaths.NavSecurity}"
                                       Fill="#8B5CF6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavSecurityText" Text="安全" Style="{StaticResource SideNavLabel}"
@@ -817,7 +803,7 @@
                             <Button x:Name="NavAdvanced" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="advanced" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"
+                                <Path Data="{x:Static icons:IconPaths.NavAdvanced}"
                                       Fill="#64748B" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavAdvancedText" Text="高级" Style="{StaticResource SideNavLabel}"
@@ -828,7 +814,7 @@
                             <Button x:Name="NavPrograms" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="programs" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.83L22.17,12L16,18.17V15.59L19.59,12M1.83,12L8,5.83V8.41L4.41,12L8,15.59V18.17L1.83,12Z"
+                                <Path Data="{x:Static icons:IconPaths.NavPrograms}"
                                       Fill="#14B8A6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavProgramsText" Text="程序" Style="{StaticResource SideNavLabel}"
@@ -839,7 +825,7 @@
                             <Button x:Name="NavTools" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="tools" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"
+                                <Path Data="{x:Static icons:IconPaths.NavAdvanced}"
                                       Fill="#8B5CF6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavToolsText" Text="工具" Style="{StaticResource SideNavLabel}"
@@ -851,7 +837,7 @@
                             <Button x:Name="NavLog" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="log" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13M8,13H16V15H8V13M8,17H13V19H8V17Z"
+                                <Path Data="{x:Static icons:IconPaths.NavLog}"
                                       Fill="#F97316" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavLogText" Text="日志" Style="{StaticResource SideNavLabel}"
@@ -862,7 +848,7 @@
                             <Button x:Name="NavAbout" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="about" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
+                                <Path Data="{x:Static icons:IconPaths.NavAbout}"
                                       Fill="#0EA5E9" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="AboutBtnText" Text="关于" Style="{StaticResource SideNavLabel}"
@@ -873,7 +859,7 @@
                             <Button x:Name="NavHelp" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="help" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,19H11V17H13M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7C10.9,7 10,7.89 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,10.1 15.55,11.05 14.07,12.25L15.07,11.25Z"
+                                <Path Data="{x:Static icons:IconPaths.NavHelp}"
                                       Fill="#EC4899" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="HelpBtnText" Text="帮助" Style="{StaticResource SideNavLabel}"

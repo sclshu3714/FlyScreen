@@ -22,6 +22,10 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
     private int _stride;
     private int _posted;
     private WriteableBitmap? _bitmap;
+    private int _frameSignal;
+
+    /// <summary>首帧已画到 Image 后触发（Clear 后可再触发）。</summary>
+    public event Action? FramePresented;
 
     public VideoWallFrameSurface(System.Windows.Controls.Image image)
     {
@@ -39,6 +43,7 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
         }
 
         Interlocked.Exchange(ref _posted, 0);
+        Interlocked.Exchange(ref _frameSignal, 0);
         _ = _dispatcher.BeginInvoke(() =>
         {
             _bitmap = null;
@@ -104,6 +109,8 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
 
             var rect = new Int32Rect(0, 0, width, height);
             _bitmap.WritePixels(rect, pixels, stride, 0);
+            if (Interlocked.Exchange(ref _frameSignal, 1) == 0)
+                FramePresented?.Invoke();
         }
         catch
         {

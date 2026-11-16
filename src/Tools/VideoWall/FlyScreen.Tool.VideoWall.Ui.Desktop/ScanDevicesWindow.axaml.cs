@@ -28,7 +28,7 @@ public partial class ScanDevicesWindow : Window
         VendorCombo.Items.Add("Axis");
         VendorCombo.SelectedIndex = 0;
         ApplyLoc();
-        SubnetBox.Text = LanDeviceScanService.SuggestLocalCidr();
+        BindSubnetChoices();
         Opened += async (_, _) => await StartScanAsync();
         Closed += (_, _) =>
         {
@@ -37,12 +37,22 @@ public partial class ScanDevicesWindow : Window
         };
     }
 
+    private void BindSubnetChoices()
+    {
+        var cidrs = LanDeviceScanService.ListLocalCidrs();
+        SubnetCombo.Items.Clear();
+        foreach (var cidr in cidrs)
+            SubnetCombo.Items.Add(cidr);
+        SubnetCombo.SelectedIndex = 0;
+        SubnetCombo.Text = cidrs[0];
+    }
+
     private void ApplyLoc()
     {
         Title = Loc.T("Tool.VideoWall.Scan.Title");
         TitleText.Text = Loc.T("Tool.VideoWall.Scan.Title");
         SubnetLabel.Text = Loc.T("Tool.VideoWall.Scan.Subnet");
-        SubnetBox.Watermark = Loc.T("Tool.VideoWall.Scan.SubnetHint");
+        ToolTip.SetTip(SubnetCombo, Loc.T("Tool.VideoWall.Scan.SubnetHint"));
         VendorLabel.Text = Loc.T("Tool.VideoWall.Scan.Vendor");
         UserLabel.Text = Loc.T("Tool.VideoWall.Scan.Username");
         PassLabel.Text = Loc.T("Tool.VideoWall.Scan.Password");
@@ -56,6 +66,9 @@ public partial class ScanDevicesWindow : Window
         HdrActions.Text = Loc.T("Tool.VideoWall.Scan.Actions");
         StatusText.Text = Loc.T("Tool.VideoWall.Scan.CredHint");
     }
+
+    private string CurrentSubnet()
+        => (SubnetCombo.Text ?? SubnetCombo.SelectedItem as string ?? "").Trim();
 
     private async void RescanBtn_Click(object? sender, RoutedEventArgs e)
         => await StartScanAsync();
@@ -89,7 +102,7 @@ public partial class ScanDevicesWindow : Window
                     Loc.T("Tool.VideoWall.Scan.Scanning"), p.Done, p.Total, p.Found));
 
             await foreach (var device in new LanDeviceScanService()
-                               .ScanAsync(SubnetBox.Text ?? "", progress, ct)
+                               .ScanAsync(CurrentSubnet(), progress, ct)
                                .ConfigureAwait(true))
             {
                 _rows.Add(new ScanRowVm(device, LanDeviceScanService.IsAlreadyAdded(_service, device)));

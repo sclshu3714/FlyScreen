@@ -206,6 +206,23 @@
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
     <ProjectReference Include="..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\Theme\FlyScreen.Ui.Theme.Maui\FlyScreen.Ui.Theme.Maui.csproj" />
+  </ItemGroup>
+
+  <!-- 统一样式源：链接 Theme.Maui 下 Shared/Maui XAML，单点维护 -->
+  <ItemGroup>
+    <MauiXaml Remove="Resources\Styles\Colors.xaml" />
+    <MauiXaml Remove="Resources\Styles\Styles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Colors.xaml" Link="Resources\Styles\Theme\Colors.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Spacing.xaml" Link="Resources\Styles\Theme\Spacing.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Typography.xaml" Link="Resources\Styles\Theme\Typography.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Shared\Radii.xaml" Link="Resources\Styles\Theme\Radii.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\EntryStyles.xaml" Link="Resources\Styles\Theme\EntryStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ButtonStyles.xaml" Link="Resources\Styles\Theme\ButtonStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ControlStyles.xaml" Link="Resources\Styles\Theme\ControlStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ListStyles.xaml" Link="Resources\Styles\Theme\ListStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ActionStyles.xaml" Link="Resources\Styles\Theme\ActionStyles.xaml" />
   </ItemGroup>
 
   <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->

@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:FlyScreen.Ui.Avalonia;assembly=FlyScreen.Ui.Avalonia"
              x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.VideoWallPlayerControl"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
              Background="#000000"
@@ -27,25 +28,11 @@
     </Style>
   </UserControl.Styles>
   <UserControl.Resources>
-    <StreamGeometry x:Key="GeoBack">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoPause">M14,19H18V5H14M6,19H10V5H6V19Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoNext">M6,18L14.5,12L6,6V18M16,6V18H18V6H16Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoSeekFwd5">M12,5V1L17,6L12,11V7C8.69,7 6,9.69 6,13C6,16.31 8.69,19 12,19C15.31,19 18,16.31 18,13H20C20,17.42 16.42,21 12,21C7.58,21 4,17.42 4,13C4,8.58 7.58,5 12,5Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoSettings">M12,2L20.66,7V17L12,22L3.34,17V7L12,2M12,8.5A3.5,3.5 0 1 0 12,15.5A3.5,3.5 0 1 0 12,8.5Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoPip">M19,11H11V17H19V11M23,19V5C23,3.88 22.1,3 21,3H3A2,2 0 0,0 1,5V19A2,2 0 0,0 3,21H21A2,2 0 0,0 23,19M21,19H3V4.97H21V19Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoMaximize">M4,4H20V20H4V4M6,8V18H18V8H6Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoChevronRight">M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z</StreamGeometry>
     <LinearGradientBrush x:Key="PlaybackVolumeGradient" StartPoint="0,1" EndPoint="0,0">
       <GradientStop Color="Lime" Offset="0"/>
       <GradientStop Color="Cyan" Offset="0.5"/>
       <GradientStop Color="SkyBlue" Offset="1"/>
     </LinearGradientBrush>
-    <StreamGeometry x:Key="GeoVolume">M14,3.23V5.29C16.89,6.15 19,8.83 19,12C19,15.17 16.89,17.84 14,18.7V20.77C18,19.86 21,16.28 21,12C21,7.72 18,4.14 14,3.23M16.5,12C16.5,10.23 15.5,8.71 14,7.97V16C15.5,15.29 16.5,13.76 16.5,12M3,9V15H7L12,20V4L7,9H3Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoMute">M12,4L9.91,6.09L12,8.18M4.27,3L3,4.27L7.73,9H3V15H7L12,20V13.27L16.25,17.53C15.58,18.04 14.83,18.46 14,18.7V20.77C15.38,20.45 16.63,19.82 17.68,18.96L19.73,21L21,19.73L12,10.73M19,12C19,12.94 18.8,13.82 18.46,14.64L19.97,16.15C20.62,14.91 21,13.5 21,12C21,7.72 18,4.14 14,3.23V5.29C16.89,6.15 19,8.83 19,12M16.5,12C16.5,10.23 15.5,8.71 14,7.97V10.18L16.45,12.63C16.5,12.43 16.5,12.21 16.5,12Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoFullscreen">M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z</StreamGeometry>
-    <StreamGeometry x:Key="GeoFullscreenExit">M14,14H19V16H16V19H14V14M5,14H10V19H8V16H5V14M8,5H10V10H5V8H8V5M16,8V5H14V10H19V8H16Z</StreamGeometry>
   </UserControl.Resources>
 
   <!-- 近透明底保证 PointerMoved 覆盖整块播放区；纯透明时悬停不触发 -->
@@ -54,8 +41,11 @@
         PointerReleased="Root_PointerReleased">
     <Border x:Name="PlaybackVideoHost" MinHeight="200" Background="Black"
             CornerRadius="0" Margin="0">
-      <Image x:Name="PlaybackFrameImage" Stretch="Uniform"
-             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+      <Grid>
+        <Image x:Name="PlaybackFrameImage" Stretch="Uniform"
+               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+        <ui:LoadingOverlay x:Name="PlaybackLoading" ZIndex="1"/>
+      </Grid>
     </Border>
 
     <Border x:Name="PlaybackTitleBarHost" Height="56" VerticalAlignment="Top" ZIndex="2">

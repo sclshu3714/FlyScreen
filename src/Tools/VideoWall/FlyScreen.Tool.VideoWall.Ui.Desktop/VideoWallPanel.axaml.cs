@@ -11,6 +11,7 @@ using FlyScreen.Services.Tools;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
+using FlyScreen.Ui.Avalonia;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Desktop;
 
@@ -26,6 +27,7 @@ public partial class VideoWallPanel : UserControl
     private BrowseView _browseView = BrowseView.List;
     private bool _suppressCarouselToggle;
     private bool _suppressCheckSync;
+    private bool _carouselPointerOver;
     private readonly DispatcherTimer _carouselTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(WallCarousel.DefaultIntervalMs)
@@ -45,6 +47,7 @@ public partial class VideoWallPanel : UserControl
 
     public VideoWallPanel()
     {
+        AvaloniaIcon.RegisterTo(Resources);
         InitializeComponent();
         _service = ToolService.Instance.GetToolService<IVideoWallService>();
         SourcesList.ItemsSource = _rows;
@@ -94,6 +97,8 @@ public partial class VideoWallPanel : UserControl
         SearchBox.Watermark = Loc.T("Tool.VideoWall.Search");
         CarouselToggle.Content = Loc.T("Tool.VideoWall.Carousel");
         ToolTip.SetTip(CarouselToggle, Loc.T("Tool.VideoWall.CarouselHint"));
+        ToolTip.SetTip(CarouselPrevBtn, Loc.T("Tool.VideoWall.CarouselPrev"));
+        ToolTip.SetTip(CarouselNextBtn, Loc.T("Tool.VideoWall.CarouselNext"));
         ToolTip.SetTip(HdrSelectAll, Loc.T("Tool.VideoWall.SelectAllTip"));
         HdrName.Text = Loc.T("Tool.VideoWall.ColName");
         HdrKind.Text = Loc.T("Tool.VideoWall.ColKind");
@@ -165,8 +170,13 @@ public partial class VideoWallPanel : UserControl
     {
         _mode = mode;
         SourcesPane.IsVisible = mode == PanelMode.Sources;
-        WallGrid.IsVisible = mode == PanelMode.Wall;
+        WallHost.IsVisible = mode == PanelMode.Wall;
         Player.IsVisible = mode == PanelMode.Playback;
+        if (mode != PanelMode.Wall)
+        {
+            _carouselPointerOver = false;
+            UpdateCarouselOverlayVisibility();
+        }
         if (mode != PanelMode.Playback)
             _ = Player.StopAsync();
         if (mode == PanelMode.Wall)
@@ -258,7 +268,11 @@ public partial class VideoWallPanel : UserControl
 
     private void SyncCarouselTimer()
     {
-        if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled || _service.CarouselPageCount <= 1)
+        if (_service is null
+            || _mode != PanelMode.Wall
+            || !_service.CarouselEnabled
+            || _service.CarouselPageCount <= 1
+            || _carouselPointerOver)
         {
             _carouselTimer.Stop();
             return;
@@ -273,6 +287,8 @@ public partial class VideoWallPanel : UserControl
         if (_service is null)
         {
             CarouselPageText.Text = "";
+            CarouselDots.Children.Clear();
+            UpdateCarouselOverlayVisibility();
             return;
         }
 
@@ -280,6 +296,99 @@ public partial class VideoWallPanel : UserControl
             Loc.T("Tool.VideoWall.CarouselPage"),
             _service.CarouselPage + 1,
             Math.Max(1, _service.CarouselPageCount));
+        RebuildCarouselDots();
+        UpdateCarouselOverlayVisibility();
+    }
+
+    private bool CarouselNavAvailable
+        => _service is not null
+           && _mode == PanelMode.Wall
+           && _service.CarouselEnabled
+           && _service.CarouselPageCount > 1;
+
+    private void UpdateCarouselOverlayVisibility()
+    {
+        var nav = CarouselNavAvailable;
+        var showArrows = nav && _carouselPointerOver;
+        CarouselPrevBtn.IsVisible = showArrows;
+        CarouselNextBtn.IsVisible = showArrows;
+        CarouselDots.IsVisible = nav;
+    }
+
+    private void RebuildCarouselDots()
+    {
+        CarouselDots.Children.Clear();
+        if (!CarouselNavAvailable || _service is null) return;
+
+        var page = _service.CarouselPage;
+        var count = _service.CarouselPageCount;
+        // 附件样式：短胶囊 + 当前页加长；色跟主题 Blue / ControlBorder
+        var activeBrush = ResolveThemeBrush("Blue");
+        var idleBrush = ResolveThemeBrush("ControlBorder");
+        for (var i = 0; i < count; i++)
+        {
+            var index = i;
+            var on = i == page;
+            var pill = new Border
+            {
+                Width = on ? 28 : 16,
+                Height = 6,
+                CornerRadius = new CornerRadius(3),
+                Background = on ? activeBrush : idleBrush,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Tag = index
+            };
+            ToolTip.SetTip(pill, string.Format(Loc.T("Tool.VideoWall.CarouselGoto"), i + 1));
+            pill.PointerReleased += CarouselDot_PointerReleased;
+            CarouselDots.Children.Add(pill);
+        }
+    }
+
+    private void WallHost_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        _carouselPointerOver = true;
+        UpdateCarouselOverlayVisibility();
+        SyncCarouselTimer();
+    }
+
+    private void WallHost_PointerExited(object? sender, PointerEventArgs e)
+    {
+        _carouselPointerOver = false;
+        UpdateCarouselOverlayVisibility();
+        SyncCarouselTimer();
+    }
+
+    private async void CarouselPrevBtn_Click(object? sender, RoutedEventArgs e)
+        => await StepCarouselAsync(next: false);
+
+    private async void CarouselNextBtn_Click(object? sender, RoutedEventArgs e)
+        => await StepCarouselAsync(next: true);
+
+    private async void CarouselDot_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is not Control { Tag: int page }) return;
+        e.Handled = true;
+        await GoToCarouselPageUiAsync(page);
+    }
+
+    private async Task StepCarouselAsync(bool next)
+    {
+        if (_service is null || !CarouselNavAvailable) return;
+        if (next) await _service.AdvanceCarouselAsync();
+        else await _service.RetreatCarouselAsync();
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    private async Task GoToCarouselPageUiAsync(int page)
+    {
+        if (_service is null || !CarouselNavAvailable) return;
+        if (page == _service.CarouselPage) return;
+        await _service.GoToCarouselPageAsync(page);
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
     }
 
     private void DetachAllTileSurfaces()
@@ -532,6 +641,16 @@ public partial class VideoWallPanel : UserControl
                 _tileSurfaces[i] = surface;
                 if (tile.HasPlayer)
                     tile.AttachFrameSink(surface);
+
+                var loading = new LoadingOverlay { SpinnerSize = 28, ZIndex = 2 };
+                if (TilePlayStateUi.ShowsLoading(tile.State))
+                    loading.Show();
+                else
+                    loading.Hide();
+                cell.Children.Add(loading);
+                void OnTileFrame() => Dispatcher.UIThread.Post(loading.Hide);
+                surface.FramePresented += OnTileFrame;
+                loading.DetachedFromVisualTree += (_, _) => surface.FramePresented -= OnTileFrame;
             }
             else
             {
@@ -553,6 +672,8 @@ public partial class VideoWallPanel : UserControl
             var border = new Border
             {
                 Margin = new Thickness(3),
+                BorderThickness = new Thickness(1),
+                BorderBrush = ResolveThemeBrush("Line"),
                 Background = Avalonia.Media.Brushes.Black,
                 Tag = i,
                 Child = cell
@@ -655,6 +776,16 @@ public partial class VideoWallPanel : UserControl
         SourceValidationState.Failed => "Failed",
         _ => "—"
     };
+
+    private Avalonia.Media.IBrush ResolveThemeBrush(string key)
+    {
+        if (this.TryGetResource(key, ActualThemeVariant, out var local) && local is Avalonia.Media.IBrush lb)
+            return lb;
+        if (Application.Current?.TryGetResource(key, ActualThemeVariant, out var app) == true
+            && app is Avalonia.Media.IBrush ab)
+            return ab;
+        return Avalonia.Media.Brushes.Gray;
+    }
 
     private sealed class DesktopSourceRow : INotifyPropertyChanged
     {

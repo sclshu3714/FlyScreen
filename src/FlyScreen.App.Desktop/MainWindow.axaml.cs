@@ -30,6 +30,7 @@ using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
+using FlyScreen.Ui.Theme;
 
 namespace FlyScreen.DesktopUi;
 
@@ -890,10 +891,7 @@ public partial class MainWindow : Window
         LanguageCombo.SelectedItem = lang;
         Loc.SetCulture(lang.Code);
 
-        if (string.Equals(s.UiTheme, "Dark", StringComparison.OrdinalIgnoreCase))
-            ThemeDark.IsChecked = true;
-        else
-            ThemeLight.IsChecked = true;
+        BindThemeCombo(s.UiTheme);
         DesktopThemeService.Apply(s.UiTheme, this);
 
         Title = Loc.T("App.Name");
@@ -986,6 +984,12 @@ public partial class MainWindow : Window
         ApplyBtn.Content = Loc.T("Btn.Apply");
         HideTrayBtn.Content = Loc.T("Btn.HideTray");
         ExitBtn.Content = Loc.T("Btn.Exit");
+        if (SysTitleText != null) SysTitleText.Text = Loc.T("Sys.Title");
+        if (SysStyleLabel != null) SysStyleLabel.Text = Loc.T("Sys.Style");
+        if (SysLangLabel != null) SysLangLabel.Text = Loc.T("Sys.Language");
+        ToolTip.SetTip(ThemeCombo, Loc.T("Sys.StyleTip"));
+        ToolTip.SetTip(LanguageCombo, Loc.T("Sys.LangTip"));
+        RefreshThemeComboLabels();
         ApplyTrayLocalized();
         if (XferTitleText != null) XferTitleText.Text = Loc.T("Xfer.Title");
         if (XferHintText != null) XferHintText.Text = Loc.T("Xfer.Hint");
@@ -1194,7 +1198,9 @@ public partial class MainWindow : Window
         else
             s.UiLanguage = Loc.DefaultCulture;
 
-        s.UiTheme = ThemeDark.IsChecked == true ? "Dark" : "Light";
+        s.UiTheme = ThemeCombo.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : DesktopThemeService.Light;
         DesktopThemeService.Apply(s.UiTheme, this);
         Loc.SetCulture(s.UiLanguage);
         ApplyLocalizedChrome();
@@ -4242,5 +4248,27 @@ public partial class MainWindow : Window
     {
         if (!FlyScreen.Helpers.PathReveal.TryReveal(item.FullPath, out var error))
             StatusText.Text = string.IsNullOrWhiteSpace(error) ? "无法打开所在文件夹" : error;
+    }
+
+    private void BindThemeCombo(string? selectedId)
+    {
+        var items = ThemePalette.All
+            .Select(t => new ThemeListItem(t.Id, Loc.T(t.DisplayLocKey)))
+            .ToList();
+        ThemeCombo.ItemsSource = items;
+        ThemeCombo.SelectedItem = items.FirstOrDefault(i =>
+                                      string.Equals(i.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                                  ?? items.FirstOrDefault();
+    }
+
+    private void RefreshThemeComboLabels()
+    {
+        var id = ThemeCombo.SelectedItem is ThemeListItem cur ? cur.Id : DesktopThemeService.Current;
+        BindThemeCombo(id);
+    }
+
+    private sealed record ThemeListItem(string Id, string Display)
+    {
+        public override string ToString() => Display;
     }
 }

@@ -70,6 +70,24 @@ public sealed class WallCarousel
         _page = (_page + 1) % pages;
     }
 
+    public void PrevPage()
+    {
+        var pages = PageCount;
+        if (pages <= 1)
+        {
+            _page = 0;
+            return;
+        }
+
+        _page = (_page - 1 + pages) % pages;
+    }
+
+    public void GoToPage(int page)
+    {
+        _page = page;
+        ClampPage();
+    }
+
     /// <summary>当前页各格的源 Id；空格为 null。</summary>
     public IReadOnlyList<string?> GetPageSlots()
     {

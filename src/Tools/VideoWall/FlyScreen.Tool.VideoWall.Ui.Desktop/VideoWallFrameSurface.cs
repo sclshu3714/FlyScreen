@@ -22,6 +22,10 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
     private int _stride;
     private int _posted;
     private WriteableBitmap? _bitmap;
+    private int _frameSignal;
+
+    /// <summary>首帧已画到 Image 后触发（Clear 后可再触发）。</summary>
+    public event Action? FramePresented;
 
     public VideoWallFrameSurface(Image image) => _image = image;
 
@@ -34,6 +38,7 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
         }
 
         Interlocked.Exchange(ref _posted, 0);
+        Interlocked.Exchange(ref _frameSignal, 0);
         Dispatcher.UIThread.Post(() =>
         {
             _bitmap = null;
@@ -108,6 +113,9 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
             {
                 Marshal.Copy(pixels, y * stride, dst + y * dstStride, Math.Min(stride, dstStride));
             }
+
+            if (Interlocked.Exchange(ref _frameSignal, 1) == 0)
+                FramePresented?.Invoke();
         }
         catch
         {

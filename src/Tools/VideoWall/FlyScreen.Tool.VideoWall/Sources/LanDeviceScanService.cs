@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Wall;
 
@@ -28,13 +28,18 @@ public sealed class LanDeviceScanService
     /// <summary>RTSP / 常见 NVR Web / 厂商私有端口。</summary>
     public static readonly int[] ProbePorts = [554, 8554, 80, 8080, 8000, 37777, 34567];
 
-    private const int ConnectTimeoutMs = 350;
+    private const int ConnectTimeoutMs = 220;
     private const int MaxHosts = 1024;
-    private const int MaxDegree = 48;
+    /// <summary>过高并发会打满线程池/套接字，整机（含鼠标）都会卡。</summary>
+    private const int MaxDegree = 16;
+    /// <summary>进度回调经 Progress&lt;T&gt; 会打到 UI 线程，必须节流。</summary>
+    private const int ProgressMinIntervalMs = 120;
 
-    /// <summary>根据本机网卡建议默认网段（如 <c>192.168.1.0/24</c>）。</summary>
-    public static string SuggestLocalCidr()
+    /// <summary>枚举本机各活动网卡的 IPv4 网段（去重，如 <c>192.168.1.0/24</c>）。</summary>
+    public static IReadOnlyList<string> ListLocalCidrs()
     {
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         try
         {
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -57,7 +62,9 @@ public sealed class LanDeviceScanService
                         prefix = 24;
 
                     var network = ToNetworkAddress(uni.Address, prefix);
-                    return $"{network}/{prefix}";
+                    var cidr = $"{network}/{prefix}";
+                    if (seen.Add(cidr))
+                        list.Add(cidr);
                 }
             }
         }
@@ -66,8 +73,14 @@ public sealed class LanDeviceScanService
             // ignore
         }
 
-        return "192.168.1.0/24";
+        if (list.Count == 0)
+            list.Add("192.168.1.0/24");
+        return list;
     }
+
+    /// <summary>根据本机网卡建议默认网段（取 <see cref="ListLocalCidrs"/> 首项）。</summary>
+    public static string SuggestLocalCidr()
+        => ListLocalCidrs()[0];
 
     /// <summary>解析网段文本为待探测主机列表。</summary>
     public static IReadOnlyList<IPAddress> ParseHosts(string rangeText)
@@ -114,7 +127,7 @@ public sealed class LanDeviceScanService
         throw new ArgumentException("网段格式应为 192.168.1.0/24 或 192.168.1.1-192.168.1.50");
     }
 
-    /// <summary>扫描网段，发现开放视频相关端口的主机。</summary>
+    /// <summary>扫描网段，发现开放视频相关端口的主机（边扫边产出，进度节流）。</summary>
     public async IAsyncEnumerable<ScannedLanDevice> ScanAsync(
         string rangeText,
         IProgress<LanScanProgress>? progress = null,
@@ -126,51 +139,135 @@ public sealed class LanDeviceScanService
         if (hosts.Count > MaxHosts)
             throw new ArgumentException($"主机数过多（{hosts.Count}），请缩小网段（最多 {MaxHosts}）");
 
-        var bag = new ConcurrentBag<(IPAddress Ip, List<int> Ports)>();
+        var channel = Channel.CreateUnbounded<ScannedLanDevice>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+
         var done = 0;
         var found = 0;
-        using var gate = new SemaphoreSlim(MaxDegree);
+        var lastReportMs = 0L;
+        using var gate = new SemaphoreSlim(MaxDegree, MaxDegree);
 
-        var tasks = hosts.Select(async host =>
+        void Report(int d, IPAddress? host, bool force)
         {
-            await gate.WaitAsync(ct).ConfigureAwait(false);
+            if (progress is null) return;
+            var now = Environment.TickCount64;
+            if (!force)
+            {
+                var last = Volatile.Read(ref lastReportMs);
+                if (now - last < ProgressMinIntervalMs)
+                    return;
+                if (Interlocked.CompareExchange(ref lastReportMs, now, last) != last)
+                    return;
+            }
+            else
+            {
+                Volatile.Write(ref lastReportMs, now);
+            }
+
+            progress.Report(new LanScanProgress(
+                d,
+                hosts.Count,
+                host?.ToString(),
+                Volatile.Read(ref found)));
+        }
+
+        var producer = Task.Run(async () =>
+        {
             try
             {
-                ct.ThrowIfCancellationRequested();
-                var open = new List<int>(4);
-                foreach (var port in ProbePorts)
+                var tasks = new Task[hosts.Count];
+                for (var i = 0; i < hosts.Count; i++)
                 {
-                    if (await IsPortOpenAsync(host, port, ct).ConfigureAwait(false))
-                        open.Add(port);
+                    var host = hosts[i];
+                    tasks[i] = ProbeHostAsync(
+                        host,
+                        gate,
+                        channel.Writer,
+                        ct,
+                        onDone: () =>
+                        {
+                            var d = Interlocked.Increment(ref done);
+                            Report(d, host, force: d >= hosts.Count);
+                        },
+                        onFound: () => Interlocked.Increment(ref found));
                 }
 
-                if (open.Count > 0)
-                {
-                    bag.Add((host, open));
-                    Interlocked.Increment(ref found);
-                }
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+                Report(hosts.Count, null, force: true);
+                channel.Writer.TryComplete();
             }
-            finally
+            catch (Exception ex)
             {
-                gate.Release();
-                var d = Interlocked.Increment(ref done);
-                progress?.Report(new LanScanProgress(d, hosts.Count, host.ToString(), Volatile.Read(ref found)));
+                channel.Writer.TryComplete(ex);
             }
-        }).ToArray();
+        }, CancellationToken.None);
 
-        await Task.WhenAll(tasks).ConfigureAwait(false);
+        try
+        {
+            await foreach (var device in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+                yield return device;
+        }
+        finally
+        {
+            try
+            {
+                await producer.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // ignore
+            }
+        }
+    }
 
-        foreach (var (ip, ports) in bag.OrderBy(x => ToUInt32(x.Ip)))
+    private static async Task ProbeHostAsync(
+        IPAddress host,
+        SemaphoreSlim gate,
+        ChannelWriter<ScannedLanDevice> writer,
+        CancellationToken ct,
+        Action onDone,
+        Action onFound)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
             ct.ThrowIfCancellationRequested();
-            var hasRtsp = ports.Contains(554) || ports.Contains(8554);
-            if (!hasRtsp && !ports.Any(p => p is 80 or 8080 or 8000 or 37777 or 34567))
-                continue;
+            var open = new List<int>(4);
+            foreach (var port in ProbePorts)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (await IsPortOpenAsync(host, port, ct).ConfigureAwait(false))
+                    open.Add(port);
+            }
 
-            var rtspPort = ports.Contains(554) ? 554 : ports.Contains(8554) ? 8554 : 554;
-            var kind = GuessKind(ports);
-            var name = $"{kind} {ip}";
-            yield return new ScannedLanDevice(ip.ToString(), rtspPort, kind, name, ports);
+            if (open.Count == 0)
+                return;
+
+            var hasRtsp = open.Contains(554) || open.Contains(8554);
+            if (!hasRtsp && !open.Exists(p => p is 80 or 8080 or 8000 or 37777 or 34567))
+                return;
+
+            var rtspPort = open.Contains(554) ? 554 : open.Contains(8554) ? 8554 : 554;
+            var kind = GuessKind(open);
+            var device = new ScannedLanDevice(host.ToString(), rtspPort, kind, $"{kind} {host}", open);
+            onFound();
+            await writer.WriteAsync(device, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // 单主机失败不影响整段扫描
+        }
+        finally
+        {
+            gate.Release();
+            onDone();
         }
     }
 
@@ -296,7 +393,6 @@ public sealed class LanDeviceScanService
 
     private static IPAddress ToNetworkAddress(IPAddress address, int prefix)
     {
-        var bytes = address.GetAddressBytes();
         var mask = prefix == 0 ? 0u : uint.MaxValue << (32 - prefix);
         var num = ToUInt32(address) & mask;
         return FromUInt32(num);

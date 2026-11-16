@@ -3,7 +3,6 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Sources;
@@ -32,8 +31,8 @@ public partial class ScanDevicesDialog : Window
         VendorCombo.SelectedIndex = 0;
 
         ApplyLoc();
-        SubnetBox.Text = LanDeviceScanService.SuggestLocalCidr();
-        ApplyThemeFromOwner(owner);
+        BindSubnetChoices();
+        InheritHostBrushes(owner);
 
         Loaded += async (_, _) => await StartScanAsync();
         Closed += (_, _) =>
@@ -43,12 +42,21 @@ public partial class ScanDevicesDialog : Window
         };
     }
 
+    private void BindSubnetChoices()
+    {
+        var cidrs = LanDeviceScanService.ListLocalCidrs();
+        SubnetCombo.Items.Clear();
+        foreach (var cidr in cidrs)
+            SubnetCombo.Items.Add(cidr);
+        SubnetCombo.Text = cidrs[0];
+    }
+
     private void ApplyLoc()
     {
         Title = Loc.T("Tool.VideoWall.Scan.Title");
         TitleText.Text = Loc.T("Tool.VideoWall.Scan.Title");
         SubnetLabel.Text = Loc.T("Tool.VideoWall.Scan.Subnet");
-        SubnetBox.ToolTip = Loc.T("Tool.VideoWall.Scan.SubnetHint");
+        SubnetCombo.ToolTip = Loc.T("Tool.VideoWall.Scan.SubnetHint");
         VendorLabel.Text = Loc.T("Tool.VideoWall.Scan.Vendor");
         UserLabel.Text = Loc.T("Tool.VideoWall.Scan.Username");
         PassLabel.Text = Loc.T("Tool.VideoWall.Scan.Password");
@@ -63,15 +71,22 @@ public partial class ScanDevicesDialog : Window
         StatusText.Text = Loc.T("Tool.VideoWall.Scan.CredHint");
     }
 
-    private void ApplyThemeFromOwner(Window? owner)
+    private void InheritHostBrushes(FrameworkElement? host)
     {
-        if (owner?.Resources == null) return;
-        foreach (var key in new[] { "Blue", "Muted", "Line", "Text", "CardBg", "ControlBg", "ControlBorder" })
+        if (host is null) return;
+        foreach (var key in new[]
+                 {
+                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
+                     "WinBg", "CardBg", "ListBg", "SubtleBg", "ControlBg", "ControlBorder", "ControlHover"
+                 })
         {
-            if (owner.TryFindResource(key) is Brush b)
-                Resources[key] = b;
+            if (host.TryFindResource(key) is SolidColorBrush brush)
+                Resources[key] = brush.Clone();
         }
     }
+
+    private string CurrentSubnet()
+        => (SubnetCombo.Text ?? SubnetCombo.SelectedItem as string ?? "").Trim();
 
     private async void RescanBtn_Click(object sender, RoutedEventArgs e)
         => await StartScanAsync();
@@ -100,7 +115,7 @@ public partial class ScanDevicesDialog : Window
             });
 
             await foreach (var device in new LanDeviceScanService()
-                               .ScanAsync(SubnetBox.Text, progress, ct)
+                               .ScanAsync(CurrentSubnet(), progress, ct)
                                .ConfigureAwait(true))
             {
                 var added = LanDeviceScanService.IsAlreadyAdded(_service, device);
@@ -144,10 +159,7 @@ public partial class ScanDevicesDialog : Window
             {
                 StatusText.Text = string.Format(Loc.T("Tool.VideoWall.Scan.AddFail"), result.Reason);
                 if (result.Existing != null)
-                {
                     row.MarkAdded();
-                }
-
                 return;
             }
 
@@ -159,14 +171,6 @@ public partial class ScanDevicesDialog : Window
         {
             StatusText.Text = string.Format(Loc.T("Tool.VideoWall.Scan.AddFail"), ex.Message);
         }
-    }
-
-    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
-    {
-        base.OnMouseLeftButtonDown(e);
-        // 点遮罩空白处关闭
-        if (e.OriginalSource == this)
-            Close();
     }
 
     private sealed record VendorItem(string Id, string Label)

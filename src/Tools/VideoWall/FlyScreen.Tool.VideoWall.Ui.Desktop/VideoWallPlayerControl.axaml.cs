@@ -10,6 +10,7 @@ using Avalonia.VisualTree;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Wall;
+using FlyScreen.Ui.Avalonia;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Desktop;
 
@@ -30,6 +31,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private readonly DispatcherTimer _chromeHideTimer;
     private readonly DispatcherTimer _progressTimer;
     private readonly DispatcherTimer _volumePopupHideTimer;
+    private bool _hasPresentedFrame;
 
     private IVideoWallService? _service;
     private string? _pendingPlayId;
@@ -59,6 +61,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     public VideoWallPlayerControl()
     {
+        AvaloniaIcon.RegisterTo(Resources);
         InitializeComponent();
         _chromeHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
         _chromeHideTimer.Tick += (_, _) => HidePlaybackChrome();
@@ -97,6 +100,8 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _cueLengthMs = -1;
         RefreshCueLayer();
         UpdateQualityUi(null);
+        _hasPresentedFrame = false;
+        SetLoadingOverlay(true, Loc.T("Tool.VideoWall.StatusConnecting"));
         ShowPlaybackChrome();
         BumpPlaybackChrome();
         StatusReporter?.Invoke(Loc.T("Tool.VideoWall.StatusConnecting"));
@@ -104,11 +109,14 @@ public sealed partial class VideoWallPlayerControl : UserControl
         try
         {
             _frameSurface ??= new VideoWallFrameSurface(PlaybackFrameImage);
+            _frameSurface.FramePresented -= OnFramePresented;
+            _frameSurface.FramePresented += OnFramePresented;
             _frameSurface.Clear();
             await _service.SinglePlayback.StopAsync();
             await _service.SinglePlayback.PlaySourceAsync(
                 sourceId, renderTarget: null, frameSink: _frameSurface);
             UpdateTransportChrome(_service.SinglePlayback.State);
+            UpdateLoadingFromState(_service.SinglePlayback.State);
             _progressTimer.Start();
             StatusReporter?.Invoke(Loc.T("Tool.VideoWall.Play"));
         }
@@ -116,6 +124,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         {
             _frameSurface?.Clear();
             _progressTimer.Stop();
+            SetLoadingOverlay(false);
             StatusReporter?.Invoke(ex.Message);
         }
     }
@@ -129,11 +138,15 @@ public sealed partial class VideoWallPlayerControl : UserControl
         ExitFullscreen();
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
+        if (_frameSurface is not null)
+            _frameSurface.FramePresented -= OnFramePresented;
         _frameSurface?.Clear();
         _pendingPlayId = null;
+        _hasPresentedFrame = false;
         PlaybackTitle.Text = "";
         PlaybackTitleDuration.Text = "";
         ResetSeekUi();
+        SetLoadingOverlay(false);
         PlaybackTitleBarHost.IsVisible = false;
         PlaybackTransportBar.IsVisible = false;
         PlaybackVolumePopup.IsOpen = false;
@@ -148,7 +161,21 @@ public sealed partial class VideoWallPlayerControl : UserControl
     }
 
     private void OnStatsChanged(MediaStats stats) =>
-        Dispatcher.UIThread.Post(() => UpdateQualityUi(stats));
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateQualityUi(stats);
+            if (stats.Width > 0 || stats.FirstFrameMs >= 0)
+                MarkFramePresented();
+        });
+
+    private void OnFramePresented() => Dispatcher.UIThread.Post(MarkFramePresented);
+
+    private void MarkFramePresented()
+    {
+        if (_hasPresentedFrame) return;
+        _hasPresentedFrame = true;
+        UpdateLoadingFromState(_service?.SinglePlayback.State ?? TilePlayState.Idle);
+    }
 
     private void ApplyLoc()
     {
@@ -179,7 +206,43 @@ public sealed partial class VideoWallPlayerControl : UserControl
     }
 
     private void OnPlaybackStateChanged(TilePlayState state) =>
-        Dispatcher.UIThread.Post(() => UpdateTransportChrome(state));
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateTransportChrome(state);
+            if (state is TilePlayState.Playing)
+                _hasPresentedFrame = true;
+            UpdateLoadingFromState(state);
+        });
+
+    private void UpdateLoadingFromState(TilePlayState state)
+    {
+        if (TilePlayStateUi.ShowsLoading(state, _hasPresentedFrame))
+            SetLoadingOverlay(true, StatusTextFor(state));
+        else
+            SetLoadingOverlay(false);
+    }
+
+    private void SetLoadingOverlay(bool visible, string? text = null)
+    {
+        if (visible)
+            PlaybackLoading.Show(string.IsNullOrWhiteSpace(text)
+                ? Loc.T("Tool.VideoWall.StatusLoading")
+                : text);
+        else
+            PlaybackLoading.Hide();
+    }
+
+    private static string StatusTextFor(TilePlayState state) => state switch
+    {
+        TilePlayState.Resolving => Loc.T("Tool.VideoWall.StatusResolving"),
+        TilePlayState.Connecting => Loc.T("Tool.VideoWall.StatusConnecting"),
+        TilePlayState.Buffering => Loc.T("Tool.VideoWall.StatusBuffering"),
+        TilePlayState.Stalled => Loc.T("Tool.VideoWall.StatusStalled"),
+        TilePlayState.Reconnecting => Loc.T("Tool.VideoWall.StatusReconnecting"),
+        TilePlayState.Paused => Loc.T("Tool.VideoWall.Pause"),
+        TilePlayState.Stopped => Loc.T("Tool.VideoWall.StatusStopped"),
+        _ => state.ToString()
+    };
 
     private async void PlaybackBackBtn_Click(object? sender, RoutedEventArgs e)
     {

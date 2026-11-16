@@ -1,0 +1,18 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Class="FlyScreen.Ui.Theme.Wpf.WpfTheme">
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Shared/Colors.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Shared/Spacing.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Shared/Typography.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Shared/Radii.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/TextBoxStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ButtonStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ControlStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ListStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/DataGridStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ActionStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/LayoutStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ScrollBarStyles.xaml"/>
+  </ResourceDictionary.MergedDictionaries>
+</ResourceDictionary>

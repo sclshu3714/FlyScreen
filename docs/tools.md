@@ -389,7 +389,7 @@ manifest MUST 声明 `permissions`（可空）。
 | `virtualAudio` | 电脑端虚拟声卡 |
 | `peerNetwork` | 经玄鸟已有连接发工具信封 |
 | `fileSystem.inbox` | 读写玄鸟收件箱类目录 |
-| `networkStream` | 可连接你添加的视频地址与局域网摄像头/NVR；不会扫描网段 |
+| `networkStream` | 可连接你添加的视频地址与局域网摄像头/NVR；可在你点「扫描」时对选定网段做短时 TCP 端口探测（不后台常驻、不爆破口令） |
 | `localFile.open` | 经系统文件选择器读取你选中的视频文件 |
 | `localMediaListen` | 仅媒体入流（RTP/SIP）可在授权下绑定本机端口；不得承载工具信封 |
 

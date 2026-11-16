@@ -18,5 +18,7 @@
     <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\..\..\Controls\FlyScreen.Ui.Maui\FlyScreen.Ui.Maui.csproj" />
+    <ProjectReference Include="..\..\..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\..\Theme\FlyScreen.Ui.Theme.Maui\FlyScreen.Ui.Theme.Maui.csproj" />
   </ItemGroup>
 </Project>

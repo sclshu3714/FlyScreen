@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+  <!-- 表格/列表行内操作图标钮（对齐 WPF NetIconOpBtn / ProgIconBtn） -->
+
+  <Style x:Key="NetIconOpBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+    <Setter Property="TextColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="HeightRequest" Value="28" />
+    <Setter Property="MinimumHeightRequest" Value="28" />
+    <Setter Property="MinimumWidthRequest" Value="28" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontAttributes" Value="Bold" />
+  </Style>
+
+  <Style x:Key="NetIconOpBtnWarn" TargetType="Button" BasedOn="{StaticResource NetIconOpBtn}">
+    <Setter Property="BackgroundColor" Value="{DynamicResource WarnSoft}" />
+    <Setter Property="TextColor" Value="{DynamicResource Warn}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Warn}" />
+  </Style>
+
+  <Style x:Key="ProgIconBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="Transparent" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="BorderColor" Value="Transparent" />
+    <Setter Property="BorderWidth" Value="0" />
+    <Setter Property="WidthRequest" Value="30" />
+    <Setter Property="HeightRequest" Value="30" />
+    <Setter Property="MinimumWidthRequest" Value="30" />
+    <Setter Property="MinimumHeightRequest" Value="30" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,0,4,0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="VisualStateManager.VisualStateGroups">
+      <VisualStateGroupList>
+        <VisualStateGroup x:Name="CommonStates">
+          <VisualState x:Name="Normal" />
+          <VisualState x:Name="PointerOver">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource BlueSoft}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Pressed">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource BlueHover}" />
+            </VisualState.Setters>
+          </VisualState>
+        </VisualStateGroup>
+      </VisualStateGroupList>
+    </Setter>
+  </Style>
+</ResourceDictionary>

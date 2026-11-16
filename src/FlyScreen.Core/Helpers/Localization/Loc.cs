@@ -358,7 +358,7 @@ public static class Loc
         ["Sys.StyleLight"] = "淡色（默认）",
         ["Sys.StyleDark"] = "深色",
         ["Sys.Language"] = "语言",
-        ["Sys.StyleTip"] = "界面配色主题：淡色或深色，点击「应用」后立即生效。",
+        ["Sys.StyleTip"] = "界面配色主题，点击「应用」后立即生效。可扩展注册的主题会出现在列表中。",
         ["Sys.LangTip"] = "界面显示语言。可切换万国语言；未完整翻译的词条会回退到英文或中文。",
         ["Sys.Applied"] = "设置已应用，布局已同步到其他电脑",
 
@@ -933,7 +933,7 @@ public static class Loc
         ["Sys.StyleLight"] = "Light (default)",
         ["Sys.StyleDark"] = "Dark",
         ["Sys.Language"] = "Language",
-        ["Sys.StyleTip"] = "UI color theme: light or dark. Click Apply to take effect.",
+        ["Sys.StyleTip"] = "UI color theme. Click Apply to take effect. Registered themes appear in the list.",
         ["Sys.LangTip"] = "UI language. Untranslated strings fall back to English/Chinese.",
         ["Sys.Applied"] = "Settings applied; layout synced to peers.",
 

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Ui.Theme.Maui</RootNamespace>
+    <AssemblyName>FlyScreen.Ui.Theme.Maui</AssemblyName>
+    <Description>玄鸟 MAUI 主题：Shared 令牌 + 控件样式资源（跨 Win/Android/iOS/Mac）</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+  </ItemGroup>
+  <!-- Shared / Maui 下 XAML 为样式源文件：由 App.Maui 通过 Link 合并，避免类库 MauiXaml 双嵌入 -->
+  <ItemGroup>
+    <None Include="Shared\**\*.xaml" />
+    <None Include="Maui\**\*.xaml" />
+  </ItemGroup>
+</Project>

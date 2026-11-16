@@ -23,31 +23,7 @@
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
     <Window.Resources>
-        <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
-        <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
-        <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
-        <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
-        <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
-        <SolidColorBrush x:Key="Text" Color="#111827"/>
-        <SolidColorBrush x:Key="Success" Color="#059669"/>
-        <SolidColorBrush x:Key="Warn" Color="#D97706"/>
-        <SolidColorBrush x:Key="WarnSoft" Color="#FEF3C7"/>
-        <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
-        <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
-        <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="PaneBg" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
-        <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
-        <SolidColorBrush x:Key="ControlHover" Color="#F9FAFB"/>
-        <SolidColorBrush x:Key="Placeholder" Color="#9CA3AF"/>
-        <SolidColorBrush x:Key="MatrixBg" Color="#F8FAFC"/>
-        <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
-        <SolidColorBrush x:Key="ToolCardNotInstalledBg" Color="#F3F4F6"/>
-        <SolidColorBrush x:Key="ToolCardInstalledBg" Color="#ECFDF5"/>
-        <SolidColorBrush x:Key="ToolCardRunningBg" Color="#DBEAFE"/>
-        <SolidColorBrush x:Key="ToolCardInstallingBg" Color="#EFF6FF"/>
-        <SolidColorBrush x:Key="ToolCardProgress" Color="#93C5FD"/>
+        <!-- 色板 / 通用控件 / 表格 / 滚动条：见 FlyScreen.Ui.Theme.Wpf.WpfTheme -->
 
         <ControlTemplate x:Key="PcIconTemplate">
             <Grid Width="40" Height="34">
@@ -59,8 +35,6 @@
                 Background="#6B7280" CornerRadius="1"/>
             </Grid>
         </ControlTemplate>
-
-        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- 1×4 卡片内容（双击移除对端；单击选中） -->
         <!-- 影子子卡：叠在底部（不占主卡布局高度，主卡文字相对整卡居中） -->
@@ -237,48 +211,7 @@
             <Setter Property="Orientation" Value="Horizontal"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <!-- 家形图标：原路径瘦高且重心偏下，改用接近 24 方框、视觉更居中的 filled home -->
-        <Geometry x:Key="GeoHome">M12,5.69L17,10.19V18H15V12H9V18H7V10.19L12,5.69M12,3L2,12H5V20H11V14H13V20H19V12H22L12,3Z</Geometry>
-        <Geometry x:Key="GeoNetwork">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M17.9,17.39C17.64,16.59 16.89,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39Z</Geometry>
-        <Geometry x:Key="GeoShare">M18,16.08C17.24,16.08 16.56,16.38 16.04,16.85L8.91,12.7C8.96,12.47 9,12.24 9,12C9,11.76 8.96,11.53 8.91,11.3L15.96,7.19C16.5,7.69 17.21,8 18,8A3,3 0 0,0 21,5A3,3 0 0,0 18,2A3,3 0 0,0 15,5C15,5.24 15.04,5.47 15.09,5.7L8.04,9.81C7.5,9.31 6.79,9 6,9A3,3 0 0,0 3,12A3,3 0 0,0 6,15C6.79,15 7.5,14.69 8.04,14.19L15.16,18.34C15.11,18.55 15.08,18.77 15.08,19C15.08,20.61 16.39,21.91 18,21.91C19.61,21.91 20.92,20.61 20.92,19A2.92,2.92 0 0,0 18,16.08Z</Geometry>
-        <Geometry x:Key="GeoSecurity">M12,1 L3,5 V11 C3,16.55 6.84,21.74 12,23 C17.16,21.74 21,16.55 21,11 V5 Z</Geometry>
-        <Geometry x:Key="GeoAdvanced">M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z</Geometry>
-        <Geometry x:Key="GeoPrograms">M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.83L22.17,12L16,18.17V15.59L19.59,12M1.83,12L8,5.83V8.41L4.41,12L8,15.59V18.17L1.83,12Z</Geometry>
-        <!-- 共享设备：左上摄像头 · 右上麦克风 · 左下扬声器 · 右下分享节点 -->
-        <Geometry x:Key="GeoLog">M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13,9V3.5L18.5,9H13M8,13H16V15H8V13M8,17H13V19H8V17Z</Geometry>
-        <Geometry x:Key="GeoAbout">M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z</Geometry>
-        <Geometry x:Key="GeoHelp">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,19H11V17H13M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7C10.9,7 10,7.89 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,10.1 15.55,11.05 14.07,12.25L15.07,11.25Z</Geometry>
-        <Geometry x:Key="GeoDelete">M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z</Geometry>
-        <Geometry x:Key="GeoAdd">M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z</Geometry>
-        <Geometry x:Key="GeoPlay">M8,5.14V19.14L19,12.14L8,5.14Z</Geometry>
-        <Geometry x:Key="GeoStop">M6,6H18V18H6V6Z</Geometry>
-        <Geometry x:Key="GeoEdit">M3,17.25V21H6.75L17.81,9.94L14.06,6.19L3,17.25M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04Z</Geometry>
-        <Geometry x:Key="GeoChevronLeft">M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z</Geometry>
-        <Geometry x:Key="GeoChevronRight">M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z</Geometry>
-        <Geometry x:Key="GeoRefresh">M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z</Geometry>
-        <Geometry x:Key="GeoCalendar">M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z</Geometry>
-        <Geometry x:Key="GeoDownload">M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z</Geometry>
-        <Geometry x:Key="GeoCopy">M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z</Geometry>
-        <Style x:Key="IconActionBtn" TargetType="Button">
-            <Setter Property="Width" Value="28"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="MinWidth" Value="28"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="0,2"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                          RecognizesAccessKey="True"/>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <!-- IconActionBtn / Geo*：见 Theme.Wpf -->
         <!-- 工具卡片右上角三点：对齐 Maui-Win（勿吃全局 Button MinWidth=88） -->
         <Style x:Key="ToolCardMoreBtn" TargetType="Button">
             <Setter Property="Width" Value="28"/>
@@ -382,105 +315,8 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <!-- 网络操作列图标钮：与双按钮总宽对齐；单钮拉满 -->
-        <Style x:Key="NetIconOpBtn" TargetType="Button">
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="MinWidth" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
-                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Blue}"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="NetIconOpBtnWarn" TargetType="Button" BasedOn="{StaticResource NetIconOpBtn}">
-            <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{DynamicResource WarnSoft}" BorderBrush="{DynamicResource Warn}"
-                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Content="{TemplateBinding Content}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Warn}"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- 工具面包屑关闭：紧凑方钮，悬停浅蓝底 + 蓝色 × -->
-        <Style x:Key="WorkspaceCloseBtn" TargetType="Button">
-            <Setter Property="Width" Value="18"/>
-            <Setter Property="Height" Value="18"/>
-            <Setter Property="MinWidth" Value="0"/>
-            <Setter Property="MinHeight" Value="0"/>
-            <Setter Property="MaxWidth" Value="18"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="4"
-                                BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                                Width="18" Height="18"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
-                                <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- 侧栏链接样式（保留，历史兼容） -->
+        <!-- NetIconOpBtn / ProgIconBtn / ProgRowIcon / WorkspaceCloseBtn：见 Theme.Wpf ActionStyles -->
+        <!-- 侧栏链接样式（历史兼容） -->
         <Style x:Key="NavLinkBtn" TargetType="Button">
             <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="8,2"/>
@@ -503,203 +339,7 @@
                 </Setter.Value>
             </Setter>
         </Style>
-
-        <!-- 1x4 / 2x2 分段 -->
-        <Style x:Key="SegBtn" TargetType="RadioButton">
-            <Setter Property="Width" Value="52"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Blue}"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="IsChecked" Value="False"/>
-                                    <Condition Property="IsMouseOver" Value="True"/>
-                                </MultiTrigger.Conditions>
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SubtleBg}"/>
-                            </MultiTrigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Background" Value="{DynamicResource CardBg}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="12"/>
-            <Setter Property="Padding" Value="18"/>
-        </Style>
-
-        <Style TargetType="Button">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="MinWidth" Value="88"/>
-            <Setter Property="Padding" Value="14,0"/>
-            <Setter Property="Margin" Value="8,0,0,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
-                    BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    Content="{TemplateBinding Content}"
-                                    ContentTemplate="{TemplateBinding ContentTemplate}"
-                                    TextBlock.Foreground="{TemplateBinding Foreground}"/>
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHover}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="NormalBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"/>
-
-        <Style x:Key="SoftBlueBtn" TargetType="Button">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="MinWidth" Value="88"/>
-            <Setter Property="Padding" Value="14,0"/>
-            <Setter Property="Margin" Value="8,0,0,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{DynamicResource BlueSoft}" BorderBrush="{DynamicResource Blue}"
-                    BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    Content="{TemplateBinding Content}"
-                                    ContentTemplate="{TemplateBinding ContentTemplate}"
-                                    TextBlock.Foreground="{TemplateBinding Foreground}"/>
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="SoftWarnBtn" TargetType="Button">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="MinWidth" Value="88"/>
-            <Setter Property="Padding" Value="14,0"/>
-            <Setter Property="Margin" Value="8,0,0,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{DynamicResource Warn}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{DynamicResource WarnSoft}" BorderBrush="{DynamicResource Warn}"
-                    BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                TextBlock.Foreground="{TemplateBinding Foreground}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.9"/>
-                                <Setter TargetName="Bd" Property="Background" Value="#FDE68A"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="PrimaryBtn" TargetType="Button">
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="MinWidth" Value="88"/>
-            <Setter Property="Padding" Value="16,0"/>
-            <Setter Property="Margin" Value="8,0,0,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{DynamicResource Blue}" CornerRadius="8"
-                    Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                TextBlock.Foreground="White"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BluePress}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style TargetType="TextBox">
-            <Setter Property="Height" Value="36"/>
-            <Setter Property="Padding" Value="10,0"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-            <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-        </Style>
-        <Style TargetType="PasswordBox">
-            <Setter Property="Height" Value="36"/>
-            <Setter Property="Padding" Value="10,0"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-            <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="PasswordChar" Value="*"/>
-        </Style>
-        <Style TargetType="CheckBox">
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Margin" Value="0,2"/>
-            <Setter Property="MinHeight" Value="22"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-        </Style>
-        <Style TargetType="RadioButton">
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-        </Style>
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-        </Style>
-        <Style x:Key="ProgIconBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Width" Value="30"/>
-            <Setter Property="Height" Value="30"/>
-            <Setter Property="MinWidth" Value="30"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="0,0,4,0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
+        <!-- 工具栏紧凑态依赖本窗 ProgToolsCompact / LogToolsCompact -->
         <Style x:Key="ProgToolIcon" TargetType="Viewbox">
             <Setter Property="Width" Value="14"/>
             <Setter Property="Height" Value="14"/>
@@ -712,13 +352,6 @@
                     <Setter Property="Margin" Value="0"/>
                 </DataTrigger>
             </Style.Triggers>
-        </Style>
-        <Style x:Key="ProgRowIcon" TargetType="Viewbox">
-            <Setter Property="Width" Value="14"/>
-            <Setter Property="Height" Value="14"/>
-            <Setter Property="Stretch" Value="Uniform"/>
-            <Setter Property="HorizontalAlignment" Value="Center"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
         <Style x:Key="ProgToolLabel" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
             <Setter Property="VerticalAlignment" Value="Center"/>
@@ -771,126 +404,6 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Height" Value="36"/>
-            <Setter Property="Padding" Value="10,0,32,0"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                      BorderBrush="{TemplateBinding BorderBrush}"
-                      BorderThickness="{TemplateBinding BorderThickness}"
-                      CornerRadius="4"/>
-                            <ToggleButton Focusable="False" ClickMode="Press"
-                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Grid Background="Transparent">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="32"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{DynamicResource Muted}"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Grid>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                            <ContentPresenter Margin="{TemplateBinding Padding}"
-                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                Content="{TemplateBinding SelectionBoxItem}"
-                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                IsHitTestVisible="False"/>
-                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1"
-                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
-                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                    <ScrollViewer>
-                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
-                                    </ScrollViewer>
-                                </Border>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBoxItem">
-            <!-- 覆盖主题默认 RelativeSource→ItemsControl；Popup 未打开/项未入树时否则会刷 Data Error 4 -->
-            <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Height" Value="32"/>
-            <Setter Property="Padding" Value="10,0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
-                                TextBlock.Foreground="{DynamicResource Text}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style TargetType="ListBox">
-            <Setter Property="Background" Value="{DynamicResource ListBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-        </Style>
-        <Style TargetType="ListBoxItem">
-            <!-- 默认主题用 RelativeSource 找 ItemsControl，容器尚未入树时会报绑定错误 -->
-            <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
         <local:StringBox x:Key="Str.DeleteTip" Value="删除"/>
         <local:StringBox x:Key="Str.Add" Value="添加"/>
         <local:StringBox x:Key="Str.ProgActStart" Value="启动"/>
@@ -901,128 +414,7 @@
         <local:StringBox x:Key="Str.ProgActShare" Value="共享"/>
         <local:StringBox x:Key="Str.ProgActSettings" Value="设置"/>
 
-        <Style TargetType="ListView">
-            <Setter Property="Background" Value="{DynamicResource ListBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-        <Style TargetType="ListViewItem">
-            <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="Background" Value="{DynamicResource ListBg}"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="Padding" Value="0,2"/>
-            <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListViewItem">
-                        <Border x:Name="Bd"
-                    Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}"
-                    SnapsToDevicePixels="True">
-                            <GridViewRowPresenter VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                    SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <!-- 传输列表行：进度铺在背景，完成后隐藏 -->
-        <Style x:Key="XferRowProgressBar" TargetType="ProgressBar">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Foreground" Value="#402563EB"/>
-            <Setter Property="Height" Value="Auto"/>
-            <Setter Property="MinHeight" Value="0"/>
-            <Setter Property="IsHitTestVisible" Value="False"/>
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ProgressBar">
-                        <Grid ClipToBounds="True">
-                            <Border x:Name="PART_Track" Background="Transparent"/>
-                            <Border x:Name="PART_Indicator" HorizontalAlignment="Left"
-                                    Background="{TemplateBinding Foreground}"/>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="TransferListItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListViewItem">
-                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}"
-                                SnapsToDevicePixels="True">
-                            <Grid>
-                                <ProgressBar Style="{StaticResource XferRowProgressBar}"
-                                             Minimum="0" Maximum="100"
-                                             Value="{Binding Progress, Mode=OneWay}"
-                                             Visibility="{Binding ShowProgressBackground, Converter={StaticResource BoolToVis}}"
-                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-                                <GridViewRowPresenter VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                                      SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="GridViewColumnHeader">
-            <Setter Property="Background" Value="{DynamicResource SubtleBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-            <Setter Property="BorderThickness" Value="0,0,1,1"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="GridViewColumnHeader">
-                        <Border Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                VerticalAlignment="Center"
-                                TextBlock.Foreground="{DynamicResource Text}"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ProgressBar">
-            <Setter Property="Background" Value="{DynamicResource SubtleBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Blue}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Height" Value="12"/>
-        </Style>
+        <!-- ListView / GridView / ProgressBar / TransferListItemStyle：见 Theme.Wpf ListStyles -->
 
         <Style x:Key="TitleBarBtn" TargetType="Button">
             <Setter Property="Width" Value="46"/>
@@ -1504,34 +896,38 @@
                                     <RadioButton x:Name="HotOff" Content="禁用" GroupName="Sw" VerticalContentAlignment="Center"/>
                                 </StackPanel>
                                 <!-- 行高必须 Auto：StackPanel 内 * 行会被量成 0 -->
+                                <!-- 标签 Auto 完整显示；输入框 * 填满剩余，避免 48px 被主题 Padding 挤没字符 -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="48"/>
-                                        <ColumnDefinition Width="16"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="48"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*" MinWidth="36"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*" MinWidth="36"/>
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    <TextBlock x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,6,8"
-                             TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="HotSettingsLabel" Text="显示设置 (Ctrl+Alt+)" VerticalAlignment="Center" Margin="0,0,4,8"/>
                                     <TextBox x:Name="HkSettings" Grid.Column="1" Height="32" Margin="0,0,0,8" MaxLength="1"
-                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                                             Padding="4,0" MinWidth="36"
+                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                                     <TextBlock x:Name="HotReconnectLabel" Grid.Column="3" Text="重新连接 (Ctrl+Alt+)"
-                             VerticalAlignment="Center" Margin="0,0,6,8" TextWrapping="Wrap"/>
+                                               VerticalAlignment="Center" Margin="0,0,4,8"/>
                                     <TextBox x:Name="HkReconnect" Grid.Column="4" Height="32" Margin="0,0,0,8" MaxLength="1"
-                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                                             Padding="4,0" MinWidth="36"
+                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                                     <TextBlock x:Name="HotExitLabel" Grid.Row="1" Text="退出程序 (Ctrl+Alt+)"
-                             VerticalAlignment="Center" Margin="0,0,6,0" TextWrapping="Wrap"/>
+                                               VerticalAlignment="Center" Margin="0,0,4,0"/>
                                     <TextBox x:Name="HkExit" Grid.Row="1" Grid.Column="1" Height="32" MaxLength="1"
-                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                                             Padding="4,0" MinWidth="36"
+                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                                     <TextBlock x:Name="HotLockLabel" Grid.Row="1" Grid.Column="3" Text="锁定机器 (Ctrl+Alt+)"
-                             VerticalAlignment="Center" Margin="0,0,6,0" TextWrapping="Wrap"/>
+                                               VerticalAlignment="Center" Margin="0,0,4,0"/>
                                     <TextBox x:Name="HkLock" Grid.Row="1" Grid.Column="4" Height="32" MaxLength="1"
-                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                                             Padding="4,0" MinWidth="36"
+                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -1540,11 +936,13 @@
                             <StackPanel>
                                 <TextBlock x:Name="SysTitleText" Text="系统设置" FontWeight="SemiBold" Margin="0,0,0,10"/>
                                 <TextBlock x:Name="SysStyleLabel" Text="样式" Margin="0,0,0,8"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                                    <RadioButton x:Name="ThemeLight" Content="淡色（当前默认）" GroupName="UiTheme"
-                               Margin="0,0,18,0" IsChecked="True"/>
-                                    <RadioButton x:Name="ThemeDark" Content="深色" GroupName="UiTheme"/>
-                                </StackPanel>
+                                <ComboBox x:Name="ThemeCombo" Margin="0,0,0,16" MinHeight="34">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <TextBlock x:Name="SysLangLabel" Text="语言" Margin="0,0,0,8"/>
                                 <ComboBox x:Name="LanguageCombo">
                                     <ComboBox.ItemTemplate>
@@ -1834,7 +1232,7 @@
                             <Button x:Name="ClearTransfersBtn" Content="清除已完成" Margin="0" Click="ClearTransfers_Click"/>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0" Background="{DynamicResource CardBg}">
+                    <Border Grid.Row="2" Style="{StaticResource CardList}" Background="{DynamicResource CardBg}">
                         <ListView x:Name="TransferList" BorderThickness="0"
                       Background="{DynamicResource ListBg}" Foreground="{DynamicResource Text}"
                       ItemContainerStyle="{StaticResource TransferListItemStyle}"

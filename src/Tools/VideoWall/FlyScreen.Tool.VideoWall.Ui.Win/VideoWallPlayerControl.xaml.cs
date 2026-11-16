@@ -2,12 +2,13 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using System.Windows.Shapes;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Wall;
+using FlyScreen.Ui.Wpf;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Win;
 
@@ -34,6 +35,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private IVideoWallService? _service;
     private string? _pendingPlayId;
+    private bool _hasPresentedFrame;
     private bool _seekDragging;
     private double? _seekPointerX;
     private long _seekHoldMs = -1;
@@ -174,7 +176,11 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _cueLengthMs = -1;
         RefreshCueLayer();
         UpdateQualityUi(null);
+        _hasPresentedFrame = false;
         _frameSurface ??= new VideoWallFrameSurface(PlaybackFrameImage);
+        _frameSurface.FramePresented -= OnFramePresented;
+        _frameSurface.FramePresented += OnFramePresented;
+        SetLoadingOverlay(true, Loc.T("Tool.VideoWall.StatusConnecting"));
         ShowPlaybackChrome();
         BumpPlaybackChrome();
         ReportLog($"视频墙连接中: {title}");
@@ -190,10 +196,14 @@ public sealed partial class VideoWallPlayerControl : UserControl
         ExitFullscreen(restoreUi: false);
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
+        if (_frameSurface is not null)
+            _frameSurface.FramePresented -= OnFramePresented;
         _frameSurface?.Clear();
         _pendingPlayId = null;
+        _hasPresentedFrame = false;
         PlaybackTitle.Text = "";
         ResetSeekUi();
+        SetLoadingOverlay(false);
         ForceHidePlaybackChrome();
     }
 
@@ -263,15 +273,30 @@ public sealed partial class VideoWallPlayerControl : UserControl
         Dispatcher.BeginInvoke(() =>
         {
             UpdateQualityUi(stats);
+            if (stats.Width > 0 || stats.FirstFrameMs >= 0)
+                MarkFramePresented();
             if (stats.Width > 0)
                 ReportLog(
                     $"视频墙播放中 {PlaybackTitle.Text}: {stats.Width}×{stats.Height} @ {stats.Fps:F1} fps");
         });
 
+    private void OnFramePresented() => Dispatcher.BeginInvoke(MarkFramePresented);
+
+    private void MarkFramePresented()
+    {
+        if (_hasPresentedFrame) return;
+        _hasPresentedFrame = true;
+        var state = _service?.SinglePlayback.State ?? TilePlayState.Idle;
+        UpdateLoadingFromState(state);
+    }
+
     private void OnPlaybackState(TilePlayState state) =>
         Dispatcher.BeginInvoke(() =>
         {
             UpdateTransportChrome(state);
+            if (state is TilePlayState.Playing)
+                _hasPresentedFrame = true;
+            UpdateLoadingFromState(state);
             if (state is TilePlayState.Playing or TilePlayState.Paused or TilePlayState.Buffering)
                 _progressTimer.Start();
             else if (state is TilePlayState.Stopped or TilePlayState.Failed or TilePlayState.Idle)
@@ -293,8 +318,27 @@ public sealed partial class VideoWallPlayerControl : UserControl
         StatusReporter?.Invoke(message);
     }
 
+    private void UpdateLoadingFromState(TilePlayState state)
+    {
+        if (TilePlayStateUi.ShowsLoading(state, _hasPresentedFrame))
+            SetLoadingOverlay(true, StatusTextFor(state));
+        else
+            SetLoadingOverlay(false);
+    }
+
+    private void SetLoadingOverlay(bool visible, string? text = null)
+    {
+        if (visible)
+            PlaybackLoading.Show(string.IsNullOrWhiteSpace(text)
+                ? Loc.T("Tool.VideoWall.StatusLoading")
+                : text);
+        else
+            PlaybackLoading.Hide();
+    }
+
     private static string StatusTextFor(TilePlayState state) => state switch
     {
+        TilePlayState.Resolving => Loc.T("Tool.VideoWall.StatusResolving"),
         TilePlayState.Connecting => Loc.T("Tool.VideoWall.StatusConnecting"),
         TilePlayState.Buffering => Loc.T("Tool.VideoWall.StatusBuffering"),
         TilePlayState.Stalled => Loc.T("Tool.VideoWall.StatusStalled"),

@@ -13,6 +13,7 @@ using FlyScreen.Services.ScreenExtend;
 using FlyScreen.Services.Tools;
 using FlyScreen.Services.Tools.Hosting;
 using FlyScreen.Services.Update;
+using FlyScreen.Ui.Theme;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.AppMaui;
@@ -946,11 +947,11 @@ public partial class MainPage : ContentPage
             Grid.SetColumn(SysCard, 0);
             Grid.SetColumnSpan(SysCard, 1);
 
-            // 快捷键输入改为单列：标签 + 输入
+            // 快捷键输入改为单列：标签 Auto + 输入填满
             HotKeysGrid.ColumnDefinitions = new ColumnDefinitionCollection
             {
-                new(GridLength.Star),
-                new(68)
+                new(GridLength.Auto),
+                new(GridLength.Star)
             };
             Grid.SetRow(HotSettingsLabel, 0);
             Grid.SetColumn(HotSettingsLabel, 0);
@@ -1015,10 +1016,10 @@ public partial class MainPage : ContentPage
             HotKeysGrid.ColumnDefinitions = new ColumnDefinitionCollection
             {
                 new(GridLength.Auto),
-                new(68),
+                new(GridLength.Star),
                 new(new GridLength(12)),
                 new(GridLength.Auto),
-                new(68)
+                new(GridLength.Star)
             };
             Grid.SetRow(HotSettingsLabel, 0);
             Grid.SetColumn(HotSettingsLabel, 0);
@@ -1209,8 +1210,7 @@ public partial class MainPage : ContentPage
         HotF.IsChecked = s.SwitchHotkeyMode == 0;
         HotNum.IsChecked = s.SwitchHotkeyMode == 1;
         HotOff.IsChecked = s.SwitchHotkeyMode == 2;
-        ThemeDark.IsChecked = string.Equals(s.UiTheme, "Dark", StringComparison.OrdinalIgnoreCase);
-        ThemeLight.IsChecked = !ThemeDark.IsChecked;
+        BindThemePicker(s.UiTheme);
 
         LanguagePicker.ItemsSource = Loc.Languages.ToList();
         LanguagePicker.SelectedItem = Loc.Languages.FirstOrDefault(l =>
@@ -1303,8 +1303,7 @@ public partial class MainPage : ContentPage
         SysTitleText.Text = Loc.T("Sys.Title");
         SysStyleLabel.Text = Loc.T("Sys.Style");
         SysLangLabel.Text = Loc.T("Sys.Language");
-        MauiRadioTheme.SetContent(ThemeLight, Loc.T("Sys.StyleLight"));
-        MauiRadioTheme.SetContent(ThemeDark, Loc.T("Sys.StyleDark"));
+        RefreshThemePickerLabels();
 
         NicTitleText.Text = Loc.T("Net.NicTitle");
         if (NicHintText != null) NicHintText.Text = Loc.T("Net.NicHint");
@@ -4681,7 +4680,9 @@ public partial class MainPage : ContentPage
         _host.Settings.ConnectionEndpoints = _endpoints.ToList();
 
         var switchMode = HotF.IsChecked == true ? 0 : HotNum.IsChecked == true ? 1 : 2;
-        var theme = ThemeDark.IsChecked == true ? MauiThemeService.Dark : MauiThemeService.Light;
+        var theme = ThemePicker.SelectedItem is ThemeListItem ti
+            ? ti.Id
+            : MauiThemeService.Light;
         var lang = ReadSelectedLanguage();
 
         var prevSlots = _host.Settings.MachineSlots.ToList();
@@ -6258,6 +6259,25 @@ public partial class MainPage : ContentPage
         };
     }
 #endif
+
+    private void BindThemePicker(string? selectedId)
+    {
+        var items = ThemePalette.All
+            .Select(t => new ThemeListItem(t.Id, Loc.T(t.DisplayLocKey)))
+            .ToList();
+        ThemePicker.ItemsSource = items;
+        ThemePicker.SelectedItem = items.FirstOrDefault(i =>
+                                       string.Equals(i.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                                   ?? items.FirstOrDefault();
+    }
+
+    private void RefreshThemePickerLabels()
+    {
+        var id = ThemePicker.SelectedItem is ThemeListItem cur ? cur.Id : MauiThemeService.Current;
+        BindThemePicker(id);
+    }
+
+    private sealed record ThemeListItem(string Id, string Display);
 
     private sealed class LogListItem(AppLogEntry entry) : System.ComponentModel.INotifyPropertyChanged
     {

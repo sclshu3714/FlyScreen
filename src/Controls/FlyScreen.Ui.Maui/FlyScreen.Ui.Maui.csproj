@@ -5,10 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FlyScreen.Ui.Maui</RootNamespace>
     <AssemblyName>FlyScreen.Ui.Maui</AssemblyName>
-    <Description>玄鸟 MAUI 共享控件（安全密码等）</Description>
+    <Description>玄鸟 MAUI 共享控件（安全密码、加载遮罩等）</Description>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
   </ItemGroup>
 </Project>

@@ -6,6 +6,7 @@ using FlyScreen.DesktopUi;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers;
 using FlyScreen.Mac;
+using FlyScreen.Ui.Avalonia;
 
 namespace FlyScreen.MacApp;
 
@@ -23,6 +24,7 @@ public partial class App : Application
                 else Dispatcher.UIThread.Invoke(a);
             });
 
+        AvaloniaIcon.RegisterToApplication();
         var host = MacAppHost.EnsureCreated();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

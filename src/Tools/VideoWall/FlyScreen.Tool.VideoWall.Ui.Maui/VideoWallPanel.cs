@@ -5,6 +5,8 @@ using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
 using FlyScreen.ToolSdk;
+using FlyScreen.Ui.Maui;
+using FlyScreen.Ui.Theme.Icons;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Layouts;
 using Grid = Microsoft.Maui.Controls.Grid;
@@ -53,7 +55,11 @@ public sealed class VideoWallPanel : ContentView
     private readonly ScrollView _cardsHost;
     private readonly FlexLayout _cardsFlex;
     private readonly VerticalStackLayout _emptyState;
+    private readonly Grid _wallHost;
     private readonly Grid _wallGrid;
+    private readonly Border _carouselPrevBtn;
+    private readonly Border _carouselNextBtn;
+    private readonly HorizontalStackLayout _carouselDots;
     private readonly VideoWallPlayerControl _player;
     private readonly Grid _mainPane;
 
@@ -69,6 +75,7 @@ public sealed class VideoWallPanel : ContentView
     private readonly Dictionary<int, Label> _tileTitleBlocks = new();
     private readonly Dictionary<int, Label> _tileStatusBlocks = new();
     private readonly Dictionary<int, Button> _tileRestoreButtons = new();
+    private readonly Dictionary<int, LoadingOverlay> _tileLoadingOverlays = new();
 #if WINDOWS
     private readonly Dictionary<int, VideoWallHwndSurface> _tileSurfaces = new();
 #endif
@@ -79,6 +86,8 @@ public sealed class VideoWallPanel : ContentView
     private string? _editingId;
     private bool _suppressLayout;
     private bool _suppressCarouselToggle;
+    private bool _carouselPointerOver;
+    private int _carouselHoverDepth;
 
     public Action<string>? StatusReporter
     {
@@ -361,11 +370,62 @@ public sealed class VideoWallPanel : ContentView
 
         _wallGrid = new Grid
         {
-            IsVisible = false,
             RowSpacing = 4,
             ColumnSpacing = 4,
             BackgroundColor = Colors.Black
         };
+
+        _carouselPrevBtn = new Border
+        {
+            WidthRequest = 36,
+            HeightRequest = 36,
+            Padding = 0,
+            BackgroundColor = Color.FromArgb("#99000000"),
+            StrokeThickness = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            IsVisible = false,
+            HorizontalOptions = LayoutOptions.Start,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+            Content = VideoWallMauiIcons.CreatePath(IconCodes.ChevronLeft, Colors.White, 16)
+        };
+        _carouselNextBtn = new Border
+        {
+            WidthRequest = 36,
+            HeightRequest = 36,
+            Padding = 0,
+            BackgroundColor = Color.FromArgb("#99000000"),
+            StrokeThickness = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            IsVisible = false,
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+            Content = VideoWallMauiIcons.CreatePath(IconCodes.ChevronRight, Colors.White, 16)
+        };
+        _carouselDots = new HorizontalStackLayout
+        {
+            Spacing = 6,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.End,
+            Margin = new Thickness(0, 0, 0, 14),
+            IsVisible = false
+        };
+        VideoWallMauiIcons.WireClicked(_carouselPrevBtn, async () => await StepCarouselAsync(next: false));
+        VideoWallMauiIcons.WireClicked(_carouselNextBtn, async () => await StepCarouselAsync(next: true));
+        ToolTipProperties.SetText(_carouselPrevBtn, Loc.T("Tool.VideoWall.CarouselPrev"));
+        ToolTipProperties.SetText(_carouselNextBtn, Loc.T("Tool.VideoWall.CarouselNext"));
+        WireCarouselHoverTarget(_carouselPrevBtn);
+        WireCarouselHoverTarget(_carouselNextBtn);
+        WireCarouselHoverTarget(_carouselDots);
+
+        _wallHost = new Grid
+        {
+            IsVisible = false,
+            BackgroundColor = Colors.Transparent,
+            Children = { _wallGrid, _carouselPrevBtn, _carouselNextBtn, _carouselDots }
+        };
+        WireCarouselHoverTarget(_wallHost);
 
         _player = new VideoWallPlayerControl { IsVisible = false };
         _player.Closed += () => _ = OnPlayerClosedAsync();
@@ -373,7 +433,7 @@ public sealed class VideoWallPanel : ContentView
 
         _contentHost = new Grid
         {
-            Children = { _sourcesPane, _wallGrid, _player }
+            Children = { _sourcesPane, _wallHost, _player }
         };
 
         _mainPane = new Grid
@@ -486,7 +546,7 @@ public sealed class VideoWallPanel : ContentView
         AbsoluteLayout.SetLayoutFlags(flyoutLayer, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
         if (_service is not null)
         {
-            _scanOverlay = new VideoWallScanOverlay(_service, _text, _muted, _line, _card, _blue);
+            _scanOverlay = new VideoWallScanOverlay(_service, _text, _muted, _line, _card, _listBg, _blue);
             _scanOverlay.SourcesChanged += () => RefreshAll();
             AbsoluteLayout.SetLayoutBounds(_scanOverlay.Host, new Rect(0, 0, 1, 1));
             AbsoluteLayout.SetLayoutFlags(_scanOverlay.Host, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
@@ -631,8 +691,14 @@ public sealed class VideoWallPanel : ContentView
         _mode = mode;
         _mainToolbar.IsVisible = mode != PanelMode.Playback;
         _sourcesPane.IsVisible = mode == PanelMode.Sources;
-        _wallGrid.IsVisible = mode == PanelMode.Wall;
+        _wallHost.IsVisible = mode == PanelMode.Wall;
         _player.IsVisible = mode == PanelMode.Playback;
+        if (mode != PanelMode.Wall)
+        {
+            _carouselPointerOver = false;
+            _carouselHoverDepth = 0;
+            UpdateCarouselOverlayVisibility();
+        }
         if (mode != PanelMode.Playback)
             _ = _player.StopAsync();
         _mainPane.Padding = mode == PanelMode.Playback ? new Thickness(0) : new Thickness(8);
@@ -734,6 +800,7 @@ public sealed class VideoWallPanel : ContentView
         _tileTitleBlocks.Clear();
         _tileStatusBlocks.Clear();
         _tileRestoreButtons.Clear();
+        _tileLoadingOverlays.Clear();
 #if WINDOWS
         _tileSurfaces.Clear();
 #endif
@@ -795,7 +862,11 @@ public sealed class VideoWallPanel : ContentView
 
     private void SyncCarouselTimer()
     {
-        if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled || _service.CarouselPageCount <= 1)
+        if (_service is null
+            || _mode != PanelMode.Wall
+            || !_service.CarouselEnabled
+            || _service.CarouselPageCount <= 1
+            || _carouselPointerOver)
         {
             _carouselTimer.Stop();
             return;
@@ -810,6 +881,8 @@ public sealed class VideoWallPanel : ContentView
         if (_service is null)
         {
             _carouselPageText.Text = "";
+            _carouselDots.Children.Clear();
+            UpdateCarouselOverlayVisibility();
             return;
         }
 
@@ -817,6 +890,114 @@ public sealed class VideoWallPanel : ContentView
             Loc.T("Tool.VideoWall.CarouselPage"),
             _service.CarouselPage + 1,
             Math.Max(1, _service.CarouselPageCount));
+        RebuildCarouselDots();
+        UpdateCarouselOverlayVisibility();
+    }
+
+    private bool CarouselNavAvailable
+        => _service is not null
+           && _mode == PanelMode.Wall
+           && _service.CarouselEnabled
+           && _service.CarouselPageCount > 1;
+
+    private void UpdateCarouselOverlayVisibility()
+    {
+        var nav = CarouselNavAvailable;
+        var showArrows = nav && _carouselPointerOver;
+        _carouselPrevBtn.IsVisible = showArrows;
+        _carouselNextBtn.IsVisible = showArrows;
+        _carouselDots.IsVisible = nav;
+    }
+
+    private void RebuildCarouselDots()
+    {
+        _carouselDots.Children.Clear();
+        if (!CarouselNavAvailable || _service is null) return;
+
+        var page = _service.CarouselPage;
+        var count = _service.CarouselPageCount;
+        // 附件样式：短胶囊 + 当前页加长；色跟主题
+        var active = _blue;
+        var idle = _line;
+        for (var i = 0; i < count; i++)
+        {
+            var index = i;
+            var on = i == page;
+            var pill = new Border
+            {
+                WidthRequest = on ? 28 : 16,
+                HeightRequest = 6,
+                MinimumWidthRequest = on ? 28 : 16,
+                MaximumWidthRequest = on ? 28 : 16,
+                HorizontalOptions = LayoutOptions.Start,
+                BackgroundColor = on ? active : idle,
+                StrokeThickness = 0,
+                StrokeShape = new RoundRectangle { CornerRadius = 3 }
+            };
+            ToolTipProperties.SetText(pill, string.Format(Loc.T("Tool.VideoWall.CarouselGoto"), i + 1));
+            VideoWallMauiIcons.WireClicked(pill, async () => await GoToCarouselPageUiAsync(index));
+            _carouselDots.Children.Add(pill);
+        }
+    }
+
+    private async Task StepCarouselAsync(bool next)
+    {
+        if (_service is null || !CarouselNavAvailable) return;
+        if (next) await _service.AdvanceCarouselAsync();
+        else await _service.RetreatCarouselAsync();
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    private async Task GoToCarouselPageUiAsync(int page)
+    {
+        if (_service is null || !CarouselNavAvailable) return;
+        if (page == _service.CarouselPage) return;
+        await _service.GoToCarouselPageAsync(page);
+        await PresentCarouselPageAsync();
+        UpdateCarouselChrome();
+        SyncCarouselTimer();
+    }
+
+    private void WireCarouselHoverTarget(View view)
+    {
+        var ptr = new PointerGestureRecognizer();
+        ptr.PointerEntered += (_, _) => OnCarouselHoverEnter();
+        ptr.PointerExited += (_, _) => OnCarouselHoverExit();
+        view.GestureRecognizers.Add(ptr);
+    }
+
+    private void OnCarouselHoverEnter()
+    {
+        _carouselHoverDepth++;
+        if (_carouselPointerOver) return;
+        _carouselPointerOver = true;
+        UpdateCarouselOverlayVisibility();
+        SyncCarouselTimer();
+    }
+
+    private void OnCarouselHoverExit()
+    {
+        _carouselHoverDepth = Math.Max(0, _carouselHoverDepth - 1);
+        if (_carouselHoverDepth > 0) return;
+        // 格与格之间移动时 Exit/Enter 会交错，短暂延迟再判定是否真正离开
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            _carouselPointerOver = false;
+            UpdateCarouselOverlayVisibility();
+            SyncCarouselTimer();
+            return;
+        }
+
+        dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(60), () =>
+        {
+            if (_carouselHoverDepth > 0) return;
+            _carouselPointerOver = false;
+            UpdateCarouselOverlayVisibility();
+            SyncCarouselTimer();
+        });
     }
 
     private void RebuildWallGrid()
@@ -832,6 +1013,7 @@ public sealed class VideoWallPanel : ContentView
         _tileTitleBlocks.Clear();
         _tileStatusBlocks.Clear();
         _tileRestoreButtons.Clear();
+        _tileLoadingOverlays.Clear();
 #if WINDOWS
         _tileSurfaces.Clear();
 #endif
@@ -846,6 +1028,7 @@ public sealed class VideoWallPanel : ContentView
         {
             var border = CreateTileBorderShell(i);
             _tileBorders[i] = border;
+            WireCarouselHoverTarget(border);
             Grid.SetRow(border, i / layout.Columns);
             Grid.SetColumn(border, i % layout.Columns);
             _wallGrid.Children.Add(border);
@@ -971,6 +1154,7 @@ public sealed class VideoWallPanel : ContentView
         _tileTitleBlocks.Remove(index);
         _tileStatusBlocks.Remove(index);
         _tileRestoreButtons.Remove(index);
+        _tileLoadingOverlays.Remove(index);
 
         var tile = index < _service.Tiles.Count ? _service.Tiles[index] : null;
         var root = new Grid
@@ -1081,6 +1265,17 @@ public sealed class VideoWallPanel : ContentView
         }
 #endif
 
+        if (tile?.SourceId is not null)
+        {
+            var loading = new LoadingOverlay { SpinnerSize = 28 };
+            if (TilePlayStateUi.ShowsLoading(tile.State))
+                loading.Show();
+            else
+                loading.Hide();
+            body.Children.Add(loading);
+            _tileLoadingOverlays[index] = loading;
+        }
+
         Grid.SetRow(body, 1);
         root.Children.Add(body);
         border.Content = root;
@@ -1116,6 +1311,12 @@ public sealed class VideoWallPanel : ContentView
                 title.Text = ResolveTileTitle(tile);
             if (_tileStatusBlocks.TryGetValue(i, out var status))
                 status.Text = hasSource ? StatusTextFor(tile!.State) : "";
+            if (_tileLoadingOverlays.TryGetValue(i, out var loading))
+            {
+                var show = hasSource && tile is not null && TilePlayStateUi.ShowsLoading(tile.State);
+                if (show) loading.Show();
+                else loading.Hide();
+            }
         }
     }
 
@@ -1659,6 +1860,7 @@ public sealed class VideoWallPanel : ContentView
 
     private static string StatusTextFor(TilePlayState state) => state switch
     {
+        TilePlayState.Resolving => Loc.T("Tool.VideoWall.StatusResolving"),
         TilePlayState.Connecting => Loc.T("Tool.VideoWall.StatusConnecting"),
         TilePlayState.Buffering => Loc.T("Tool.VideoWall.StatusBuffering"),
         TilePlayState.Stalled => Loc.T("Tool.VideoWall.StatusStalled"),

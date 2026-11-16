@@ -9,7 +9,7 @@
       <Button x:Name="AddBtn" Click="AddBtn_Click"/>
       <Button x:Name="ScanBtn" Click="ScanBtn_Click"/>
       <Button x:Name="DeleteBtn" Click="DeleteBtn_Click"/>
-      <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+      <Border BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
         <StackPanel Orientation="Horizontal" Spacing="0">
           <Button x:Name="ViewCardBtn" Click="ViewCardBtn_Click" Padding="10,6" BorderThickness="0"/>
           <Button x:Name="ViewListBtn" Click="ViewListBtn_Click" Padding="10,6" BorderThickness="0"/>
@@ -60,7 +60,27 @@
           </ListBox.ItemTemplate>
         </ListBox>
       </DockPanel>
-      <UniformGrid x:Name="WallGrid" IsVisible="False" Rows="3" Columns="3"/>
+      <Grid x:Name="WallHost" IsVisible="False" Background="Transparent"
+            PointerEntered="WallHost_PointerEntered" PointerExited="WallHost_PointerExited">
+        <UniformGrid x:Name="WallGrid" Rows="3" Columns="3"/>
+        <Button x:Name="CarouselPrevBtn" Classes="icon-action" Width="36" Height="36"
+                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0"
+                IsVisible="False" Click="CarouselPrevBtn_Click" ZIndex="2">
+          <Viewbox Width="16" Height="16">
+            <Path Fill="White" Data="{StaticResource GeoChevronLeft}"/>
+          </Viewbox>
+        </Button>
+        <Button x:Name="CarouselNextBtn" Classes="icon-action" Width="36" Height="36"
+                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"
+                IsVisible="False" Click="CarouselNextBtn_Click" ZIndex="2">
+          <Viewbox Width="16" Height="16">
+            <Path Fill="White" Data="{StaticResource GeoChevronRight}"/>
+          </Viewbox>
+        </Button>
+        <StackPanel x:Name="CarouselDots" Orientation="Horizontal" HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom" Margin="0,0,0,14" Spacing="6" ZIndex="2"
+                    IsVisible="False"/>
+      </Grid>
       <local:VideoWallPlayerControl x:Name="Player" IsVisible="False"/>
     </Grid>
 

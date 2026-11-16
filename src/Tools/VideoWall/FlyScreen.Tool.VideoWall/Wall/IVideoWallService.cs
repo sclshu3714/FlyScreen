@@ -62,6 +62,12 @@ public interface IVideoWallService
     /// <summary>翻到下一页并按布局重绑格（仅 Enabled 时有意义；UI 定时器调用）。</summary>
     Task AdvanceCarouselAsync(CancellationToken ct = default);
 
+    /// <summary>翻到上一页并按布局重绑格（仅 Enabled 时有意义）。</summary>
+    Task RetreatCarouselAsync(CancellationToken ct = default);
+
+    /// <summary>跳到指定页（0-based）并按布局重绑格（仅 Enabled 时有意义）。</summary>
+    Task GoToCarouselPageAsync(int page, CancellationToken ct = default);
+
     /// <summary>
     /// 按当前页把源绑到墙格。<paramref name="autoStart"/> 为 false 时由宿主绑帧面后再 StartTile。
     /// </summary>

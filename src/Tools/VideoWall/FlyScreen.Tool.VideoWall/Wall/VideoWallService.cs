@@ -133,6 +133,32 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         return ApplyCarouselPageAsync(autoStart: false, ct);
     }
 
+    public Task RetreatCarouselAsync(CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            if (!_carousel.Enabled)
+                return Task.CompletedTask;
+            _carousel.SetPageSize(_layout.TileCount);
+            _carousel.PrevPage();
+        }
+
+        return ApplyCarouselPageAsync(autoStart: false, ct);
+    }
+
+    public Task GoToCarouselPageAsync(int page, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            if (!_carousel.Enabled)
+                return Task.CompletedTask;
+            _carousel.SetPageSize(_layout.TileCount);
+            _carousel.GoToPage(page);
+        }
+
+        return ApplyCarouselPageAsync(autoStart: false, ct);
+    }
+
     public async Task ApplyCarouselPageAsync(bool autoStart = false, CancellationToken ct = default)
     {
         IReadOnlyList<string?> slots;

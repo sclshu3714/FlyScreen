@@ -12,20 +12,8 @@
   <Window.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
-        <ResourceDictionary Source="Themes/VideoWallWinControls.xaml"/>
+        <theme:WpfTheme xmlns:theme="clr-namespace:FlyScreen.Ui.Theme.Wpf;assembly=FlyScreen.Ui.Theme.Wpf"/>
       </ResourceDictionary.MergedDictionaries>
-
-      <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
-      <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
-      <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
-      <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
-      <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
-      <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
-      <SolidColorBrush x:Key="Text" Color="#111827"/>
-      <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
-      <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-      <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
-      <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
     </ResourceDictionary>
   </Window.Resources>
 

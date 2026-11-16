@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.ToolSdk;
 
@@ -8,9 +9,10 @@ public partial class PortProxyRuleDialog : Window
 {
     public PortProxyRuleInfo? Result { get; private set; }
 
-    public PortProxyRuleDialog(bool isEdit, PortProxyRuleInfo seed)
+    public PortProxyRuleDialog(bool isEdit, PortProxyRuleInfo seed, FrameworkElement? themeHost = null)
     {
         InitializeComponent();
+        InheritHostBrushes(themeHost ?? Owner as FrameworkElement);
         Title = Loc.T(isEdit ? "Tool.PortProxy.DialogEdit" : "Tool.PortProxy.DialogAdd");
         TitleText.Text = Title;
         ApplyLoc();
@@ -94,5 +96,19 @@ public partial class PortProxyRuleDialog : Window
     {
         DialogResult = false;
         Close();
+    }
+
+    private void InheritHostBrushes(FrameworkElement? host)
+    {
+        if (host is null) return;
+        foreach (var key in new[]
+                 {
+                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
+                     "WinBg", "CardBg", "ListBg", "SubtleBg", "ControlBg", "ControlBorder", "ControlHover"
+                 })
+        {
+            if (host.TryFindResource(key) is SolidColorBrush brush)
+                Resources[key] = brush.Clone();
+        }
     }
 }
