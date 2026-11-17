@@ -223,6 +223,7 @@
     <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ControlStyles.xaml" Link="Resources\Styles\Theme\ControlStyles.xaml" />
     <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ListStyles.xaml" Link="Resources\Styles\Theme\ListStyles.xaml" />
     <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\ActionStyles.xaml" Link="Resources\Styles\Theme\ActionStyles.xaml" />
+    <MauiXaml Include="..\Theme\FlyScreen.Ui.Theme.Maui\Maui\DialogStyles.xaml" Link="Resources\Styles\Theme\DialogStyles.xaml" />
   </ItemGroup>
 
   <!-- 仅 Windows 目标引用 Win32 适配；不引用 App.Windows（WPF stable 不动） -->

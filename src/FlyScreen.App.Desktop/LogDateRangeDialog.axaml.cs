@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.DesktopUi;
@@ -20,6 +21,8 @@ public partial class LogDateRangeDialog : Window
     public LogDateRangeDialog()
     {
         InitializeComponent();
+        DesktopThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => DesktopThemeService.ApplyToChildWindow(this);
         FillTimeCombos(FromHour, FromMinute);
         FillTimeCombos(ToHour, ToMinute);
         _timeComboReady = true;

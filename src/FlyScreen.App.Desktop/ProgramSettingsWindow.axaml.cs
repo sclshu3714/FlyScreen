@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Programs;
 
@@ -20,6 +21,8 @@ public partial class ProgramSettingsWindow : Window
     public ProgramSettingsWindow(UserProgram program)
     {
         InitializeComponent();
+        DesktopThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => DesktopThemeService.ApplyToChildWindow(this);
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
         _fields = ProgramSettingsSchema.Parse(_catalog.ReadSource(program));

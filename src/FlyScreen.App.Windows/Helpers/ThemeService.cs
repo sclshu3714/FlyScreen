@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using FlyScreen.Native;
 using FlyScreen.Services;
 using FlyScreen.Ui.Theme;
+using FlyScreen.Ui.Theme.Wpf;
 using Media = System.Windows.Media;
 using WpfControls = System.Windows.Controls;
 using WpfImage = System.Windows.Controls.Image;
@@ -29,6 +30,9 @@ public static class ThemeService
     {
         var info = ThemePalette.Resolve(theme);
         Current = info.Id;
+        WpfDialogTheme.ActiveThemeId = info.Id;
+        if (Application.Current?.Resources is { } appRd)
+            appRd[WpfDialogTheme.ThemeIdResourceKey] = info.Id;
         var dark = info.IsDark;
         var map = ThemePalette.ToResourceMap(info.ResolveColors());
 
@@ -255,6 +259,7 @@ public static class ThemeService
     public static void ApplyToChildWindow(Window child)
     {
         var info = ThemePalette.Resolve(Current);
+        WpfDialogTheme.ActiveThemeId = info.Id;
         var dark = info.IsDark;
         var map = ThemePalette.ToResourceMap(ThemePalette.ForDialog(Current));
 

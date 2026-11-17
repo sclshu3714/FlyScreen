@@ -24,4 +24,16 @@ public static class ThemeMetrics
     public const double ButtonMinWidth = 88;
     public const double IconSize = 16;
     public const double IconSizeSm = 14;
+
+    // 弹窗壳（对齐 Win 投影弹窗）
+    public const double DialogTitleBarHeight = 36;
+    public const double DialogPadX = 20;
+    public const double DialogPadY = 16;
+    public const double DialogFooterPadTop = 12;
+    public const double DialogFooterPadBottom = 16;
+    public const double DialogCardRadius = 10;
+    public const double DialogCardPadX = 14;
+    public const double DialogCardPadY = 12;
+    public const double DialogCardGap = 12;
+    public const double DialogBtnPrimaryMinWidth = 100;
 }

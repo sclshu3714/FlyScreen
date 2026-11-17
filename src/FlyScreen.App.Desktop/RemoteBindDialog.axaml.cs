@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
@@ -17,6 +18,8 @@ public partial class RemoteBindDialog : Window
     public RemoteBindDialog()
     {
         InitializeComponent();
+        DesktopThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => DesktopThemeService.ApplyToChildWindow(this);
     }
 
     /// <summary>兼容仅需目标电脑 Id 的调用。</summary>

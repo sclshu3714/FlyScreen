@@ -14,6 +14,7 @@
     Icons/appicon.png     Maui 图标与启动图（256，文件名须保持 appicon.png）
     Icons/appicon-64.png  标题栏与 Avalonia 小图
     Images/cursor.png     手机远程指针
+    Images/bg_default.png 自定义主题默认壁纸
     （工具卡片图标已迁入各 FlyScreen.Tool.* 工程嵌入资源）
     Installer/*.png       安装包轮播
   -->

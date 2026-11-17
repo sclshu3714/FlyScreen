@@ -20,24 +20,22 @@
   <Grid Margin="16">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*" MinHeight="120"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
-    <StackPanel Grid.Row="1" Margin="0,0,0,8">
+    <StackPanel Margin="0,0,0,8">
       <TextBlock x:Name="TypeLabel" Margin="0,0,0,6" FontSize="12" Foreground="{DynamicResource Muted}"/>
       <StackPanel x:Name="TypePanel" Orientation="Horizontal"/>
     </StackPanel>
-    <ScrollViewer Grid.Row="2" MaxHeight="360"
+    <ScrollViewer Grid.Row="1" MaxHeight="360"
                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel x:Name="FieldsPanel" Margin="0,0,8,8"/>
     </ScrollViewer>
-    <TextBlock x:Name="ErrorText" Grid.Row="3" Foreground="#DC2626" TextWrapping="Wrap" Margin="0,0,0,8"/>
-    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="CancelBtn" Style="{StaticResource DlgBtn}" Margin="0,0,8,0"
+    <TextBlock x:Name="ErrorText" Grid.Row="2" Foreground="#DC2626" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="CancelBtn" Style="{StaticResource DlgNormalBtn}" Margin="0,0,8,0"
               IsCancel="True" Click="CancelBtn_Click"/>
       <Button x:Name="SaveBtn" Style="{StaticResource DlgPrimaryBtn}"
               IsDefault="True" Click="SaveBtn_Click"/>

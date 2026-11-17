@@ -5,6 +5,7 @@ using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
+using FlyScreen.Ui.Theme.Wpf;
 using FlyScreen.Ui.Wpf;
 using Microsoft.Win32;
 
@@ -45,27 +46,16 @@ public partial class AddSourceDialog : Window
         }
 
         if (owner is not null)
-        {
             Owner = owner;
-            InheritHostBrushes(owner);
-        }
 
-        Loaded += (_, _) => BuildTypeRadios();
-        ApplyLoc();
-    }
-
-    /// <summary>从宿主窗口拷贝主题色，使插件对话框与主程序一致。</summary>
-    private void InheritHostBrushes(FrameworkElement host)
-    {
-        foreach (var key in new[]
-                 {
-                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
-                     "WinBg", "CardBg", "ControlBg", "ControlBorder"
-                 })
+        // 弹窗用 ForDialog 实心色板；勿拷主窗半透明壁纸色
+        WpfDialogTheme.ApplyTo(this);
+        Loaded += (_, _) =>
         {
-            if (host.TryFindResource(key) is SolidColorBrush brush)
-                Resources[key] = brush.Clone();
-        }
+            WpfDialogTheme.ApplyTo(this);
+            BuildTypeRadios();
+        };
+        ApplyLoc();
     }
 
     public bool Saved { get; private set; }
@@ -73,7 +63,6 @@ public partial class AddSourceDialog : Window
     private void ApplyLoc()
     {
         Title = _editingId is null ? Loc.T("Tool.VideoWall.AddSource") : Loc.T("Tool.VideoWall.Editing");
-        TitleText.Text = _editingId is null ? Loc.T("Tool.VideoWall.SelectType") : Loc.T("Tool.VideoWall.Editing");
         TypeLabel.Text = Loc.T("Tool.VideoWall.SelectType");
         CancelBtn.Content = Loc.T("Tool.VideoWall.Cancel");
         SaveBtn.Content = Loc.T("Tool.VideoWall.Save");

@@ -7,6 +7,8 @@ public static class BrandAssets
     public const string AppIconPng = "Icons/appicon.png";
     public const string AppIconPng64 = "Icons/appicon-64.png";
     public const string CursorPng = "Images/cursor.png";
+    /// <summary>自定义主题默认壁纸（嵌入；切换到自定义且无用户图时种入 Ui/Wallpaper）。</summary>
+    public const string DefaultWallpaperPng = "Images/bg_default.png";
 
     public static Stream Open(string relativePath)
     {

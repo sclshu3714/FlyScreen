@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FlyScreen.Ui.Theme.Avalonia</RootNamespace>
     <AssemblyName>FlyScreen.Ui.Theme.Avalonia</AssemblyName>
-    <Description>Avalonia 主题样式源（ActionStyles / ScrollBar；由宿主 App.Desktop Link 编译）</Description>
+    <Description>Avalonia 主题样式源（ActionStyles / DialogStyles / ScrollBar；由宿主 App.Desktop Link 编译）</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />

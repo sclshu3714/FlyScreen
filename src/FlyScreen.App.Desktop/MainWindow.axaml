@@ -23,6 +23,7 @@
   <!-- 图标：App 启动时 AvaloniaIcon.RegisterToApplication（IconCatalog / Geo*） -->
   <Window.Styles>
     <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/ActionStyles.axaml"/>
+    <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/DialogStyles.axaml"/>
     <Style Selector="Border.card">
       <Setter Property="Background" Value="{DynamicResource CardBg}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>

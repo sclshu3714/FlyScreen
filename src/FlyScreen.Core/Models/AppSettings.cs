@@ -75,6 +75,10 @@ public sealed class AppSettings
     /// 导入优先写安装目录，无权限则回退 AppData。仅自定义主题生效；清除会删两边副本。
     /// </summary>
     public string UiWallpaperPath { get; set; } = "";
+    /// <summary>
+    /// 用户在自定义主题下点过「清除」：保持无图，直到再选图或重新切入自定义主题（将恢复默认图）。
+    /// </summary>
+    public bool UiWallpaperCleared { get; set; }
     /// <summary>界面语言文化代码，默认 zh-CN。</summary>
     public string UiLanguage { get; set; } = "zh-CN";
     public int TcpPort { get; set; } = 15155;

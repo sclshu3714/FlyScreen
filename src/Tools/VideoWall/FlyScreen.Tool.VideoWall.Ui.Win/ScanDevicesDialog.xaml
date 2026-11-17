@@ -21,17 +21,13 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,14"
-               Foreground="{DynamicResource Text}"/>
-
     <!-- 网段 + 模板 + 扫描 -->
-    <Grid Grid.Row="1" Margin="0,0,0,10">
+    <Grid Margin="0,0,0,10">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="140"/>
@@ -51,7 +47,7 @@
     </Grid>
 
     <!-- 凭据 -->
-    <Grid Grid.Row="2" Margin="0,0,0,10">
+    <Grid Grid.Row="1" Margin="0,0,0,10">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="*"/>
@@ -66,7 +62,7 @@
       </StackPanel>
     </Grid>
 
-    <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8"
+    <Border Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8"
             Background="{DynamicResource ListBg}" Padding="0" ClipToBounds="True">
       <DockPanel>
         <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
@@ -118,11 +114,11 @@
       </DockPanel>
     </Border>
 
-    <TextBlock x:Name="StatusText" Grid.Row="4" Margin="0,10,0,8"
+    <TextBlock x:Name="StatusText" Grid.Row="3" Margin="0,10,0,8"
                Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
 
-    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="CloseBtn" Style="{StaticResource DlgBtn}" IsCancel="True" Click="CloseBtn_Click"/>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="CloseBtn" Style="{StaticResource DlgNormalBtn}" IsCancel="True" Click="CloseBtn_Click"/>
     </StackPanel>
   </Grid>
 </Window>

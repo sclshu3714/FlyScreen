@@ -43,5 +43,23 @@ public sealed class MauiTheme : ResourceDictionary
         this["Radius.Sm"] = ThemeMetrics.RadiusSm;
         this["Radius.Md"] = ThemeMetrics.RadiusMd;
         this["Radius.Lg"] = ThemeMetrics.RadiusLg;
+
+        this["Dialog.TitleBarHeight"] = ThemeMetrics.DialogTitleBarHeight;
+        this["Dialog.PadX"] = ThemeMetrics.DialogPadX;
+        this["Dialog.PadY"] = ThemeMetrics.DialogPadY;
+        this["Dialog.CardRadius"] = ThemeMetrics.DialogCardRadius;
+        this["Dialog.CardGap"] = ThemeMetrics.DialogCardGap;
+        this["Dialog.BtnPrimaryMinWidth"] = ThemeMetrics.DialogBtnPrimaryMinWidth;
+        this["Pad.DialogCard"] = new Thickness(ThemeMetrics.DialogCardPadX, ThemeMetrics.DialogCardPadY);
+        this["Pad.DialogFooter"] = new Thickness(
+            ThemeMetrics.DialogPadX,
+            ThemeMetrics.DialogFooterPadTop,
+            ThemeMetrics.DialogPadX,
+            ThemeMetrics.DialogFooterPadBottom);
+        this["Pad.DialogBody"] = new Thickness(
+            ThemeMetrics.DialogPadX,
+            ThemeMetrics.DialogPadY,
+            ThemeMetrics.DialogPadX,
+            ThemeMetrics.SpaceSm);
     }
 }

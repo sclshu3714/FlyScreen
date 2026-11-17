@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
@@ -142,7 +144,8 @@ public static class ProgramScriptHost
     private static readonly Lazy<ImmutableArray<MetadataReference>> SharedReferences = new(BuildReferences);
 
     public static ScriptOptions CreateScriptOptions()
-        => ScriptOptions.Default
+    {
+        var options = ScriptOptions.Default
             .WithLanguageVersion(Microsoft.CodeAnalysis.CSharp.LanguageVersion.Latest)
             // WithReferences 替换默认引用，避免宿主再按 Location 隐式加引用
             .WithReferences(SharedReferences.Value)
@@ -155,6 +158,118 @@ public static class ProgramScriptHost
                 "System.Threading.Tasks",
                 "FlyScreen.Services",
                 "FlyScreen.Services.Programs");
+
+        // Roslyn 仍会无条件 CreateFromFile(typeof(object).Assembly.Location) 注入 corlib；
+        // Android / 单文件上 Location 常是假路径（如 /System.Private.CoreLib.dll）→ FileNotFound。
+        return WithSafeCreateFromFile(options);
+    }
+
+    /// <summary>
+    /// 钩住内部 <c>WithCreateFromFileFunc</c>：磁盘不存在时回退到已加载程序集的内存元数据。
+    /// </summary>
+    private static ScriptOptions WithSafeCreateFromFile(ScriptOptions options)
+    {
+        try
+        {
+            var method = typeof(ScriptOptions).GetMethod(
+                "WithCreateFromFileFunc",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null)
+                return options;
+
+            var funcType = method.GetParameters()[0].ParameterType;
+            var metaImageType = funcType.GetGenericArguments()[3];
+            var impl = typeof(ProgramScriptHost).GetMethod(
+                nameof(CreateFromFileOrRawMetadata),
+                BindingFlags.Static | BindingFlags.NonPublic);
+            if (impl == null)
+                return options;
+
+            var pPath = Expression.Parameter(typeof(string), "path");
+            var pOpts = Expression.Parameter(typeof(PEStreamOptions), "opts");
+            var pProps = Expression.Parameter(typeof(MetadataReferenceProperties), "props");
+            var body = Expression.Convert(
+                Expression.Call(impl, pPath, pOpts, pProps),
+                metaImageType);
+            var lambda = Expression.Lambda(funcType, body, pPath, pOpts, pProps);
+            return (ScriptOptions)method.Invoke(options, [lambda.Compile()])!;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("脚本 CreateFromFile 安全钩子安装失败: " + ex.Message);
+            return options;
+        }
+    }
+
+    /// <summary>
+    /// Roslyn Script 注入 corlib 时的回调：优先读磁盘，否则从已加载程序集取元数据。
+    /// 返回值在运行时为内部类型 <c>MetadataImageReference</c>。
+    /// </summary>
+    private static MetadataReference CreateFromFileOrRawMetadata(
+        string filePath,
+        PEStreamOptions options,
+        MetadataReferenceProperties properties)
+    {
+        _ = options;
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                    return MetadataReference.CreateFromFile(filePath, properties);
+            }
+            catch (Exception)
+            {
+                // 假路径 / 无权限：回退内存元数据
+            }
+        }
+
+        var asm = ResolveLoadedAssemblyForPath(filePath);
+        if (asm != null)
+        {
+            var reference = CreateFromRawMetadata(asm);
+            if (properties != default)
+                reference = reference.WithProperties(properties);
+            return reference;
+        }
+
+        throw new FileNotFoundException(
+            "脚本编译找不到程序集元数据（Android/单文件宿主无磁盘路径）: " + filePath,
+            filePath);
+    }
+
+    private static Assembly? ResolveLoadedAssemblyForPath(string? filePath)
+    {
+        var name = Path.GetFileNameWithoutExtension(filePath ?? "");
+        if (string.IsNullOrEmpty(name))
+            name = "System.Private.CoreLib";
+
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try
+            {
+                if (string.Equals(asm.GetName().Name, name, StringComparison.OrdinalIgnoreCase))
+                    return asm;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        if (name.Contains("CoreLib", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("mscorlib", StringComparison.OrdinalIgnoreCase))
+            return typeof(object).Assembly;
+
+        try
+        {
+            return Assembly.Load(name);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// 将用户脚本包进无 globals 的入口委托，避免 CSharpScript 对 globals 程序集 CreateFromFile。
@@ -242,9 +357,38 @@ public static class ProgramScriptHost
         {
             var path = ResolvePathByFileName(simpleName + ".dll");
             if (!string.IsNullOrEmpty(path))
+            {
                 list.Add(MetadataReference.CreateFromFile(path));
-            else
-                seen.Remove(simpleName);
+                return;
+            }
+
+            // Android / 单文件：无磁盘 DLL 时从已加载程序集读元数据
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    if (!string.Equals(asm.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    list.Add(CreateMetadataReference(asm));
+                    return;
+                }
+                catch
+                {
+                    // try next
+                }
+            }
+
+            try
+            {
+                list.Add(CreateMetadataReference(Assembly.Load(simpleName)));
+                return;
+            }
+            catch
+            {
+                // ignore
+            }
+
+            seen.Remove(simpleName);
         }
         catch
         {

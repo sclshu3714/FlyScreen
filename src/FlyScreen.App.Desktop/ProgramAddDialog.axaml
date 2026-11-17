@@ -10,6 +10,7 @@
         Background="{DynamicResource WinBg}"
         Foreground="{DynamicResource Text}">
   <Window.Styles>
+    <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/DialogStyles.axaml"/>
     <Style Selector="Button.titleBtn">
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
@@ -22,50 +23,52 @@
 
   <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
     <DockPanel>
-      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Height="40" IsVisible="False"
-              Background="{DynamicResource PaneBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
-        <Grid ColumnDefinitions="*,Auto" Margin="12,0,4,0">
-          <TextBlock x:Name="ClientTitleText" Text="添加程序" FontSize="13" FontWeight="SemiBold"
-                     VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Classes="dlgTitleBar" IsVisible="False">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock x:Name="ClientTitleText" Text="添加程序" Classes="dlgTitleText"
+                     IsHitTestVisible="False"/>
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
             <Button x:Name="TitleCloseBtn" Classes="titleBtn" Content="×"/>
           </StackPanel>
         </Grid>
       </Border>
-
-      <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="100,*">
-        <TextBlock x:Name="LblName" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
-        <TextBox x:Name="NameBox" Grid.Column="1" Margin="0,0,0,10" Height="28" TextChanged="NameBox_TextChanged"/>
-
-        <TextBlock x:Name="LblLang" Grid.Row="1" Text="开发语言" VerticalAlignment="Center" Margin="0,0,0,10"/>
-        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,10" LastChildFill="True">
-          <Button x:Name="DetectBtn" DockPanel.Dock="Right" Content="环境检测" MinWidth="88" Height="32"
-                  Margin="8,0,0,0" VerticalAlignment="Center" Click="Detect_Click"/>
-          <ComboBox x:Name="LangCombo" Height="28" VerticalAlignment="Center"
-                    SelectionChanged="LangCombo_SelectionChanged"/>
-        </DockPanel>
-
-        <TextBlock x:Name="LblNs" Grid.Row="2" Text="命名空间" VerticalAlignment="Center" Margin="0,0,0,10"/>
-        <TextBox x:Name="NamespaceBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
-
-        <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
-        <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
-
-        <!-- 检查结果：文件名称下方，不弹窗 -->
-        <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,12" Spacing="6">
-          <TextBlock x:Name="DetectStatus" FontSize="12" TextWrapping="Wrap"
-                     Foreground="{DynamicResource Muted}"/>
-          <StackPanel x:Name="DetectActions" Orientation="Horizontal" Spacing="8" IsVisible="False">
-            <Button x:Name="DetectAutoBtn" Content="自动修复" MinWidth="88" Height="28" Click="DetectAuto_Click"/>
-            <Button x:Name="DetectOpenBtn" Content="打开安装页" MinWidth="88" Height="28" Click="DetectOpen_Click"/>
-          </StackPanel>
+      <Border DockPanel.Dock="Bottom" Classes="dlgFooter">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="0">
+          <Button x:Name="CancelBtn" Classes="dlgNormal" Content="取消" Click="Cancel_Click"/>
+          <Button x:Name="SaveBtn" Classes="dlgPrimary" Content="保存" Click="Save_Click"/>
         </StackPanel>
+      </Border>
 
-        <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-          <Button x:Name="CancelBtn" Content="取消" MinWidth="88" Height="32" Click="Cancel_Click"/>
-          <Button x:Name="SaveBtn" Content="保存" MinWidth="88" Height="32" Classes="accent" Click="Save_Click"/>
-        </StackPanel>
-      </Grid>
+      <ScrollViewer Padding="20,16,20,8">
+        <Border Classes="dlgCard" Margin="0">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*">
+            <TextBlock x:Name="LblName" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+            <TextBox x:Name="NameBox" Grid.Column="1" Margin="0,0,0,10" Height="28" TextChanged="NameBox_TextChanged"/>
+
+            <TextBlock x:Name="LblLang" Grid.Row="1" Text="开发语言" VerticalAlignment="Center" Margin="0,0,0,10"/>
+            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,10" LastChildFill="True">
+              <Button x:Name="DetectBtn" DockPanel.Dock="Right" Classes="dlgNormal" Content="环境检测"
+                      Margin="8,0,0,0" VerticalAlignment="Center" Click="Detect_Click"/>
+              <ComboBox x:Name="LangCombo" Height="28" VerticalAlignment="Center"
+                        SelectionChanged="LangCombo_SelectionChanged"/>
+            </DockPanel>
+
+            <TextBlock x:Name="LblNs" Grid.Row="2" Text="命名空间" VerticalAlignment="Center" Margin="0,0,0,10"/>
+            <TextBox x:Name="NamespaceBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
+
+            <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
+            <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
+
+            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Spacing="6">
+              <TextBlock x:Name="DetectStatus" Classes="dlgHint" Margin="0"/>
+              <StackPanel x:Name="DetectActions" Orientation="Horizontal" Spacing="0" IsVisible="False">
+                <Button x:Name="DetectAutoBtn" Classes="dlgNormal" Content="自动修复" Height="28" Click="DetectAuto_Click"/>
+                <Button x:Name="DetectOpenBtn" Classes="dlgNormal" Content="打开安装页" Height="28" Margin="0" Click="DetectOpen_Click"/>
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+        </Border>
+      </ScrollViewer>
     </DockPanel>
   </Border>
 </Window>

@@ -1,11 +1,11 @@
 using System.Globalization;
+using FlyScreen.Ui.Maui;
 using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.AppMaui;
 
 /// <summary>
-/// 日志页时间范围：半透明遮罩 + 居中卡片（对齐 ConfirmPage）。
-/// 日期可选；时间可直接输入，也可点时钟打开 TimePicker 选择。
+/// 日志页时间范围：统一 MauiDialogShell；日期可选；时间可输入或点时钟用 TimePicker。
 /// </summary>
 public sealed class LogDateRangePage : ContentPage
 {
@@ -23,8 +23,12 @@ public sealed class LogDateRangePage : ContentPage
         IsVisible = false
     };
 
-    private readonly Grid _root = new() { Padding = 24 };
-    private readonly Border _card = new();
+    private readonly MauiDialogShell _shell = new()
+    {
+        SizeMode = MauiDialogSize.Form,
+        ShowClose = true,
+        DismissOnScrim = true
+    };
     private readonly Border _timePickOverlay = new() { IsVisible = false };
     private readonly TimePicker _overlayTimePicker = new() { HorizontalOptions = LayoutOptions.Center };
     private Entry? _timePickTarget;
@@ -36,8 +40,9 @@ public sealed class LogDateRangePage : ContentPage
     public LogDateRangePage(DateTime? currentFrom, DateTime? currentTo)
     {
         Title = Loc.T("Log.DateTitle");
-        NavigationPage.SetHasNavigationBar(this, false);
-        BackgroundColor = Color.FromArgb("#80000000");
+        Helpers.MauiThemeService.PrepareOverlayPage(this);
+        _shell.Title = Title;
+        _shell.CloseRequested += async (_, _) => await CloseAsync(ResultKind.Cancel);
 
         var now = DateTime.Now;
         var from = currentFrom ?? now.Date;
@@ -56,96 +61,66 @@ public sealed class LogDateRangePage : ContentPage
                 _error.IsVisible = true;
                 return;
             }
-            Result = ResultKind.Apply;
             From = f;
             To = t;
-            await Navigation.PopModalAsync().ConfigureAwait(true);
+            await CloseAsync(ResultKind.Apply);
         };
 
         var clear = MakeNormalBtn(Loc.T("Log.DateClear"));
         clear.Clicked += async (_, _) =>
         {
-            Result = ResultKind.Clear;
             From = null;
             To = null;
-            await Navigation.PopModalAsync().ConfigureAwait(true);
+            await CloseAsync(ResultKind.Clear);
         };
 
         var cancel = MakeNormalBtn(Loc.T("Dlg.Cancel"));
-        cancel.Clicked += async (_, _) =>
-        {
-            Result = ResultKind.Cancel;
-            await Navigation.PopModalAsync().ConfigureAwait(true);
-        };
+        cancel.Clicked += async (_, _) => await CloseAsync(ResultKind.Cancel);
 
-        if (Application.Current?.Resources.TryGetValue("Card", out var cardStyle) == true
-            && cardStyle is Style style)
-            _card.Style = style;
-        _card.StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 };
-        _card.StrokeThickness = 1;
-        _card.MaximumWidthRequest = 440;
-        _card.MinimumWidthRequest = 300;
-        _card.VerticalOptions = LayoutOptions.Center;
-        _card.HorizontalOptions = LayoutOptions.Center;
-        _card.Padding = 20;
-        _card.BackgroundColor = Color.FromArgb("#F7F8FA");
-        _card.Content = new VerticalStackLayout
+        _shell.Body = new Border
         {
-            Spacing = 12,
-            Children =
+            Style = TryGetStyle("DlgCard"),
+            Margin = new Thickness(20, 16, 20, 8),
+            Content = new VerticalStackLayout
             {
-                new Label
+                Spacing = 12,
+                Children =
                 {
-                    Text = Loc.T("Log.DateTitle"),
-                    FontSize = 15,
-                    FontAttributes = FontAttributes.Bold
-                },
-                BuildRow(Loc.T("Log.DateFrom"), _fromDate, _fromTime),
-                BuildRow(Loc.T("Log.DateTo"), _toDate, _toTime),
-                _error,
-                new HorizontalStackLayout
-                {
-                    Spacing = 8,
-                    HorizontalOptions = LayoutOptions.End,
-                    Children = { clear, cancel, ok }
+                    BuildRow(Loc.T("Log.DateFrom"), _fromDate, _fromTime),
+                    BuildRow(Loc.T("Log.DateTo"), _toDate, _toTime),
+                    _error
                 }
             }
+        };
+        _shell.Footer = new HorizontalStackLayout
+        {
+            Spacing = 0,
+            HorizontalOptions = LayoutOptions.End,
+            Children = { clear, cancel, ok }
         };
 
         BuildTimePickOverlay();
 
-        _root.Children.Add(_card);
-        _root.Children.Add(_timePickOverlay);
-        Content = _root;
-
-        // 点遮罩空白处等同取消
-        var tap = new TapGestureRecognizer();
-        tap.Tapped += async (_, _) =>
+        Content = new Grid
         {
-            if (_timePickOverlay.IsVisible)
-            {
-                HideTimePickOverlay();
-                return;
-            }
-            Result = ResultKind.Cancel;
-            try { await Navigation.PopModalAsync().ConfigureAwait(true); }
-            catch { /* ignore */ }
+            Children = { _shell, _timePickOverlay }
         };
-        _root.GestureRecognizers.Add(tap);
-        // 卡片本身不冒泡取消
-        _card.GestureRecognizers.Add(new TapGestureRecognizer());
-        _timePickOverlay.GestureRecognizers.Add(new TapGestureRecognizer());
+    }
+
+    private async Task CloseAsync(ResultKind kind)
+    {
+        if (_timePickOverlay.IsVisible)
+        {
+            HideTimePickOverlay();
+            if (kind == ResultKind.Cancel) return;
+        }
+        Result = kind;
+        try { await Navigation.PopModalAsync().ConfigureAwait(true); }
+        catch { /* ignore */ }
     }
 
     private void BuildTimePickOverlay()
     {
-        var title = new Label
-        {
-            Text = Loc.T("Log.Date"),
-            FontSize = 14,
-            FontAttributes = FontAttributes.Bold,
-            HorizontalOptions = LayoutOptions.Center
-        };
         var done = MakePrimaryBtn(Loc.T("Log.DateApply"));
         done.Clicked += (_, _) =>
         {
@@ -159,34 +134,30 @@ public sealed class LogDateRangePage : ContentPage
         var dismiss = MakeNormalBtn(Loc.T("Dlg.Cancel"));
         dismiss.Clicked += (_, _) => HideTimePickOverlay();
 
-        var inner = new Border
+        var nested = new MauiDialogShell
         {
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
-            StrokeThickness = 1,
-            Padding = 16,
-            BackgroundColor = Colors.White,
-            VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center,
-            MinimumWidthRequest = 260,
-            Content = new VerticalStackLayout
+            Title = Loc.T("Log.Date"),
+            ShowClose = false,
+            SizeMode = MauiDialogSize.Form,
+            Body = new Border
             {
-                Spacing = 12,
-                Children =
-                {
-                    title,
-                    _overlayTimePicker,
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 8,
-                        HorizontalOptions = LayoutOptions.End,
-                        Children = { dismiss, done }
-                    }
-                }
+                Style = TryGetStyle("DlgCard"),
+                Margin = new Thickness(16, 12),
+                Content = _overlayTimePicker
+            },
+            Footer = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                HorizontalOptions = LayoutOptions.End,
+                Children = { dismiss, done }
             }
         };
+        nested.Card.MinimumWidthRequest = 260;
+        nested.Card.MaximumWidthRequest = 320;
 
-        _timePickOverlay.BackgroundColor = Color.FromArgb("#66000000");
-        _timePickOverlay.Content = inner;
+        _timePickOverlay.BackgroundColor = Colors.Transparent;
+        _timePickOverlay.Content = nested;
+        _timePickOverlay.GestureRecognizers.Add(new TapGestureRecognizer());
     }
 
     private View BuildRow(string label, DatePicker date, Entry time)
@@ -212,7 +183,7 @@ public sealed class LogDateRangePage : ContentPage
                 new(GridLength.Star),
                 new(new GridLength(34))
             },
-            Children = { time, Named(pickBtn, 1) }
+            Children = { time, NamedCol(pickBtn, 1) }
         };
 
         return new Grid
@@ -233,8 +204,8 @@ public sealed class LogDateRangePage : ContentPage
                     FontSize = 13,
                     VerticalOptions = LayoutOptions.Center
                 },
-                Named(date, 1),
-                Named(timeBox, 2)
+                NamedCol(date, 1),
+                NamedCol(timeBox, 2)
             }
         };
     }
@@ -263,27 +234,31 @@ public sealed class LogDateRangePage : ContentPage
         };
 
     private static Button MakePrimaryBtn(string text)
-        => new()
-        {
-            Text = text,
-            BackgroundColor = Color.FromArgb("#2563EB"),
-            TextColor = Colors.White,
-            FontAttributes = FontAttributes.Bold,
-            HeightRequest = 36,
-            MinimumWidthRequest = 88,
-            CornerRadius = 8
-        };
+    {
+        var btn = new Button { Text = text };
+        TryApplyStyle(btn, "DlgPrimaryBtn");
+        return btn;
+    }
 
     private static Button MakeNormalBtn(string text)
-        => new()
-        {
-            Text = text,
-            HeightRequest = 36,
-            MinimumWidthRequest = 88,
-            CornerRadius = 8
-        };
+    {
+        var btn = new Button { Text = text };
+        TryApplyStyle(btn, "DlgNormalBtn");
+        return btn;
+    }
 
-    private static T Named<T>(T view, int column) where T : BindableObject
+    private static Style? TryGetStyle(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Style s ? s : null;
+
+    private static void TryApplyStyle(BindableObject target, string key)
+    {
+        var style = TryGetStyle(key);
+        if (style is null) return;
+        if (target is VisualElement ve)
+            ve.Style = style;
+    }
+
+    private static T NamedCol<T>(T view, int column) where T : BindableObject
     {
         Grid.SetColumn(view, column);
         return view;

@@ -33,7 +33,6 @@ public partial class ConfirmDialog : Window
             dlg.Owner = owner;
 
         dlg.Title = title;
-        dlg.TitleText.Text = title;
         dlg.MessageText.Text = message;
         dlg.PrimaryBtn.Content = string.IsNullOrWhiteSpace(primaryText) ? Loc.T("Dlg.Ok") : primaryText;
         dlg.CancelBtn.Content = string.IsNullOrWhiteSpace(cancelText) ? Loc.T("Dlg.Cancel") : cancelText;

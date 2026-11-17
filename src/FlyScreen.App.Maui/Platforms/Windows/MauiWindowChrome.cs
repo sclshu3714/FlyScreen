@@ -31,6 +31,48 @@ internal static class MauiWindowChrome
     public static void RefreshAfterModal()
         => ApplyTheme(MauiThemeServiceIsDark(), scheduleFollowUp: true, translucent: _translucent);
 
+    /// <summary>
+    /// 弹层页壳外全透明：清掉 ContentPage 及其 WinUI 祖先的实心底色，
+    /// 否则 Maui-Win 模态页常残留灰/白罩，透不出主界面。
+    /// </summary>
+    public static void ClearOverlayPageBackground(Microsoft.Maui.Controls.Page page)
+    {
+        try
+        {
+            page.BackgroundColor = Microsoft.Maui.Graphics.Colors.Transparent;
+            if (page.Handler?.PlatformView is not FrameworkElement fe)
+                return;
+
+            var clear = new WinSolidBrush(Microsoft.UI.Colors.Transparent);
+            DependencyObject? node = fe;
+            for (var i = 0; i < 10 && node != null; i++)
+            {
+                switch (node)
+                {
+                    case Microsoft.UI.Xaml.Controls.Panel panel:
+                        panel.Background = clear;
+                        break;
+                    case WinBorder border:
+                        border.Background = clear;
+                        break;
+                    case Microsoft.UI.Xaml.Controls.ContentPresenter presenter:
+                        presenter.Background = clear;
+                        break;
+                    case Microsoft.UI.Xaml.Controls.Control control:
+                        // 勿清 Button 等控件；仅清页根一类
+                        if (i == 0)
+                            control.Background = clear;
+                        break;
+                }
+                node = VisualTreeHelper.GetParent(node);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     private static bool MauiThemeServiceIsDark()
     {
         try

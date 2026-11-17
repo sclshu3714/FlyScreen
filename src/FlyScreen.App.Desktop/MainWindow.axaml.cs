@@ -892,6 +892,10 @@ public partial class MainWindow : Window
         Loc.SetCulture(lang.Code);
 
         BindThemeCombo(s.UiTheme);
+        UiWallpaperStore.ApplyThemePolicy(
+            s,
+            ThemePalette.SupportsWallpaper(s.UiTheme),
+            switchedOntoWallpaperTheme: false);
         DesktopThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
         RefreshWallpaperUi();
 
@@ -1205,9 +1209,15 @@ public partial class MainWindow : Window
         else
             s.UiLanguage = Loc.DefaultCulture;
 
+        var prevTheme = s.UiTheme;
         s.UiTheme = ThemeCombo.SelectedItem is ThemeListItem ti
             ? ti.Id
             : DesktopThemeService.Light;
+        UiWallpaperStore.ApplyThemePolicy(
+            s,
+            ThemePalette.SupportsWallpaper(s.UiTheme),
+            switchedOntoWallpaperTheme: !ThemePalette.SupportsWallpaper(prevTheme)
+                && ThemePalette.SupportsWallpaper(s.UiTheme));
         DesktopThemeService.Apply(s.UiTheme, this, s.UiWallpaperPath);
         RefreshWallpaperUi();
         Loc.SetCulture(s.UiLanguage);
@@ -4314,6 +4324,7 @@ public partial class MainWindow : Window
         }
 
         _host.Settings.UiWallpaperPath = rel;
+        _host.Settings.UiWallpaperCleared = false;
         _host.Settings.Save();
         RefreshWallpaperUi();
         var themeId = ThemeCombo.SelectedItem is ThemeListItem ti ? ti.Id : DesktopThemeService.Current;
@@ -4324,6 +4335,7 @@ public partial class MainWindow : Window
     private void WallpaperClear_Click(object? sender, RoutedEventArgs e)
     {
         _host.Settings.UiWallpaperPath = "";
+        _host.Settings.UiWallpaperCleared = true;
         UiWallpaperStore.ClearFiles();
         _host.Settings.Save();
         RefreshWallpaperUi();

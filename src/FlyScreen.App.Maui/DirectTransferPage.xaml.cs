@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using FlyScreen.Ui.Maui;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers.Localization;
@@ -35,16 +36,32 @@ public partial class DirectTransferPage : ContentPage
     {
         InitializeComponent();
         _host = host;
-        Title = "";
-        NavigationPage.SetHasNavigationBar(this, false);
-        MauiThemeService.ApplyToDialog(this);
+        Title = Loc.T("DT.Title");
+        Shell.Title = Title;
+        Helpers.MauiThemeService.PrepareOverlayPage(this);
         ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerPicker.ItemsSource = _peers;
         FolderPresetPicker.ItemsSource = _presets;
         _paths.CollectionChanged += (_, _) => UpdateDropHint();
-        SizeChanged += (_, _) => ApplyToolbarIcons();
+        SizeChanged += (_, _) =>
+        {
+            ApplyToolbarIcons();
+            ApplyResponsiveLayout();
+        };
         Loaded += OnLoaded;
+        ApplyResponsiveLayout();
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        var w = Width > 1 ? Width : 720;
+        BodyGrid.Padding = MauiDialogLayout.IsCompact(w)
+            ? new Thickness(12, 12, 12, 8)
+            : new Thickness(20, 16, 20, 8);
+
+        if (TargetGrid.ColumnDefinitions.Count >= 1)
+            TargetGrid.ColumnDefinitions[0].Width = new GridLength(MauiDialogLayout.IsCompact(w) ? 72 : 100);
     }
 
     private bool IsPhoneOrTabletUi()

@@ -1,0 +1,112 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- 弹窗壳：对齐 Win 投影弹窗（标题栏 / 内容卡 / 底栏） -->
+
+  <Style Selector="Border.dlgCard">
+    <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="10"/>
+    <Setter Property="Padding" Value="14,12"/>
+    <Setter Property="Margin" Value="0,0,0,12"/>
+  </Style>
+
+  <Style Selector="Border.dlgTitleBar">
+    <Setter Property="Height" Value="36"/>
+    <Setter Property="Padding" Value="12,0,12,0"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="BorderThickness" Value="0,0,0,1"/>
+    <Setter Property="Background" Value="{DynamicResource WinBg}"/>
+  </Style>
+
+  <Style Selector="Border.dlgFooter">
+    <Setter Property="Padding" Value="20,12,20,16"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="BorderThickness" Value="0,1,0,0"/>
+    <Setter Property="Background" Value="{DynamicResource WinBg}"/>
+  </Style>
+
+  <Style Selector="TextBlock.dlgSectionTitle">
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    <Setter Property="Margin" Value="0,0,0,8"/>
+  </Style>
+
+  <Style Selector="TextBlock.dlgHint">
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="Margin" Value="0,8,0,0"/>
+  </Style>
+
+  <Style Selector="TextBlock.dlgTitleText">
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Margin" Value="0,0,12,0"/>
+  </Style>
+
+  <Style Selector="Button.dlgNormal">
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="14,0"/>
+    <Setter Property="MinWidth" Value="88"/>
+    <Setter Property="Margin" Value="0,0,8,0"/>
+    <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Button.dlgNormal:pointerover">
+    <Setter Property="Background" Value="{DynamicResource ControlHover}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
+  </Style>
+  <Style Selector="Button.dlgNormal:pressed">
+    <Setter Property="Background" Value="{DynamicResource Line}"/>
+  </Style>
+  <Style Selector="Button.dlgNormal:disabled">
+    <Setter Property="Opacity" Value="0.5"/>
+  </Style>
+
+  <Style Selector="Button.dlgPrimary">
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="16,0"/>
+    <Setter Property="MinWidth" Value="100"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="Background" Value="{DynamicResource Blue}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Button.dlgPrimary:pointerover">
+    <Setter Property="Background" Value="{DynamicResource BluePress}"/>
+  </Style>
+  <Style Selector="Button.dlgPrimary:disabled">
+    <Setter Property="Opacity" Value="0.5"/>
+  </Style>
+
+  <Style Selector="Button.dlgDanger">
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="14,0"/>
+    <Setter Property="MinWidth" Value="88"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="Foreground" Value="#B91C1C"/>
+    <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="HorizontalAlignment" Value="Left"/>
+  </Style>
+</Styles>

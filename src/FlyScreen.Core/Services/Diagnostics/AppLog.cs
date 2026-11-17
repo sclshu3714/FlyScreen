@@ -121,10 +121,29 @@ public static class AppLog
         => Add(AppLogLevel.Error, message, programId, programName);
     public static void Error(Exception ex, string? context = null, string? programId = null, string? programName = null)
     {
+        var detail = FormatExceptionDetail(ex);
         var msg = string.IsNullOrWhiteSpace(context)
-            ? ex.Message
-            : $"{context}: {ex.Message}";
+            ? detail
+            : $"{context}: {detail}";
         Add(AppLogLevel.Error, msg, programId, programName);
+    }
+
+    /// <summary>把资源键式异常文案（如 Android 上 IO_FileNotFound_FileName）补成可读说明。</summary>
+    private static string FormatExceptionDetail(Exception ex)
+    {
+        if (ex is FileNotFoundException fnf)
+        {
+            var name = fnf.FileName;
+            if (!string.IsNullOrWhiteSpace(name)
+                && (string.IsNullOrWhiteSpace(fnf.Message)
+                    || fnf.Message.Contains("IO_FileNotFound", StringComparison.Ordinal)
+                    || fnf.Message.StartsWith("IO_", StringComparison.Ordinal)))
+            {
+                return $"找不到文件或程序集「{name}」";
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
     }
 
     /// <summary>把状态栏文案按关键词归成信息 / 警告 / 错误。</summary>

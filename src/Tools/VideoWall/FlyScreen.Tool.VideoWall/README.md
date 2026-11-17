@@ -44,5 +44,5 @@ pwsh build/Pack-FlyTools.ps1 -Configuration Debug
 | 能力 | 业务 | UI |
 |------|------|-----|
 | 轮播分页 | `Wall/WallCarousel.cs`、`IVideoWallService` 轮播 API | 各端 `VideoWallPanel` 墙宿主叠加层 |
-| 局域网扫描 | `Sources/LanDeviceScanService.cs` | `ScanDevicesDialog` / `ScanDevicesWindow` / `VideoWallScanOverlay` |
+| 局域网扫描 | `Sources/LanDeviceScanService.cs` | `ScanDevicesDialog` / `ScanDevicesWindow` / `VideoWallScanPage` |
 | 加载态 | `Contracts/TilePlayStateUi.cs` + `FlyScreen.Ui.*.LoadingOverlay` | 单路/墙格复用共享控件 |

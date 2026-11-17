@@ -1,3 +1,4 @@
+using FlyScreen.Ui.Maui;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
@@ -5,7 +6,7 @@ using FlyScreen.Services.ScreenExtend;
 
 namespace FlyScreen;
 
-/// <summary>设备管理「投影到电脑」：居中卡片（对齐 Win RemoteBindDialog）。</summary>
+/// <summary>设备管理「投影到电脑」：统一 MauiDialogShell（对齐 Win RemoteBindDialog）。</summary>
 public sealed class RemoteProjectDialogPage : ContentPage
 {
     private readonly TaskCompletionSource<RemoteProjectChoice?> _tcs = new();
@@ -17,6 +18,11 @@ public sealed class RemoteProjectDialogPage : ContentPage
     private readonly List<(int W, int H)> _resolutions = [];
     private readonly List<int> _bitrates = [];
     private readonly List<int> _qualities = [];
+    private readonly MauiDialogShell _shell = new()
+    {
+        SizeMode = MauiDialogSize.Form,
+        ShowClose = true
+    };
 
     public RemoteProjectDialogPage(
         string remoteName,
@@ -26,7 +32,9 @@ public sealed class RemoteProjectDialogPage : ContentPage
     {
         _targets = targets;
         Title = Loc.T("Net.BindTitle");
-        BackgroundColor = Color.FromArgb("#80000000");
+        FlyScreen.AppMaui.Helpers.MauiThemeService.PrepareOverlayPage(this);
+        _shell.Title = Title;
+        _shell.CloseRequested += async (_, _) => await FinishAsync(null);
 
         foreach (var t in targets)
             _targetPicker.Items.Add(t.Label);
@@ -78,45 +86,14 @@ public sealed class RemoteProjectDialogPage : ContentPage
         StyleField(_bitratePicker);
         StyleField(_qualityPicker);
 
-        var cancel = new Button
-        {
-            Text = Loc.T("Dlg.Cancel"),
-            BackgroundColor = Color.FromArgb("#2A2A2E"),
-            TextColor = Colors.White,
-            CornerRadius = 8,
-            Padding = new Thickness(18, 10),
-            MinimumWidthRequest = 88
-        };
-        cancel.Clicked += async (_, _) =>
-        {
-            _tcs.TrySetResult(null);
-            await Navigation.PopModalAsync();
-        };
-        var ok = new Button
-        {
-            Text = Loc.T("Net.BindOk"),
-            BackgroundColor = Color.FromArgb("#2A2A2E"),
-            TextColor = Colors.White,
-            CornerRadius = 8,
-            Padding = new Thickness(18, 10),
-            MinimumWidthRequest = 88
-        };
-        ok.Clicked += async (_, _) =>
-        {
-            _tcs.TrySetResult(BuildChoice());
-            await Navigation.PopModalAsync();
-        };
+        var cancel = MakeNormal(Loc.T("Dlg.Cancel"));
+        cancel.Clicked += async (_, _) => await FinishAsync(null);
+        var ok = MakePrimary(Loc.T("Net.BindOk"));
+        ok.Clicked += async (_, _) => await FinishAsync(BuildChoice());
 
-        var card = new Border
+        _shell.Body = new ScrollView
         {
-            Stroke = Color.FromArgb("#3F3F46"),
-            StrokeThickness = 1,
-            BackgroundColor = Color.FromArgb("#1A1A1D"),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
-            Padding = new Thickness(22, 20),
-            MaximumWidthRequest = 440,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
+            Padding = new Thickness(20, 16, 20, 8),
             Content = new VerticalStackLayout
             {
                 Spacing = 10,
@@ -124,17 +101,8 @@ public sealed class RemoteProjectDialogPage : ContentPage
                 {
                     new Label
                     {
-                        Text = Loc.T("Net.BindTitle"),
-                        FontSize = 20,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = Colors.White
-                    },
-                    new Label
-                    {
                         Text = string.Format(Loc.T("Net.BindHint"), remoteName),
-                        LineBreakMode = LineBreakMode.WordWrap,
-                        TextColor = Color.FromArgb("#9CA3AF"),
-                        FontSize = 13,
+                        Style = TryStyle("DlgHint"),
                         Margin = new Thickness(0, 0, 0, 6)
                     },
                     FieldLabel(Loc.T("Net.BindTarget")),
@@ -144,55 +112,61 @@ public sealed class RemoteProjectDialogPage : ContentPage
                     FieldLabel(Loc.T("Net.BindBitrate")),
                     _bitratePicker,
                     FieldLabel(Loc.T("Net.BindQuality")),
-                    _qualityPicker,
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 12,
-                        HorizontalOptions = LayoutOptions.End,
-                        Margin = new Thickness(0, 12, 0, 0),
-                        Children = { cancel, ok }
-                    }
+                    _qualityPicker
                 }
             }
+        };
+        _shell.Footer = new HorizontalStackLayout
+        {
+            Spacing = 0,
+            HorizontalOptions = LayoutOptions.End,
+            Children = { cancel, ok }
         };
 
-        // 点击遮罩空白处不关闭（避免误触）；内容居中卡片
-        Content = new Grid
-        {
-            Children =
-            {
-                new BoxView { Color = Color.FromArgb("#99000000") },
-                new ScrollView
-                {
-                    VerticalOptions = LayoutOptions.Fill,
-                    Content = new Grid
-                    {
-                        Padding = new Thickness(24),
-                        Children = { card }
-                    }
-                }
-            }
-        };
+        Content = _shell;
     }
 
     public Task<RemoteProjectChoice?> WaitAsync() => _tcs.Task;
 
+    private async Task FinishAsync(RemoteProjectChoice? choice)
+    {
+        _tcs.TrySetResult(choice);
+        try { await Navigation.PopModalAsync(); }
+        catch { /* ignore */ }
+    }
+
     private static Label FieldLabel(string text) => new()
     {
         Text = text,
-        FontAttributes = FontAttributes.Bold,
-        TextColor = Colors.White,
-        FontSize = 13,
+        Style = TryStyle("DlgSectionTitle"),
         Margin = new Thickness(0, 4, 0, 0)
     };
 
     private static void StyleField(Picker picker)
     {
-        picker.BackgroundColor = Color.FromArgb("#25252B");
-        picker.TextColor = Colors.White;
-        picker.TitleColor = Color.FromArgb("#9CA3AF");
         picker.HeightRequest = 40;
+        if (Application.Current?.Resources.TryGetValue("Text", out var t) == true && t is Color tc)
+            picker.TextColor = tc;
+        if (Application.Current?.Resources.TryGetValue("Muted", out var m) == true && m is Color mc)
+            picker.TitleColor = mc;
     }
+
+    private static Button MakePrimary(string text)
+    {
+        var b = new Button { Text = text };
+        if (TryStyle("DlgPrimaryBtn") is { } s) b.Style = s;
+        return b;
+    }
+
+    private static Button MakeNormal(string text)
+    {
+        var b = new Button { Text = text };
+        if (TryStyle("DlgNormalBtn") is { } s) b.Style = s;
+        return b;
+    }
+
+    private static Style? TryStyle(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Style s ? s : null;
 
     private RemoteProjectChoice BuildChoice()
     {
@@ -216,5 +190,11 @@ public sealed class RemoteProjectDialogPage : ContentPage
         for (var i = 0; i < values.Count; i++)
             if (values[i] == want) return i;
         return values.Count > 0 ? 0 : -1;
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _tcs.TrySetResult(null);
     }
 }
