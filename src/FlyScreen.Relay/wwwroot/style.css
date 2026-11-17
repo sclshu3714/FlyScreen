@@ -561,7 +561,7 @@ th, td { text-align: left; padding: 0.78rem 0.95rem; border-bottom: 1px solid va
 th { color: var(--muted); font-weight: 600; font-size: 0.78rem; background: color-mix(in srgb, var(--text) 2%, transparent); }
 th.check, td.check { width: 2.2rem; text-align: center; padding-left: 0.7rem; padding-right: 0.35rem; }
 th.check input, td.check input { width: 1rem; height: 1rem; accent-color: var(--accent); cursor: pointer; }
-tr:last-child td { border-bottom: none; }
+/* 保留末行底部分隔线，与行间线一致 */
 tr.link { cursor: pointer; }
 tr.link:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .mono { font-family: var(--mono); font-size: 0.8rem; }

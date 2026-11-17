@@ -199,16 +199,24 @@ public sealed class LanDeviceScanService
                 Report(hosts.Count, null, force: true);
                 channel.Writer.TryComplete();
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                channel.Writer.TryComplete(ex);
+                // 取消时正常结束通道，勿把异常写入 Writer（否则 ReadAllAsync 会炸）
+                channel.Writer.TryComplete();
+            }
+            catch (Exception)
+            {
+                channel.Writer.TryComplete();
             }
         }, CancellationToken.None);
 
         try
         {
-            await foreach (var device in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
-                yield return device;
+            while (await channel.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+            {
+                while (channel.Reader.TryRead(out var device))
+                    yield return device;
+            }
         }
         finally
         {
@@ -219,6 +227,10 @@ public sealed class LanDeviceScanService
             catch (OperationCanceledException)
             {
                 // ignore
+            }
+            catch
+            {
+                // producer 已结束；勿向外抛
             }
         }
     }

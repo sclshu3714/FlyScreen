@@ -27,4 +27,6 @@
 
   <!-- Inter 嵌入保证可启动；CJK 由 FontManagerOptions.FontFallbacks / 系统字体补齐 -->
   <FontFamily x:Key="UiFont">fonts:Inter#Inter, Inter, Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, WenQuanYi Zen Hei, sans-serif</FontFamily>
+  <Geometry x:Key="GeoClock">M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z</Geometry>
 </ResourceDictionary>
+

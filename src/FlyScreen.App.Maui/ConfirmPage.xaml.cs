@@ -1,3 +1,4 @@
+using FlyScreen.Ui.Maui;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 
@@ -18,8 +19,9 @@ public partial class ConfirmPage : ContentPage
         string? cancelText = null)
     {
         InitializeComponent();
+        Helpers.MauiThemeService.PrepareOverlayPage(this);
         Title = title;
-        TitleLabel.Text = title;
+        Shell.Title = title;
         MessageLabel.Text = message;
         PrimaryBtn.Text = string.IsNullOrWhiteSpace(primaryText) ? Loc.T("Dlg.Ok") : primaryText;
         CancelBtn.Text = string.IsNullOrWhiteSpace(cancelText) ? Loc.T("Dlg.Cancel") : cancelText;

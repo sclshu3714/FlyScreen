@@ -1,9 +1,10 @@
 using FlyScreen.Helpers.Localization;
 using FlyScreen.ToolSdk;
+using FlyScreen.Ui.Maui;
 
 namespace FlyScreen.Tool.PortProxy.Ui.Maui;
 
-/// <summary>添加/编辑规则：半透明遮罩 + 居中卡片。</summary>
+/// <summary>添加/编辑规则：主窗 Modal + MauiDialogShell（壳外全透明）。</summary>
 internal static class PortProxyRulePrompt
 {
     public static async Task<PortProxyRuleInfo?> ShowAsync(
@@ -64,16 +65,13 @@ internal sealed class PortProxyRuleCardPage : ContentPage
         _isEdit = isEdit;
         _kindToken = seed.KindToken;
         var protocol = string.IsNullOrWhiteSpace(seed.Protocol) ? "tcp" : seed.Protocol.Trim();
-        NavigationPage.SetHasNavigationBar(this, false);
-        BackgroundColor = Color.FromRgba(15, 23, 42, 140);
+        MauiDialogShell.PrepareOverlayPage(this);
 
-        var dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
-        var muted = Color.FromArgb(dark ? "#94A3B8" : "#6B7280");
-        var line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
-        var cardBg = Color.FromArgb(dark ? "#1E293B" : "#FFFFFF");
-        var fieldBg = Color.FromArgb(dark ? "#0F172A" : "#FFFFFF");
-        var blue = Color.FromArgb("#2563EB");
+        var text = ColorOf("Text") ?? Colors.Black;
+        var muted = ColorOf("Muted") ?? Color.FromArgb("#6B7280");
+        var line = ColorOf("Line") ?? Color.FromArgb("#E5E7EB");
+        var fieldBg = ColorOf("CardBg") ?? Colors.White;
+        var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
 
         var flyoutLayer = new AbsoluteLayout
         {
@@ -101,98 +99,65 @@ internal sealed class PortProxyRuleCardPage : ContentPage
         var cancel = new Button
         {
             Text = Loc.T("Tool.PortProxy.Cancel"),
-            BackgroundColor = fieldBg,
-            TextColor = text,
-            BorderColor = line,
-            BorderWidth = 1,
-            CornerRadius = 8,
-            HeightRequest = 36,
-            Padding = new Thickness(16, 0),
-            MinimumWidthRequest = 88
+            Style = TryStyle("DlgNormalBtn")
         };
         var ok = new Button
         {
             Text = Loc.T("Tool.PortProxy.Ok"),
+            Style = TryStyle("DlgPrimaryBtn"),
             BackgroundColor = blue,
-            TextColor = Colors.White,
-            CornerRadius = 8,
-            HeightRequest = 36,
-            Padding = new Thickness(16, 0),
-            MinimumWidthRequest = 88
+            TextColor = Colors.White
         };
         cancel.Clicked += async (_, _) => await Close(null);
         ok.Clicked += async (_, _) => await OnOk();
 
-        var btnRow = new HorizontalStackLayout
+        var dlgShell = new MauiDialogShell
         {
-            Spacing = 10,
-            HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(0, 4, 0, 0),
-            Children = { cancel, ok }
-        };
-
-        var form = new VerticalStackLayout
-        {
-            Spacing = 10,
-            HorizontalOptions = LayoutOptions.Fill,
-            Children =
+            Title = Loc.T(isEdit ? "Tool.PortProxy.DialogEdit" : "Tool.PortProxy.DialogAdd"),
+            ShowClose = true,
+            SizeMode = MauiDialogSize.Form,
+            Body = new ScrollView
             {
-                new Label
+                Padding = new Thickness(20, 16, 20, 8),
+                Content = new VerticalStackLayout
                 {
-                    Text = Loc.T(isEdit ? "Tool.PortProxy.DialogEdit" : "Tool.PortProxy.DialogAdd"),
-                    FontSize = 17,
-                    FontAttributes = FontAttributes.Bold,
-                    TextColor = text,
-                    HorizontalTextAlignment = TextAlignment.Center,
-                    Margin = new Thickness(0, 0, 0, 4)
-                },
-                FieldBlock(Loc.T("Tool.PortProxy.Kind"), muted, _kindDrop),
-                FieldBlock(Loc.T("Tool.PortProxy.ListenAddress"), muted, _listenAddress),
-                FieldBlock(Loc.T("Tool.PortProxy.ListenPort"), muted, _listenPort),
-                FieldBlock(Loc.T("Tool.PortProxy.ConnectAddress"), muted, _connectAddress),
-                FieldBlock(Loc.T("Tool.PortProxy.ConnectPort"), muted, _connectPort),
-                FieldBlock(Loc.T("Tool.PortProxy.Protocol"), muted, _protocolEntry),
-                btnRow
+                    Spacing = 10,
+                    Children =
+                    {
+                        FieldBlock(Loc.T("Tool.PortProxy.Kind"), muted, _kindDrop),
+                        FieldBlock(Loc.T("Tool.PortProxy.ListenAddress"), muted, _listenAddress),
+                        FieldBlock(Loc.T("Tool.PortProxy.ListenPort"), muted, _listenPort),
+                        FieldBlock(Loc.T("Tool.PortProxy.ConnectAddress"), muted, _connectAddress),
+                        FieldBlock(Loc.T("Tool.PortProxy.ConnectPort"), muted, _connectPort),
+                        FieldBlock(Loc.T("Tool.PortProxy.Protocol"), muted, _protocolEntry)
+                    }
+                }
+            },
+            Footer = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                HorizontalOptions = LayoutOptions.End,
+                Children = { cancel, ok }
             }
         };
+        dlgShell.CloseRequested += async (_, _) => await Close(null);
 
-        var card = new Border
+        AbsoluteLayout.SetLayoutBounds(dlgShell, new Rect(0, 0, 1, 1));
+        AbsoluteLayout.SetLayoutFlags(dlgShell, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
+        AbsoluteLayout.SetLayoutBounds(flyoutLayer, new Rect(0, 0, 1, 1));
+        AbsoluteLayout.SetLayoutFlags(flyoutLayer, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
+        Content = new AbsoluteLayout
         {
-            Stroke = line,
-            StrokeThickness = 1,
-            BackgroundColor = cardBg,
-            Padding = new Thickness(20, 18),
-            WidthRequest = 420,
-            MaximumWidthRequest = 440,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
-            Shadow = new Shadow
-            {
-                Brush = Colors.Black,
-                Offset = new Point(0, 8),
-                Radius = 24,
-                Opacity = 0.22f
-            },
-            Content = form
+            BackgroundColor = Colors.Transparent,
+            Children = { dlgShell, flyoutLayer }
         };
-
-        var pageBody = new Grid { Padding = new Thickness(24) };
-        var dimTap = new TapGestureRecognizer();
-        dimTap.Tapped += async (_, _) =>
-        {
-            _kindDrop.Close();
-            await Close(null);
-        };
-        pageBody.GestureRecognizers.Add(dimTap);
-        pageBody.Add(card);
-        card.GestureRecognizers.Add(new TapGestureRecognizer());
-
-        var shell = new Grid();
-        shell.Add(pageBody);
-        shell.Add(flyoutLayer);
-        Content = shell;
     }
+
+    private static Color? ColorOf(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c ? c : null;
+
+    private static Style? TryStyle(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Style s ? s : null;
 
     private static View FieldBlock(string label, Color muted, View control)
         => new VerticalStackLayout

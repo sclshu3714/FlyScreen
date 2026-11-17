@@ -14,216 +14,16 @@
         Foreground="{DynamicResource Text}"
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13">
-  <Window.Resources>
-    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
-    <SolidColorBrush x:Key="BluePress" Color="#1D4ED8"/>
-    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
-    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
-    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
-    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
-    <SolidColorBrush x:Key="Text" Color="#111827"/>
-    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
-    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
-    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
-    <SolidColorBrush x:Key="ControlHover" Color="#F9FAFB"/>
-    <SolidColorBrush x:Key="Accent" Color="#2563EB"/>
-
-    <Style TargetType="TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-    </Style>
-
-    <Style x:Key="Card" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="10"/>
-      <Setter Property="Padding" Value="14,12"/>
-      <Setter Property="Margin" Value="0,0,0,12"/>
-    </Style>
-
-    <!-- 与主窗口 ComboBox 一致 -->
-    <Style TargetType="ComboBox">
-      <Setter Property="Height" Value="36"/>
-      <Setter Property="Padding" Value="10,0,32,0"/>
-      <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ComboBox">
-            <Grid>
-              <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                      BorderBrush="{TemplateBinding BorderBrush}"
-                      BorderThickness="{TemplateBinding BorderThickness}"
-                      CornerRadius="4"/>
-              <ToggleButton Focusable="False" ClickMode="Press"
-                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                <ToggleButton.Template>
-                  <ControlTemplate TargetType="ToggleButton">
-                    <Grid Background="Transparent">
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="32"/>
-                      </Grid.ColumnDefinitions>
-                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{DynamicResource Muted}"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Grid>
-                  </ControlTemplate>
-                </ToggleButton.Template>
-              </ToggleButton>
-              <ContentPresenter Margin="{TemplateBinding Padding}"
-                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                Content="{TemplateBinding SelectionBoxItem}"
-                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                IsHitTestVisible="False"/>
-              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
-                        BorderThickness="1"
-                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
-                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                  <ScrollViewer>
-                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
-                  </ScrollViewer>
-                </Border>
-              </Popup>
-            </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style TargetType="ComboBoxItem">
-      <Setter Property="OverridesDefaultStyle" Value="True"/>
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="Padding" Value="10,0"/>
-      <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ComboBoxItem">
-            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
-                                TextBlock.Foreground="{DynamicResource Text}"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsHighlighted" Value="True">
-                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueHover}"/>
-              </Trigger>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="DlgNormalBtn" TargetType="Button">
-      <Setter Property="Height" Value="34"/>
-      <Setter Property="Padding" Value="14,0"/>
-      <Setter Property="MinWidth" Value="88"/>
-      <Setter Property="Margin" Value="0,0,8,0"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Bd" Background="{DynamicResource CardBg}"
-                    BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                    CornerRadius="8" Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Content="{TemplateBinding Content}"
-                                TextBlock.Foreground="{TemplateBinding Foreground}"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHover}"/>
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Line}"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="DlgPrimaryBtn" TargetType="Button">
-      <Setter Property="Height" Value="34"/>
-      <Setter Property="Padding" Value="16,0"/>
-      <Setter Property="MinWidth" Value="100"/>
-      <Setter Property="Margin" Value="0"/>
-      <Setter Property="Foreground" Value="White"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Bd" Background="{DynamicResource Blue}" CornerRadius="8"
-                    Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Content="{TemplateBinding Content}"
-                                TextBlock.Foreground="White"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BluePress}"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="DlgDangerBtn" TargetType="Button" BasedOn="{StaticResource DlgNormalBtn}">
-      <Setter Property="Foreground" Value="#B91C1C"/>
-      <Setter Property="Margin" Value="0"/>
-      <Setter Property="HorizontalAlignment" Value="Left"/>
-    </Style>
-  </Window.Resources>
-
   <DockPanel>
-    <!-- 与主窗标题栏同高 36 -->
-    <Border DockPanel.Dock="Top" Height="36" Padding="12,0,12,0"
-            BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"
-            Background="{DynamicResource WinBg}">
-      <DockPanel LastChildFill="True">
-        <TextBlock DockPanel.Dock="Left" Text="投影" FontSize="12"
-                   VerticalAlignment="Center" Margin="0,0,12,0"/>
-        <TextBlock x:Name="EnvTitleStatus" HorizontalAlignment="Right" VerticalAlignment="Center"
-                   FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap"
-                   Cursor="Hand" Text="正在检查…"
-                   MouseLeftButtonUp="EnvTitleStatus_Click"/>
-      </DockPanel>
+    <!-- 环境状态：不重复窗体标题，仅右侧状态可点修复 -->
+    <Border DockPanel.Dock="Top" Padding="20,8,20,0" Background="{DynamicResource WinBg}">
+      <TextBlock x:Name="EnvTitleStatus" HorizontalAlignment="Right" VerticalAlignment="Center"
+                 FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap"
+                 Cursor="Hand" Text="正在检查…"
+                 MouseLeftButtonUp="EnvTitleStatus_Click"/>
     </Border>
 
-    <Border DockPanel.Dock="Bottom" Padding="20,12,20,16"
-            BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0"
-            Background="{DynamicResource WinBg}">
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource DlgFooter}">
       <DockPanel LastChildFill="True">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Content="取消" Style="{StaticResource DlgNormalBtn}"
@@ -238,26 +38,24 @@
 
     <ScrollViewer Padding="20,16,20,8" VerticalScrollBarVisibility="Auto">
       <StackPanel>
-        <Border Style="{StaticResource Card}">
+        <Border Style="{StaticResource DlgCard}">
           <StackPanel>
-            <TextBlock Text="投影方式" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <TextBlock Text="投影方式" Style="{StaticResource DlgSectionTitle}"/>
             <ComboBox x:Name="ModeCombo" SelectionChanged="Mode_Changed"/>
-            <TextBlock x:Name="ModeHint" Foreground="{DynamicResource Muted}" FontSize="12"
-                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+            <TextBlock x:Name="ModeHint" Style="{StaticResource DlgHint}"/>
           </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource Card}">
+        <Border Style="{StaticResource DlgCard}">
           <StackPanel>
-            <TextBlock Text="目标" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <TextBlock Text="目标" Style="{StaticResource DlgSectionTitle}"/>
             <ComboBox x:Name="TargetCombo" DisplayMemberPath="DisplayName"
                       SelectionChanged="Target_Changed"/>
-            <TextBlock x:Name="TargetHint" Foreground="{DynamicResource Muted}" FontSize="12"
-                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+            <TextBlock x:Name="TargetHint" Style="{StaticResource DlgHint}"/>
           </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource Card}" Margin="0">
+        <Border Style="{StaticResource DlgCard}" Margin="0">
           <StackPanel>
             <Grid Cursor="Hand" Background="Transparent" MouseLeftButtonUp="OptionsHeader_Click">
               <Grid.ColumnDefinitions>

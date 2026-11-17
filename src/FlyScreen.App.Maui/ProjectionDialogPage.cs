@@ -1,3 +1,4 @@
+using FlyScreen.Ui.Maui;
 using FlyScreen.AppMaui.Helpers;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Services.Network;
@@ -43,8 +44,7 @@ public sealed class ProjectionDialogPage : ContentPage
     private readonly Label _envStatus = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
     private readonly Label _uninstallStatus = new() { FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
     private readonly HorizontalStackLayout _repairActions = new() { Spacing = 8, IsVisible = false };
-    private Border _dialogShell = null!;
-    private Border _titleBar = null!;
+    private MauiDialogShell _dialogShell = null!;
     private Border _modeCard = null!;
     private Border _targetCard = null!;
     private Border _optionsCard = null!;
@@ -61,11 +61,8 @@ public sealed class ProjectionDialogPage : ContentPage
     private Label _cropTitle = null!;
     private Label _optionsHint = null!;
     private Border _envInner = null!;
-    private Border _footerBar = null!;
-    private Label _titleLabel = null!;
     private Label _envTitleStatus = null!;
     private Label _startProgress = null!;
-    private Button _closeBtn = null!;
     private Button _startBtn = null!;
     private Button _repairBtn = null!;
     private Button _recheckBtn = null!;
@@ -88,8 +85,7 @@ public sealed class ProjectionDialogPage : ContentPage
         _phoneOnlyClone = DeviceInfo.Platform == DevicePlatform.Android
             || DeviceInfo.Platform == DevicePlatform.iOS;
         Title = "投影";
-        NavigationPage.SetHasNavigationBar(this, false);
-        BackgroundColor = Color.FromArgb("#80000000");
+        Helpers.MauiThemeService.PrepareOverlayPage(this);
         _repairProgress = new Progress<string>(s =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
@@ -165,34 +161,18 @@ public sealed class ProjectionDialogPage : ContentPage
             if (!_suppressDisplayChange) UpdateDisplayHint();
         };
 
-        _startBtn = new Button
-        {
-            Text = "开始投影",
-            CornerRadius = 8,
-            HeightRequest = 36,
-            FontAttributes = FontAttributes.Bold,
-            IsEnabled = false,
-            Opacity = 0.5,
-            HorizontalOptions = LayoutOptions.Fill,
-            MinimumWidthRequest = 100
-        };
+        _startBtn = MakeDlgButton("开始投影", "DlgPrimaryBtn");
+        _startBtn.IsEnabled = false;
+        _startBtn.Opacity = 0.5;
         _startBtn.Clicked += async (_, _) => await OnStartAsync();
 
-        _repairBtn = new Button
-        {
-            Text = "自动修复环境",
-            CornerRadius = 8,
-            HeightRequest = 36,
-            FontAttributes = FontAttributes.Bold
-        };
+        _repairBtn = MakeDlgButton("自动修复环境", "DlgPrimaryBtn");
+        _repairBtn.Margin = new Thickness(0, 0, 8, 0);
+        _repairBtn.MinimumWidthRequest = 0;
         _repairBtn.Clicked += async (_, _) => await OnRepairAsync();
 
-        _recheckBtn = new Button
-        {
-            Text = "重新检测",
-            BackgroundColor = Colors.Transparent,
-            HeightRequest = 36
-        };
+        _recheckBtn = MakeDlgButton("重新检测", "DlgNormalBtn");
+        _recheckBtn.Margin = 0;
         _recheckBtn.Clicked += async (_, _) => await RefreshEnvCheckAsync();
         _repairActions.Children.Add(_repairBtn);
         _repairActions.Children.Add(_recheckBtn);
@@ -202,47 +182,28 @@ public sealed class ProjectionDialogPage : ContentPage
         _envPanel.Children.Add(_repairActions);
         _envPanel.Children.Add(_envStatus);
 
-        _uninstallBtn = new Button
-        {
-            Text = "卸载并清理",
-            BackgroundColor = Colors.Transparent,
-            HeightRequest = 36,
-            HorizontalOptions = LayoutOptions.Start,
-            IsVisible = false,
-            Margin = new Thickness(0, 4, 0, 0)
-        };
+        _uninstallBtn = MakeDlgButton("卸载并清理", "DlgDangerBtn");
+        _uninstallBtn.IsVisible = false;
+        _uninstallBtn.Margin = new Thickness(0, 10, 0, 0);
         _uninstallBtn.Clicked += async (_, _) => await OnUninstallAsync();
         // 合并进环境卡片：通过/已装时显示
         _envPanel.Children.Add(_uninstallBtn);
         _envPanel.Children.Add(_uninstallStatus);
 
-        _cancelBtn = new Button
-        {
-            Text = "取消",
-            BackgroundColor = Colors.Transparent,
-            HeightRequest = 36,
-            MinimumWidthRequest = 88
-        };
+        _cancelBtn = MakeDlgButton("取消", "DlgNormalBtn");
         _cancelBtn.Clicked += async (_, _) => await CloseAsync();
 
-        // 与主窗标题栏对齐：高 36、标题 12、关闭 46×36 / 悬停 #E81123
-        _titleLabel = new Label
-        {
-            Text = "投影",
-            FontSize = 12,
-            VerticalOptions = LayoutOptions.Center,
-            Margin = new Thickness(0, 0, 12, 0)
-        };
+        // 对齐 Win：不重复「投影」标题；壳顶栏仅环境状态 + 关闭
         _envTitleStatus = new Label
         {
             Text = "正在检查…",
             FontSize = 12,
             FontAttributes = FontAttributes.Bold,
             VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.End,
+            HorizontalOptions = LayoutOptions.Fill,
             HorizontalTextAlignment = TextAlignment.End,
             LineBreakMode = LineBreakMode.TailTruncation,
-            Margin = new Thickness(0, 0, 8, 0)
+            Margin = new Thickness(12, 0, 8, 0)
         };
         var envTitleTap = new TapGestureRecognizer();
         envTitleTap.Tapped += async (_, _) =>
@@ -253,53 +214,6 @@ public sealed class ProjectionDialogPage : ContentPage
             await OnRepairAsync();
         };
         _envTitleStatus.GestureRecognizers.Add(envTitleTap);
-        _closeBtn = new Button
-        {
-            Text = "✕",
-            FontSize = 11,
-            BackgroundColor = Colors.Transparent,
-            WidthRequest = 46,
-            HeightRequest = 36,
-            MinimumWidthRequest = 46,
-            MinimumHeightRequest = 36,
-            Padding = 0,
-            Margin = 0,
-            CornerRadius = 0,
-            BorderWidth = 0,
-            HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.Fill
-        };
-        _closeBtn.Clicked += async (_, _) => await CloseAsync();
-        ApplyCloseButtonVisualStates(_closeBtn);
-
-        _titleBar = new Border
-        {
-            StrokeThickness = 0,
-            HeightRequest = 36,
-            MinimumHeightRequest = 36,
-            MaximumHeightRequest = 36,
-            Padding = new Thickness(12, 0, 0, 0),
-            Content = new Grid
-            {
-                HeightRequest = 36,
-                ColumnDefinitions = new ColumnDefinitionCollection
-                {
-                    new(GridLength.Auto),
-                    new(GridLength.Star),
-                    new(GridLength.Auto),
-                    new(GridLength.Auto)
-                },
-                Children =
-                {
-                    _titleLabel,
-                    _envTitleStatus,
-                    _closeBtn
-                }
-            }
-        };
-        Microsoft.Maui.Controls.Grid.SetColumn(_titleLabel, 0);
-        Microsoft.Maui.Controls.Grid.SetColumn(_envTitleStatus, 2);
-        Microsoft.Maui.Controls.Grid.SetColumn(_closeBtn, 3);
 
         _modeCard = MakeCard("投影方式", _modePicker, _modeHint);
         // 勿设 Picker.Title：Maui-Win 会多出一行标题并把下拉框高度压扁
@@ -473,9 +387,8 @@ public sealed class ProjectionDialogPage : ContentPage
 
         _optionsCard = new Border
         {
-            StrokeThickness = 1,
-            Padding = new Thickness(14, 12),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
+            Style = TryGetAppStyle("DlgCard"),
+            Margin = 0,
             Content = new VerticalStackLayout
             {
                 Spacing = 8,
@@ -491,30 +404,21 @@ public sealed class ProjectionDialogPage : ContentPage
             HorizontalOptions = LayoutOptions.Fill,
             Margin = new Thickness(0, 0, 12, 0)
         };
-        _footerBar = new Border
+        var footerActions = new HorizontalStackLayout
         {
-            StrokeThickness = 0,
-            Padding = new Thickness(16, 12),
-            Content = new Grid
-            {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition(GridLength.Star),
-                    new ColumnDefinition(GridLength.Auto)
-                },
-                Children =
-                {
-                    _startProgress,
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 10,
-                        HorizontalOptions = LayoutOptions.End,
-                        Children = { _cancelBtn, _startBtn }
-                    }
-                }
-            }
+            Spacing = 0,
+            HorizontalOptions = LayoutOptions.End,
+            Children = { _cancelBtn, _startBtn }
         };
-        var footerActions = (HorizontalStackLayout)((Grid)_footerBar.Content!).Children[1];
+        var footerGrid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            },
+            Children = { _startProgress, footerActions }
+        };
         Microsoft.Maui.Controls.Grid.SetColumn(_startProgress, 0);
         Microsoft.Maui.Controls.Grid.SetColumn(footerActions, 1);
 
@@ -525,41 +429,24 @@ public sealed class ProjectionDialogPage : ContentPage
             Children = { _modeCard, _targetCard, _optionsCard }
         };
 
-        var body = new ScrollView
+        // 理想尺寸 520×480；统一壳负责遮罩/顶栏/底栏
+        _dialogShell = new MauiDialogShell
         {
-            VerticalOptions = LayoutOptions.Fill,
-            Content = bodyStack
-        };
-
-        // 理想尺寸 520×480；手机竖屏/横屏按视口收缩，避免宽高溢出（中间区仍可滚动）
-        _dialogShell = new Border
-        {
-            StrokeThickness = 1,
-            VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center,
-            Padding = 0,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
-            Content = new Grid
+            ShowTitle = false,
+            ShowClose = true,
+            SizeMode = MauiDialogSize.Fixed,
+            IdealWidth = 520,
+            IdealHeight = 480,
+            TitleAccessory = _envTitleStatus,
+            Body = new ScrollView
             {
-                RowDefinitions = new RowDefinitionCollection
-                {
-                    new(GridLength.Auto),
-                    new(GridLength.Star),
-                    new(GridLength.Auto)
-                },
-                Children = { _titleBar, body, _footerBar }
-            }
+                VerticalOptions = LayoutOptions.Fill,
+                Content = bodyStack
+            },
+            Footer = footerGrid
         };
-        Microsoft.Maui.Controls.Grid.SetRow(_titleBar, 0);
-        Microsoft.Maui.Controls.Grid.SetRow(body, 1);
-        Microsoft.Maui.Controls.Grid.SetRow(_footerBar, 2);
-
-        var root = new Grid
-        {
-            Padding = new Thickness(24),
-            Children = { _dialogShell }
-        };
-        Content = root;
+        _dialogShell.CloseRequested += async (_, _) => await CloseAsync();
+        Content = _dialogShell;
         SizeChanged += (_, _) => ApplyDialogShellSize();
         ApplyDialogShellSize();
 
@@ -571,63 +458,18 @@ public sealed class ProjectionDialogPage : ContentPage
     /// <summary>按当前页尺寸限制弹窗外壳，竖屏不超宽、横屏不超高。</summary>
     private void ApplyDialogShellSize()
     {
-        const double idealW = 520;
-        const double idealH = 480;
-        const double minW = 280;
-        const double minH = 240;
+        var pageW = Width > 1 ? Width : 520;
+        var pageH = Height > 1 ? Height : 480;
+        _dialogShell.ApplyHostSize(pageW, pageH);
 
-        var pageW = Width > 1 ? Width : EstimatePageWidth();
-        var pageH = Height > 1 ? Height : EstimatePageHeight();
-        // 窄屏缩小外边距，给弹窗多留可用宽高
-        var pad = pageW < 420 || pageH < 420 ? 12d : 24d;
-        if (Content is Grid root)
-            root.Padding = new Thickness(pad);
-
-        var maxW = Math.Max(minW, pageW - pad * 2);
-        var maxH = Math.Max(minH, pageH - pad * 2);
-        var shellW = Math.Min(idealW, maxW);
-        var shellH = Math.Min(idealH, maxH);
-
-        _dialogShell.WidthRequest = shellW;
-        _dialogShell.MaximumWidthRequest = shellW;
-        _dialogShell.MinimumWidthRequest = Math.Min(320, shellW);
-        _dialogShell.HeightRequest = shellH;
-        _dialogShell.MaximumHeightRequest = shellH;
-        _dialogShell.MinimumHeightRequest = shellH;
-
-        // 窄宽时降低按钮最小宽，避免底栏「取消 / 开始投影」挤出
+        var shellW = _dialogShell.Card.WidthRequest > 0
+            ? _dialogShell.Card.WidthRequest
+            : Math.Min(520, pageW - 24);
         if (_cancelBtn != null)
             _cancelBtn.MinimumWidthRequest = shellW < 360 ? 64 : 88;
         if (_startBtn != null)
             _startBtn.MinimumWidthRequest = shellW < 360 ? 72 : 100;
     }
-
-    private static double EstimatePageWidth()
-    {
-        try
-        {
-            var d = DeviceDisplay.MainDisplayInfo;
-            if (d.Width > 0 && d.Density > 0)
-                return d.Width / d.Density;
-        }
-        catch { /* ignore */ }
-        return idealFallbackW;
-    }
-
-    private static double EstimatePageHeight()
-    {
-        try
-        {
-            var d = DeviceDisplay.MainDisplayInfo;
-            if (d.Height > 0 && d.Density > 0)
-                return d.Height / d.Density;
-        }
-        catch { /* ignore */ }
-        return idealFallbackH;
-    }
-
-    private const double idealFallbackW = 520;
-    private const double idealFallbackH = 480;
 
     private void OnAppearing(object? sender, EventArgs e)
     {
@@ -690,7 +532,8 @@ public sealed class ProjectionDialogPage : ContentPage
 
     private void ApplyTheme()
     {
-        MauiThemeService.Apply(MauiThemeService.Current, this);
+        // 卡片用实心色板；整页仍用半透明黑遮罩（勿套自定义 WinBg）
+        MauiThemeService.ApplyToDialog(this);
         var text = ColorOf("Text") ?? Color.FromArgb("#111827");
         var muted = ColorOf("Muted") ?? Color.FromArgb("#6B7280");
         var line = ColorOf("Line") ?? Color.FromArgb("#E5E7EB");
@@ -699,8 +542,8 @@ public sealed class ProjectionDialogPage : ContentPage
         var winBg = ColorOf("WinBg") ?? Color.FromArgb("#F7F8FA");
         var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
 
-        // 遮罩保持半透明，不跟主题 WinBg
-        BackgroundColor = Color.FromArgb("#80000000");
+        // 壳外全透明，不跟主题 WinBg
+        BackgroundColor = Colors.Transparent;
         StylePicker(_modePicker, text, card);
         StylePicker(_targetPicker, text, card);
         StylePicker(_resolutionPicker, text, card);
@@ -716,20 +559,20 @@ public sealed class ProjectionDialogPage : ContentPage
         _envHint.TextColor = muted;
         _envStatus.TextColor = text;
         _uninstallStatus.TextColor = text;
-        _titleLabel.TextColor = text;
         _optionsChevron.TextColor = muted;
         _optionsSummary.TextColor = muted;
         _startProgress.TextColor = muted;
         // 关闭钮默认跟标题字色；悬停由 VisualState 刷成白底红（与主窗一致）
-        if (_closeBtn.BackgroundColor == Colors.Transparent
-            || _closeBtn.BackgroundColor == Colors.White)
-            _closeBtn.TextColor = text;
+        var closeBtn = _dialogShell.CloseButton;
+        if (closeBtn.BackgroundColor == Colors.Transparent
+            || closeBtn.BackgroundColor == Colors.White)
+            closeBtn.TextColor = text;
         _remoteControlTitle.TextColor = text;
 
-        _dialogShell.BackgroundColor = winBg;
-        _dialogShell.Stroke = line;
-        _titleBar.BackgroundColor = winBg;
-        _footerBar.BackgroundColor = winBg;
+        _dialogShell.Card.BackgroundColor = winBg;
+        _dialogShell.Card.Stroke = line;
+        _dialogShell.TitleBar.BackgroundColor = winBg;
+        _dialogShell.FooterBar.BackgroundColor = winBg;
 
         PaintCard(_modeCard, card, line, text);
         PaintCard(_targetCard, card, line, text);
@@ -788,37 +631,51 @@ public sealed class ProjectionDialogPage : ContentPage
         }
     }
 
-    private static Color? ColorOf(string key)
+    private Color? ColorOf(string key)
     {
+        if (Resources.TryGetValue(key, out var local) && local is Color lc)
+            return lc;
         if (Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c)
             return c;
         return null;
     }
 
-    private static Border MakeCard(string title, View body, Label hint) => new()
+    private static Border MakeCard(string title, View body, Label hint)
     {
-        StrokeThickness = 1,
-        Padding = new Thickness(14, 12),
-        StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
-        Content = new VerticalStackLayout
+        var card = new Border
         {
-            Spacing = 8,
-            Children =
+            Style = TryGetAppStyle("DlgCard"),
+            Content = new VerticalStackLayout
             {
-                new Label { Text = title, FontAttributes = FontAttributes.Bold },
-                body,
-                hint
+                Spacing = 8,
+                Children =
+                {
+                    new Label { Text = title, Style = TryGetAppStyle("DlgSectionTitle") },
+                    body,
+                    hint
+                }
             }
-        }
-    };
+        };
+        return card;
+    }
 
-    private static Border WrapCard(View inner) => new()
+    private static Border WrapCard(View inner)
     {
-        StrokeThickness = 1,
-        Padding = new Thickness(14, 12),
-        StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
-        Content = inner
-    };
+        var card = new Border { Style = TryGetAppStyle("DlgCard"), Content = inner };
+        return card;
+    }
+
+    private static Button MakeDlgButton(string text, string styleKey)
+    {
+        var btn = new Button { Text = text };
+        var style = TryGetAppStyle(styleKey);
+        if (style != null)
+            btn.Style = style;
+        return btn;
+    }
+
+    private static Style? TryGetAppStyle(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Style s ? s : null;
 
     private static Border WrapInnerCard(View inner) => new()
     {
@@ -827,41 +684,6 @@ public sealed class ProjectionDialogPage : ContentPage
         StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
         Content = inner
     };
-
-    /// <summary>对齐主窗 TitleBarCloseBtn：常态透明，悬停 #E81123 + 白字。</summary>
-    private static void ApplyCloseButtonVisualStates(Button btn)
-    {
-        var groups = new VisualStateGroupList();
-        var common = new VisualStateGroup { Name = "CommonStates" };
-        common.States.Add(new VisualState
-        {
-            Name = "Normal",
-            Setters =
-            {
-                new Setter { Property = Button.BackgroundColorProperty, Value = Colors.Transparent }
-            }
-        });
-        common.States.Add(new VisualState
-        {
-            Name = "PointerOver",
-            Setters =
-            {
-                new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#E81123") },
-                new Setter { Property = Button.TextColorProperty, Value = Colors.White }
-            }
-        });
-        common.States.Add(new VisualState
-        {
-            Name = "Pressed",
-            Setters =
-            {
-                new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#C50F1F") },
-                new Setter { Property = Button.TextColorProperty, Value = Colors.White }
-            }
-        });
-        groups.Add(common);
-        VisualStateManager.SetVisualStateGroups(btn, groups);
-    }
 
     private void RefreshUninstallPanel()
         => _ = RefreshUninstallPanelAsync();

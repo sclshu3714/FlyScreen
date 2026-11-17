@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Text;
 using FlyScreen.AppMaui.Controls;
 using FlyScreen.AppMaui.Helpers;
+using FlyScreen.Ui.Maui;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
@@ -134,6 +135,10 @@ public partial class MainPage : ContentPage, IWallpaperHost
     {
         if (_uiPrepared) return;
         Loc.SetCulture(_host.Settings.UiLanguage);
+        UiWallpaperStore.ApplyThemePolicy(
+            _host.Settings,
+            ThemePalette.SupportsWallpaper(_host.Settings.UiTheme),
+            switchedOntoWallpaperTheme: false);
         MauiThemeService.Apply(_host.Settings.UiTheme, this, _host.Settings.UiWallpaperPath);
         LoadUi();
         ApplyLocalizedUi();
@@ -487,6 +492,8 @@ public partial class MainPage : ContentPage, IWallpaperHost
         SidePane.WidthRequest = compact ? 260 : 168;
         SidePane.IsVisible = !compact || _navOpen;
         NavScrim.IsVisible = compact && _navOpen;
+        // 自定义壁纸 + 窄屏抽屉：侧栏实心，避免菜单透出主内容
+        MauiThemeService.ApplyDrawerSurface(SidePane, opaque: compact && _navOpen);
 
         // 宽屏：主区左侧让出固定侧栏；窄屏主区全宽
         MainPane.Margin = compact ? new Thickness(0) : new Thickness(168, 0, 0, 0);
@@ -3862,12 +3869,35 @@ public partial class MainPage : ContentPage, IWallpaperHost
             p.IsSelected = e.Value;
     }
 
-    private Task PushModalAsync(Page page)
-        => Navigation.PushModalAsync(new NavigationPage(page));
+    private Task PushModalAsync(Page page, bool withNavBar = false)
+    {
+        MauiThemeService.ApplyToDialog(page);
+        if (!withNavBar)
+        {
+            // 遮罩弹层：页底透明，半透明由 MauiDialogShell 内 BoxView 绘制
+            page.BackgroundColor = Colors.Transparent;
+            return Navigation.PushModalAsync(page, animated: true);
+        }
+
+        // 有顶栏：标题只出现在 NavigationPage（少数全页流程）
+        var winBg = page.BackgroundColor;
+        if (Application.Current?.Resources.TryGetValue("WinBg", out var bg) == true && bg is Color c)
+            winBg = c;
+        var shell = new NavigationPage(page)
+        {
+            BarBackgroundColor = winBg,
+            BarTextColor = Application.Current?.Resources.TryGetValue("Text", out var t) == true && t is Color tc
+                ? tc
+                : Colors.Black,
+            BackgroundColor = winBg
+        };
+        return Navigation.PushModalAsync(shell, animated: true);
+    }
 
     private async Task<UiConfirmChoice> ShowConfirmAsync(ConfirmPage page)
     {
-        // 无 NavigationPage 外壳，避免顶栏；半透明遮罩直接盖主页
+        // ConfirmPage 已 PrepareOverlayPage；页底保持透明
+        page.BackgroundColor = Colors.Transparent;
         await Navigation.PushModalAsync(page, animated: true);
         return await page.Result;
     }
@@ -3875,7 +3905,8 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private async void ProgAdd_Clicked(object? sender, EventArgs e)
     {
         var page = new ProgramAddPage();
-        await PushModalAsync(page);
+        // 遮罩居中卡（对齐 Win 独立对话框），不用 NavigationPage
+        await PushModalAsync(page, withNavBar: false);
         var ok = await page.Result;
         ShowPage(8);
         if (!ok) return;
@@ -4292,7 +4323,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private async void LogDate_Clicked(object? sender, EventArgs e)
     {
         var page = new LogDateRangePage(_logFrom, _logTo);
-        NavigationPage.SetHasNavigationBar(page, false);
+        // LogDateRangePage 已 PrepareOverlayPage（壳外全透明）
         await Navigation.PushModalAsync(page).ConfigureAwait(true);
         // 模态关闭后读取结果
         if (page.Result == LogDateRangePage.ResultKind.Cancel) return;
@@ -4685,6 +4716,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         _host.Settings.ConnectionEndpoints = _endpoints.ToList();
 
         var switchMode = HotF.IsChecked == true ? 0 : HotNum.IsChecked == true ? 1 : 2;
+        var prevTheme = _host.Settings.UiTheme;
         var theme = ThemePicker.SelectedItem is ThemeListItem ti
             ? ti.Id
             : MauiThemeService.Light;
@@ -4728,7 +4760,14 @@ public partial class MainPage : ContentPage, IWallpaperHost
             ReadEdgeCrossModeUi());
 
         Loc.SetCulture(lang);
+        UiWallpaperStore.ApplyThemePolicy(
+            _host.Settings,
+            ThemePalette.SupportsWallpaper(theme),
+            switchedOntoWallpaperTheme: !ThemePalette.SupportsWallpaper(prevTheme)
+                && ThemePalette.SupportsWallpaper(theme));
+        _host.Settings.Save();
         MauiThemeService.Apply(theme, this, _host.Settings.UiWallpaperPath);
+        ApplyResponsiveLayout(Width);
         LoadUi();
         ApplyLocalizedUi();
         RefreshWallpaperUi();
@@ -5770,8 +5809,8 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private async void DirectTransfer_Clicked(object? sender, EventArgs e)
     {
         var page = new DirectTransferPage(_host);
-        // 无 NavigationPage，避免顶栏「直接传输」标题
-        await Navigation.PushModalAsync(page, animated: true);
+        // 与添加程序等同用 MauiDialogShell 遮罩卡，标题只在壳顶栏一次
+        await PushModalAsync(page, withNavBar: false);
         if (await page.Result)
             ShowPage(3);
     }
@@ -6357,6 +6396,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
             }
 
             _host.Settings.UiWallpaperPath = rel;
+            _host.Settings.UiWallpaperCleared = false;
             _host.Settings.Save();
             RefreshWallpaperUi();
             // 下拉已选自定义但未点「应用」时，Current 可能仍是淡色；以选择器为准立即预览
@@ -6375,6 +6415,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private void WallpaperClear_Clicked(object? sender, EventArgs e)
     {
         _host.Settings.UiWallpaperPath = "";
+        _host.Settings.UiWallpaperCleared = true;
         UiWallpaperStore.ClearFiles();
         _host.Settings.Save();
         RefreshWallpaperUi();

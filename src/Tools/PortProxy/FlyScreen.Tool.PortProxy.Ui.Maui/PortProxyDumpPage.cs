@@ -1,8 +1,9 @@
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Ui.Maui;
 
 namespace FlyScreen.Tool.PortProxy.Ui.Maui;
 
-/// <summary>netsh 导出文本：只读编辑器 + 复制 / 关闭。</summary>
+/// <summary>netsh 导出文本：主窗 Modal + MauiDialogShell。</summary>
 internal static class PortProxyDumpPage
 {
     public static async Task ShowAsync(INavigation? navigation, string dumpText)
@@ -22,15 +23,13 @@ internal sealed class PortProxyDumpModalPage : ContentPage
 
     public PortProxyDumpModalPage(string dumpText)
     {
-        NavigationPage.SetHasNavigationBar(this, false);
-        BackgroundColor = Color.FromRgba(15, 23, 42, 140);
+        MauiDialogShell.PrepareOverlayPage(this);
+        Title = Loc.T("Tool.PortProxy.DialogDump");
 
-        var dark = Application.Current?.RequestedTheme == AppTheme.Dark;
-        var text = Color.FromArgb(dark ? "#E2E8F0" : "#111827");
-        var line = Color.FromArgb(dark ? "#334155" : "#E5E7EB");
-        var cardBg = Color.FromArgb(dark ? "#1E293B" : "#FFFFFF");
-        var fieldBg = Color.FromArgb(dark ? "#0F172A" : "#FFFFFF");
-        var blue = Color.FromArgb("#2563EB");
+        var text = ColorOf("Text") ?? Colors.Black;
+        var line = ColorOf("Line") ?? Color.FromArgb("#E5E7EB");
+        var fieldBg = ColorOf("CardBg") ?? Colors.White;
+        var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
 
         _editor = new Editor
         {
@@ -42,15 +41,7 @@ internal sealed class PortProxyDumpModalPage : ContentPage
             BackgroundColor = fieldBg,
             AutoSize = EditorAutoSizeOption.Disabled,
             HorizontalOptions = LayoutOptions.Fill,
-            VerticalOptions = LayoutOptions.Fill
-        };
-
-        var scroll = new ScrollView
-        {
-            Orientation = ScrollOrientation.Vertical,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Always,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Default,
-            Content = _editor,
+            VerticalOptions = LayoutOptions.Fill,
             HeightRequest = 360,
             MinimumHeightRequest = 200
         };
@@ -58,81 +49,43 @@ internal sealed class PortProxyDumpModalPage : ContentPage
         _copyBtn = new Button
         {
             Text = Loc.T("Tool.PortProxy.CopyDump"),
-            BackgroundColor = fieldBg,
-            TextColor = text,
-            BorderColor = line,
-            BorderWidth = 1,
-            CornerRadius = 8,
-            HeightRequest = 36,
-            Padding = new Thickness(16, 0),
-            MinimumWidthRequest = 100
+            Style = TryStyle("DlgNormalBtn")
         };
         _copyBtn.Clicked += OnCopy;
 
         var close = new Button
         {
             Text = Loc.T("Tool.PortProxy.Close"),
+            Style = TryStyle("DlgPrimaryBtn"),
             BackgroundColor = blue,
-            TextColor = Colors.White,
-            CornerRadius = 8,
-            HeightRequest = 36,
-            Padding = new Thickness(16, 0),
-            MinimumWidthRequest = 88
+            TextColor = Colors.White
         };
         close.Clicked += async (_, _) => await CloseAsync();
 
-        var title = new Label
+        var shell = new MauiDialogShell
         {
-            Text = Loc.T("Tool.PortProxy.DialogDump"),
-            FontSize = 17,
-            FontAttributes = FontAttributes.Bold,
-            TextColor = text,
-            HorizontalTextAlignment = TextAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-
-        var btnRow = new HorizontalStackLayout
-        {
-            Spacing = 8,
-            HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(0, 12, 0, 0),
-            Children = { _copyBtn, close }
-        };
-
-        var inner = new VerticalStackLayout
-        {
-            Spacing = 0,
-            Children = { title, scroll, btnRow }
-        };
-
-        var card = new Border
-        {
-            Stroke = line,
-            StrokeThickness = 1,
-            BackgroundColor = cardBg,
-            Padding = new Thickness(20, 18),
-            WidthRequest = 640,
-            MaximumWidthRequest = 720,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 14 },
-            Shadow = new Shadow
+            Title = Loc.T("Tool.PortProxy.DialogDump"),
+            ShowClose = true,
+            SizeMode = MauiDialogSize.Wide,
+            Body = new Border
             {
-                Brush = Colors.Black,
-                Offset = new Point(0, 8),
-                Radius = 24,
-                Opacity = 0.22f
+                Stroke = line,
+                StrokeThickness = 1,
+                BackgroundColor = fieldBg,
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+                Padding = 8,
+                Margin = new Thickness(16, 12),
+                Content = _editor
             },
-            Content = inner
+            Footer = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                HorizontalOptions = LayoutOptions.End,
+                Children = { _copyBtn, close }
+            }
         };
-
-        var body = new Grid { Padding = new Thickness(16) };
-        var dimTap = new TapGestureRecognizer();
-        dimTap.Tapped += async (_, _) => await CloseAsync();
-        body.GestureRecognizers.Add(dimTap);
-        body.Add(card);
-        card.GestureRecognizers.Add(new TapGestureRecognizer());
-        Content = body;
+        shell.CloseRequested += async (_, _) => await CloseAsync();
+        Content = shell;
     }
 
     private async void OnCopy(object? sender, EventArgs e)
@@ -144,7 +97,7 @@ internal sealed class PortProxyDumpModalPage : ContentPage
         }
         catch
         {
-            /* ignore */
+            _copyBtn.Text = Loc.T("Tool.PortProxy.CopyFail");
         }
     }
 
@@ -156,9 +109,9 @@ internal sealed class PortProxyDumpModalPage : ContentPage
         catch { /* ignore */ }
     }
 
-    protected override bool OnBackButtonPressed()
-    {
-        _ = CloseAsync();
-        return true;
-    }
+    private static Color? ColorOf(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c ? c : null;
+
+    private static Style? TryStyle(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Style s ? s : null;
 }

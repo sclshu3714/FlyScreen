@@ -6,68 +6,19 @@
         MinHeight="460" MinWidth="560"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="13"
         ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False">
   <Window.Resources>
-    <SolidColorBrush x:Key="Blue" Color="#2563EB"/>
-    <SolidColorBrush x:Key="Muted" Color="#6B7280"/>
-    <SolidColorBrush x:Key="Line" Color="#E5E7EB"/>
-    <SolidColorBrush x:Key="Text" Color="#111827"/>
-    <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
-    <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
-    <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
-    <SolidColorBrush x:Key="ListBg" Color="#F9FAFB"/>
-    <SolidColorBrush x:Key="BlueHover" Color="#EFF6FF"/>
-    <SolidColorBrush x:Key="BlueSoft" Color="#DBEAFE"/>
-    <Style TargetType="TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-    </Style>
-    <Style TargetType="Button">
-      <Setter Property="Padding" Value="12,6"/>
-      <Setter Property="Margin" Value="0,0,8,0"/>
-      <Setter Property="MinWidth" Value="88"/>
-      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-    </Style>
-    <Style x:Key="ToolBtn" TargetType="Button">
+    <Style x:Key="ToolBtn" TargetType="Button" BasedOn="{StaticResource DlgNormalBtn}">
       <Setter Property="Padding" Value="10,5"/>
-      <Setter Property="Margin" Value="0,0,8,0"/>
       <Setter Property="MinWidth" Value="0"/>
       <Setter Property="Height" Value="30"/>
-      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="HorizontalContentAlignment" Value="Center"/>
-    </Style>
-    <Style x:Key="PrimaryBtn" TargetType="Button">
-      <Setter Property="Padding" Value="16,8"/>
-      <Setter Property="MinWidth" Value="100"/>
-      <Setter Property="Background" Value="{DynamicResource Blue}"/>
-      <Setter Property="Foreground" Value="White"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-    </Style>
-    <Style TargetType="TextBox">
-      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-      <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
-    </Style>
-    <Style TargetType="ListBox">
-      <Setter Property="Background" Value="{DynamicResource ListBg}"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
     </Style>
     <Style TargetType="ListBoxItem">
-      <!-- 默认主题用 RelativeSource 找 ItemsControl，容器尚未入树时会报绑定错误 -->
       <Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Background" Value="Transparent"/>
@@ -92,189 +43,98 @@
         </Setter.Value>
       </Setter>
     </Style>
-    <Style TargetType="ComboBox">
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="Padding" Value="10,0,32,0"/>
-      <Setter Property="HorizontalAlignment" Value="Stretch"/>
-      <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
-      <!-- 按列宽拉满，避免随当前选项文字长短忽宽忽窄 -->
-      <Setter Property="MinWidth" Value="0"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ComboBox">
-            <Grid>
-              <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                      BorderBrush="{TemplateBinding BorderBrush}"
-                      BorderThickness="{TemplateBinding BorderThickness}"
-                      CornerRadius="4"/>
-              <ToggleButton Focusable="False" ClickMode="Press"
-                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                <ToggleButton.Template>
-                  <ControlTemplate TargetType="ToggleButton">
-                    <Grid Background="Transparent">
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="32"/>
-                      </Grid.ColumnDefinitions>
-                      <Path Grid.Column="1" Data="M 0,0 L 7,0 L 3.5,4 Z" Fill="{DynamicResource Muted}"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Grid>
-                  </ControlTemplate>
-                </ToggleButton.Template>
-              </ToggleButton>
-              <ContentPresenter x:Name="ContentSite"
-                                Margin="{TemplateBinding Padding}"
-                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                Content="{TemplateBinding SelectionBoxItem}"
-                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                IsHitTestVisible="False"/>
-              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1"
-                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
-                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                  <ScrollViewer>
-                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
-                  </ScrollViewer>
-                </Border>
-              </Popup>
-            </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style TargetType="ComboBoxItem">
-      <Setter Property="OverridesDefaultStyle" Value="True"/>
-      <Setter Property="Height" Value="30"/>
-      <Setter Property="Padding" Value="10,0"/>
-      <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ComboBoxItem">
-            <Border x:Name="ItemBd" Background="Transparent" Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
-                                TextBlock.Foreground="{DynamicResource Text}"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsHighlighted" Value="True">
-                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueHover}"/>
-              </Trigger>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource BlueSoft}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
   </Window.Resources>
 
-  <Grid Margin="20">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-
-    <Border Grid.Row="0" Background="{DynamicResource SubtleBg}" BorderBrush="{DynamicResource Line}"
-            BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
-      <StackPanel Orientation="Horizontal">
-        <Button x:Name="AddFilesBtn" Style="{StaticResource ToolBtn}" Content="添加文件…" Click="AddFiles_Click"/>
-        <Button x:Name="AddFolderBtn" Style="{StaticResource ToolBtn}" Content="添加文件夹…" Click="AddFolder_Click"/>
-        <Button x:Name="RemoveSelectedBtn" Style="{StaticResource ToolBtn}" Content="移除所选" Click="RemoveSelected_Click"/>
-        <Button x:Name="ClearPathsBtn" Style="{StaticResource ToolBtn}" Content="清空" Click="ClearPaths_Click" Margin="0"/>
-      </StackPanel>
+  <DockPanel>
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource DlgFooter}">
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button x:Name="CancelBtn" Content="取消" Style="{StaticResource DlgNormalBtn}"
+                  IsCancel="True" Click="Cancel_Click"/>
+          <Button x:Name="StartBtn" Style="{StaticResource DlgPrimaryBtn}" Content="开始传输"
+                  IsDefault="True" Click="Start_Click"/>
+        </StackPanel>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12"
+                   Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,0,12,0"/>
+      </DockPanel>
     </Border>
 
-    <TextBlock x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
-               Foreground="{DynamicResource Muted}" Margin="0,0,0,6"/>
+    <Grid Margin="20,16,20,8">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
 
-    <!-- 拖放走 WM_DROPFILES（见 code-behind）：管理员进程下 OLE AllowDrop 会被 UIPI 禁止 -->
-    <Border x:Name="PathDropBorder" Grid.Row="2" Background="{DynamicResource CardBg}"
-            BorderBrush="{DynamicResource Line}" BorderThickness="1"
-            CornerRadius="8" Padding="12">
-      <Grid>
-        <TextBlock x:Name="PathDropHint" Text="将文件或文件夹拖到此处"
-                   Foreground="{DynamicResource Muted}" FontSize="12"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   IsHitTestVisible="False"
-                   Visibility="Visible"/>
-        <ListBox x:Name="PathList" SelectionMode="Extended"
-                 Background="Transparent" BorderThickness="0"/>
-      </Grid>
-    </Border>
+      <Border Grid.Row="0" Background="{DynamicResource SubtleBg}" BorderBrush="{DynamicResource Line}"
+              BorderThickness="1" CornerRadius="8" Padding="8,6" Margin="0,0,0,12">
+        <StackPanel Orientation="Horizontal">
+          <Button x:Name="AddFilesBtn" Style="{StaticResource ToolBtn}" Content="添加文件…" Click="AddFiles_Click"/>
+          <Button x:Name="AddFolderBtn" Style="{StaticResource ToolBtn}" Content="添加文件夹…" Click="AddFolder_Click"/>
+          <Button x:Name="RemoveSelectedBtn" Style="{StaticResource ToolBtn}" Content="移除所选" Click="RemoveSelected_Click"/>
+          <Button x:Name="ClearPathsBtn" Style="{StaticResource ToolBtn}" Content="清空" Click="ClearPaths_Click" Margin="0"/>
+        </StackPanel>
+      </Border>
 
-    <TextBlock x:Name="TargetHintText" Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"
-               Foreground="{DynamicResource Muted}" Margin="0,14,0,6"/>
+      <TextBlock x:Name="ContentHintText" Grid.Row="1" Text="待传内容：选择本机文件或文件夹"
+                 Style="{StaticResource DlgHint}" Margin="0,0,0,6"/>
 
-    <Border Grid.Row="4" Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-            CornerRadius="8" Padding="12">
-      <Grid>
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="100"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+      <Border x:Name="PathDropBorder" Grid.Row="2" Style="{StaticResource DlgCard}" Margin="0,0,0,12">
+        <Grid>
+          <TextBlock x:Name="PathDropHint" Text="将文件或文件夹拖到此处"
+                     Foreground="{DynamicResource Muted}" FontSize="12"
+                     HorizontalAlignment="Center" VerticalAlignment="Center"
+                     IsHitTestVisible="False"
+                     Visibility="Visible"/>
+          <ListBox x:Name="PathList" SelectionMode="Extended"
+                   Background="Transparent" BorderThickness="0"/>
+        </Grid>
+      </Border>
 
-        <TextBlock x:Name="PeerLabel" Text="目标电脑" VerticalAlignment="Center"/>
-        <ComboBox x:Name="PeerCombo" Grid.Column="1"
-                  HorizontalAlignment="Stretch"
-                  SelectionChanged="PeerCombo_SelectionChanged">
-          <ComboBox.ItemTemplate>
-            <DataTemplate>
-              <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
-            </DataTemplate>
-          </ComboBox.ItemTemplate>
-        </ComboBox>
+      <TextBlock x:Name="TargetHintText" Grid.Row="3" Text="传输到：指定已连接电脑及保存位置"
+                 Style="{StaticResource DlgHint}" Margin="0,0,0,6"/>
 
-        <TextBlock x:Name="PresetLabel" Grid.Row="1" Text="常用位置" VerticalAlignment="Center" Margin="0,10,0,0"/>
-        <ComboBox x:Name="FolderPresetCombo" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
-                  HorizontalAlignment="Stretch"
-                  SelectionChanged="FolderPreset_SelectionChanged">
-          <ComboBox.ItemTemplate>
-            <DataTemplate>
-              <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
-            </DataTemplate>
-          </ComboBox.ItemTemplate>
-        </ComboBox>
+      <Border Grid.Row="4" Style="{StaticResource DlgCard}" Margin="0">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="100"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
 
-        <TextBlock x:Name="PathLabel" Grid.Row="2" Text="保存路径" VerticalAlignment="Center" Margin="0,10,0,0"/>
-        <TextBox x:Name="TargetPathBox" Grid.Row="2" Grid.Column="1" Height="32" Margin="0,10,0,0"
-                 VerticalContentAlignment="Center" Padding="8,0"/>
-      </Grid>
-    </Border>
+          <TextBlock x:Name="PeerLabel" Text="目标电脑" VerticalAlignment="Center"/>
+          <ComboBox x:Name="PeerCombo" Grid.Column="1"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="PeerCombo_SelectionChanged">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Display}" VerticalAlignment="Center"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
 
-    <TextBlock x:Name="StatusText" Grid.Row="5" Foreground="{DynamicResource Muted}"
-               Margin="0,10,0,0" TextWrapping="Wrap"/>
+          <TextBlock x:Name="PresetLabel" Grid.Row="1" Text="常用位置" VerticalAlignment="Center" Margin="0,10,0,0"/>
+          <ComboBox x:Name="FolderPresetCombo" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="FolderPreset_SelectionChanged">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
 
-    <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-      <Button x:Name="CancelBtn" Content="取消" IsCancel="True" Click="Cancel_Click" Margin="0,0,8,0"/>
-      <Button x:Name="StartBtn" Style="{StaticResource PrimaryBtn}" Content="开始传输"
-              IsDefault="True" Click="Start_Click" Margin="0"/>
-    </StackPanel>
-  </Grid>
+          <TextBlock x:Name="PathLabel" Grid.Row="2" Text="保存路径" VerticalAlignment="Center" Margin="0,10,0,0"/>
+          <TextBox x:Name="TargetPathBox" Grid.Row="2" Grid.Column="1" Height="32" Margin="0,10,0,0"
+                   VerticalContentAlignment="Center" Padding="8,0"/>
+        </Grid>
+      </Border>
+    </Grid>
+  </DockPanel>
 </Window>

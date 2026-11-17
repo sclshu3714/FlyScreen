@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
@@ -8,16 +7,10 @@ using FlyScreen.Ui.Maui;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
-/// <summary>Maui 居中卡片：局域网扫描并添加到源。</summary>
-public sealed class VideoWallScanOverlay
+/// <summary>局域网扫描：主窗 PushModal + MauiDialogShell（壳外全透明）。</summary>
+public sealed class VideoWallScanPage : ContentPage
 {
     private readonly IVideoWallService _service;
-    private readonly Color _text;
-    private readonly Color _muted;
-    private readonly Color _line;
-    private readonly Color _card;
-    private readonly Color _listBg;
-    private readonly Color _blue;
     private readonly ObservableCollection<ScanRow> _rows = new();
     private readonly Picker _subnet;
     private readonly Entry _user;
@@ -25,78 +18,85 @@ public sealed class VideoWallScanOverlay
     private readonly Picker _vendor;
     private readonly Label _status;
     private readonly Button _rescan;
-    private readonly CollectionView _list;
     private CancellationTokenSource? _cts;
     private bool _scanning;
+    private bool _closing;
 
-    public Grid Host { get; }
-    public event Action? Closed;
     public event Action? SourcesChanged;
 
-    public VideoWallScanOverlay(
-        IVideoWallService service,
-        Color text, Color muted, Color line, Color card, Color listBg, Color blue)
+    public VideoWallScanPage(IVideoWallService service)
     {
         _service = service;
-        _text = text;
-        _muted = muted;
-        _line = line;
-        _card = card;
-        _listBg = listBg;
-        _blue = blue;
+        MauiDialogShell.PrepareOverlayPage(this);
+        Title = Loc.T("Tool.VideoWall.Scan.Title");
+
+        var text = ColorOf("Text") ?? Colors.Black;
+        var muted = ColorOf("Muted") ?? Color.FromArgb("#6B7280");
+        var line = ColorOf("Line") ?? Color.FromArgb("#E5E7EB");
+        var card = ColorOf("CardBg") ?? Colors.White;
+        var listBg = ColorOf("ListBg") ?? Color.FromArgb("#F9FAFB");
+        var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
 
         var cidrs = LanDeviceScanService.ListLocalCidrs();
         _subnet = new Picker
         {
             Title = Loc.T("Tool.VideoWall.Scan.Subnet"),
-            TextColor = _text,
+            TextColor = text,
             ItemsSource = cidrs.ToList(),
-            SelectedIndex = 0
+            SelectedIndex = 0,
+            HeightRequest = 40
         };
-        _user = new Entry { TextColor = _text, Placeholder = Loc.T("Tool.VideoWall.Scan.Username"), PlaceholderColor = _muted };
+        _user = new Entry
+        {
+            TextColor = text,
+            Placeholder = Loc.T("Tool.VideoWall.Scan.Username"),
+            PlaceholderColor = muted,
+            HeightRequest = 40
+        };
         _pass = new SecurePasswordBox
         {
             Placeholder = Loc.T("Tool.VideoWall.Scan.Password"),
             ShowPasswordTip = Loc.T("Tool.VideoWall.ShowPassword"),
             HidePasswordTip = Loc.T("Tool.VideoWall.HidePassword")
         };
-        _pass.ApplyTheme(_text, _muted, _line, _card);
+        _pass.ApplyTheme(text, muted, line, card);
         _vendor = new Picker
         {
             Title = Loc.T("Tool.VideoWall.Scan.Vendor"),
-            TextColor = _text,
+            TextColor = text,
             ItemsSource = new[] { "海康", "大华", "宇视", "Axis" },
-            SelectedIndex = 0
+            SelectedIndex = 0,
+            HeightRequest = 40
         };
-        _status = new Label { TextColor = _muted, FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
+        _status = new Label { TextColor = muted, FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
         _rescan = new Button
         {
             Text = Loc.T("Tool.VideoWall.Scan.Rescan"),
-            BackgroundColor = _blue,
-            TextColor = Colors.White,
-            CornerRadius = 8,
-            Padding = new Thickness(14, 8)
+            Style = TryStyle("DlgPrimaryBtn"),
+            BackgroundColor = blue,
+            TextColor = Colors.White
         };
         _rescan.Clicked += async (_, _) => await StartScanAsync();
 
-        _list = new CollectionView
+        var list = new CollectionView
         {
             ItemsSource = _rows,
             SelectionMode = SelectionMode.None,
+            BackgroundColor = Colors.Transparent,
             ItemTemplate = new DataTemplate(() =>
             {
-                var host = new Label { FontSize = 13, TextColor = _text };
+                var host = new Label { FontSize = 13, TextColor = text };
                 host.SetBinding(Label.TextProperty, nameof(ScanRow.Host));
-                var kind = new Label { FontSize = 12, TextColor = _muted };
+                var kind = new Label { FontSize = 12, TextColor = muted };
                 kind.SetBinding(Label.TextProperty, nameof(ScanRow.KindHint));
-                var ports = new Label { FontSize = 12, TextColor = _muted, LineBreakMode = LineBreakMode.TailTruncation };
+                var ports = new Label { FontSize = 12, TextColor = muted, LineBreakMode = LineBreakMode.TailTruncation };
                 ports.SetBinding(Label.TextProperty, nameof(ScanRow.PortsText));
                 var btn = new Button
                 {
                     FontSize = 12,
                     CornerRadius = 8,
                     Padding = new Thickness(10, 6),
-                    BackgroundColor = _blue,
+                    BackgroundColor = blue,
                     TextColor = Colors.White
                 };
                 btn.SetBinding(Button.TextProperty, nameof(ScanRow.ActionLabel));
@@ -129,34 +129,12 @@ public sealed class VideoWallScanOverlay
         var closeBtn = new Button
         {
             Text = Loc.T("Tool.VideoWall.Scan.Close"),
-            BackgroundColor = _card,
-            TextColor = _text,
-            BorderColor = _line,
-            BorderWidth = 1,
-            CornerRadius = 8,
-            Padding = new Thickness(14, 8),
-            HorizontalOptions = LayoutOptions.End
+            Style = TryStyle("DlgNormalBtn")
         };
-        closeBtn.Clicked += (_, _) => Close();
+        closeBtn.Clicked += async (_, _) => await CloseAsync();
 
-        var subnetCol = new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children =
-            {
-                new Label { Text = Loc.T("Tool.VideoWall.Scan.Subnet"), FontSize = 12, TextColor = _muted },
-                _subnet
-            }
-        };
-        var vendorCol = new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children =
-            {
-                new Label { Text = Loc.T("Tool.VideoWall.Scan.Vendor"), FontSize = 12, TextColor = _muted },
-                _vendor
-            }
-        };
+        var subnetCol = Field(Loc.T("Tool.VideoWall.Scan.Subnet"), muted, _subnet);
+        var vendorCol = Field(Loc.T("Tool.VideoWall.Scan.Vendor"), muted, _vendor);
         Grid.SetColumn(vendorCol, 1);
         _rescan.VerticalOptions = LayoutOptions.End;
         Grid.SetColumn(_rescan, 2);
@@ -171,26 +149,9 @@ public sealed class VideoWallScanOverlay
             ColumnSpacing = 8,
             Children = { subnetCol, vendorCol, _rescan }
         };
-        Grid.SetRow(topRow, 1);
 
-        var userCol = new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children =
-            {
-                new Label { Text = Loc.T("Tool.VideoWall.Scan.Username"), FontSize = 12, TextColor = _muted },
-                _user
-            }
-        };
-        var passCol = new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children =
-            {
-                new Label { Text = Loc.T("Tool.VideoWall.Scan.Password"), FontSize = 12, TextColor = _muted },
-                _pass
-            }
-        };
+        var userCol = Field(Loc.T("Tool.VideoWall.Scan.Username"), muted, _user);
+        var passCol = Field(Loc.T("Tool.VideoWall.Scan.Password"), muted, _pass);
         Grid.SetColumn(passCol, 1);
         var credRow = new Grid
         {
@@ -198,89 +159,69 @@ public sealed class VideoWallScanOverlay
             ColumnSpacing = 8,
             Children = { userCol, passCol }
         };
-        Grid.SetRow(credRow, 2);
 
-        _list.BackgroundColor = _listBg;
         var listBorder = new Border
         {
-            Stroke = _line,
+            Stroke = line,
             StrokeThickness = 1,
-            BackgroundColor = _listBg,
+            BackgroundColor = listBg,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
             Padding = 4,
-            Content = _list
+            MinimumHeightRequest = 160,
+            Content = list
         };
-        Grid.SetRow(listBorder, 3);
-        Grid.SetRow(_status, 4);
-        Grid.SetRow(closeBtn, 5);
 
-        var cardContent = new Border
+        var shell = new MauiDialogShell
         {
-            Stroke = _line,
-            BackgroundColor = _card,
-            Padding = 16,
-            WidthRequest = 560,
-            MaximumWidthRequest = 620,
-            MaximumHeightRequest = 520,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-            Margin = new Thickness(24),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
-            Shadow = new Shadow { Brush = Colors.Black, Offset = new Point(0, 8), Radius = 24, Opacity = 0.22f },
-            Content = new Grid
+            Title = Loc.T("Tool.VideoWall.Scan.Title"),
+            ShowClose = true,
+            SizeMode = MauiDialogSize.Wide,
+            Body = new ScrollView
             {
-                RowDefinitions =
-                [
-                    new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Star),
-                    new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Auto)
-                ],
-                RowSpacing = 10,
-                Children =
+                Padding = new Thickness(16, 12),
+                Content = new VerticalStackLayout
                 {
-                    new Label
-                    {
-                        Text = Loc.T("Tool.VideoWall.Scan.Title"),
-                        FontAttributes = FontAttributes.Bold,
-                        FontSize = 16,
-                        TextColor = _text
-                    },
-                    topRow,
-                    credRow,
-                    listBorder,
-                    _status,
-                    closeBtn
+                    Spacing = 10,
+                    Children = { topRow, credRow, listBorder, _status }
                 }
+            },
+            Footer = new HorizontalStackLayout
+            {
+                HorizontalOptions = LayoutOptions.End,
+                Children = { closeBtn }
             }
         };
-        cardContent.GestureRecognizers.Add(new TapGestureRecognizer());
+        shell.CloseRequested += async (_, _) => await CloseAsync();
+        Content = shell;
 
-        var dim = new BoxView { Color = Color.FromArgb("#80000000") };
-        dim.GestureRecognizers.Add(new TapGestureRecognizer { Command = new Command(Close) });
-
-        Host = new Grid
-        {
-            IsVisible = false,
-            ClassId = "scanHost",
-            ZIndex = 350,
-            Children = { dim, cardContent }
-        };
+        Appearing += (_, _) => _ = StartScanAsync();
     }
 
-    public void Show()
+    public static async Task ShowAsync(IVideoWallService service, Action? onSourcesChanged = null)
     {
-        Host.IsVisible = true;
-        _ = StartScanAsync();
+        var page = new VideoWallScanPage(service);
+        if (onSourcesChanged != null)
+            page.SourcesChanged += onSourcesChanged;
+        var nav = ResolveNavigation();
+        if (nav == null) return;
+        await nav.PushModalAsync(page, animated: true);
     }
 
-    public void Close()
+    private static INavigation? ResolveNavigation()
     {
+        var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (page == null) return null;
+        if (page is NavigationPage nav) return nav.Navigation;
+        return page.Navigation;
+    }
+
+    private async Task CloseAsync()
+    {
+        if (_closing) return;
+        _closing = true;
         try { _cts?.Cancel(); } catch { /* ignore */ }
-        Host.IsVisible = false;
-        Closed?.Invoke();
+        try { await Navigation.PopModalAsync(); }
+        catch { /* ignore */ }
     }
 
     private string VendorId => _vendor.SelectedIndex switch
@@ -361,6 +302,23 @@ public sealed class VideoWallScanOverlay
             _status.Text = string.Format(Loc.T("Tool.VideoWall.Scan.AddFail"), ex.Message);
         }
     }
+
+    private static View Field(string label, Color muted, View editor)
+        => new VerticalStackLayout
+        {
+            Spacing = 4,
+            Children =
+            {
+                new Label { Text = label, FontSize = 12, TextColor = muted },
+                editor
+            }
+        };
+
+    private static Color? ColorOf(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c ? c : null;
+
+    private static Style? TryStyle(string key)
+        => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Style s ? s : null;
 
     private sealed class ScanRow : INotifyPropertyChanged
     {

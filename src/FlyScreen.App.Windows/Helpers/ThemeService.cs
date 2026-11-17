@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using FlyScreen.Native;
 using FlyScreen.Services;
 using FlyScreen.Ui.Theme;
+using FlyScreen.Ui.Theme.Wpf;
 using Media = System.Windows.Media;
 using WpfControls = System.Windows.Controls;
 using WpfImage = System.Windows.Controls.Image;
@@ -29,6 +30,9 @@ public static class ThemeService
     {
         var info = ThemePalette.Resolve(theme);
         Current = info.Id;
+        WpfDialogTheme.ActiveThemeId = info.Id;
+        if (Application.Current?.Resources is { } appRd)
+            appRd[WpfDialogTheme.ThemeIdResourceKey] = info.Id;
         var dark = info.IsDark;
         var map = ThemePalette.ToResourceMap(info.ResolveColors());
 
@@ -248,7 +252,33 @@ public static class ThemeService
         }
     }
 
-    public static void ApplyToChildWindow(Window child) => Apply(Current, child);
+    /// <summary>
+    /// 子对话框：自定义主题须用实心表面，否则半透明色板会透出主窗内容。
+    /// 只改子窗资源，不把实心色写回 Application（以免冲掉主窗壁纸主题）。
+    /// </summary>
+    public static void ApplyToChildWindow(Window child)
+    {
+        var info = ThemePalette.Resolve(Current);
+        WpfDialogTheme.ActiveThemeId = info.Id;
+        var dark = info.IsDark;
+        var map = ThemePalette.ToResourceMap(ThemePalette.ForDialog(Current));
+
+        var rd = child.Resources;
+        foreach (var (key, hex) in map)
+            Set(rd, key, hex);
+        SyncDictionary(rd, map);
+        OverrideSystemColorsOn(rd, dark);
+        SyncVisualTreeResources(child, map);
+
+        // 弹窗始终实心衬底（无壁纸层）
+        child.Background = BrushOf(rd, "WinBg");
+        child.Foreground = BrushOf(rd, "Text");
+        ApplyNativeTitleBar(child, dark);
+        child.Dispatcher.BeginInvoke(() => OverrideListSystemColors(child, rd), DispatcherPriority.Loaded);
+        OverrideListSystemColors(child, rd);
+        child.InvalidateVisual();
+        child.InvalidateArrange();
+    }
 
     private static void SyncAppThemeBrushes(IReadOnlyDictionary<string, string> map)
     {

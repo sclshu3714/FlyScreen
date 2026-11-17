@@ -125,8 +125,22 @@ function Get-NewestUtc([string[]]$paths) {
     return $max
 }
 
+function Get-Sha256Hex([string]$path) {
+    # 不用 Get-FileHash：MSBuild 调起的 powershell -NoProfile 偶发未加载 Utility 模块
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [System.IO.File]::OpenRead($path)
+        try {
+            $bytes = $sha.ComputeHash($fs)
+            return ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+        }
+        finally { $fs.Dispose() }
+    }
+    finally { $sha.Dispose() }
+}
+
 function Add-IndexEntry([string]$id, [string]$manifestPath, [string]$flyPath) {
-    $hash = (Get-FileHash -Algorithm SHA256 $flyPath).Hash.ToLowerInvariant()
+    $hash = Get-Sha256Hex $flyPath
     $mf = Get-Content $manifestPath -Raw | ConvertFrom-Json
     return [ordered]@{
         id = $id

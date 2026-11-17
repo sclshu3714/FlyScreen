@@ -3,10 +3,10 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Sources;
 using FlyScreen.Tool.VideoWall.Wall;
+using FlyScreen.Ui.Theme.Wpf;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Win;
 
@@ -32,9 +32,13 @@ public partial class ScanDevicesDialog : Window
 
         ApplyLoc();
         BindSubnetChoices();
-        InheritHostBrushes(owner);
+        WpfDialogTheme.ApplyTo(this);
 
-        Loaded += async (_, _) => await StartScanAsync();
+        Loaded += async (_, _) =>
+        {
+            WpfDialogTheme.ApplyTo(this);
+            await StartScanAsync();
+        };
         Closed += (_, _) =>
         {
             try { _cts?.Cancel(); } catch { /* ignore */ }
@@ -54,7 +58,6 @@ public partial class ScanDevicesDialog : Window
     private void ApplyLoc()
     {
         Title = Loc.T("Tool.VideoWall.Scan.Title");
-        TitleText.Text = Loc.T("Tool.VideoWall.Scan.Title");
         SubnetLabel.Text = Loc.T("Tool.VideoWall.Scan.Subnet");
         SubnetCombo.ToolTip = Loc.T("Tool.VideoWall.Scan.SubnetHint");
         VendorLabel.Text = Loc.T("Tool.VideoWall.Scan.Vendor");
@@ -69,20 +72,6 @@ public partial class ScanDevicesDialog : Window
         HdrPorts.Text = Loc.T("Tool.VideoWall.Scan.Ports");
         HdrActions.Text = Loc.T("Tool.VideoWall.Scan.Actions");
         StatusText.Text = Loc.T("Tool.VideoWall.Scan.CredHint");
-    }
-
-    private void InheritHostBrushes(FrameworkElement? host)
-    {
-        if (host is null) return;
-        foreach (var key in new[]
-                 {
-                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
-                     "WinBg", "CardBg", "ListBg", "SubtleBg", "ControlBg", "ControlBorder", "ControlHover"
-                 })
-        {
-            if (host.TryFindResource(key) is SolidColorBrush brush)
-                Resources[key] = brush.Clone();
-        }
     }
 
     private string CurrentSubnet()

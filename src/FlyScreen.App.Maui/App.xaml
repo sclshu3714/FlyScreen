@@ -17,6 +17,7 @@
         <ResourceDictionary Source="Resources/Styles/Theme/ControlStyles.xaml" />
         <ResourceDictionary Source="Resources/Styles/Theme/ListStyles.xaml" />
         <ResourceDictionary Source="Resources/Styles/Theme/ActionStyles.xaml" />
+        <ResourceDictionary Source="Resources/Styles/Theme/DialogStyles.xaml" />
       </ResourceDictionary.MergedDictionaries>
       <conv:PercentToProgressConverter x:Key="PercentToProgress" />
       <conv:LogLevelColorConverter x:Key="LogLevelColorConverter" />

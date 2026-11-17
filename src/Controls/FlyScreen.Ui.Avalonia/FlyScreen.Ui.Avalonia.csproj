@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FlyScreen.Ui.Avalonia</RootNamespace>
     <AssemblyName>FlyScreen.Ui.Avalonia</AssemblyName>
-    <Description>玄鸟 Avalonia 共享控件（安全密码、加载遮罩等）</Description>
+    <Description>玄鸟 Avalonia 共享控件（安全密码、多按钮编辑框、加载遮罩等）</Description>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>

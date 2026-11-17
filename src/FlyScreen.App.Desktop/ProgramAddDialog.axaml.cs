@@ -25,6 +25,8 @@ public partial class ProgramAddDialog : Window
     public ProgramAddDialog()
     {
         InitializeComponent();
+        DesktopThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => DesktopThemeService.ApplyToChildWindow(this);
         var addTitle = Loc.T("Prog.DlgAddTitle");
         _chrome = LinuxClientChrome.Attach(
             this, ClientTitleBar, ClientTitleText, addTitle,

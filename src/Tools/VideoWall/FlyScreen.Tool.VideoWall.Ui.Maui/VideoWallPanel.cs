@@ -64,11 +64,6 @@ public sealed class VideoWallPanel : ContentView
     private readonly Grid _mainPane;
 
     private readonly AbsoluteLayout _root;
-    private readonly Border _dialogCard;
-    private readonly Label _dialogTitle;
-    private readonly VideoWallSourceForm _sourceForm;
-    private VideoWallScanOverlay? _scanOverlay;
-    private readonly Label _formError;
     private readonly VideoWallFlyoutHost _flyout;
 
     private readonly Dictionary<int, Border> _tileBorders = new();
@@ -83,7 +78,6 @@ public sealed class VideoWallPanel : ContentView
     private PanelMode _mode = PanelMode.Sources;
     private BrowseView _browseView = BrowseView.List;
     private string _groupFilter = "";
-    private string? _editingId;
     private bool _suppressLayout;
     private bool _suppressCarouselToggle;
     private bool _carouselPointerOver;
@@ -448,91 +442,9 @@ public sealed class VideoWallPanel : ContentView
         };
         var main = _mainPane;
 
-        // 浮层必须挂在根上：原先塞进 dialogHost，主界面关闭对话框时整层不可见，布局/分组下拉无法打开
+        // 下拉浮层挂在面板根；添加源/扫描改走主窗 PushModal，避免被工具区挤压
         var flyoutLayer = new AbsoluteLayout { IsVisible = false, ZIndex = 400 };
         _flyout = new VideoWallFlyoutHost(flyoutLayer);
-
-        _sourceForm = new VideoWallSourceForm(
-            _flyout,
-            () => _service?.Catalog.Groups.Select(g => g.Name).ToList()
-                  ?? (IReadOnlyList<string>)Array.Empty<string>(),
-            _text, _muted, _line, _card);
-        _formError = new Label { TextColor = _warn, FontSize = 12, IsVisible = false };
-        _dialogTitle = new Label { FontAttributes = FontAttributes.Bold, FontSize = 16, TextColor = _text };
-
-        var saveBtn = MakeBtn(Loc.T("Tool.VideoWall.Save"), _blue, Colors.White);
-        saveBtn.Clicked += async (_, _) => await SaveDialogAsync();
-        var cancelBtn = MakeBtn(Loc.T("Tool.VideoWall.Cancel"), _card, _text, _line);
-        cancelBtn.Clicked += (_, _) => CloseDialog();
-
-        // WinUI 滚动条常叠在内容上；右侧留白避免挡住「…」等尾部控件
-        _sourceForm.Padding = new Thickness(0, 0, 20, 4);
-        var formScroll = new ScrollView
-        {
-            Content = _sourceForm,
-            MaximumHeightRequest = 360,
-            Padding = new Thickness(0, 0, 4, 0),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Default
-        };
-
-        _dialogCard = new Border
-        {
-            Stroke = _line,
-            BackgroundColor = _card,
-            Padding = 16,
-            WidthRequest = 480,
-            MaximumWidthRequest = 560,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-            Margin = new Thickness(24),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
-            Shadow = new Shadow { Brush = Colors.Black, Offset = new Point(0, 8), Radius = 24, Opacity = 0.22f },
-            Content = new Grid
-        {
-            RowDefinitions =
-            [
-                new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Star),
-                new RowDefinition(GridLength.Auto)
-            ],
-            RowSpacing = 10,
-            Children =
-            {
-                _dialogTitle,
-                formScroll.Also(v => Grid.SetRow(v, 1)),
-                    new VerticalStackLayout
-                    {
-                        Spacing = 8,
-                        Children =
-                        {
-                            _formError,
-                            new HorizontalStackLayout
-                            {
-                                Spacing = 8,
-                                HorizontalOptions = LayoutOptions.End,
-                                Children = { cancelBtn, saveBtn }
-                            }
-                        }
-                    }.Also(v => Grid.SetRow(v, 2))
-                }
-            }
-        };
-        _dialogCard.GestureRecognizers.Add(new TapGestureRecognizer());
-
-        var dim = new BoxView { Color = Color.FromArgb("#80000000") };
-        dim.GestureRecognizers.Add(new TapGestureRecognizer { Command = new Command(CloseDialog) });
-
-        var dialogHost = new Grid
-        {
-            IsVisible = false,
-            ClassId = "dialogHost",
-            Children = { dim, _dialogCard }
-        };
-        dialogHost.SizeChanged += (_, _) =>
-        {
-            var max = Math.Max(280, dialogHost.Height - 48);
-            _dialogCard.MaximumHeightRequest = Math.Min(560, max);
-        };
 
         _layoutDrop.BindFlyout(_flyout);
         _groupDrop.BindFlyout(_flyout);
@@ -540,22 +452,10 @@ public sealed class VideoWallPanel : ContentView
         _root = new AbsoluteLayout();
         AbsoluteLayout.SetLayoutBounds(main, new Rect(0, 0, 1, 1));
         AbsoluteLayout.SetLayoutFlags(main, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
-        AbsoluteLayout.SetLayoutBounds(dialogHost, new Rect(0, 0, 1, 1));
-        AbsoluteLayout.SetLayoutFlags(dialogHost, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
         AbsoluteLayout.SetLayoutBounds(flyoutLayer, new Rect(0, 0, 1, 1));
         AbsoluteLayout.SetLayoutFlags(flyoutLayer, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
-        if (_service is not null)
-        {
-            _scanOverlay = new VideoWallScanOverlay(_service, _text, _muted, _line, _card, _listBg, _blue);
-            _scanOverlay.SourcesChanged += () => RefreshAll();
-            AbsoluteLayout.SetLayoutBounds(_scanOverlay.Host, new Rect(0, 0, 1, 1));
-            AbsoluteLayout.SetLayoutFlags(_scanOverlay.Host, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.All);
-        }
 
         _root.Children.Add(main);
-        _root.Children.Add(dialogHost);
-        if (_scanOverlay is not null)
-            _root.Children.Add(_scanOverlay.Host);
         _root.Children.Add(flyoutLayer);
 
         Content = _root;
@@ -1469,88 +1369,37 @@ public sealed class VideoWallPanel : ContentView
 
     private void OpenScanDialog()
     {
-        if (_service is null || _scanOverlay is null)
+        if (_service is null)
         {
             ReportLog(Loc.T("Tool.VideoWall.BackendUnavailable"));
             return;
         }
 
-        _scanOverlay.Show();
+        _ = VideoWallScanPage.ShowAsync(_service, onSourcesChanged: () =>
+        {
+            MainThread.BeginInvokeOnMainThread(RefreshAll);
+        });
     }
 
     private void OpenDialog(string? edit)
     {
-        _editingId = edit;
-        _formError.IsVisible = false;
-        _flyout.Close();
-        _dialogTitle.Text = edit is null
-            ? Loc.T("Tool.VideoWall.AddSource")
-            : Loc.T("Tool.VideoWall.Editing");
-
-        if (edit is not null && _service is not null)
+        if (_service is null)
         {
-            var src = _service.Catalog.Sources.FirstOrDefault(s => s.Id == edit);
-            if (src is not null)
-                _sourceForm.BeginEdit(src, _service.Credentials);
-        }
-        else
-            _sourceForm.BeginAdd();
-
-        SetDialogVisible(true);
-    }
-
-    private void CloseDialog()
-    {
-        _editingId = null;
-        _flyout.Close();
-        SetDialogVisible(false);
-    }
-
-    private void SetDialogVisible(bool visible)
-    {
-        foreach (var child in _root.Children)
-        {
-            if (child is Grid { ClassId: "dialogHost" } host)
-                host.IsVisible = visible;
-        }
-    }
-
-    private async Task SaveDialogAsync()
-    {
-        if (_service is null) return;
-        _formError.IsVisible = false;
-
-        var kind = _editingId is not null
-            ? _service.Catalog.Sources.FirstOrDefault(s => s.Id == _editingId)?.Kind ?? _sourceForm.Kind
-            : _sourceForm.Kind;
-
-        var descriptor = SourceDescriptorBuilder.TryBuild(kind, _sourceForm.Values, _service.Credentials, out var err);
-        if (descriptor is null)
-        {
-            _formError.Text = err ?? "无法保存";
-            _formError.IsVisible = true;
+            ReportLog(Loc.T("Tool.VideoWall.BackendUnavailable"));
             return;
         }
 
-        if (_editingId is not null)
-            descriptor = descriptor with { Id = _editingId };
-
-        _service.Credentials.Save();
-        var result = _editingId is null
-            ? await _service.AddSourceAsync(descriptor)
-            : await _service.UpdateSourceAsync(descriptor);
-
-        if (!result.Added)
+        _flyout.Close();
+        _ = VideoWallSourceDialogPage.ShowAsync(_service, edit, onSaved: () =>
         {
-            _formError.Text = result.Reason;
-            _formError.IsVisible = true;
-            return;
-        }
-
-        _ = await _service.RefreshCoverAsync(descriptor);
-        CloseDialog();
-        RefreshAll();
-        ReportLog(_editingId is null ? Loc.T("Tool.VideoWall.AddSource") + " OK" : Loc.T("Tool.VideoWall.Editing") + " OK");
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                RefreshAll();
+                ReportLog(edit is null
+                    ? Loc.T("Tool.VideoWall.AddSource") + " OK"
+                    : Loc.T("Tool.VideoWall.Editing") + " OK");
+            });
+        });
     }
 
     private bool _suppressHeaderSelect;

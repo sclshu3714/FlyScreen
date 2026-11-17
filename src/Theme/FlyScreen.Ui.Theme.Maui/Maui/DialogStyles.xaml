@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+  <!-- 弹窗壳：对齐 Win 投影弹窗（外框 / 标题栏 / 内容卡 / 底栏） -->
+
+  <Style x:Key="DlgShell" TargetType="Border">
+    <Setter Property="BackgroundColor" Value="{DynamicResource WinBg}" />
+    <Setter Property="Stroke" Value="{DynamicResource Line}" />
+    <Setter Property="StrokeThickness" Value="1" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="StrokeShape">
+      <Setter.Value>
+        <RoundRectangle CornerRadius="12" />
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="DlgCard" TargetType="Border">
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="Stroke" Value="{DynamicResource Line}" />
+    <Setter Property="StrokeThickness" Value="1" />
+    <Setter Property="Padding" Value="14,12" />
+    <Setter Property="Margin" Value="0,0,0,12" />
+    <Setter Property="StrokeShape">
+      <Setter.Value>
+        <RoundRectangle CornerRadius="10" />
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="DlgTitleBar" TargetType="Border">
+    <Setter Property="HeightRequest" Value="36" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="BackgroundColor" Value="{DynamicResource WinBg}" />
+    <Setter Property="StrokeThickness" Value="0" />
+  </Style>
+
+  <Style x:Key="DlgFooter" TargetType="Border">
+    <Setter Property="Padding" Value="20,12,20,16" />
+    <Setter Property="BackgroundColor" Value="{DynamicResource WinBg}" />
+    <Setter Property="StrokeThickness" Value="0" />
+  </Style>
+
+  <Style x:Key="DlgSectionTitle" TargetType="Label">
+    <Setter Property="FontAttributes" Value="Bold" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="Margin" Value="0,0,0,8" />
+  </Style>
+
+  <Style x:Key="DlgHint" TargetType="Label">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="TextColor" Value="{DynamicResource Muted}" />
+    <Setter Property="LineBreakMode" Value="WordWrap" />
+    <Setter Property="Margin" Value="0,8,0,0" />
+  </Style>
+
+  <Style x:Key="DlgTitleText" TargetType="Label">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="VerticalOptions" Value="Center" />
+    <Setter Property="Margin" Value="0,0,12,0" />
+  </Style>
+
+  <Style x:Key="DlgNormalBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="TextColor" Value="{DynamicResource Text}" />
+    <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="Margin" Value="0,0,8,0" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="VisualStateManager.VisualStateGroups">
+      <VisualStateGroupList>
+        <VisualStateGroup x:Name="CommonStates">
+          <VisualState x:Name="Normal">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+              <Setter Property="TextColor" Value="{DynamicResource Text}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="PointerOver">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource ControlHover}" />
+              <Setter Property="TextColor" Value="{DynamicResource Text}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+            </VisualState.Setters>
+          </VisualState>
+          <VisualState x:Name="Pressed">
+            <VisualState.Setters>
+              <Setter Property="BackgroundColor" Value="{DynamicResource Line}" />
+              <Setter Property="TextColor" Value="{DynamicResource Text}" />
+              <Setter Property="BorderColor" Value="{DynamicResource Blue}" />
+            </VisualState.Setters>
+          </VisualState>
+        </VisualStateGroup>
+      </VisualStateGroupList>
+    </Setter>
+  </Style>
+
+  <Style x:Key="DlgPrimaryBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource Blue}" />
+    <Setter Property="TextColor" Value="White" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="100" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="FontAttributes" Value="Bold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <Style x:Key="DlgDangerBtn" TargetType="Button">
+    <Setter Property="BackgroundColor" Value="{DynamicResource CardBg}" />
+    <Setter Property="TextColor" Value="#B91C1C" />
+    <Setter Property="BorderColor" Value="{DynamicResource Line}" />
+    <Setter Property="BorderWidth" Value="1" />
+    <Setter Property="HeightRequest" Value="34" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinimumWidthRequest" Value="88" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="HorizontalOptions" Value="Start" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+</ResourceDictionary>

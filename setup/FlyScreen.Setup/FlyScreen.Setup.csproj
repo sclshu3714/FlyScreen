@@ -17,6 +17,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SSH.NET" Version="2026.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Controls\FlyScreen.Ui.Wpf\FlyScreen.Ui.Wpf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\FlyScreen.Installer\**\*"
           Link="InstallerTemplate\%(RecursiveDir)%(Filename)%(Extension)"

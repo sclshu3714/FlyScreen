@@ -113,6 +113,43 @@
       </Setter>
     </Style>
 
+    <!-- 与 FieldTextBox 同外观的安全密码框 -->
+    <Style x:Key="FieldPasswordBox" TargetType="PasswordBox">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="PasswordBox">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{StaticResource FieldBorderBrush}" BorderThickness="1"
+                    CornerRadius="8" SnapsToDevicePixels="True">
+              <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                            VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#B8C4D6"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="Bd" Property="Background" Value="#F8FAFF"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <Style x:Key="ModernCheckBox" TargetType="CheckBox">
       <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
       <Setter Property="FontSize" Value="13"/>
@@ -192,6 +229,58 @@
     </Style>
 
     <Style TargetType="RadioButton" BasedOn="{StaticResource ModernRadio}"/>
+
+    <!-- Ribbon 分段单选（认证方式等） -->
+    <Style x:Key="SegHost" TargetType="Border">
+      <Setter Property="Background" Value="#F1F4F9"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="3"/>
+      <Setter Property="BorderBrush" Value="#E5EAF2"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    </Style>
+
+    <Style x:Key="SegBtn" TargetType="RadioButton">
+      <Setter Property="MinWidth" Value="88"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                    Padding="{TemplateBinding Padding}"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}"/>
+                <Setter Property="Foreground" Value="White"/>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsChecked" Value="False"/>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+              </MultiTrigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
 
     <Style x:Key="PrimaryButton" TargetType="Button">
       <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
@@ -336,6 +425,15 @@
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+
+    <!-- 须在 FieldComboBox 之后：StaticResource BasedOn 按定义顺序解析 -->
+    <Style x:Key="FieldTitleComboBox" TargetType="ComboBox" BasedOn="{StaticResource FieldComboBox}">
+      <Setter Property="Width" Value="118"/>
+      <Setter Property="MinWidth" Value="118"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Padding" Value="8,0,28,0"/>
+      <Setter Property="FontSize" Value="12"/>
     </Style>
 
     <Style x:Key="LeftTabControl" TargetType="TabControl">

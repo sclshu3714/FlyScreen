@@ -1,7 +1,7 @@
 using System.Windows;
-using System.Windows.Media;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.ToolSdk;
+using FlyScreen.Ui.Theme.Wpf;
 
 namespace FlyScreen.Tool.PortProxy.Ui.Win;
 
@@ -12,7 +12,9 @@ public partial class PortProxyRuleDialog : Window
     public PortProxyRuleDialog(bool isEdit, PortProxyRuleInfo seed, FrameworkElement? themeHost = null)
     {
         InitializeComponent();
-        InheritHostBrushes(themeHost ?? Owner as FrameworkElement);
+        // 无系统标题栏：保留内容区 TitleText；主题用 ForDialog 实心色板
+        WpfDialogTheme.ApplyTo(this);
+        Loaded += (_, _) => WpfDialogTheme.ApplyTo(this);
         Title = Loc.T(isEdit ? "Tool.PortProxy.DialogEdit" : "Tool.PortProxy.DialogAdd");
         TitleText.Text = Title;
         ApplyLoc();
@@ -98,17 +100,4 @@ public partial class PortProxyRuleDialog : Window
         Close();
     }
 
-    private void InheritHostBrushes(FrameworkElement? host)
-    {
-        if (host is null) return;
-        foreach (var key in new[]
-                 {
-                     "Blue", "BluePress", "BlueSoft", "BlueHover", "Muted", "Line", "Text",
-                     "WinBg", "CardBg", "ListBg", "SubtleBg", "ControlBg", "ControlBorder", "ControlHover"
-                 })
-        {
-            if (host.TryFindResource(key) is SolidColorBrush brush)
-                Resources[key] = brush.Clone();
-        }
-    }
 }
