@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using FlyScreen.Setup.Models;
 using FlyScreen.Setup.Services;
 using Microsoft.Win32;
@@ -26,6 +27,12 @@ public partial class MainWindow : Window
     private PublishTargetItem? _cascadeTarget;
     private PublishJobItem? _logFocusJob;
     private readonly ObservableCollection<SetupLogEntry> _systemLogs = [];
+    private bool _logFullscreen;
+    private GridLength _savedQueueHeight = new(1, GridUnitType.Star);
+    private GridLength _savedLogHeight = new(1.15, GridUnitType.Star);
+    private double _savedQueueMinHeight = 100;
+    private double _savedLogMinHeight = 140;
+    private bool _suppressDockerSettingsSave;
 
     public MainWindow()
     {
@@ -71,6 +78,9 @@ public partial class MainWindow : Window
         {
             AppendSystemLog("初始化资源: " + ex.Message);
         }
+
+        LoadDockerUiSettings();
+        Closing += (_, _) => SaveDockerUiSettings();
 
         AppendSystemLog($"仓库根目录: {_repoRoot}");
         AppendSystemLog($"当前版本: {VersionBox.Text}");
@@ -177,7 +187,7 @@ public partial class MainWindow : Window
         }
         else if (selected?.IsRelayDocker == true)
         {
-            DeployHint.Text = "Docker 镜像打包不受部署模式影响；需本机 Docker Desktop，默认启用国内 Mirror 并导出 .tar。";
+            DeployHint.Text = "Docker 镜像打包不受部署模式影响；本机或 SSH 远程构建，默认 -Mirror 并导出 .tar。";
         }
         else if (selected?.IsRelay == true)
         {
@@ -197,6 +207,7 @@ public partial class MainWindow : Window
 
         ApplyVddOfflineState();
         RefreshCascadeFromSelection();
+        RefreshDockerHostPanel();
     }
 
     private static string DescribeTargetHint(bool installerMode, int enabledCount, PublishTargetItem? selected)
@@ -205,7 +216,7 @@ public partial class MainWindow : Window
         if (selected?.IsFlyTools == true)
             return $"插件工具：输出 FlyScreen-{{ver}}-flytools.zip（及目录副本）；当前：{name}。";
         if (selected?.IsRelayDocker == true)
-            return $"中继 Docker：导出 FlyScreen-{{ver}}-relay-docker.tar + compose；当前：{name}。";
+            return $"中继 Docker：本机或 SSH 远程构建，导出 FlyScreen-{{ver}}-relay-docker.tar；当前：{name}。";
         if (selected?.IsRelay == true)
             return installerMode
                 ? $"中继服务安装包：zip 目录产物；运行时选 docker 可打镜像。当前：{name}。"
@@ -256,7 +267,7 @@ public partial class MainWindow : Window
 
             FrameworkHint.Text = $"当前目标：{active.DisplayName}。可选框架随打包目标变化。";
             RuntimeHint.Text = active.IsRelay
-                ? "中继可选本机 RID，或选 docker 打包 Docker 镜像（需 Docker Desktop）。"
+                ? "中继可选本机 RID，或选 docker（本机 Docker Desktop / SSH 远程构建）。"
                 : active.IsFlyTools
                     ? "插件工具无平台 RID，bundled 表示组全部内置 .flytool。"
                     : "可选运行时随目标框架变化。";
@@ -317,9 +328,180 @@ public partial class MainWindow : Window
         if (FrameworkBox.SelectedItem is string fw)
             _cascadeTarget.SelectedFramework = fw;
         _cascadeTarget.ApplySelectedFrameworkRuntime();
-        // Relay 选 docker 时部署提示需刷新
+        // Relay 选 docker 时部署提示 / Docker 面板需刷新
         if (_cascadeTarget.IsRelay)
             ApplyMutexRules();
+        else
+            RefreshDockerHostPanel();
+    }
+
+    private void RefreshDockerHostPanel()
+    {
+        if (DockerHostPanel == null) return;
+        var selected = _targets?.FirstOrDefault(t => t.IsSelected && t.IsEnabled) ?? _cascadeTarget;
+        var docker = selected?.IsRelayDocker == true;
+        DockerHostPanel.Visibility = docker ? Visibility.Visible : Visibility.Collapsed;
+        if (!docker) return;
+
+        TrySplitHostPortFromIpBox();
+        var local = IsLocalDockerHostUi(DockerHostBox?.Text);
+        if (DockerRemoteAuthPanel != null)
+            DockerRemoteAuthPanel.Visibility = local ? Visibility.Collapsed : Visibility.Visible;
+        if (DockerPortBox != null)
+            DockerPortBox.IsEnabled = !local;
+        if (DockerHostHint != null)
+        {
+            DockerHostHint.Text = local
+                ? "本机模式：请先启动 Docker Desktop；Setup 会自动补齐常见 Docker PATH。"
+                : GetDockerAuthMode() switch
+                {
+                    "key" => "SSH 密钥：SSH.NET 隧道（无需本机 OpenSSH）；填写用户与私钥路径。",
+                    "password" => "SSH 密码：SSH.NET 隧道（无需本机 OpenSSH）；密码仅内存传递。",
+                    _ => "TCP 无认证：DOCKER_HOST=tcp://IP:端口（如局域网 Docker Desktop 暴露 2375）。"
+                };
+        }
+
+        RefreshDockerAuthRows();
+    }
+
+    private void RefreshDockerAuthRows()
+    {
+        if (DockerKeyBox == null || DockerPasswordBox == null) return;
+        var mode = GetDockerAuthMode();
+        var key = mode == "key";
+        var pwd = mode == "password";
+        var ssh = key || pwd;
+
+        if (DockerCredentialPanel != null)
+            DockerCredentialPanel.Visibility = ssh ? Visibility.Visible : Visibility.Collapsed;
+
+        DockerKeyBox.Visibility = key ? Visibility.Visible : Visibility.Collapsed;
+        DockerPasswordBox.Visibility = pwd ? Visibility.Visible : Visibility.Collapsed;
+        if (DockerSecretLabel != null)
+            DockerSecretLabel.Text = key ? "密钥" : "密码";
+        if (DockerUserBox != null)
+            DockerUserBox.IsEnabled = ssh;
+    }
+
+    private string GetDockerAuthMode()
+    {
+        if (DockerAuthKeyRadio?.IsChecked == true) return "key";
+        if (DockerAuthPasswordRadio?.IsChecked == true) return "password";
+        return "tcp";
+    }
+
+    private static bool IsLocalDockerHostUi(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return true;
+        var h = host.Trim();
+        return h.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+               || h.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+               || h.Equals("::1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void DockerHostFields_Changed(object sender, TextChangedEventArgs e)
+    {
+        RefreshDockerHostPanel();
+        SaveDockerUiSettings();
+    }
+
+    private void DockerUserBox_TextChanged(object sender, TextChangedEventArgs e)
+        => SaveDockerUiSettings();
+
+    private void DockerAuthMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton { IsChecked: not true }) return;
+
+        // 切换模式时给常用默认端口提示性纠正
+        if (DockerPortBox != null && int.TryParse(DockerPortBox.Text.Trim(), out var port))
+        {
+            var mode = GetDockerAuthMode();
+            if (mode == "tcp" && port == 22)
+                DockerPortBox.Text = "2375";
+            else if (mode is "key" or "password" && port is 2375 or 2376)
+                DockerPortBox.Text = "22";
+        }
+
+        RefreshDockerAuthRows();
+        RefreshDockerHostPanel();
+        SaveDockerUiSettings();
+    }
+
+    private void LoadDockerUiSettings()
+    {
+        _suppressDockerSettingsSave = true;
+        try
+        {
+            var s = SetupUiSettings.Load();
+            if (DockerHostBox != null && !string.IsNullOrWhiteSpace(s.DockerHost))
+                DockerHostBox.Text = s.DockerHost.Trim();
+            if (DockerPortBox != null && !string.IsNullOrWhiteSpace(s.DockerPort))
+                DockerPortBox.Text = s.DockerPort.Trim();
+            if (DockerUserBox != null && !string.IsNullOrWhiteSpace(s.DockerUser))
+                DockerUserBox.Text = s.DockerUser.Trim();
+
+            switch ((s.DockerAuthMode ?? "tcp").Trim().ToLowerInvariant())
+            {
+                case "key":
+                    if (DockerAuthKeyRadio != null) DockerAuthKeyRadio.IsChecked = true;
+                    break;
+                case "password":
+                    if (DockerAuthPasswordRadio != null) DockerAuthPasswordRadio.IsChecked = true;
+                    break;
+                default:
+                    if (DockerAuthTcpRadio != null) DockerAuthTcpRadio.IsChecked = true;
+                    break;
+            }
+
+            RefreshDockerAuthRows();
+            RefreshDockerHostPanel();
+        }
+        catch
+        {
+            // 忽略损坏的本地偏好
+        }
+        finally
+        {
+            _suppressDockerSettingsSave = false;
+        }
+    }
+
+    private void SaveDockerUiSettings()
+    {
+        if (_suppressDockerSettingsSave) return;
+        try
+        {
+            var s = new SetupUiSettings
+            {
+                DockerHost = DockerHostBox?.Text?.Trim() ?? "",
+                DockerPort = DockerPortBox?.Text?.Trim() ?? "2375",
+                DockerAuthMode = GetDockerAuthMode(),
+                DockerUser = DockerUserBox?.Text?.Trim() ?? ""
+            };
+            s.Save();
+        }
+        catch
+        {
+            // 写盘失败不影响打包
+        }
+    }
+
+    /// <summary>支持在 IP 框粘贴 host:port。</summary>
+    private void TrySplitHostPortFromIpBox()
+    {
+        if (DockerHostBox == null || DockerPortBox == null) return;
+        var raw = DockerHostBox.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(raw) || !raw.Contains(':')) return;
+        // 避免 IPv6
+        if (raw.Count(c => c == ':') != 1) return;
+        var parts = raw.Split(':', 2);
+        if (parts.Length != 2) return;
+        if (!int.TryParse(parts[1], out var port) || port is < 1 or > 65535) return;
+        if (string.Equals(DockerHostBox.Text?.Trim(), parts[0], StringComparison.Ordinal)
+            && string.Equals(DockerPortBox.Text?.Trim(), parts[1], StringComparison.Ordinal))
+            return;
+        DockerHostBox.Text = parts[0];
+        DockerPortBox.Text = parts[1];
     }
 
     private void ApplyVddOfflineState()
@@ -388,13 +570,6 @@ public partial class MainWindow : Window
             CarouselDirBox.Text = dlg.FolderName;
     }
 
-    private void ClearLog_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        // 阻止点击「清空」时触发展开/折叠
-        e.Handled = true;
-        ClearLog_Click(sender, e);
-    }
-
     private void ClearLog_Click(object sender, RoutedEventArgs e)
     {
         if (_logFocusJob != null)
@@ -403,10 +578,84 @@ public partial class MainWindow : Window
             _systemLogs.Clear();
     }
 
-    private void LogExpander_Expanded(object sender, RoutedEventArgs e)
-        => Dispatcher.BeginInvoke(ScrollLogToEnd, System.Windows.Threading.DispatcherPriority.Loaded);
+    private void CopyLog_Click(object sender, RoutedEventArgs e)
+        => CopyLogLines(selectedOnly: true);
 
-    private void LogExpander_Collapsed(object sender, RoutedEventArgs e) { }
+    private void CopyAllLog_Click(object sender, RoutedEventArgs e)
+        => CopyLogLines(selectedOnly: false);
+
+    private void LogList_CopyCanExecute(object sender, CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = LogList.Items.Count > 0;
+        e.Handled = true;
+    }
+
+    private void LogList_CopyExecuted(object sender, ExecutedRoutedEventArgs e)
+    {
+        CopyLogLines(selectedOnly: true);
+        e.Handled = true;
+    }
+
+    private void CopyLogLines(bool selectedOnly)
+    {
+        IEnumerable<SetupLogEntry> entries;
+        if (selectedOnly && LogList.SelectedItems.Count > 0)
+            entries = LogList.SelectedItems.Cast<SetupLogEntry>();
+        else
+            entries = LogList.Items.Cast<SetupLogEntry>();
+
+        var text = string.Join(Environment.NewLine, entries.Select(x => x.DisplayLine));
+        if (string.IsNullOrEmpty(text)) return;
+        try
+        {
+            Clipboard.SetText(text);
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Alert(this, "复制失败", ex.Message, MessageDialogKind.Warning);
+        }
+    }
+
+    private void LogFullscreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (QueueRowDef == null || LogRowDef == null || LogSplitterRowDef == null) return;
+
+        if (!_logFullscreen)
+        {
+            _savedQueueHeight = QueueRowDef.Height;
+            _savedLogHeight = LogRowDef.Height;
+            _savedQueueMinHeight = QueueRowDef.MinHeight;
+            _savedLogMinHeight = LogRowDef.MinHeight;
+
+            QueuePanel.Visibility = Visibility.Collapsed;
+            LogSplitter.Visibility = Visibility.Collapsed;
+            QueueRowDef.MinHeight = 0;
+            QueueRowDef.Height = new GridLength(0);
+            LogSplitterRowDef.Height = new GridLength(0);
+            LogRowDef.MinHeight = 0;
+            LogRowDef.Height = new GridLength(1, GridUnitType.Star);
+
+            LogFullscreenButton.Content = "还原";
+            LogFullscreenButton.ToolTip = "还原队列与日志分栏";
+            _logFullscreen = true;
+        }
+        else
+        {
+            QueuePanel.Visibility = Visibility.Visible;
+            LogSplitter.Visibility = Visibility.Visible;
+            QueueRowDef.MinHeight = _savedQueueMinHeight;
+            QueueRowDef.Height = _savedQueueHeight;
+            LogSplitterRowDef.Height = new GridLength(8);
+            LogRowDef.MinHeight = _savedLogMinHeight;
+            LogRowDef.Height = _savedLogHeight;
+
+            LogFullscreenButton.Content = "全屏";
+            LogFullscreenButton.ToolTip = "日志区占满右侧（隐藏队列）；再点还原";
+            _logFullscreen = false;
+        }
+
+        Dispatcher.BeginInvoke(ScrollLogToEnd, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
 
     private void Start_Click(object sender, RoutedEventArgs e)
     {
@@ -432,6 +681,12 @@ public partial class MainWindow : Window
 
         selected.ApplySelectedFrameworkRuntime();
         var snapshot = selected.CloneForPublish();
+        if (snapshot.IsRelayDocker && !TryValidateDockerOptions(out var dockerError))
+        {
+            MessageDialog.Alert(this, "提示", dockerError, MessageDialogKind.Info);
+            return;
+        }
+
         var options = BuildOptions(version).Clone();
 
         var job = new PublishJobItem
@@ -617,7 +872,6 @@ public partial class MainWindow : Window
         job.IsLogFocused = true;
         LogTitle.Text = $"输出日志 · {job.Title}";
         LogList.ItemsSource = job.Logs;
-        LogExpander.IsExpanded = true;
         ScrollLogToEnd();
     }
 
@@ -673,27 +927,89 @@ public partial class MainWindow : Window
         StatusText.Text = $"就绪 · Release · 运行 {running}/{_maxConcurrentJobs} · 等待 {waiting} · 结束 {done}";
     }
 
-    private PublishOptions BuildOptions(string version) => new()
+    private bool TryValidateDockerOptions(out string error)
     {
-        PackageMode = ModeInstaller.IsChecked == true ? PackageMode.Installer : PackageMode.Standalone,
-        DeploymentMode = DeploySelfContained.IsChecked == true
-            ? DeploymentMode.SelfContained
-            : DeploymentMode.FrameworkDependent,
-        Configuration = "Release",
-        OutputRoot = string.IsNullOrWhiteSpace(OutputDirBox.Text)
-            ? RepoPaths.ArtifactsRelease(_repoRoot)
-            : OutputDirBox.Text.Trim(),
-        ProductName = string.IsNullOrWhiteSpace(ProductNameBox.Text) ? "玄鸟" : ProductNameBox.Text.Trim(),
-        DefaultInstallDir = string.IsNullOrWhiteSpace(InstallDirBox.Text)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao")
-            : InstallDirBox.Text.Trim(),
-        LicenseUrl = LicenseUrlBox.Text.Trim(),
-        CarouselDir = CarouselDirBox.Text.Trim(),
-        LicenseFile = Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "license.txt"),
-        CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true,
-        CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
-        IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
-                            && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline),
-        Version = version
-    };
+        error = "";
+        TrySplitHostPortFromIpBox();
+        if (IsLocalDockerHostUi(DockerHostBox?.Text))
+            return true;
+
+        if (!int.TryParse((DockerPortBox?.Text ?? "").Trim(), out var port) || port is < 1 or > 65535)
+        {
+            error = "端口须为 1–65535（TCP 常用 2375，SSH 常用 22）。";
+            DockerPortBox?.Focus();
+            return false;
+        }
+
+        var mode = GetDockerAuthMode();
+        if (mode == "tcp")
+            return true;
+
+        if (string.IsNullOrWhiteSpace(DockerUserBox?.Text))
+        {
+            error = "SSH 模式请填写用户名；若仅局域网 TCP，请选「无认证 (TCP)」。";
+            DockerUserBox?.Focus();
+            return false;
+        }
+
+        if (mode == "key")
+        {
+            var key = DockerKeyBox?.Text?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(key) || !File.Exists(key))
+            {
+                error = "请选择有效的 SSH 私钥文件。";
+                DockerKeyBox?.FocusInput();
+                return false;
+            }
+        }
+        else if (string.IsNullOrEmpty(DockerPasswordBox?.Password))
+        {
+            error = "请填写 SSH 密码，或改用密钥 / TCP 无认证。";
+            DockerPasswordBox?.FocusInput();
+            return false;
+        }
+
+        return true;
+    }
+
+    private PublishOptions BuildOptions(string version)
+    {
+        TrySplitHostPortFromIpBox();
+        var host = DockerHostBox?.Text?.Trim() ?? "";
+        var local = IsLocalDockerHostUi(host);
+        var mode = local ? "local" : GetDockerAuthMode();
+        _ = int.TryParse((DockerPortBox?.Text ?? "").Trim(), out var port);
+        if (port is < 1 or > 65535)
+            port = mode is "key" or "password" ? 22 : 2375;
+
+        return new PublishOptions
+        {
+            PackageMode = ModeInstaller.IsChecked == true ? PackageMode.Installer : PackageMode.Standalone,
+            DeploymentMode = DeploySelfContained.IsChecked == true
+                ? DeploymentMode.SelfContained
+                : DeploymentMode.FrameworkDependent,
+            Configuration = "Release",
+            OutputRoot = string.IsNullOrWhiteSpace(OutputDirBox.Text)
+                ? RepoPaths.ArtifactsRelease(_repoRoot)
+                : OutputDirBox.Text.Trim(),
+            ProductName = string.IsNullOrWhiteSpace(ProductNameBox.Text) ? "玄鸟" : ProductNameBox.Text.Trim(),
+            DefaultInstallDir = string.IsNullOrWhiteSpace(InstallDirBox.Text)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "XuanNiao")
+                : InstallDirBox.Text.Trim(),
+            LicenseUrl = LicenseUrlBox.Text.Trim(),
+            CarouselDir = CarouselDirBox.Text.Trim(),
+            LicenseFile = Path.Combine(RepoPaths.PublisherDir(_repoRoot), "Assets", "license.txt"),
+            CreateDesktopShortcut = DesktopShortcutBox.IsChecked == true,
+            CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
+            IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
+                                && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline),
+            Version = version,
+            DockerSshHost = local ? "" : host,
+            DockerSshPort = port,
+            DockerSshUser = mode is "key" or "password" ? (DockerUserBox?.Text?.Trim() ?? "") : "",
+            DockerSshKeyPath = mode == "key" ? (DockerKeyBox?.Text?.Trim() ?? "") : "",
+            DockerSshPassword = mode == "password" ? (DockerPasswordBox?.Password ?? "") : "",
+            DockerUseTcp = mode == "tcp"
+        };
+    }
 }

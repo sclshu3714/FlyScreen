@@ -269,6 +269,22 @@ public sealed class PublishOptions
     /// <summary>发布版本号（x.y.z）；默认取 build/version.json，可在 UI 中修改。</summary>
     public string Version { get; set; } = "1.0.0";
 
+    /// <summary>Docker 主机：空 / localhost / 127.0.0.1 = 本机；否则 TCP 或 SSH。</summary>
+    public string DockerSshHost { get; set; } = "";
+
+    public int DockerSshPort { get; set; } = 2375;
+
+    public string DockerSshUser { get; set; } = "";
+
+    /// <summary>私钥路径；与 <see cref="DockerSshPassword"/> 二选一（SSH 时）。</summary>
+    public string DockerSshKeyPath { get; set; } = "";
+
+    /// <summary>SSH 密码；仅经环境变量传给脚本，不写命令行。</summary>
+    public string DockerSshPassword { get; set; } = "";
+
+    /// <summary>远程无账号：DOCKER_HOST=tcp://host:port（局域网 Docker Desktop）。</summary>
+    public bool DockerUseTcp { get; set; }
+
     public PublishOptions Clone() => new()
     {
         PackageMode = PackageMode,
@@ -285,7 +301,13 @@ public sealed class PublishOptions
         CreateDesktopShortcut = CreateDesktopShortcut,
         CreateStartMenuShortcut = CreateStartMenuShortcut,
         IncludeVddOffline = IncludeVddOffline,
-        Version = Version
+        Version = Version,
+        DockerSshHost = DockerSshHost,
+        DockerSshPort = DockerSshPort,
+        DockerSshUser = DockerSshUser,
+        DockerSshKeyPath = DockerSshKeyPath,
+        DockerSshPassword = DockerSshPassword,
+        DockerUseTcp = DockerUseTcp
     };
 }
 
