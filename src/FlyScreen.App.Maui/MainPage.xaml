@@ -5,7 +5,7 @@
              xmlns:helpers="clr-namespace:FlyScreen.AppMaui.Helpers"
              xmlns:models="clr-namespace:FlyScreen.Models;assembly=FlyScreen.Core"
              xmlns:ui="clr-namespace:FlyScreen.Ui.Maui;assembly=FlyScreen.Ui.Maui"
-             xmlns:icons="clr-namespace:FlyScreen.Ui.Theme.Icons;assembly=FlyScreen.Ui.Theme"
+             xmlns:mauiIcons="clr-namespace:FlyScreen.Ui.Theme.Maui.Icons;assembly=FlyScreen.Ui.Theme.Maui"
              x:Class="FlyScreen.AppMaui.MainPage"
              Title="玄鸟"
              Shell.NavBarIsVisible="False"
@@ -797,7 +797,7 @@
                             <Button x:Name="NavBasic" Style="{StaticResource SideNavBtnActive}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="basic" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavHome}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavHome}"
                                       Fill="#F59E0B" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavBasicText" Text="基础" Style="{StaticResource SideNavLabelActive}"
@@ -808,7 +808,7 @@
                             <Button x:Name="NavNetwork" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="network" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavNetwork}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavNetwork}"
                                       Fill="#2563EB" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavNetworkText" Text="网络" Style="{StaticResource SideNavLabel}"
@@ -819,7 +819,7 @@
                             <Button x:Name="NavShare" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="share" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavShare}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavShare}"
                                       Fill="#10B981" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavShareText" Text="共享" Style="{StaticResource SideNavLabel}"
@@ -830,7 +830,7 @@
                             <Button x:Name="NavSecurity" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="security" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavSecurity}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavSecurity}"
                                       Fill="#8B5CF6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavSecurityText" Text="安全" Style="{StaticResource SideNavLabel}"
@@ -841,7 +841,7 @@
                             <Button x:Name="NavAdvanced" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="advanced" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavAdvanced}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavAdvanced}"
                                       Fill="#64748B" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavAdvancedText" Text="高级" Style="{StaticResource SideNavLabel}"
@@ -852,7 +852,7 @@
                             <Button x:Name="NavPrograms" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="programs" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavPrograms}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavPrograms}"
                                       Fill="#14B8A6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavProgramsText" Text="程序" Style="{StaticResource SideNavLabel}"
@@ -863,7 +863,7 @@
                             <Button x:Name="NavTools" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="tools" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavAdvanced}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavAdvanced}"
                                       Fill="#8B5CF6" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavToolsText" Text="工具" Style="{StaticResource SideNavLabel}"
@@ -875,7 +875,7 @@
                             <Button x:Name="NavLog" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="log" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavLog}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavLog}"
                                       Fill="#F97316" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="NavLogText" Text="日志" Style="{StaticResource SideNavLabel}"
@@ -886,7 +886,7 @@
                             <Button x:Name="NavAbout" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="about" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavAbout}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavAbout}"
                                       Fill="#0EA5E9" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="AboutBtnText" Text="关于" Style="{StaticResource SideNavLabel}"
@@ -897,7 +897,7 @@
                             <Button x:Name="NavHelp" Style="{StaticResource SideNavBtn}" Text=" "
                                     Margin="0" Clicked="Nav_Clicked" CommandParameter="help" />
                             <HorizontalStackLayout InputTransparent="True" Padding="12,0" VerticalOptions="Center">
-                                <Path Data="{x:Static icons:IconPaths.NavHelp}"
+                                <Path Data="{x:Static mauiIcons:MauiIcon.NavHelp}"
                                       Fill="#EC4899" Aspect="Uniform" WidthRequest="22" HeightRequest="22"
                                       VerticalOptions="Center" />
                                 <Label x:Name="HelpBtnText" Text="帮助" Style="{StaticResource SideNavLabel}"

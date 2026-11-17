@@ -690,7 +690,8 @@ public sealed class ProjectionDialogPage : ContentPage
 
     private void ApplyTheme()
     {
-        MauiThemeService.Apply(MauiThemeService.Current, this);
+        // 卡片用实心色板；整页仍用半透明黑遮罩（勿套自定义 WinBg）
+        MauiThemeService.ApplyToDialog(this);
         var text = ColorOf("Text") ?? Color.FromArgb("#111827");
         var muted = ColorOf("Muted") ?? Color.FromArgb("#6B7280");
         var line = ColorOf("Line") ?? Color.FromArgb("#E5E7EB");
@@ -788,8 +789,10 @@ public sealed class ProjectionDialogPage : ContentPage
         }
     }
 
-    private static Color? ColorOf(string key)
+    private Color? ColorOf(string key)
     {
+        if (Resources.TryGetValue(key, out var local) && local is Color lc)
+            return lc;
         if (Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c)
             return c;
         return null;

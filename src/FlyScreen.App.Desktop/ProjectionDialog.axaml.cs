@@ -22,13 +22,13 @@ public partial class ProjectionDialog : Window
         InitializeComponent();
         TryApplyWindowIcon();
         LayoutUpdated += (_, _) => SyncBodyWidth();
-        DesktopThemeService.Apply(DesktopThemeService.Current, this);
+        DesktopThemeService.ApplyToChildWindow(this);
         StartBtn.IsEnabled = false;
         Opened += (_, _) =>
         {
             if (_host == null) return;
             SetOptionsExpanded(false);
-            DesktopThemeService.Apply(DesktopThemeService.Current, this);
+            DesktopThemeService.ApplyToChildWindow(this);
             ModeCombo.Items.Clear();
             foreach (var m in DisplayProjectionModeInfo.PickerModes)
                 ModeCombo.Items.Add(DisplayProjectionModeInfo.Label(m));

@@ -137,7 +137,7 @@ public sealed class ToolHost
             var type = asm.GetType(pack.EntryType, throwOnError: false)
                        ?? asm.GetTypes().FirstOrDefault(t =>
                            string.Equals(t.FullName, pack.EntryType, StringComparison.OrdinalIgnoreCase));
-            if (type == null || !typeof(IToolModule).IsAssignableFrom(type))
+            if (type == null || !ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolModule), type))
             {
                 TryUnload(alc);
                 AppLog.Warn($"工具入口类型无效: {pack.EntryType}");

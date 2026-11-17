@@ -104,10 +104,13 @@ public static class Loc
                 continue;
             foreach (var type in Services.Tools.ToolAssemblyScan.GetLoadableTypes(asm))
             {
-                if (type.IsAbstract || !typeof(IToolLocalization).IsAssignableFrom(type))
+                if (type.IsAbstract)
                     continue;
+                // IsAssignableFrom 必须在 try 内：Release APK 上插件 typeref 解析失败会 TypeLoadException
                 try
                 {
+                    if (!Services.Tools.ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolLocalization), type))
+                        continue;
                     IToolLocalization? loc = null;
                     var instProp = type.GetProperty("Instance",
                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);

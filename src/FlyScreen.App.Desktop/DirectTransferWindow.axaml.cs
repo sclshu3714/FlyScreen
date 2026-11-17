@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Clipboard;
@@ -31,6 +32,7 @@ public partial class DirectTransferWindow : Window
         InitializeComponent();
         if (Design.IsDesignMode) return;
 
+        DesktopThemeService.ApplyToChildWindow(this);
         ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerCombo.ItemsSource = _peers;

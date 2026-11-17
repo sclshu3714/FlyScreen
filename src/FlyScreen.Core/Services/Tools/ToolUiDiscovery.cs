@@ -27,10 +27,12 @@ public static class ToolUiDiscovery
 
             foreach (var type in ToolAssemblyScan.GetLoadableTypes(asm))
             {
-                if (type.IsAbstract || !typeof(IToolUiContributor).IsAssignableFrom(type))
+                if (type.IsAbstract)
                     continue;
                 try
                 {
+                    if (!ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolUiContributor), type))
+                        continue;
                     if (Activator.CreateInstance(type) is not IToolUiContributor contributor)
                         continue;
                     contributor.Register(ui, context);

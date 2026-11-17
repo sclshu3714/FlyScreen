@@ -47,7 +47,7 @@ public partial class ProgramEditorWindow : Window
         _catalog = ProgramService.Instance.Catalog;
         _runner = ProgramService.Instance.Runner;
         InitializeComponent();
-        DesktopThemeService.Apply(DesktopThemeService.Current, this);
+        DesktopThemeService.ApplyToChildWindow(this);
 
         var displayTitle = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
         _chrome = LinuxClientChrome.Attach(

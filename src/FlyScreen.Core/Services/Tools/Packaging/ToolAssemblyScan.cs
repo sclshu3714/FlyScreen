@@ -27,4 +27,29 @@ internal static class ToolAssemblyScan
                 yield return t;
         }
     }
+
+    /// <summary>
+    /// Android Release 等宿主上，插件 DLL 的 typeref（如 <c>IAsyncEnumerator&lt;&gt;</c>）可能无法解析；
+    /// <see cref="Type.IsAssignableFrom"/> 会抛 <see cref="TypeLoadException"/>，必须吞掉以免闪退。
+    /// </summary>
+    public static bool IsSafeAssignableFrom(Type baseType, Type type)
+    {
+        try
+        {
+            return baseType.IsAssignableFrom(type);
+        }
+        catch (TypeLoadException)
+        {
+            return false;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception)
+        {
+            // Mono 偶发把解析失败包成其它异常
+            return false;
+        }
+    }
 }

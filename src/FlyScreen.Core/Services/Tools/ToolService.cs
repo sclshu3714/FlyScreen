@@ -548,7 +548,7 @@ public sealed class ToolService
         if (asm == null) return false;
 
         var type = asm.GetType(typeName, throwOnError: false);
-        if (type == null || !typeof(IToolModule).IsAssignableFrom(type))
+        if (type == null || !ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolModule), type))
             return false;
 
         try

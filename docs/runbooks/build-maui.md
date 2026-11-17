@@ -164,7 +164,6 @@ dotnet publish src\FlyScreen.App.Maui\FlyScreen.App.Maui.csproj -c Release `
   -p:FlyScreenMauiTfms=windows `
   -p:RuntimeIdentifierOverride=win-x64 `
   -p:WindowsPackageType=None `
-  -p:WindowsAppSDKSelfContained=true `
   --self-contained true `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `

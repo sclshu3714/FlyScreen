@@ -124,7 +124,7 @@ public static class ToolBundledCatalogAssets
 
             try
             {
-                if (typeof(IToolLocalization).IsAssignableFrom(type))
+                if (ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolLocalization), type))
                 {
                     IToolLocalization? loc = null;
                     var instProp = type.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
@@ -140,7 +140,7 @@ public static class ToolBundledCatalogAssets
 
             try
             {
-                if (typeof(IToolIconContribution).IsAssignableFrom(type))
+                if (ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolIconContribution), type))
                 {
                     IToolIconContribution? icon = null;
                     var instProp = type.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);

@@ -37,6 +37,7 @@ public partial class DirectTransferPage : ContentPage
         _host = host;
         Title = "";
         NavigationPage.SetHasNavigationBar(this, false);
+        MauiThemeService.ApplyToDialog(this);
         ApplyLocalizedUi();
         PathList.ItemsSource = _paths;
         PeerPicker.ItemsSource = _peers;
@@ -109,6 +110,7 @@ public partial class DirectTransferPage : ContentPage
 
     private async void OnLoaded(object? sender, EventArgs e)
     {
+        MauiThemeService.ApplyToDialog(this);
         AttachExplorerDrop();
         ApplyToolbarIcons();
         // 避免 WinUI 残留 Title 浮标

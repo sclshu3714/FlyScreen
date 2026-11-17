@@ -100,10 +100,12 @@ public static class ToolIconRegistry
 
             foreach (var type in ToolAssemblyScan.GetLoadableTypes(asm))
             {
-                if (type.IsAbstract || !typeof(IToolIconContribution).IsAssignableFrom(type))
+                if (type.IsAbstract)
                     continue;
                 try
                 {
+                    if (!ToolAssemblyScan.IsSafeAssignableFrom(typeof(IToolIconContribution), type))
+                        continue;
                     IToolIconContribution? icon = null;
                     var instProp = type.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
                     if (instProp?.GetValue(null) is IToolIconContribution fromProp)

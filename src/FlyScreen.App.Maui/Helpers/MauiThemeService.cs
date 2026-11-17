@@ -84,6 +84,19 @@ public static class MauiThemeService
         }
     }
 
+    /// <summary>
+    /// 模态页/子页：自定义主题半透明色只给主页透壁纸；弹层用实心表面，避免透出下层页面。
+    /// 只写 Page.Resources，不改 Application（以免冲掉主页壁纸主题）。
+    /// </summary>
+    public static void ApplyToDialog(Page page)
+    {
+        var colors = ThemePalette.ForDialog(Current, maui: true);
+        MauiTheme.ApplyColors(page.Resources, colors);
+        page.BackgroundColor = Color.FromArgb(colors.WinBg);
+        RefreshButtonChrome(page);
+        MauiRadioTheme.RefreshAll(page);
+    }
+
     public static void RefreshRadioButtonsInVisualTree(Element? root)
         => MauiRadioTheme.RefreshAll(root);
 

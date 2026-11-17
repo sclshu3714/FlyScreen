@@ -224,6 +224,44 @@ public static class ThemePalette
     public static ThemeColors Get(bool dark, bool maui = false)
         => Get(dark ? DarkName : LightName, maui);
 
+    /// <summary>
+    /// 子窗/模态页用色板：自定义主题的半透明表面是给主窗透壁纸的，
+    /// 弹窗没有壁纸层，继续用半透明会透出主界面导致看不清。
+    /// </summary>
+    public static ThemeColors ForDialog(string? themeId, bool maui = false)
+    {
+        var info = Resolve(themeId);
+        var colors = info.ResolveColors(maui);
+        if (!info.SupportsWallpaper)
+            return colors;
+
+        // 保留当前主题文字/强调色，表面改淡色实心
+        return colors with
+        {
+            WinBg = Light.WinBg,
+            CardBg = Light.CardBg,
+            PaneBg = Light.PaneBg,
+            SubtleBg = Light.SubtleBg,
+            ControlBg = Light.ControlBg,
+            ControlBorder = Light.ControlBorder,
+            ControlHover = Light.ControlHover,
+            ListBg = Light.ListBg,
+            MatrixBg = Light.MatrixBg,
+            Line = Light.Line,
+            BlueSoft = Light.BlueSoft,
+            BlueHover = Light.BlueHover,
+            SuccessSoft = Light.SuccessSoft,
+            WarnSoft = Light.WarnSoft,
+            ToolCardNotInstalledBg = Light.ToolCardNotInstalledBg,
+            ToolCardInstalledBg = Light.ToolCardInstalledBg,
+            ToolCardRunningBg = Light.ToolCardRunningBg,
+            ToolCardInstallingBg = Light.ToolCardInstallingBg,
+            ScrollThumb = Light.ScrollThumb,
+            ScrollThumbHover = Light.ScrollThumbHover,
+            ScrollThumbDrag = Light.ScrollThumbDrag
+        };
+    }
+
     /// <summary>资源键 → hex，供各端 ThemeService 批量覆写。</summary>
     public static IReadOnlyDictionary<string, string> ToResourceMap(ThemeColors c) => new Dictionary<string, string>(StringComparer.Ordinal)
     {
