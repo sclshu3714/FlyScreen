@@ -80,8 +80,14 @@ if [[ -n "$LOAD_PATH" ]]; then
   exit 0
 }
 
-# BuildKit：中间阶段进缓存，不会像旧 builder 那样留下大量 <none> 镜像
-export DOCKER_BUILDKIT=1
+# BuildKit：有 buildx 时启用；远程 TCP 等无 buildx 则用经典 builder
+if docker buildx version >/dev/null 2>&1; then
+  export DOCKER_BUILDKIT=1
+  echo "==> DOCKER_BUILDKIT=1（buildx 可用）"
+else
+  export DOCKER_BUILDKIT=0
+  echo "==> DOCKER_BUILDKIT=0（未检测到 buildx，使用经典 builder）"
+fi
 
 RESOLVED_TAG="$(resolve_tag)"
 REFS=("${IMAGE_NAME}:latest" "${IMAGE_NAME}:${RESOLVED_TAG}")
@@ -92,7 +98,6 @@ fi
 
 echo "==> 工程目录: $RELAY_ROOT"
 echo "==> 镜像标签: ${REFS[*]}"
-echo "==> DOCKER_BUILDKIT=1"
 
 [[ -f "$RELAY_ROOT/Dockerfile" ]] || { echo "未找到 Dockerfile" >&2; exit 1; }
 
@@ -117,7 +122,23 @@ done
 BUILD_ARGS+=(.)
 
 echo "==> docker ${BUILD_ARGS[*]}"
-docker "${BUILD_ARGS[@]}"
+set +e
+BUILD_LOG="$(docker "${BUILD_ARGS[@]}" 2>&1)"
+BUILD_CODE=$?
+set -e
+[[ -n "$BUILD_LOG" ]] && echo "$BUILD_LOG"
+if [[ $BUILD_CODE -ne 0 ]]; then
+  if [[ "$DOCKER_BUILDKIT" != "0" ]] && echo "$BUILD_LOG" | grep -qiE 'buildx component is missing|BuildKit is enabled but the buildx'; then
+    echo "==> BuildKit/buildx 不可用，回退经典 builder 重试…" >&2
+    export DOCKER_BUILDKIT=0
+    echo "==> DOCKER_BUILDKIT=0（回退重试）"
+    echo "==> docker ${BUILD_ARGS[*]}"
+    docker "${BUILD_ARGS[@]}"
+  else
+    echo "docker build 失败 (exit $BUILD_CODE)" >&2
+    exit "$BUILD_CODE"
+  fi
+fi
 
 if [[ "$NO_PRUNE" -eq 0 ]]; then
   # 去掉本次/历史重建顶掉标签后的悬空镜像；不影响已打标签的 flyscreen-relay:*

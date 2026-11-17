@@ -420,15 +420,56 @@ public sealed class PublishService
 
         Directory.CreateDirectory(options.OutputRoot);
         Report(progress, 10, $"{target.DisplayName}：Docker 构建镜像…");
-        log("需要本机已安装并启动 Docker Desktop；国内默认启用 -Mirror。");
+
+        var host = (options.DockerSshHost ?? "").Trim();
+        var isLocal = IsLocalDockerHost(host);
+        var port = Math.Clamp(options.DockerSshPort, 1, 65535);
+        var useTcp = !isLocal && (options.DockerUseTcp || string.IsNullOrWhiteSpace(options.DockerSshUser));
+        if (isLocal)
+            log("Docker 目标：本机（localhost）；国内默认 -Mirror。");
+        else if (useTcp)
+            log($"Docker 目标：TCP tcp://{host}:{port}（无认证）");
+        else
+            log($"Docker 目标：SSH.NET {options.DockerSshUser}@{host}:{port}");
 
         var packArgs =
             $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
             $"-Mirror -Tag \"{version}\" -Save -OutDir \"{options.OutputRoot}\"";
-        var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, _jobEnv)
-            .ConfigureAwait(false);
-        if (exit != 0)
-            throw new InvalidOperationException("Relay Docker 打包失败（请确认 Docker 已启动）");
+        if (!isLocal && useTcp)
+            packArgs += $" -SshHost \"{host}\" -SshPort {port} -Transport tcp";
+
+        var env = MergeJobEnv(EnsureDockerPathEnv());
+        DockerSshTunnel? tunnel = null;
+        try
+        {
+            if (!isLocal && !useTcp)
+            {
+                tunnel = await DockerSshTunnel.StartAsync(
+                    host,
+                    port,
+                    options.DockerSshUser.Trim(),
+                    string.IsNullOrWhiteSpace(options.DockerSshKeyPath) ? null : options.DockerSshKeyPath.Trim(),
+                    string.IsNullOrEmpty(options.DockerSshPassword) ? null : options.DockerSshPassword,
+                    log,
+                    ct).ConfigureAwait(false);
+                packArgs += $" -DockerHost \"{tunnel.DockerHost}\"";
+            }
+
+            var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, env)
+                .ConfigureAwait(false);
+            if (exit != 0)
+                throw new InvalidOperationException(
+                    isLocal
+                        ? "Relay Docker 打包失败（请确认本机 Docker Desktop 已启动，且 PATH 含 docker）"
+                        : useTcp
+                            ? "Relay Docker TCP 打包失败（请确认远端已暴露 API，如 2375，且可访问）"
+                            : "Relay Docker SSH.NET 打包失败（请检查 IP/端口/账号与密钥或密码，远端需可用 docker）");
+        }
+        finally
+        {
+            if (tunnel != null)
+                await tunnel.DisposeAsync().ConfigureAwait(false);
+        }
 
         Report(progress, 85, $"{target.DisplayName}：整理镜像产物…");
         var produced = Path.Combine(options.OutputRoot, $"flyscreen-relay-{version}.tar");
@@ -464,6 +505,62 @@ public sealed class PublishService
         var dest = Path.Combine(outputRoot, "docker-compose.relay.yml");
         File.Copy(compose, dest, overwrite: true);
         log($"已附带 compose: {dest}");
+    }
+
+    private static bool IsLocalDockerHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return true;
+        var h = host.Trim();
+        return h.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+               || h.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+               || h.Equals("::1", StringComparison.OrdinalIgnoreCase)
+               || h.Equals("(local)", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Dictionary<string, string> MergeJobEnv(IReadOnlyDictionary<string, string>? extra)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (_jobEnv != null)
+        {
+            foreach (var (k, v) in _jobEnv)
+                map[k] = v;
+        }
+
+        if (extra != null)
+        {
+            foreach (var (k, v) in extra)
+                map[k] = v;
+        }
+
+        return map;
+    }
+
+    /// <summary>GUI 启动时常缺 Docker Desktop 注入的 PATH。</summary>
+    private static Dictionary<string, string> EnsureDockerPathEnv()
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var path = Environment.GetEnvironmentVariable("Path") ?? "";
+        var extras = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Docker", "Docker", "resources", "bin"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Docker", "Docker", "resources")
+        };
+        var parts = path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        var changed = false;
+        foreach (var dir in extras)
+        {
+            if (!Directory.Exists(dir)) continue;
+            if (parts.Any(p => p.Equals(dir, StringComparison.OrdinalIgnoreCase))) continue;
+            parts.Insert(0, dir);
+            changed = true;
+        }
+
+        if (changed)
+            map["Path"] = string.Join(';', parts);
+        return map;
     }
 
     private static bool LooksLikeSingleFilePublish(string dir, string rid)
