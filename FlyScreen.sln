@@ -1,5 +1,4 @@
-﻿
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.11.12306.390
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -69,9 +68,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.ColorPicker.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.SharedDevices.Ui.Maui", "src\Tools\SharedDevices\FlyScreen.Tool.SharedDevices.Ui.Maui\FlyScreen.Tool.SharedDevices.Ui.Maui.csproj", "{0F6E2A55-2355-4026-B254-E4EDE5D8EABA}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "", "", "{17C9FBA4-E68B-495C-A119-DE4C46DB9D77}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tools", "Tools", "{17C9FBA4-E68B-495C-A119-DE4C46DB9D77}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "", "", "{8F3A2B1C-9D4E-4F6A-B8C1-7E5D4A3B2C1F}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "PortProxy", "PortProxy", "{8F3A2B1C-9D4E-4F6A-B8C1-7E5D4A3B2C1F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.PortProxy", "src\Tools\PortProxy\FlyScreen.Tool.PortProxy\FlyScreen.Tool.PortProxy.csproj", "{E7D6C5B4-A392-4817-9F6E-5D4C3B2A1908}"
 EndProject
