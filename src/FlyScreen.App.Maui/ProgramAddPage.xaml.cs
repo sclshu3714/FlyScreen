@@ -1,3 +1,4 @@
+using FlyScreen.Ui.Maui;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Programs;
 
@@ -24,7 +25,9 @@ public partial class ProgramAddPage : ContentPage
     public ProgramAddPage()
     {
         InitializeComponent();
+        Helpers.MauiThemeService.PrepareOverlayPage(this);
         Title = Loc.T("Prog.DlgAddTitle");
+        Shell.Title = Title;
         LblName.Text = Loc.T("Prog.DlgName");
         LblLang.Text = Loc.T("Prog.DlgLang");
         LblNs.Text = Loc.T("Prog.DlgNamespace");

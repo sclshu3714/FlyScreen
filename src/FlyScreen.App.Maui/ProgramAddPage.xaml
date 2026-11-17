@@ -1,55 +1,55 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:FlyScreen.Ui.Maui;assembly=FlyScreen.Ui.Maui"
              x:Class="FlyScreen.AppMaui.ProgramAddPage"
              Title="添加程序"
-             BackgroundColor="{DynamicResource WinBg}">
-  <Grid Padding="24">
-    <Border Style="{StaticResource Card}"
-            MaximumWidthRequest="440"
-            MinimumWidthRequest="280"
-            VerticalOptions="Center"
-            HorizontalOptions="Center"
-            Padding="24">
-      <ScrollView>
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="Transparent">
+  <controls:MauiDialogShell x:Name="Shell"
+                            Title="添加程序"
+                            ShowClose="True"
+                            SizeMode="Form"
+                            CloseRequested="Cancel_Clicked">
+    <controls:MauiDialogShell.Body>
+      <ScrollView Padding="20,16,20,8">
         <VerticalStackLayout Spacing="10">
-          <Label x:Name="LblName" Text="程序名称" FontAttributes="Bold" />
-          <Entry x:Name="NameBox" Placeholder="例如：测试脚本" HeightRequest="44"
+          <Label x:Name="LblName" Text="程序名称" Style="{StaticResource DlgSectionTitle}" Margin="0" />
+          <Entry x:Name="NameBox" Placeholder="例如：测试脚本" HeightRequest="40"
                  TextChanged="NameBox_TextChanged" />
 
-          <Label x:Name="LblLang" Text="开发语言" FontAttributes="Bold" Margin="0,6,0,0" />
+          <Label x:Name="LblLang" Text="开发语言" Style="{StaticResource DlgSectionTitle}" Margin="0,6,0,0" />
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <Picker x:Name="LangPicker" Title=""
-                    HeightRequest="44"
+                    HeightRequest="40"
                     SelectedIndexChanged="LangPicker_Changed" />
-            <Button x:Name="DetectBtn" Grid.Column="1" Text="环境检测" Style="{StaticResource NormalBtn}"
-                    VerticalOptions="Center" Clicked="Detect_Clicked" />
+            <Button x:Name="DetectBtn" Grid.Column="1" Text="环境检测" Style="{StaticResource DlgNormalBtn}"
+                    Margin="0" VerticalOptions="Center" Clicked="Detect_Clicked" />
           </Grid>
 
-          <Label x:Name="LblNs" Text="命名空间" FontAttributes="Bold" Margin="0,6,0,0" />
-          <Entry x:Name="NamespaceBox" HeightRequest="44" />
+          <Label x:Name="LblNs" Text="命名空间" Style="{StaticResource DlgSectionTitle}" Margin="0,6,0,0" />
+          <Entry x:Name="NamespaceBox" HeightRequest="40" />
 
-          <Label x:Name="LblFile" Text="文件名称" FontAttributes="Bold" Margin="0,6,0,0" />
-          <Entry x:Name="FileNameBox" HeightRequest="44" />
+          <Label x:Name="LblFile" Text="文件名称" Style="{StaticResource DlgSectionTitle}" Margin="0,6,0,0" />
+          <Entry x:Name="FileNameBox" HeightRequest="40" />
 
-          <!-- 检查结果：位于文件名称下方，不弹窗 -->
-          <Label x:Name="DetectStatus" TextColor="{DynamicResource Muted}" FontSize="12"
-                 LineBreakMode="WordWrap" Margin="0,4,0,0" />
+          <Label x:Name="DetectStatus" Style="{StaticResource DlgHint}" Margin="0,4,0,0" />
           <HorizontalStackLayout x:Name="DetectActions" IsVisible="False" Spacing="8" Margin="0,4,0,0">
-            <Button x:Name="DetectAutoBtn" Text="自动修复" Style="{StaticResource SoftBlueBtn}"
-                    HeightRequest="32" Padding="12,0" Clicked="DetectAuto_Clicked" />
-            <Button x:Name="DetectOpenBtn" Text="打开安装页" Style="{StaticResource NormalBtn}"
-                    HeightRequest="32" Padding="12,0" Clicked="DetectOpen_Clicked" />
+            <Button x:Name="DetectAutoBtn" Text="自动修复" Style="{StaticResource DlgNormalBtn}"
+                    HeightRequest="32" Clicked="DetectAuto_Clicked" />
+            <Button x:Name="DetectOpenBtn" Text="打开安装页" Style="{StaticResource DlgNormalBtn}"
+                    HeightRequest="32" Margin="0" Clicked="DetectOpen_Clicked" />
           </HorizontalStackLayout>
-
-          <Grid Margin="0,12,0,0" ColumnDefinitions="*,*" ColumnSpacing="12">
-            <Button x:Name="CancelBtn" Text="取消" Style="{StaticResource NormalBtn}"
-                    HorizontalOptions="Fill" Clicked="Cancel_Clicked" />
-            <Button x:Name="SaveBtn" Grid.Column="1" Text="保存" Style="{StaticResource SoftBlueBtn}"
-                    HorizontalOptions="Fill" Clicked="Save_Clicked" />
-          </Grid>
         </VerticalStackLayout>
       </ScrollView>
-    </Border>
-  </Grid>
+    </controls:MauiDialogShell.Body>
+    <controls:MauiDialogShell.Footer>
+      <HorizontalStackLayout Spacing="0" HorizontalOptions="End">
+        <Button x:Name="CancelBtn" Text="取消" Style="{StaticResource DlgNormalBtn}"
+                Clicked="Cancel_Clicked" />
+        <Button x:Name="SaveBtn" Text="保存" Style="{StaticResource DlgPrimaryBtn}"
+                Clicked="Save_Clicked" />
+      </HorizontalStackLayout>
+    </controls:MauiDialogShell.Footer>
+  </controls:MauiDialogShell>
 </ContentPage>

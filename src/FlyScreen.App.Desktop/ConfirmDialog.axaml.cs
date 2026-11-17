@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 
@@ -13,6 +14,8 @@ public partial class ConfirmDialog : Window
     public ConfirmDialog()
     {
         InitializeComponent();
+        DesktopThemeService.ApplyToChildWindow(this);
+        Loaded += (_, _) => DesktopThemeService.ApplyToChildWindow(this);
     }
 
     public static async Task<UiConfirmChoice> ShowAsync(

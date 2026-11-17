@@ -56,11 +56,20 @@ public static class DesktopThemeService
     {
         var info = ThemePalette.Resolve(Current);
         var colors = ThemePalette.ForDialog(Current);
+        var winBg = new SolidColorBrush(Color.Parse(colors.WinBg));
+        var cardBg = new SolidColorBrush(Color.Parse(colors.CardBg));
         foreach (var (key, hex) in ThemePalette.ToResourceMap(colors))
             window.Resources[key] = new SolidColorBrush(Color.Parse(hex));
 
-        window.Background = new SolidColorBrush(Color.Parse(colors.WinBg));
+        // Mac/Linux：禁止透明层级，否则 DynamicResource 半透明会透出主窗
+        window.TransparencyLevelHint = [WindowTransparencyLevel.None];
+        window.Opacity = 1;
+        window.Background = winBg;
         window.Foreground = new SolidColorBrush(Color.Parse(colors.Text));
+        if (window.FindControl<Border>("WindowFrame") is { } frame)
+            frame.Background = winBg;
+        if (window.FindControl<Border>("DialogCard") is { } card)
+            card.Background = cardBg;
         if (Application.Current != null)
             Application.Current.RequestedThemeVariant = info.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
         window.InvalidateVisual();

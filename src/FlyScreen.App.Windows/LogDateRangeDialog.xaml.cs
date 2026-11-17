@@ -40,7 +40,6 @@ public partial class LogDateRangeDialog : Window
             dlg.Owner = owner;
 
         dlg.Title = Loc.T("Log.DateTitle");
-        dlg.TitleText.Text = Loc.T("Log.DateTitle");
         dlg.FromLabel.Text = Loc.T("Log.DateFrom");
         dlg.ToLabel.Text = Loc.T("Log.DateTo");
         dlg.ClearBtn.Content = Loc.T("Log.DateClear");

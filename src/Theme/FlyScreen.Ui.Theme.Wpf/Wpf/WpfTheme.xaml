@@ -13,6 +13,7 @@
     <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/DataGridStyles.xaml"/>
     <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ActionStyles.xaml"/>
     <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/LayoutStyles.xaml"/>
+    <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/DialogStyles.xaml"/>
     <ResourceDictionary Source="/FlyScreen.Ui.Theme.Wpf;component/Wpf/ScrollBarStyles.xaml"/>
   </ResourceDictionary.MergedDictionaries>
 </ResourceDictionary>

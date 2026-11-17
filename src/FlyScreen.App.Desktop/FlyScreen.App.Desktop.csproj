@@ -40,6 +40,7 @@
     <AvaloniaResource Include="Themes\**" />
     <AvaloniaResource Include="..\Theme\FlyScreen.Ui.Theme.Avalonia\Styles\ActionStyles.axaml" Link="Themes\ActionStyles.axaml" />
     <AvaloniaResource Include="..\Theme\FlyScreen.Ui.Theme.Avalonia\Styles\ScrollBar.axaml" Link="Themes\ScrollBar.axaml" />
+    <AvaloniaResource Include="..\Theme\FlyScreen.Ui.Theme.Avalonia\Styles\DialogStyles.axaml" Link="Themes\DialogStyles.axaml" />
   </ItemGroup>
 
   <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />

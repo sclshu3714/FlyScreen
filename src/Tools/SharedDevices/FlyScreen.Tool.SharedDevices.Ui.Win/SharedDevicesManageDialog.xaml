@@ -28,42 +28,6 @@
     <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ControlBorder" Color="#D1D5DB"/>
 
-    <Style x:Key="DlgBtn" TargetType="Button">
-      <Setter Property="MinHeight" Value="36"/>
-      <Setter Property="MinWidth" Value="88"/>
-      <Setter Property="Padding" Value="16,0"/>
-      <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="8" Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="{DynamicResource BlueHover}"/>
-                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Blue}"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style x:Key="DlgPrimaryBtn" TargetType="Button" BasedOn="{StaticResource DlgBtn}">
-      <Setter Property="Background" Value="{DynamicResource Blue}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Blue}"/>
-      <Setter Property="Foreground" Value="White"/>
-    </Style>
     <!-- 沿用 SharedDevicesWinControls 的 ComboBox 模板（文字垂直居中） -->
     <Style x:Key="DeviceCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"/>
     </ResourceDictionary>
@@ -100,14 +64,14 @@
       </StackPanel>
     </Border>
 
-    <Button x:Name="ClearRememberBtn" Style="{StaticResource DlgBtn}"
+    <Button x:Name="ClearRememberBtn" Style="{StaticResource DlgNormalBtn}"
             HorizontalAlignment="Stretch" Margin="0,4,0,0" Click="ClearRemember_Click"/>
     <TextBlock x:Name="ClearStatus" FontSize="12" Foreground="{DynamicResource Muted}"
                HorizontalAlignment="Center" Margin="0,8,0,0" TextWrapping="Wrap"/>
 
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
       <Button x:Name="SaveBtn" Style="{StaticResource DlgPrimaryBtn}" Margin="0,0,10,0" Click="Save_Click"/>
-      <Button x:Name="CloseBtn" Style="{StaticResource DlgBtn}" Click="Close_Click"/>
+      <Button x:Name="CloseBtn" Style="{StaticResource DlgNormalBtn}" Click="Close_Click"/>
     </StackPanel>
   </StackPanel>
 </Window>

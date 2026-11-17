@@ -41,7 +41,6 @@ public partial class RemoteBindDialog : Window
         if (owner != null) dlg.Owner = owner;
 
         dlg.Title = Loc.T("Net.BindTitle");
-        dlg.TitleText.Text = Loc.T("Net.BindTitle");
         dlg.HintText.Text = string.Format(Loc.T("Net.BindHint"), remoteName);
         dlg.TargetLabel.Text = Loc.T("Net.BindTarget");
         dlg.ResolutionLabel.Text = Loc.T("Net.BindResolution");
