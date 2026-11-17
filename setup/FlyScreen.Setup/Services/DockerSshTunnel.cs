@@ -16,14 +16,18 @@ internal sealed class DockerSshTunnel : IAsyncDisposable, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _bridges = new();
     private readonly object _gate = new();
+    private readonly string _remoteDockerCommand;
     private Task? _acceptLoop;
     private bool _disposed;
 
-    private DockerSshTunnel(SshClient client, TcpListener listener, int localPort)
+    private DockerSshTunnel(SshClient client, TcpListener listener, int localPort, string remoteDockerCommand)
     {
         _client = client;
         _listener = listener;
         LocalPort = localPort;
+        _remoteDockerCommand = string.IsNullOrWhiteSpace(remoteDockerCommand)
+            ? "docker"
+            : remoteDockerCommand.Trim();
     }
 
     public int LocalPort { get; }
@@ -77,13 +81,50 @@ internal sealed class DockerSshTunnel : IAsyncDisposable, IDisposable
             throw;
         }
 
+        var remoteDocker = await ResolveRemoteDockerCommandAsync(client, log, ct).ConfigureAwait(false);
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var localPort = ((IPEndPoint)listener.LocalEndpoint).Port;
-        var tunnel = new DockerSshTunnel(client, listener, localPort);
+        var tunnel = new DockerSshTunnel(client, listener, localPort, remoteDocker);
         tunnel._acceptLoop = tunnel.AcceptLoopAsync(tunnel._cts.Token);
-        log?.Invoke($"SSH.NET 隧道已建立：DOCKER_HOST={tunnel.DockerHost} → {user}@{host} docker dial-stdio");
+        log?.Invoke(
+            $"SSH.NET 隧道已建立：DOCKER_HOST={tunnel.DockerHost} → {user}@{host} {remoteDocker} system dial-stdio");
         return tunnel;
+    }
+
+    /// <summary>
+    /// 远端普通用户常无 docker.sock 权限；优先裸 docker，失败再试免密 sudo。
+    /// </summary>
+    private static async Task<string> ResolveRemoteDockerCommandAsync(
+        SshClient client, Action<string>? log, CancellationToken ct)
+    {
+        if (await TryRemoteDockerInfoAsync(client, "docker", ct).ConfigureAwait(false))
+            return "docker";
+
+        if (await TryRemoteDockerInfoAsync(client, "sudo -n docker", ct).ConfigureAwait(false))
+        {
+            log?.Invoke("远端普通 docker 无权限，已改用 sudo -n docker（需免密 sudo）");
+            return "sudo -n docker";
+        }
+
+        throw new InvalidOperationException(
+            "远端无法使用 docker（permission denied 或未安装）。请将 SSH 用户加入 docker 组并重新登录，或配置免密 sudo docker。");
+    }
+
+    private static async Task<bool> TryRemoteDockerInfoAsync(
+        SshClient client, string dockerCmd, CancellationToken ct)
+    {
+        try
+        {
+            using var cmd = client.CreateCommand($"{dockerCmd} info");
+            cmd.CommandTimeout = TimeSpan.FromSeconds(20);
+            await Task.Run(() => cmd.Execute(), ct).ConfigureAwait(false);
+            return cmd.ExitStatus == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task AcceptLoopAsync(CancellationToken ct)
@@ -124,7 +165,7 @@ internal sealed class DockerSshTunnel : IAsyncDisposable, IDisposable
                     return;
 
                 // docker CLI ↔ SSH 远程「docker system dial-stdio」（等同官方 ssh helper）
-                using var cmd = _client.CreateCommand("docker system dial-stdio");
+                using var cmd = _client.CreateCommand($"{_remoteDockerCommand} system dial-stdio");
                 var executeTask = cmd.ExecuteAsync(ct);
                 await using (var input = cmd.CreateInputStream())
                 {
