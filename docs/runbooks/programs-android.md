@@ -50,9 +50,11 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 | 语言 | 执行方式 |
 |------|----------|
-| C# | 进程内编译运行（手机）；模板见 `ProgramCatalog` |
+| C# | 进程内 Roslyn 编译运行（手机）；模板见 `ProgramCatalog` |
 | JavaScript | Jint；API 为 camelCase（如 `Fly.hasText`） |
 | 其它 | 脚手架为主，设备控制以 C#/JS 为准 |
+
+**Android C# 注意：** 宿主无真实 `Assembly.Location`（常见假路径 `/System.Private.CoreLib.dll`）。`ProgramScriptHost` 对 Roslyn 的 `CreateFromFile` 做安全钩子，并从内存元数据建引用；若仍见 `IO_FileNotFound_FileName` / corlib 相关错误，先确认已含该修复的 APK。
 
 ## 4. Fly API 摘要
 
@@ -89,6 +91,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-17 | 修复 Android Roslyn 因假路径 corlib 触发 `IO_FileNotFound_FileName` 导致「通用识别操作」运行失败 |
 | 2026-10-28 | 内置源 v8：横/竖各自未标定则该朝向不做 OCR；两侧都未标定 ≈ 关闭 OCR；`HasAnyOcrRegionConfigured` |
 | 2026-10-28 | 内置源 v7：竖屏未标定绝不跑 OCR；朝向优先 Configuration，纠正 GetRealSize 误判横屏 |
 | 2026-10-28 | 内置源 v6：倒计时改手写解析（脚本无 Regex 程序集会 CS1069）；编译器补 `System.Text.RegularExpressions` 引用 |

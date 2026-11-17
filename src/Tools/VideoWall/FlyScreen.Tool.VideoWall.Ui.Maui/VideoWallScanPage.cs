@@ -38,9 +38,13 @@ public sealed class VideoWallScanPage : ContentPage
         var blue = ColorOf("Blue") ?? Color.FromArgb("#2563EB");
 
         var cidrs = LanDeviceScanService.ListLocalCidrs();
+        // Windows：Picker.Title → ComboBox.Header，会与下方 Field 标签重复并挤压选择框；
+        // Android：Title 作原生选择器对话框标题，保留。
+        var subnetTitle = OperatingSystem.IsWindows() ? null : Loc.T("Tool.VideoWall.Scan.Subnet");
+        var vendorTitle = OperatingSystem.IsWindows() ? null : Loc.T("Tool.VideoWall.Scan.Vendor");
         _subnet = new Picker
         {
-            Title = Loc.T("Tool.VideoWall.Scan.Subnet"),
+            Title = subnetTitle,
             TextColor = text,
             ItemsSource = cidrs.ToList(),
             SelectedIndex = 0,
@@ -62,7 +66,7 @@ public sealed class VideoWallScanPage : ContentPage
         _pass.ApplyTheme(text, muted, line, card);
         _vendor = new Picker
         {
-            Title = Loc.T("Tool.VideoWall.Scan.Vendor"),
+            Title = vendorTitle,
             TextColor = text,
             ItemsSource = new[] { "海康", "大华", "宇视", "Axis" },
             SelectedIndex = 0,
