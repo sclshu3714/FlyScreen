@@ -101,8 +101,10 @@ public partial class ScreenExtendSinkWindow : Window
                 Dispatcher.BeginInvoke(() =>
                 {
                     if (_chromeFullscreen) return;
-                    if (WindowState == WindowState.Maximized)
+                    if(WindowState == WindowState.Maximized) {
                         FillWorkArea(saveNormalBounds: !_workAreaFilled);
+                        SyncResizeBorder();
+                    }
                 }, DispatcherPriority.Loaded);
                 return;
             }
@@ -136,11 +138,13 @@ public partial class ScreenExtendSinkWindow : Window
                     Height = h;
                     Left = Math.Max(0, screen.X - w / 2);
                     Top = Math.Max(0, screen.Y - 18);
-                    SyncResizeBorder();
                     RefreshMaxIcon();
                 }
                 catch { /* ignore */ }
-                finally { _suppressBoundsSync = false; }
+                finally { 
+                    _suppressBoundsSync = false;
+                    SyncResizeBorder();
+                }
                 return;
             }
 
