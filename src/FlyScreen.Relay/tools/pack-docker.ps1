@@ -1,4 +1,5 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
+# UTF-8 with BOM：供 Windows PowerShell 5.1 在中文/英文/UTF-8 系统区都能正确解析中文（与 build/*.ps1 一致）。
 <#
 .SYNOPSIS
   打包 FlyScreen.Relay Docker 镜像（构建 / 导出 / 推送）。
@@ -86,8 +87,11 @@ function Add-DockerToPath {
     (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin'),
     (Join-Path $env:ProgramFiles 'Docker\Docker\resources'),
     (Join-Path ${env:ProgramFiles(x86)} 'Docker\Docker\resources\bin'),
+    (Join-Path $env:LOCALAPPDATA 'Docker\resources\bin'),
     (Join-Path $env:ProgramFiles 'docker'),
-    (Join-Path ${env:ProgramFiles(x86)} 'docker')
+    (Join-Path ${env:ProgramFiles(x86)} 'docker'),
+    (Join-Path $env:USERPROFILE 'scoop\shims'),
+    (Join-Path $env:USERPROFILE 'scoop\apps\docker\current')
   ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
 
   foreach ($dir in $candidates) {
@@ -262,6 +266,9 @@ function Clear-RemoteDockerSession {
 function Assert-Docker {
   Add-DockerToPath
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    if ($env:DOCKER_HOST) {
+      throw "未找到本机 docker 客户端。远程打包仍须本机 docker.exe（不必启动本机引擎）。请安装 Docker Desktop 或 Docker CLI 后重试。"
+    }
     throw "未找到 docker 命令。请安装 Docker Desktop，或确认 PATH 含 Docker\resources\bin。"
   }
   $info = Invoke-DockerRaw -DockerArgs @('info') -PassThru

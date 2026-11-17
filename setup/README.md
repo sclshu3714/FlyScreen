@@ -33,7 +33,9 @@ dotnet run --project setup\FlyScreen.Setup\FlyScreen.Setup.csproj -c Release
 ### 中继服务 (Relay)
 
 - **运行时**选 `win-x64` / `linux-x64` 等：`dotnet publish` → `FlyScreen-{ver}-relay-{rid}.zip`（或单文件）
-- **运行时**选 `docker`：调用 `src/FlyScreen.Relay/tools/pack-docker.ps1 -Mirror -Save`，产出 `FlyScreen-{ver}-relay-docker.tar`，并附带 `docker-compose.relay.yml`（需本机 Docker Desktop）
+- **运行时**选 `docker`：产出 `FlyScreen-{ver}-relay-docker.tar` + `docker-compose.relay.yml`
+  - **本机 / TCP**：`pack-docker.ps1`，需本机 docker 客户端
+  - **SSH 密钥/密码**：Setup 用 SSH.NET 在远端 `docker build` / `save` 后拉回 tar，**无需本机 docker**；远端用户建议加入 `docker` 组（密码模式可回退 sudo -A）
 
 ## 安装包默认 UI
 
