@@ -11,6 +11,9 @@ public static class MauiProgram
     {
         // Windows 拓扑监视：独立 FlyScreen.TopologyGuard.exe（见 DisplayTopologyWatchdog）
 
+        // 须在任何 ProgramCatalog / 脚本编译之前：Android 无磁盘 DLL
+        MauiScriptReferenceBootstrap.TryRegister();
+
         var builder = MauiApp.CreateBuilder();
         builder.UseMauiApp<App>();
         // 不在此注册 LibVLC：视频墙等插件自带依赖，ALC 热加载（Maui-Win 走 HWND）

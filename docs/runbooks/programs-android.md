@@ -54,7 +54,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 | JavaScript | Jint；API 为 camelCase（如 `Fly.hasText`） |
 | 其它 | 脚手架为主，设备控制以 C#/JS 为准 |
 
-**Android C# 注意：** 宿主无真实 `Assembly.Location`（常见假路径 `/System.Private.CoreLib.dll` 或无后缀的 `System.Private.CoreLib`）。`ProgramScriptHost` 对 Roslyn 的 `CreateFromFile` 做安全钩子，按 PE 后缀解析简单名并从内存元数据建引用；若仍见 `IO_FileNotFound_FileName` / corlib 相关错误，先确认已含该修复的 APK。
+**Android C# 注意：** 宿主无真实 `Assembly.Location`，且 Mono 上 `TryGetRawMetadata` 常不可用。C# 程序改走 **`CSharpCompilation` + 嵌入的 `Microsoft.NETCore.App.Ref`（net10.0）** 用 `CreateFromImage` 建引用，**不再**用 `CSharp.Scripting`（其会强制对运行时 `System.Private.CoreLib` 做 `CreateFromFile`）。宿主 `FlyScreen.Core` 由 Maui 打进 `ScriptRefs/FlyScreen.Core.dll` 并在启动时 `RegisterReferenceImage`。语言版本固定 **C# 12**。若仍见缺引用 / CS0400，确认 APK 含上述嵌入 ref 与 ScriptRefs 资源。
 
 ## 4. Fly API 摘要
 
@@ -91,6 +91,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-18 | C# 改为嵌入 net10.0 ref + `CSharpCompilation`（弃用 Scripting/CreateFromFile/TryGetRawMetadata 主路径）；Maui 打包 `ScriptRefs/FlyScreen.Core.dll` |
 | 2026-11-18 | 假路径无 `.dll` 时勿用 `GetFileNameWithoutExtension`（会把 `System.Private.CoreLib` 裁成 `System.Private`）；改为仅剥 PE 后缀的通用简单名解析 |
 | 2026-11-17 | 修复 Android Roslyn 因假路径 corlib 触发 `IO_FileNotFound_FileName` 导致「通用识别操作」运行失败 |
 | 2026-10-28 | 内置源 v8：横/竖各自未标定则该朝向不做 OCR；两侧都未标定 ≈ 关闭 OCR；`HasAnyOcrRegionConfigured` |

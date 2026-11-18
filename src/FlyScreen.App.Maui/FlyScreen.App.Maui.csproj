@@ -153,6 +153,40 @@
     </MauiAsset>
   </ItemGroup>
 
+  <!-- Android：把 FlyScreen.Core.dll 打进 assets，供脚本编译 RegisterReferenceImage。
+       After ResolveAssemblyReferences（勿 Before PrepareForBuild，否则 MSB4006 循环依赖）。 -->
+  <Target Name="FlyScreen_PackScriptHostRefs"
+          AfterTargets="ResolveAssemblyReferences"
+          DependsOnTargets="ResolveAssemblyReferences"
+          BeforeTargets="_ComputeAndroidAssetsPaths"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <PropertyGroup>
+      <_FsScriptRefStaging>$(IntermediateOutputPath)script-refs\</_FsScriptRefStaging>
+      <_FsCoreOutHint>$(MSBuildThisFileDirectory)..\FlyScreen.Core\bin\$(Configuration)\net10.0\FlyScreen.Core.dll</_FsCoreOutHint>
+    </PropertyGroup>
+    <ItemGroup>
+      <_FsScriptHostDll Include="@(ReferencePath)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.Core.dll'" />
+      <_FsScriptHostDll Include="$(_FsCoreOutHint)"
+                        Condition="'@(_FsScriptHostDll)' == '' and Exists('$(_FsCoreOutHint)')" />
+    </ItemGroup>
+    <MakeDir Directories="$(_FsScriptRefStaging)" Condition="'@(_FsScriptHostDll)' != ''" />
+    <Copy SourceFiles="@(_FsScriptHostDll)"
+          DestinationFiles="$(_FsScriptRefStaging)FlyScreen.Core.dll"
+          SkipUnchangedFiles="true"
+          Condition="'@(_FsScriptHostDll)' != ''" />
+    <ItemGroup Condition="Exists('$(_FsScriptRefStaging)FlyScreen.Core.dll')">
+      <AndroidAsset Include="$(_FsScriptRefStaging)FlyScreen.Core.dll">
+        <Link>ScriptRefs\FlyScreen.Core.dll</Link>
+      </AndroidAsset>
+      <FileWrites Include="$(_FsScriptRefStaging)FlyScreen.Core.dll" />
+    </ItemGroup>
+    <Warning Text="FlyScreen_PackScriptHostRefs: 未解析到 FlyScreen.Core.dll，Android C# 脚本可能缺宿主引用。"
+             Condition="'@(_FsScriptHostDll)' == ''" />
+    <Message Importance="High"
+             Text="FlyScreen_PackScriptHostRefs: 已加入 AndroidAsset ScriptRefs/FlyScreen.Core.dll"
+             Condition="Exists('$(_FsScriptRefStaging)FlyScreen.Core.dll')" />
+  </Target>
+
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <Content Include="$(FlyScreenAppIco)">
       <Link>Assets\appicon.ico</Link>
