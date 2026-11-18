@@ -98,6 +98,12 @@ public partial class ProjectionDialog : Window
         if (settings.ScreenExtendFps <= 0 && settings.ScreenExtendWidth <= 0)
             return false;
 
+        var mode = ReadMode();
+        // 扩展模式：勿默认「本机主屏」（index 0）
+        if (mode == DisplayProjectionMode.Extend
+            && settings.ScreenExtendDisplaySource == (int)ProjectionDisplaySource.HostPrimary)
+            return false;
+
         if (settings.ScreenExtendWidth > 0 && settings.ScreenExtendHeight > 0)
         {
             var label = $"{settings.ScreenExtendWidth}×{settings.ScreenExtendHeight}";
@@ -105,6 +111,9 @@ public partial class ProjectionDialog : Window
             {
                 if (ResolutionCombo.Items[i]?.ToString() == label)
                 {
+                    // 扩展时跳过「本机主屏（自动）」同尺寸命中
+                    if (mode == DisplayProjectionMode.Extend && i == 0)
+                        continue;
                     ResolutionCombo.SelectedIndex = i;
                     return true;
                 }
@@ -113,7 +122,7 @@ public partial class ProjectionDialog : Window
 
         ResolutionCombo.SelectedIndex = settings.ScreenExtendDisplaySource == (int)ProjectionDisplaySource.TargetPeer
             ? 1
-            : 0;
+            : (mode == DisplayProjectionMode.Extend ? 1 : 0);
         return true;
     }
 

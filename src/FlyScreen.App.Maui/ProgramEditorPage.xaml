@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="FlyScreen.AppMaui.ProgramEditorPage"
              Title="编辑程序"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="{DynamicResource WinBg}">
   <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
     <HorizontalStackLayout x:Name="ToolBar" Spacing="6" HorizontalOptions="Start">

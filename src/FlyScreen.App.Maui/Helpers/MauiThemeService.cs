@@ -57,6 +57,7 @@ public static class MauiThemeService
 
         MauiRadioTheme.RefreshAll(page);
         RefreshButtonChrome(page);
+        RefreshPickerChrome(page);
         if (page != null)
         {
             var translucent = info.SupportsWallpaper;
@@ -64,6 +65,7 @@ public static class MauiThemeService
             {
                 MauiRadioTheme.RefreshAll(page);
                 RefreshButtonChrome(page);
+                RefreshPickerChrome(page);
 #if WINDOWS
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(dark, translucent: translucent);
 #endif
@@ -73,12 +75,14 @@ public static class MauiThemeService
                 await Task.Delay(50);
                 MauiRadioTheme.RefreshAll(page);
                 RefreshButtonChrome(page);
+                RefreshPickerChrome(page);
 #if WINDOWS
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(dark, translucent: translucent);
 #endif
                 await Task.Delay(150);
                 MauiRadioTheme.RefreshAll(page);
                 RefreshButtonChrome(page);
+                RefreshPickerChrome(page);
 #if WINDOWS
                 Platforms.Windows.MauiWindowChrome.ApplyTheme(dark, translucent: translucent);
 #endif
@@ -268,6 +272,23 @@ public static class MauiThemeService
             if (child is Element el)
                 RefreshButtonChrome(el);
         }
+    }
+
+    /// <summary>主题切换后重刷已存在 Picker 的 WinUI 下拉实心底。</summary>
+    public static void RefreshPickerChrome(Element? root)
+    {
+#if WINDOWS
+        if (root == null) return;
+        if (root is Picker pick && pick.Handler?.PlatformView is { } native)
+            MauiPickerChrome.Apply(native);
+
+        if (root is not IVisualTreeElement tree) return;
+        foreach (var child in tree.GetVisualChildren())
+        {
+            if (child is Element el)
+                RefreshPickerChrome(el);
+        }
+#endif
     }
 
     private static Page? TryGetMainPage()

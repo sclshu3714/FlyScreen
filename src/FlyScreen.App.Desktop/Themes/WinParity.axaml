@@ -12,6 +12,9 @@
   <SolidColorBrush x:Key="WarnSoft" Color="#FEF3C7"/>
   <SolidColorBrush x:Key="WinBg" Color="#F7F8FA"/>
   <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
+  <SolidColorBrush x:Key="PopupBg" Color="#FFFFFF"/>
+  <!-- Fluent ComboBox 下拉列表底；自定义壁纸主题须实心，与 PopupBg 同步 -->
+  <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FFFFFF"/>
   <SolidColorBrush x:Key="PaneBg" Color="#FFFFFF"/>
   <SolidColorBrush x:Key="SubtleBg" Color="#F3F4F6"/>
   <SolidColorBrush x:Key="ControlBg" Color="#FFFFFF"/>

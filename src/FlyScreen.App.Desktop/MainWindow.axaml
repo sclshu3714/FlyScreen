@@ -171,6 +171,10 @@
       <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     </Style>
+    <!-- 下拉列表底跟 PopupBg（自定义壁纸主题实心，避免选项透底） -->
+    <Style Selector="ComboBox /template/ Border#PopupBorder">
+      <Setter Property="Background" Value="{DynamicResource PopupBg}"/>
+    </Style>
 
     <Style Selector="CheckBox">
         <Setter Property="Margin" Value="0"/> <!-- 移除CheckBox自身上下外边距，行间距交给外层StackPanel.Spacing统一管理 -->

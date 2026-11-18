@@ -30,6 +30,12 @@ public partial class ScreenExtendSinkWindow : Window
     private bool _userCloseRaised;
     private bool _captureBound;
     private bool _chromeFullscreen;
+    /// <summary>工作区填充（等价最大化，不盖任务栏）；与 WindowState.Maximized 解耦。</summary>
+    private bool _workAreaFilled;
+    private bool _suppressBoundsSync;
+    private Rect _normalBoundsDip = new(120, 80, 1100, 720);
+    private bool _preFsWorkAreaFilled;
+    private Rect _preFsBoundsDip = new(120, 80, 1100, 720);
     private bool _fsToolbarExpanded = true;
     private bool _fsToolbarDragging;
     private bool _fsToolbarMoved;
@@ -89,17 +95,79 @@ public partial class ScreenExtendSinkWindow : Window
         Deactivated += (_, _) => DetachCapture();
         StateChanged += (_, _) =>
         {
+            if (WindowState == WindowState.Maximized && !_chromeFullscreen)
+            {
+                // Topmost+Maximized 易盖任务栏：改走工作区填充
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (_chromeFullscreen) return;
+                    if(WindowState == WindowState.Maximized) {
+                        FillWorkArea(saveNormalBounds: !_workAreaFilled);
+                        SyncResizeBorder();
+                    }
+                }, DispatcherPriority.Loaded);
+                return;
+            }
+
+            if (WindowState == WindowState.Normal && !_chromeFullscreen && !_workAreaFilled)
+                RememberNormalBounds();
             SyncResizeBorder();
             RefreshMaxIcon();
+        };
+        LocationChanged += (_, _) =>
+        {
+            if (_chromeFullscreen || _suppressBoundsSync) return;
+            if (_workAreaFilled)
+            {
+                // 标题栏拖出工作区填充：缩回进入前的普通尺寸
+                try
+                {
+                    var wa = GetNearestWorkAreaDip();
+                    if (Math.Abs(Left - wa.X) <= 4 && Math.Abs(Top - wa.Y) <= 4)
+                        return;
+                    _workAreaFilled = false;
+                    _suppressBoundsSync = true;
+                    var screen = NativeMethods.GetCursorPos(out var pt)
+                        ? new Point(pt.X, pt.Y)
+                        : PointToScreen(new Point(ActualWidth / 2, 18));
+                    if (PresentationSource.FromVisual(this) is HwndSource { CompositionTarget: { } ct })
+                        screen = ct.TransformFromDevice.Transform(screen);
+                    var w = _normalBoundsDip.Width > 80 ? _normalBoundsDip.Width : Math.Max(640, ActualWidth * 0.7);
+                    var h = _normalBoundsDip.Height > 80 ? _normalBoundsDip.Height : Math.Max(400, ActualHeight * 0.7);
+                    Width = w;
+                    Height = h;
+                    Left = Math.Max(0, screen.X - w / 2);
+                    Top = Math.Max(0, screen.Y - 18);
+                    RefreshMaxIcon();
+                }
+                catch { /* ignore */ }
+                finally { 
+                    _suppressBoundsSync = false;
+                    SyncResizeBorder();
+                }
+                return;
+            }
+
+            if (WindowState == WindowState.Normal)
+                RememberNormalBounds();
+        };
+        SizeChanged += (_, _) =>
+        {
+            // 贴工作区过程中会短暂触发 SizeChanged，绝不能把还原尺寸写成工作区全高
+            if (_suppressBoundsSync || _chromeFullscreen || _workAreaFilled) return;
+            if (WindowState == WindowState.Normal)
+                RememberNormalBounds();
         };
         _cursorIdle.ShowLocalCursorChanged += show =>
         {
             Dispatcher.BeginInvoke(() =>
             {
-                if (_chromeFullscreen)
-                    Cursor = show
-                        ? System.Windows.Input.Cursors.Arrow
-                        : System.Windows.Input.Cursors.None;
+                if (!_chromeFullscreen) return;
+                Cursor = show
+                    ? System.Windows.Input.Cursors.Arrow
+                    : System.Windows.Input.Cursors.None;
+                if (_fsToolbarDragging) return;
+                FsToolbar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             });
         };
     }
@@ -593,7 +661,7 @@ public partial class ScreenExtendSinkWindow : Window
         Cursor = System.Windows.Input.Cursors.Arrow;
         if (!IsVisible)
             Show();
-        RelayoutWindowState(forceMaximized: true);
+        FillWorkArea(saveNormalBounds: true);
         TryAttachCapture();
     }
 
@@ -603,7 +671,10 @@ public partial class ScreenExtendSinkWindow : Window
         {
             TitleRow.Height = new GridLength(0);
             TitleBar.Visibility = Visibility.Collapsed;
+            // 全屏必须卸掉 WindowChrome，否则 CaptionHeight 仍会在顶部形成隐形拖拽带
+            DetachWindowChromeForFullscreen();
             FsToolbarLayer.Visibility = Visibility.Visible;
+            FsToolbar.Visibility = Visibility.Visible;
             _fsToolbarExpanded = true;
             FsToolbarExtra.Visibility = Visibility.Visible;
             _cursorIdle.BeginSession();
@@ -615,12 +686,33 @@ public partial class ScreenExtendSinkWindow : Window
         {
             TitleRow.Height = new GridLength(36);
             TitleBar.Visibility = Visibility.Visible;
+            AttachWindowChromeForWindowed();
             FsToolbarLayer.Visibility = Visibility.Collapsed;
+            FsToolbar.Visibility = Visibility.Visible;
             _fsToolbarDragging = false;
             _cursorIdle.EndSession();
             Cursor = System.Windows.Input.Cursors.Arrow;
             FullscreenBtn.ToolTip = "全屏";
         }
+    }
+
+    private void DetachWindowChromeForFullscreen()
+    {
+        if (WinChrome != null)
+        {
+            WinChrome.CaptionHeight = 0;
+            WinChrome.ResizeBorderThickness = new Thickness(0);
+        }
+
+        WindowChrome.SetWindowChrome(this, null);
+    }
+
+    private void AttachWindowChromeForWindowed()
+    {
+        if (WinChrome == null) return;
+        WinChrome.CaptionHeight = 36;
+        WinChrome.ResizeBorderThickness = _workAreaFilled ? new Thickness(0) : new Thickness(4);
+        WindowChrome.SetWindowChrome(this, WinChrome);
     }
 
     private void ResetFsToolbarToTopCenter()
@@ -631,33 +723,42 @@ public partial class ScreenExtendSinkWindow : Window
         var x = Math.Max(8, (FsToolbarLayer.ActualWidth - tw) / 2);
         Canvas.SetLeft(FsToolbar, x);
         Canvas.SetTop(FsToolbar, 10);
+        FsToolbar.Visibility = Visibility.Visible;
     }
 
     private void FsToolbar_MouseEnter(object sender, MouseEventArgs e)
     {
         _cursorIdle.NotifyLocalMouseMoved();
         Cursor = System.Windows.Input.Cursors.Arrow;
+        if (_chromeFullscreen)
+            FsToolbar.Visibility = Visibility.Visible;
     }
 
     private void FsToolbar_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_chromeFullscreen && !_fsToolbarDragging)
+        if (_chromeFullscreen && !_fsToolbarDragging && !_cursorIdle.ShowLocalCursor)
             Cursor = System.Windows.Input.Cursors.None;
     }
 
-    private void FsGrip_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void FsToolbar_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // 工具按钮自身点击，不进入拖动
+        if (e.OriginalSource is DependencyObject d
+            && FindAncestor<System.Windows.Controls.Button>(d) is { } btn
+            && !ReferenceEquals(btn, FsGripBtn))
+            return;
+
         _fsToolbarDragging = true;
         _fsToolbarMoved = false;
         _fsDragStart = e.GetPosition(FsToolbarLayer);
         _fsToolbarOrigin = new Point(Canvas.GetLeft(FsToolbar), Canvas.GetTop(FsToolbar));
         if (double.IsNaN(_fsToolbarOrigin.X)) _fsToolbarOrigin.X = 0;
         if (double.IsNaN(_fsToolbarOrigin.Y)) _fsToolbarOrigin.Y = 0;
-        FsGripBtn.CaptureMouse();
+        FsToolbar.CaptureMouse();
         e.Handled = true;
     }
 
-    private void FsGrip_PreviewMouseMove(object sender, MouseEventArgs e)
+    private void FsToolbar_PreviewMouseMove(object sender, MouseEventArgs e)
     {
         if (!_fsToolbarDragging || e.LeftButton != MouseButtonState.Pressed) return;
         var p = e.GetPosition(FsToolbarLayer);
@@ -670,10 +771,11 @@ public partial class ScreenExtendSinkWindow : Window
         e.Handled = true;
     }
 
-    private void FsGrip_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void FsToolbar_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (!_fsToolbarDragging) return;
-        FsGripBtn.ReleaseMouseCapture();
+        if (FsToolbar.IsMouseCaptured)
+            FsToolbar.ReleaseMouseCapture();
         var wasDrag = _fsToolbarMoved;
         _fsToolbarDragging = false;
         _fsToolbarMoved = false;
@@ -685,13 +787,13 @@ public partial class ScreenExtendSinkWindow : Window
     private void FsToolbarLayer_MouseMove(object sender, MouseEventArgs e)
     {
         if (_fsToolbarDragging && e.LeftButton == MouseButtonState.Pressed)
-            FsGrip_PreviewMouseMove(FsGripBtn, e);
+            FsToolbar_PreviewMouseMove(FsToolbar, e);
     }
 
     private void FsToolbarLayer_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (_fsToolbarDragging)
-            FsGrip_PreviewMouseLeftButtonUp(FsGripBtn, e);
+            FsToolbar_PreviewMouseLeftButtonUp(FsToolbar, e);
     }
 
     private void FsToolbarLayer_MouseLeave(object sender, MouseEventArgs e) { }
@@ -714,9 +816,6 @@ public partial class ScreenExtendSinkWindow : Window
         Canvas.SetTop(FsToolbar, Math.Clamp(y, 0, maxY));
     }
 
-    private System.Windows.Point? _titlePressPos;
-    private const double TitleDragThreshold = 4;
-
     private bool IsTitleBarChromeHit(DependencyObject? src)
         => src != null
            && (FindAncestor<Border>(src) is { Tag: string }
@@ -725,70 +824,16 @@ public partial class ScreenExtendSinkWindow : Window
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.Handled) return;
-        // Tab / + / 窗控上的点击不要拖窗
+        if (_chromeFullscreen) return;
+        // Tab / + / 窗控：交给按钮；空白区由 WindowChrome CaptionHeight 原生拖窗
         if (e.OriginalSource is DependencyObject src && IsTitleBarChromeHit(src))
             return;
 
         if (e.ClickCount == 2)
         {
-            _titlePressPos = null;
             Maximize_Click(sender, e);
-            return;
+            e.Handled = true;
         }
-
-        if (e.ChangedButton != MouseButton.Left) return;
-
-        // 仅武装：按住并移动超过阈值后再 DragMove（单击不进入移窗）
-        _titlePressPos = e.GetPosition(this);
-        TitleBar.CaptureMouse();
-        e.Handled = true;
-    }
-
-    private void TitleBar_MouseMove(object sender, MouseEventArgs e)
-    {
-        if (_titlePressPos is not { } start) return;
-        if (e.LeftButton != MouseButtonState.Pressed) return;
-
-        var p = e.GetPosition(this);
-        if (Math.Abs(p.X - start.X) + Math.Abs(p.Y - start.Y) < TitleDragThreshold)
-            return;
-
-        _titlePressPos = null;
-        if (TitleBar.IsMouseCaptured)
-            TitleBar.ReleaseMouseCapture();
-
-        try
-        {
-            if (WindowState == WindowState.Maximized)
-            {
-                var screen = PointToScreen(e.GetPosition(this));
-                var restore = RestoreBounds;
-                var w = restore.Width > 80 ? restore.Width : Math.Max(640, ActualWidth * 0.7);
-                var h = restore.Height > 80 ? restore.Height : Math.Max(400, ActualHeight * 0.7);
-                WindowState = WindowState.Normal;
-                Width = w;
-                Height = h;
-                Left = Math.Max(0, screen.X - w / 2);
-                Top = Math.Max(0, screen.Y - 18);
-            }
-
-            // 左键仍按住：系统拖窗直到松开
-            DragMove();
-        }
-        catch { /* ignore */ }
-    }
-
-    private void TitleBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        => EndTitleBarPressArm();
-
-    private void TitleBar_LostMouseCapture(object sender, MouseEventArgs e)
-        => _titlePressPos = null;
-
-    private void EndTitleBarPressArm()
-    {
-        _titlePressPos = null;
-        if (TitleBar.IsMouseCaptured)
-            TitleBar.ReleaseMouseCapture();
     }
 
     private void ContentHost_MouseMove(object sender, MouseEventArgs e)
@@ -804,15 +849,25 @@ public partial class ScreenExtendSinkWindow : Window
 
     private void EnterTrueFullscreen()
     {
+        _preFsWorkAreaFilled = _workAreaFilled;
+        if (!_workAreaFilled)
+            RememberNormalBounds(force: true);
+        _preFsBoundsDip = _normalBoundsDip;
         _chromeFullscreen = true;
+        _workAreaFilled = false;
         ApplyChromeVisibility();
         try
         {
             WindowState = WindowState.Normal;
             ResizeMode = ResizeMode.NoResize;
-            WindowChrome.SetWindowChrome(this, null);
+            DetachWindowChromeForFullscreen();
             ApplyMonitorCover();
-            Dispatcher.BeginInvoke(ApplyMonitorCover, DispatcherPriority.Loaded);
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!_chromeFullscreen) return;
+                DetachWindowChromeForFullscreen();
+                ApplyMonitorCover();
+            }, DispatcherPriority.Loaded);
             RefreshMaxIcon();
             Activate();
             Focus();
@@ -824,67 +879,260 @@ public partial class ScreenExtendSinkWindow : Window
     {
         _chromeFullscreen = false;
         ApplyChromeVisibility();
-        if (WinChrome != null)
-            WindowChrome.SetWindowChrome(this, WinChrome);
         ResizeMode = ResizeMode.CanResize;
-        RelayoutWindowState(forceMaximized: true);
+        // WindowChrome 重挂后尺寸会抖，延后贴齐工作区/还原
+        var restoreWork = _preFsWorkAreaFilled;
+        var restoreBounds = _preFsBoundsDip;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_chromeFullscreen) return;
+            AttachWindowChromeForWindowed();
+            if (restoreWork)
+                FillWorkArea(saveNormalBounds: false);
+            else
+                RestoreNormalBounds(restoreBounds);
+        }, DispatcherPriority.ApplicationIdle);
     }
 
-    private void ApplyMonitorCover()
+    private void RememberNormalBounds(bool force = false)
     {
-        if (!_chromeFullscreen) return;
-        var hwnd = new WindowInteropHelper(this).EnsureHandle();
-        var monitor = NativeMethods.MonitorFromWindow(hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
-        if (monitor == IntPtr.Zero) return;
-        var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
-        if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
-        var rc = info.rcMonitor;
-        var w = Math.Max(1, rc.Right - rc.Left);
-        var h = Math.Max(1, rc.Bottom - rc.Top);
+        if (_chromeFullscreen || _workAreaFilled) return;
+        if (!force && WindowState != WindowState.Normal) return;
 
+        // 系统 Maximized 时用 RestoreBounds，避免把全屏尺寸当成「还原目标」
+        if (WindowState == WindowState.Maximized)
+        {
+            var rb = RestoreBounds;
+            if (rb.Width > 80 && rb.Height > 80)
+                _normalBoundsDip = rb;
+            return;
+        }
+
+        var w = ActualWidth > 80 ? ActualWidth : Width;
+        var h = ActualHeight > 80 ? ActualHeight : Height;
+        if (w < 80 || h < 80) return;
+        _normalBoundsDip = new Rect(Left, Top, w, h);
+    }
+
+    private bool TryGetNearestMonitorRects(out NativeMethods.RECT work, out NativeMethods.RECT monitor)
+    {
+        work = default;
+        monitor = default;
+        var hwnd = new WindowInteropHelper(this).EnsureHandle();
+        var hMon = NativeMethods.MonitorFromWindow(hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+        if (hMon == IntPtr.Zero) return false;
+        var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        if (!NativeMethods.GetMonitorInfo(hMon, ref info)) return false;
+        work = info.rcWork;
+        monitor = info.rcMonitor;
+
+        // 极端情况 rcWork==rcMonitor（任务栏自动隐藏等）：主屏回退 SystemParameters.WorkArea
+        if (work.Left == monitor.Left && work.Top == monitor.Top
+            && work.Right == monitor.Right && work.Bottom == monitor.Bottom
+            && (info.dwFlags & NativeMethods.MONITORINFOF_PRIMARY) != 0)
+        {
+            var wa = SystemParameters.WorkArea;
+            if (PresentationSource.FromVisual(this) is HwndSource { CompositionTarget: { } ct })
+            {
+                var toDev = ct.TransformToDevice;
+                var tl = toDev.Transform(new Point(wa.Left, wa.Top));
+                var br = toDev.Transform(new Point(wa.Right, wa.Bottom));
+                work = new NativeMethods.RECT
+                {
+                    Left = (int)Math.Round(tl.X),
+                    Top = (int)Math.Round(tl.Y),
+                    Right = (int)Math.Round(br.X),
+                    Bottom = (int)Math.Round(br.Y)
+                };
+            }
+            else
+            {
+                var dpi = VisualTreeHelper.GetDpi(this);
+                work = new NativeMethods.RECT
+                {
+                    Left = (int)Math.Round(wa.Left * dpi.DpiScaleX),
+                    Top = (int)Math.Round(wa.Top * dpi.DpiScaleY),
+                    Right = (int)Math.Round(wa.Right * dpi.DpiScaleX),
+                    Bottom = (int)Math.Round(wa.Bottom * dpi.DpiScaleY)
+                };
+            }
+        }
+
+        return true;
+    }
+
+    private Rect PhysicalToDip(NativeMethods.RECT rc)
+    {
         if (PresentationSource.FromVisual(this) is HwndSource { CompositionTarget: { } ct })
         {
             var m = ct.TransformFromDevice;
             var tl = m.Transform(new Point(rc.Left, rc.Top));
             var br = m.Transform(new Point(rc.Right, rc.Bottom));
-            Left = tl.X;
-            Top = tl.Y;
-            Width = Math.Max(MinWidth, br.X - tl.X);
-            Height = Math.Max(MinHeight, br.Y - tl.Y);
+            return new Rect(tl.X, tl.Y, Math.Max(MinWidth, br.X - tl.X), Math.Max(MinHeight, br.Y - tl.Y));
         }
 
-        _ = NativeMethods.SetWindowPos(
-            hwnd,
-            NativeMethods.HWND_TOPMOST,
-            rc.Left,
-            rc.Top,
-            w,
-            h,
-            NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_FRAMECHANGED);
-        Topmost = true;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        return new Rect(
+            rc.Left / dpi.DpiScaleX,
+            rc.Top / dpi.DpiScaleY,
+            Math.Max(MinWidth, (rc.Right - rc.Left) / dpi.DpiScaleX),
+            Math.Max(MinHeight, (rc.Bottom - rc.Top) / dpi.DpiScaleY));
     }
 
-    private void RelayoutWindowState(bool forceMaximized = false)
+    private Rect GetNearestWorkAreaDip()
+    {
+        if (TryGetNearestMonitorRects(out var work, out _))
+            return PhysicalToDip(work);
+        var wa = SystemParameters.WorkArea;
+        return new Rect(wa.Left, wa.Top, wa.Width, wa.Height);
+    }
+
+    /// <summary>物理像素贴齐矩形；调用方负责 _suppressBoundsSync，避免嵌套清标志。</summary>
+    private void PlaceWindowPhysical(NativeMethods.RECT rc, bool keepTopmost)
+    {
+        var hwnd = new WindowInteropHelper(this).EnsureHandle();
+        var w = Math.Max(1, rc.Right - rc.Left);
+        var h = Math.Max(1, rc.Bottom - rc.Top);
+        WindowState = WindowState.Normal;
+        var dip = PhysicalToDip(rc);
+        Left = dip.X;
+        Top = dip.Y;
+        Width = dip.Width;
+        Height = dip.Height;
+
+        var z = keepTopmost ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_TOP;
+        _ = NativeMethods.SetWindowPos(
+            hwnd, z, rc.Left, rc.Top, w, h,
+            NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_FRAMECHANGED);
+        Topmost = keepTopmost;
+
+        // 若 WPF/Chrome 随后又撑大，再强制一次
+        if (NativeMethods.GetWindowRect(hwnd, out var got)
+            && (Math.Abs(got.Left - rc.Left) > 2
+                || Math.Abs(got.Top - rc.Top) > 2
+                || Math.Abs((got.Right - got.Left) - w) > 2
+                || Math.Abs((got.Bottom - got.Top) - h) > 2))
+        {
+            _ = NativeMethods.SetWindowPos(
+                hwnd, z, rc.Left, rc.Top, w, h,
+                NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_FRAMECHANGED);
+        }
+    }
+
+    private void FillWorkArea(bool saveNormalBounds)
     {
         try
         {
-            WindowState = WindowState.Normal;
+            // 先记下还原尺寸，再标 _workAreaFilled，避免 Place 触发的 SizeChanged 覆盖
+            if (saveNormalBounds && !_workAreaFilled)
+                RememberNormalBounds(force: true);
+
+            var saved = _normalBoundsDip;
+            _chromeFullscreen = false;
+            FsToolbarLayer.Visibility = Visibility.Collapsed;
+            if (!TryGetNearestMonitorRects(out var work, out _))
+                return;
+
+            _suppressBoundsSync = true;
+            _workAreaFilled = true;
+            try
+            {
+                PlaceWindowPhysical(work, keepTopmost: true);
+            }
+            finally
+            {
+                _normalBoundsDip = saved.Width > 80 && saved.Height > 80
+                    ? saved
+                    : _normalBoundsDip;
+                _suppressBoundsSync = false;
+            }
+
             SyncResizeBorder();
-            if (forceMaximized)
-                WindowState = WindowState.Maximized;
+            RefreshMaxIcon();
+            Activate();
+
+            // 布局/Chrome 稳定后再贴一次，杜绝退出全屏后高度漂回显示器全高
+            var workCopy = work;
+            var savedCopy = _normalBoundsDip;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_chromeFullscreen || !_workAreaFilled) return;
+                _suppressBoundsSync = true;
+                try
+                {
+                    PlaceWindowPhysical(workCopy, keepTopmost: true);
+                    _normalBoundsDip = savedCopy;
+                    SyncResizeBorder();
+                }
+                finally { _suppressBoundsSync = false; }
+            }, DispatcherPriority.ApplicationIdle);
+        }
+        catch { /* ignore */ }
+    }
+
+    private void RestoreNormalBounds(Rect bounds)
+    {
+        try
+        {
+            _suppressBoundsSync = true;
+            _workAreaFilled = false;
+            FsToolbarLayer.Visibility = Visibility.Collapsed;
+            WindowState = WindowState.Normal;
+            var w = bounds.Width > 80 ? bounds.Width : 1100;
+            var h = bounds.Height > 80 ? bounds.Height : 720;
+            // 工作区填充后 Left/Top 可能是屏幕原点；还原必须用进入最大化前的坐标
+            Left = bounds.X;
+            Top = bounds.Y;
+            Width = Math.Max(MinWidth, w);
+            Height = Math.Max(MinHeight, h);
+            _normalBoundsDip = new Rect(Left, Top, Width, Height);
+
+            // 物理像素再盖一次，避免 DPI/Chrome 把尺寸漂回去
+            if (PresentationSource.FromVisual(this) is HwndSource { CompositionTarget: { } ct })
+            {
+                var toDev = ct.TransformToDevice;
+                var tl = toDev.Transform(new Point(Left, Top));
+                var br = toDev.Transform(new Point(Left + Width, Top + Height));
+                PlaceWindowPhysical(new NativeMethods.RECT
+                {
+                    Left = (int)Math.Round(tl.X),
+                    Top = (int)Math.Round(tl.Y),
+                    Right = (int)Math.Round(br.X),
+                    Bottom = (int)Math.Round(br.Y)
+                }, keepTopmost: true);
+            }
+
             SyncResizeBorder();
             RefreshMaxIcon();
             Activate();
         }
         catch { /* ignore */ }
+        finally { _suppressBoundsSync = false; }
+    }
+
+    private void ApplyMonitorCover()
+    {
+        if (!_chromeFullscreen) return;
+        if (!TryGetNearestMonitorRects(out _, out var monitor)) return;
+        _suppressBoundsSync = true;
+        try { PlaceWindowPhysical(monitor, keepTopmost: true); }
+        finally { _suppressBoundsSync = false; }
     }
 
     private void SyncResizeBorder()
     {
+        if (_chromeFullscreen)
+        {
+            DetachWindowChromeForFullscreen();
+            return;
+        }
+
         if (WinChrome == null) return;
-        WinChrome.ResizeBorderThickness = WindowState == WindowState.Maximized || _chromeFullscreen
-            ? new Thickness(0)
-            : new Thickness(4);
+        WinChrome.ResizeBorderThickness = _workAreaFilled ? new Thickness(0) : new Thickness(4);
+        WinChrome.CaptionHeight = 36;
+        // 确保窗化态仍挂着 Chrome（全屏卸掉后需恢复）
+        if (WindowChrome.GetWindowChrome(this) == null)
+            WindowChrome.SetWindowChrome(this, WinChrome);
     }
 
     private void Minimize_Click(object sender, RoutedEventArgs e)
@@ -898,29 +1146,33 @@ public partial class ScreenExtendSinkWindow : Window
             return;
         }
 
-        if (WindowState == WindowState.Maximized)
-        {
-            WindowState = WindowState.Normal;
-            SyncResizeBorder();
-            RefreshMaxIcon();
-        }
+        if (_workAreaFilled)
+            RestoreNormalBounds(_normalBoundsDip);
         else
-        {
-            RelayoutWindowState(forceMaximized: true);
-        }
+            FillWorkArea(saveNormalBounds: true);
     }
 
     private void RefreshMaxIcon()
     {
         if (MaxIcon == null) return;
-        MaxIcon.Data = WindowState == WindowState.Maximized
+        var restored = _workAreaFilled || WindowState == WindowState.Maximized;
+        MaxIcon.Data = restored
             ? Geometry.Parse("M 5,3 H 13 V 11 H 11 M 3,5 H 11 V 13 H 3 Z")
             : Geometry.Parse("M 3,3 H 13 V 13 H 3 Z");
-        MaxBtn.ToolTip = WindowState == WindowState.Maximized ? "还原" : "最大化";
+        MaxBtn.ToolTip = restored ? "还原" : "最大化";
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // 全屏：禁止任何非客户区拖拽（含残留 Caption / 顶部边缘）
+        const int wmNcHitTest = 0x0084;
+        const int htClient = 1;
+        if (msg == wmNcHitTest && _chromeFullscreen)
+        {
+            handled = true;
+            return (IntPtr)htClient;
+        }
+
         const int wmGetMinMaxInfo = 0x0024;
         if (msg != wmGetMinMaxInfo)
             return IntPtr.Zero;

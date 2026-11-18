@@ -343,6 +343,10 @@ public sealed class AppHost : IAsyncDisposable
         }
 
         var choice = ResolveDisplayChoice(mode, display, peer);
+        // 扩展：HostPrimary 只表示分辨率模板，选屏由 Mode 决定；纠正语义避免误采主屏
+        if (mode == DisplayProjectionMode.Extend
+            && choice.Source == ProjectionDisplaySource.HostPrimary)
+            choice.Source = ProjectionDisplaySource.TargetPeer;
         Settings.ScreenExtendProjectionMode = (int)mode;
         ProjectionDisplayPresets.WriteRemembered(Settings, choice, audioSync, remoteControl);
         Settings.Save();
@@ -402,6 +406,8 @@ public sealed class AppHost : IAsyncDisposable
             && ScreenExtend.AudioSync == audioSync
             && ScreenExtend.RemoteControl == remoteControl)
         {
+            // 模式/分辨率已更新：重拉采集，避免复制↔扩展切换后仍抓旧目标
+            try { ScreenExtend.NotifyHostSessionReady(); } catch { /* ignore */ }
             progress?.Report("⑤ 投影已开始");
             PublishStatus($"投影：已更新为「{DisplayProjectionModeInfo.Label(mode)}」→ {peer}");
             return ProjectionStartResult.Success();
