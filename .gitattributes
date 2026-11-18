@@ -2,6 +2,12 @@
 # Set default behavior to automatically normalize line endings.
 * text=auto
 
+# PowerShell 脚本：请保持 UTF-8 with BOM。
+# Windows PowerShell 5.1（powershell.exe）对无 BOM 文件按「系统 ANSI」解析：
+# 中文系统区(GBK)与「Beta: 使用 Unicode UTF-8」系统区结果相反，会出现「这台乱码、那台正常」。
+# 仓库内 build/*.ps1 与 Relay tools 均带 BOM；勿另存为无 BOM UTF-8 或纯 GBK。
+*.ps1 text eol=crlf
+
 # Set default behavior for command prompt diff.
 #
 # This is need for earlier builds of msysgit that does not have it on by

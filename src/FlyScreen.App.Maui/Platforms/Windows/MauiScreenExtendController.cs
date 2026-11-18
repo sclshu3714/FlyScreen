@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using FlyScreen.Native;
 using FlyScreen.ScreenExtend;
 using FlyScreen.Services.Network;
@@ -533,6 +534,11 @@ public sealed class MauiScreenExtendSinkWindow
     private bool _captureBound;
     private bool _windowActive;
     private bool _chromeFullscreen;
+    private bool _preFsMaximized;
+    private bool _hasPreFsBounds;
+    private global::Windows.Graphics.RectInt32 _preFsBounds;
+    private IntPtr _dragBlockOldWndProc;
+    private DragBlockWndProc? _dragBlockWndProcKeepAlive;
     private bool _fsToolbarExpanded = true;
     private bool _fsToolbarDragging;
     private bool _fsToolbarMoved;
@@ -667,10 +673,12 @@ public sealed class MauiScreenExtendSinkWindow
             Height = 36,
             Child = titleGrid
         };
-        _titleBar.PointerPressed += TitleBar_PointerPressed;
-        _titleBar.PointerMoved += TitleBar_PointerMoved;
-        _titleBar.PointerReleased += TitleBar_PointerReleased;
-        _titleBar.PointerCaptureLost += TitleBar_PointerCaptureLost;
+        // 双击走自定义工作区最大化。SetTitleBar 系统双击也会 Maximize，靠 AppWindow.Changed 纠偏。
+        _titleBar.DoubleTapped += (_, _) =>
+        {
+            if (!_chromeFullscreen)
+                ToggleMaximize();
+        };
 
         _contentHost = new Microsoft.UI.Xaml.Controls.Grid
         {
@@ -700,14 +708,7 @@ public sealed class MauiScreenExtendSinkWindow
             Padding = new Microsoft.UI.Xaml.Thickness(0)
         };
         Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsGripBtn, _latencyTip);
-        _fsGripBtn.PointerPressed += FsGrip_PointerPressed;
-        _fsGripBtn.PointerMoved += FsGrip_PointerMoved;
-        _fsGripBtn.PointerReleased += FsGrip_PointerReleased;
-        _fsGripBtn.PointerCaptureLost += (_, _) =>
-        {
-            _fsToolbarDragging = false;
-            _fsToolbarMoved = false;
-        };
+        _fsGripBtn.IsHitTestVisible = false;
 
         _fsToolbarExtra = new Microsoft.UI.Xaml.Controls.StackPanel
         {
@@ -736,14 +737,23 @@ public sealed class MauiScreenExtendSinkWindow
                 Children = { _fsGripBtn, _fsToolbarExtra }
             }
         };
+        _fsToolbar.PointerPressed += FsToolbar_PointerPressed;
+        _fsToolbar.PointerMoved += FsToolbar_PointerMoved;
+        _fsToolbar.PointerReleased += FsToolbar_PointerReleased;
+        _fsToolbar.PointerCaptureLost += (_, _) =>
+        {
+            _fsToolbarDragging = false;
+            _fsToolbarMoved = false;
+        };
         _fsToolbar.PointerEntered += (_, _) =>
         {
             _cursorIdle.NotifyLocalMouseMoved();
             ForceShowLocalCursor();
+            _fsToolbar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
         };
         _fsToolbar.PointerExited += (_, _) =>
         {
-            if (_chromeFullscreen && !_fsToolbarDragging)
+            if (_chromeFullscreen && !_fsToolbarDragging && !_cursorIdle.ShowLocalCursor)
                 ForceHideLocalCursor();
         };
 
@@ -754,8 +764,8 @@ public sealed class MauiScreenExtendSinkWindow
             VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Stretch
         };
         _fsToolbarLayer.Children.Add(_fsToolbar);
-        _fsToolbarLayer.PointerMoved += FsGrip_PointerMoved;
-        _fsToolbarLayer.PointerReleased += FsGrip_PointerReleased;
+        _fsToolbarLayer.PointerMoved += FsToolbar_PointerMoved;
+        _fsToolbarLayer.PointerReleased += FsToolbar_PointerReleased;
         _fsToolbarLayer.SizeChanged += (_, _) =>
         {
             if (_chromeFullscreen)
@@ -780,6 +790,12 @@ public sealed class MauiScreenExtendSinkWindow
         _cursorIdle.ShowLocalCursorChanged += ApplyLocalCursor;
 
         _window = new Microsoft.UI.Xaml.Window { Title = "玄鸟投影", Content = _shell };
+        try
+        {
+            _window.ExtendsContentIntoTitleBar = true;
+            _window.SetTitleBar(_titleBar);
+        }
+        catch { /* ignore */ }
         _window.Activated += (_, args) =>
         {
             _windowActive = args.WindowActivationState
@@ -787,6 +803,7 @@ public sealed class MauiScreenExtendSinkWindow
             if (_windowActive)
             {
                 try { _shell.Focus(Microsoft.UI.Xaml.FocusState.Programmatic); } catch { /* ignore */ }
+                EnsureDragBlockSubclass();
                 TryAttachCapture();
             }
             else
@@ -797,6 +814,7 @@ public sealed class MauiScreenExtendSinkWindow
         _window.Closed += (_, _) =>
         {
             DetachCapture();
+            RemoveDragBlockSubclass();
             ForceShowLocalCursor();
             _cursorIdle.EndSession();
             _cursorIdle.Dispose();
@@ -812,8 +830,51 @@ public sealed class MauiScreenExtendSinkWindow
                 if (_closingFromSession) return;
                 NotifyWindowClose();
             };
+            // SetTitleBar 双击会走系统 Maximize（盖任务栏）→ 纠偏为工作区填充
+            appWindow.Changed += AppWindow_Changed;
         }
         catch { /* Activate 后再绑 Closing 亦可 */ }
+    }
+
+    private bool _convertingSystemMaximize;
+
+    private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+    {
+        try
+        {
+            if (_chromeFullscreen || _convertingSystemMaximize) return;
+
+            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                sender.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+
+            // 非最大化时持续记住普通尺寸，供还原
+            if (sender.Presenter is Microsoft.UI.Windowing.OverlappedPresenter opTrack
+                && opTrack.State == Microsoft.UI.Windowing.OverlappedPresenterState.Restored
+                && !IsWorkAreaFilled(sender, area))
+            {
+                var pos = sender.Position;
+                var size = sender.Size;
+                if (size.Width > 80 && size.Height > 80)
+                {
+                    _preFsBounds = new global::Windows.Graphics.RectInt32(pos.X, pos.Y, size.Width, size.Height);
+                    _hasPreFsBounds = true;
+                }
+            }
+
+            if (sender.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter op) return;
+            if (op.State != Microsoft.UI.Windowing.OverlappedPresenterState.Maximized) return;
+
+            // 系统 Maximize → 还原后贴工作区（不盖任务栏）
+            _convertingSystemMaximize = true;
+            try
+            {
+                op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+                op.Restore();
+                FillWorkArea(sender, area);
+            }
+            finally { _convertingSystemMaximize = false; }
+        }
+        catch { /* ignore */ }
     }
 
     private static Microsoft.UI.Xaml.Media.SolidColorBrush HexBrush(string hex)
@@ -1110,137 +1171,6 @@ public sealed class MauiScreenExtendSinkWindow
             Foreground = HexBrush(muted ? "#6B7280" : "#D1D5DB")
         };
 
-    private long _titleBarLastClickTick;
-    private const long TitleBarDoubleClickMs = 400;
-    private const double TitleDragThreshold = 4;
-    private bool _titleDragArmed;
-    private bool _titleDragging;
-    private global::Windows.Foundation.Point _titlePressScreen;
-    private global::Windows.Graphics.PointInt32 _titleWinOrigin;
-    private uint _titlePointerId;
-
-    private static bool IsTitleBarChromeHit(Microsoft.UI.Xaml.DependencyObject? src)
-    {
-        for (Microsoft.UI.Xaml.DependencyObject? cur = src; cur != null;
-             cur = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(cur))
-        {
-            if (cur is Microsoft.UI.Xaml.Controls.Border { Tag: string }) return true;
-            if (cur is Microsoft.UI.Xaml.Controls.Button) return true;
-        }
-
-        return false;
-    }
-
-    private void TitleBar_PointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (_chromeFullscreen) return;
-        var pt = e.GetCurrentPoint(_titleBar);
-        if (!pt.Properties.IsLeftButtonPressed) return;
-        if (IsTitleBarChromeHit(e.OriginalSource as Microsoft.UI.Xaml.DependencyObject)) return;
-
-        var now = Environment.TickCount64;
-        if (now - _titleBarLastClickTick <= TitleBarDoubleClickMs)
-        {
-            _titleBarLastClickTick = 0;
-            EndTitleBarDrag();
-            ToggleMaximize();
-            e.Handled = true;
-            return;
-        }
-
-        _titleBarLastClickTick = now;
-        // 仅武装：按住并移动超过阈值后再移窗（避免单击进入「跟随鼠标」移窗模式）
-        _titleDragArmed = true;
-        _titleDragging = false;
-        _titlePointerId = e.Pointer.PointerId;
-        _titlePressScreen = e.GetCurrentPoint(null).Position;
-        try
-        {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
-            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-            _titleWinOrigin = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id).Position;
-        }
-        catch
-        {
-            _titleDragArmed = false;
-            return;
-        }
-
-        _titleBar.CapturePointer(e.Pointer);
-        e.Handled = true;
-    }
-
-    private void TitleBar_PointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        if (!_titleDragArmed || e.Pointer.PointerId != _titlePointerId) return;
-        var pt = e.GetCurrentPoint(null);
-        if (!pt.Properties.IsLeftButtonPressed)
-        {
-            EndTitleBarDrag();
-            return;
-        }
-
-        var dx = pt.Position.X - _titlePressScreen.X;
-        var dy = pt.Position.Y - _titlePressScreen.Y;
-        if (!_titleDragging)
-        {
-            if (Math.Abs(dx) + Math.Abs(dy) < TitleDragThreshold) return;
-            _titleDragging = true;
-            try
-            {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
-                var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-                var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
-                if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op
-                    && op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
-                {
-                    var screen = pt.Position;
-                    var size = appWindow.Size;
-                    op.Restore();
-                    // 还原后按光标比例落到标题栏附近
-                    var w = appWindow.Size.Width > 80 ? appWindow.Size.Width : Math.Max(640, size.Width * 7 / 10);
-                    var h = appWindow.Size.Height > 80 ? appWindow.Size.Height : Math.Max(400, size.Height * 7 / 10);
-                    var x = (int)Math.Max(0, screen.X - w / 2.0);
-                    var y = (int)Math.Max(0, screen.Y - 18);
-                    appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(x, y, w, h));
-                    _titleWinOrigin = appWindow.Position;
-                    _titlePressScreen = screen;
-                    dx = 0;
-                    dy = 0;
-                }
-            }
-            catch { /* ignore */ }
-        }
-
-        try
-        {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
-            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
-            appWindow.Move(new global::Windows.Graphics.PointInt32(
-                _titleWinOrigin.X + (int)Math.Round(dx),
-                _titleWinOrigin.Y + (int)Math.Round(dy)));
-        }
-        catch { /* ignore */ }
-    }
-
-    private void TitleBar_PointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (e.Pointer.PointerId != _titlePointerId) return;
-        EndTitleBarDrag();
-        e.Handled = true;
-    }
-
-    private void TitleBar_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-        => EndTitleBarDrag();
-
-    private void EndTitleBarDrag()
-    {
-        _titleDragArmed = false;
-        _titleDragging = false;
-        try { _titleBar.ReleasePointerCaptures(); } catch { /* ignore */ }
-    }
-
     private void ToggleFullscreen()
     {
         _chromeFullscreen = !_chromeFullscreen;
@@ -1251,18 +1181,77 @@ public sealed class MauiScreenExtendSinkWindow
     {
         try
         {
+            if (_chromeFullscreen)
+            {
+                _chromeFullscreen = false;
+                ApplyChromeFullscreen();
+                return;
+            }
+
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
             var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
             if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
+                op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+
+            if (IsWorkAreaFilled(appWindow, area)
+                || (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter opMax
+                    && opMax.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized))
             {
-                if (op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
-                    op.Restore();
-                else
-                    op.Maximize();
+                if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter opRest
+                    && opRest.State != Microsoft.UI.Windowing.OverlappedPresenterState.Restored)
+                    opRest.Restore();
+                if (_hasPreFsBounds)
+                    appWindow.MoveAndResize(_preFsBounds);
+            }
+            else
+            {
+                // 记住还原尺寸，再贴工作区（不要用 Maximize，会盖任务栏）
+                var pos = appWindow.Position;
+                var size = appWindow.Size;
+                if (size.Width > 80 && size.Height > 80)
+                {
+                    _preFsBounds = new global::Windows.Graphics.RectInt32(pos.X, pos.Y, size.Width, size.Height);
+                    _hasPreFsBounds = true;
+                }
+
+                _convertingSystemMaximize = true;
+                try { FillWorkArea(appWindow, area); }
+                finally { _convertingSystemMaximize = false; }
             }
         }
         catch { /* ignore */ }
+    }
+
+    private static bool IsWorkAreaFilled(
+        Microsoft.UI.Windowing.AppWindow appWindow,
+        Microsoft.UI.Windowing.DisplayArea? area)
+    {
+        if (area == null) return false;
+        var wa = area.WorkArea;
+        var pos = appWindow.Position;
+        var size = appWindow.Size;
+        return Math.Abs(pos.X - wa.X) <= 4
+               && Math.Abs(pos.Y - wa.Y) <= 4
+               && Math.Abs(size.Width - wa.Width) <= 8
+               && Math.Abs(size.Height - wa.Height) <= 8;
+    }
+
+    private static void FillWorkArea(
+        Microsoft.UI.Windowing.AppWindow appWindow,
+        Microsoft.UI.Windowing.DisplayArea? area)
+    {
+        if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
+        {
+            op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+            if (op.State != Microsoft.UI.Windowing.OverlappedPresenterState.Restored)
+                op.Restore();
+        }
+
+        if (area != null)
+            appWindow.MoveAndResize(area.WorkArea);
     }
 
     private void SetWindowState(bool minimized)
@@ -1278,6 +1267,114 @@ public sealed class MauiScreenExtendSinkWindow
         catch { /* ignore */ }
     }
 
+    /// <summary>
+    /// 关闭扩展标题栏拖拽。WinUI：FullScreen + ExtendsContentIntoTitleBar=true 时顶部仍可拖窗。
+    /// </summary>
+    private void DisableTitleBarDrag(Microsoft.UI.Windowing.AppWindow appWindow)
+    {
+        // 顺序重要：先清 SetTitleBar，再关 Extends（微软 issue #2606 / #10694）
+        try { _window.SetTitleBar(null); } catch { /* ignore */ }
+        try { _window.ExtendsContentIntoTitleBar = false; } catch { /* ignore */ }
+        try
+        {
+            if (appWindow.TitleBar != null)
+                appWindow.TitleBar.ExtendsContentIntoTitleBar = false;
+        }
+        catch { /* Win10 等可能无 TitleBar API */ }
+
+        try
+        {
+            var src = Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(appWindow.Id);
+            src.SetRegionRects(
+                Microsoft.UI.Input.NonClientRegionKind.Caption,
+                Array.Empty<global::Windows.Graphics.RectInt32>());
+        }
+        catch { /* ignore */ }
+
+        EnsureDragBlockSubclass();
+    }
+
+    private void EnableTitleBarDrag(Microsoft.UI.Windowing.AppWindow appWindow)
+    {
+        try
+        {
+            _window.ExtendsContentIntoTitleBar = true;
+            _window.SetTitleBar(_titleBar);
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            if (appWindow.TitleBar != null)
+                appWindow.TitleBar.ExtendsContentIntoTitleBar = true;
+        }
+        catch { /* ignore */ }
+    }
+
+    private delegate IntPtr DragBlockWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    private void EnsureDragBlockSubclass()
+    {
+        if (_dragBlockWndProcKeepAlive != null) return;
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            if (hwnd == IntPtr.Zero) return;
+            _dragBlockWndProcKeepAlive = DragBlockWndProcImpl;
+            var procPtr = Marshal.GetFunctionPointerForDelegate(_dragBlockWndProcKeepAlive);
+            _dragBlockOldWndProc = SetWindowLongPtr(hwnd, GwlpWndProc, procPtr);
+        }
+        catch
+        {
+            _dragBlockWndProcKeepAlive = null;
+            _dragBlockOldWndProc = IntPtr.Zero;
+        }
+    }
+
+    private void RemoveDragBlockSubclass()
+    {
+        if (_dragBlockWndProcKeepAlive == null || _dragBlockOldWndProc == IntPtr.Zero) return;
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            if (hwnd != IntPtr.Zero)
+                _ = SetWindowLongPtr(hwnd, GwlpWndProc, _dragBlockOldWndProc);
+        }
+        catch { /* ignore */ }
+        _dragBlockWndProcKeepAlive = null;
+        _dragBlockOldWndProc = IntPtr.Zero;
+    }
+
+    private IntPtr DragBlockWndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        // 全屏：顶部 caption 命中一律当客户区，吞掉非客户区左键按下，彻底禁止拖窗
+        if (_chromeFullscreen)
+        {
+            if (msg == WmNcHitTest)
+                return (IntPtr)HtClient;
+            if (msg == WmNcLButtonDown)
+                return IntPtr.Zero;
+        }
+
+        return _dragBlockOldWndProc != IntPtr.Zero
+            ? CallWindowProc(_dragBlockOldWndProc, hWnd, msg, wParam, lParam)
+            : DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+
+    private const int GwlpWndProc = -4;
+    private const uint WmNcHitTest = 0x0084;
+    private const uint WmNcLButtonDown = 0x00A1;
+    private const int HtClient = 1;
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "CallWindowProcW")]
+    private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
     private void ApplyChromeFullscreen()
     {
         try
@@ -1287,37 +1384,66 @@ public sealed class MauiScreenExtendSinkWindow
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
             if (_chromeFullscreen)
             {
-                // 全屏：盖住任务栏 + 浮动工具条
+                // 记住进入前状态，退出时还原
+                var areaSave = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                    id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+                _preFsMaximized = IsWorkAreaFilled(appWindow, areaSave)
+                    || (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter opSave
+                        && opSave.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized);
+                var pos = appWindow.Position;
+                var size = appWindow.Size;
+                if (!_preFsMaximized && size.Width > 80 && size.Height > 80)
+                {
+                    _preFsBounds = new global::Windows.Graphics.RectInt32(pos.X, pos.Y, size.Width, size.Height);
+                    _hasPreFsBounds = true;
+                }
+
+                // 全屏：盖住任务栏 + 浮动工具条。
+                // WinUI 已知：FullScreen 后若仍 ExtendsContentIntoTitleBar=true，顶部 caption 拖拽区还在；
+                // 必须先关掉扩展标题栏并清空拖拽区域（仅 SetTitleBar(null) 不够）。
                 _titleBar.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
                 _shell.RowDefinitions[0].Height = new Microsoft.UI.Xaml.GridLength(0);
+                DisableTitleBarDrag(appWindow);
                 _fsToolbarExpanded = true;
                 _fsToolbarExtra.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+                _fsToolbar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
                 _fsToolbarLayer.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-                var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
-                    id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
-                if (area != null)
-                    appWindow.MoveAndResize(area.OuterBounds);
+                if (areaSave != null)
+                    appWindow.MoveAndResize(areaSave.OuterBounds);
                 appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+                // Presenter 切换后拖拽区可能被系统重建，再清一次
+                DisableTitleBarDrag(appWindow);
                 _cursorIdle.BeginSession();
                 ForceHideLocalCursor();
                 Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "退出全屏");
                 _ = _fsToolbarLayer.DispatcherQueue.TryEnqueue(
                     Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal,
-                    ResetFsToolbarToTopCenter);
+                    () =>
+                    {
+                        ResetFsToolbarToTopCenter();
+                        try { DisableTitleBarDrag(appWindow); } catch { /* ignore */ }
+                    });
             }
             else
             {
-                // 最大化：工作区，不盖任务栏
+                // 退出全屏：隐藏浮动条，还原进入前窗体，恢复标题栏拖拽
                 _titleBar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
                 _shell.RowDefinitions[0].Height = new Microsoft.UI.Xaml.GridLength(36);
                 _fsToolbarLayer.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+                _fsToolbar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
                 _fsToolbarDragging = false;
                 appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
+                EnableTitleBarDrag(appWindow);
+                var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                    id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
                 if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
-                {
                     op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
-                    op.Maximize();
-                }
+                if (_preFsMaximized)
+                    FillWorkArea(appWindow, area);
+                else if (_hasPreFsBounds)
+                    appWindow.MoveAndResize(_preFsBounds);
+                else
+                    FillWorkArea(appWindow, area);
                 _cursorIdle.EndSession();
                 ForceShowLocalCursor();
                 Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "全屏");
@@ -1427,8 +1553,13 @@ public sealed class MauiScreenExtendSinkWindow
         {
             try
             {
+                if (!_chromeFullscreen) return;
                 if (show) ForceShowLocalCursor();
                 else ForceHideLocalCursor();
+                if (_fsToolbarDragging) return;
+                _fsToolbar.Visibility = show
+                    ? Microsoft.UI.Xaml.Visibility.Visible
+                    : Microsoft.UI.Xaml.Visibility.Collapsed;
             }
             catch { /* ignore */ }
         });
@@ -1521,7 +1652,7 @@ public sealed class MauiScreenExtendSinkWindow
 
     public void ShowFullscreen()
     {
-        // 默认：最大化到工作区（不盖任务栏）+ 标题栏
+        // 默认：贴工作区（不盖任务栏）+ 标题栏；不用 Maximize
         _chromeFullscreen = false;
         _cursorIdle.EndSession();
         ForceShowLocalCursor();
@@ -1536,11 +1667,9 @@ public sealed class MauiScreenExtendSinkWindow
             var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
             appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
-            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
-            {
-                op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
-                op.Maximize();
-            }
+            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            FillWorkArea(appWindow, area);
             appWindow.Show();
         }
         catch
@@ -1653,10 +1782,24 @@ public sealed class MauiScreenExtendSinkWindow
         Microsoft.UI.Xaml.Controls.Canvas.SetTop(_fsToolbar, Math.Clamp(y, 0, maxY));
     }
 
-    private void FsGrip_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    private static bool IsFsToolbarButtonHit(Microsoft.UI.Xaml.DependencyObject? src)
+    {
+        for (Microsoft.UI.Xaml.DependencyObject? cur = src; cur != null;
+             cur = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(cur))
+        {
+            if (cur is Microsoft.UI.Xaml.Controls.Button)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void FsToolbar_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         var pt = e.GetCurrentPoint(_fsToolbarLayer);
         if (!pt.Properties.IsLeftButtonPressed) return;
+        if (IsFsToolbarButtonHit(e.OriginalSource as Microsoft.UI.Xaml.DependencyObject))
+            return;
         _fsToolbarDragging = true;
         _fsToolbarMoved = false;
         _fsDragStartX = pt.Position.X;
@@ -1665,11 +1808,11 @@ public sealed class MauiScreenExtendSinkWindow
         var top = Microsoft.UI.Xaml.Controls.Canvas.GetTop(_fsToolbar);
         _fsToolbarOriginX = double.IsNaN(left) ? 0 : left;
         _fsToolbarOriginY = double.IsNaN(top) ? 0 : top;
-        _fsGripBtn.CapturePointer(e.Pointer);
+        _fsToolbar.CapturePointer(e.Pointer);
         e.Handled = true;
     }
 
-    private void FsGrip_PointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    private void FsToolbar_PointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (!_fsToolbarDragging) return;
         var pt = e.GetCurrentPoint(_fsToolbarLayer);
@@ -1683,10 +1826,10 @@ public sealed class MauiScreenExtendSinkWindow
         e.Handled = true;
     }
 
-    private void FsGrip_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    private void FsToolbar_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (!_fsToolbarDragging) return;
-        try { _fsGripBtn.ReleasePointerCapture(e.Pointer); } catch { /* ignore */ }
+        try { _fsToolbar.ReleasePointerCapture(e.Pointer); } catch { /* ignore */ }
         var wasDrag = _fsToolbarMoved;
         _fsToolbarDragging = false;
         _fsToolbarMoved = false;

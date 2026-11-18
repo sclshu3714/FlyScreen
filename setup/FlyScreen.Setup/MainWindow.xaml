@@ -187,7 +187,7 @@
                 <Border x:Name="DockerHostPanel" Style="{StaticResource SectionCard}" Visibility="Collapsed">
                   <StackPanel>
                     <TextBlock Text="Docker 主机" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
-                    <TextBlock Text="空/localhost=本机；局域网 Docker Desktop 暴露 API 填 IP+端口（如 2375，无账号）；Linux/SSH 再填用户与密钥或密码（Setup 内置 SSH.NET，无需本机 OpenSSH）。"
+                    <TextBlock Text="空/localhost=本机（需本机 Docker）。TCP：填 IP+端口（如 2375）。SSH：填用户与密钥/密码，在远端构建并拉回（无需本机 docker / OpenSSH）。"
                                TextWrapping="Wrap" FontSize="12"
                                Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
                     <Grid Margin="0,0,0,8">

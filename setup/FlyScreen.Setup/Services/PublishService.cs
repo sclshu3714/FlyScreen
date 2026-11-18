@@ -432,43 +432,50 @@ public sealed class PublishService
         else
             log($"Docker 目标：SSH.NET {options.DockerSshUser}@{host}:{port}");
 
-        var packArgs =
-            $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
-            $"-Mirror -Tag \"{version}\" -Save -OutDir \"{options.OutputRoot}\"";
-        if (!isLocal && useTcp)
-            packArgs += $" -SshHost \"{host}\" -SshPort {port} -Transport tcp";
+        var relayRoot = Path.Combine(_repoRoot, "src", "FlyScreen.Relay");
 
-        var env = MergeJobEnv(EnsureDockerPathEnv());
-        DockerSshTunnel? tunnel = null;
-        try
+        // SSH：远端 build/save 后拉回 tar，不要求本机 docker 客户端
+        if (!isLocal && !useTcp)
         {
-            if (!isLocal && !useTcp)
+            try
             {
-                tunnel = await DockerSshTunnel.StartAsync(
+                await DockerRemotePacker.PackAsync(
+                    relayRoot,
+                    version,
+                    options.OutputRoot,
                     host,
                     port,
                     options.DockerSshUser.Trim(),
                     string.IsNullOrWhiteSpace(options.DockerSshKeyPath) ? null : options.DockerSshKeyPath.Trim(),
                     string.IsNullOrEmpty(options.DockerSshPassword) ? null : options.DockerSshPassword,
+                    mirror: true,
                     log,
                     ct).ConfigureAwait(false);
-                packArgs += $" -DockerHost \"{tunnel.DockerHost}\"";
             }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Relay Docker SSH 远程打包失败：" + ex.Message, ex);
+            }
+        }
+        else
+        {
+            // 本机 / TCP：仍走 pack-docker.ps1 + 本机 docker CLI
+            EnsureLocalDockerCliAvailable(remote: !isLocal, log);
+            var packArgs =
+                $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
+                $"-Mirror -Tag \"{version}\" -Save -OutDir \"{options.OutputRoot}\"";
+            if (!isLocal && useTcp)
+                packArgs += $" -SshHost \"{host}\" -SshPort {port} -Transport tcp";
 
+            var env = MergeJobEnv(EnsureDockerPathEnv());
             var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, env)
                 .ConfigureAwait(false);
             if (exit != 0)
                 throw new InvalidOperationException(
                     isLocal
                         ? "Relay Docker 打包失败（请确认本机 Docker Desktop 已启动，且 PATH 含 docker）"
-                        : useTcp
-                            ? "Relay Docker TCP 打包失败（请确认远端已暴露 API，如 2375，且可访问）"
-                            : "Relay Docker SSH.NET 打包失败（请检查 IP/端口/账号与密钥或密码，远端需可用 docker）");
-        }
-        finally
-        {
-            if (tunnel != null)
-                await tunnel.DisposeAsync().ConfigureAwait(false);
+                        : "Relay Docker TCP 打包失败（请确认远端已暴露 API，如 2375，且可访问；本机需 docker 客户端）");
         }
 
         Report(progress, 85, $"{target.DisplayName}：整理镜像产物…");
@@ -535,32 +542,120 @@ public sealed class PublishService
         return map;
     }
 
-    /// <summary>GUI 启动时常缺 Docker Desktop 注入的 PATH。</summary>
+    /// <summary>
+    /// GUI 启动时常缺 Docker Desktop / CLI 注入的 PATH。
+    /// 合并 Machine+User+Process，并探测常见安装目录中的 docker.exe。
+    /// </summary>
     private static Dictionary<string, string> EnsureDockerPathEnv()
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var path = Environment.GetEnvironmentVariable("Path") ?? "";
-        var extras = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Docker", "Docker", "resources", "bin"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Docker", "Docker", "resources")
-        };
-        var parts = path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
+        var parts = GetMergedPathParts();
         var changed = false;
-        foreach (var dir in extras)
+
+        foreach (var dir in EnumerateDockerCliDirectories())
         {
-            if (!Directory.Exists(dir)) continue;
             if (parts.Any(p => p.Equals(dir, StringComparison.OrdinalIgnoreCase))) continue;
             parts.Insert(0, dir);
             changed = true;
         }
 
-        if (changed)
+        // 从已合并 PATH 里若已有 docker.exe，确保其目录靠前
+        var fromPath = FindDockerExeDirectory(parts);
+        if (fromPath != null
+            && !parts[0].Equals(fromPath, StringComparison.OrdinalIgnoreCase))
+        {
+            parts.RemoveAll(p => p.Equals(fromPath, StringComparison.OrdinalIgnoreCase));
+            parts.Insert(0, fromPath);
+            changed = true;
+        }
+
+        if (changed || parts.Count > 0)
             map["Path"] = string.Join(';', parts);
         return map;
+    }
+
+    /// <summary>远程/本机打包都需要本机 docker 客户端；缺则给出可读说明。</summary>
+    private static void EnsureLocalDockerCliAvailable(bool remote, Action<string> log)
+    {
+        var env = EnsureDockerPathEnv();
+        if (env.TryGetValue("Path", out var path))
+            Environment.SetEnvironmentVariable("Path", path);
+
+        if (FindDockerExeDirectory(GetMergedPathParts()) != null)
+            return;
+
+        log(remote
+            ? "未找到本机 docker 客户端。SSH 远程打包仍须本机 docker.exe（只作客户端，不必启动本机引擎）。"
+            : "未找到本机 docker 命令。");
+        throw new InvalidOperationException(remote
+            ? "远程 Docker 打包失败：本机无 docker 客户端。请安装 Docker Desktop，或仅安装 Docker CLI 后重新打开发布工具。"
+            : "本机 Docker 打包失败：未找到 docker。请安装并启动 Docker Desktop，确认 PATH 含 Docker\\resources\\bin。");
+    }
+
+    private static List<string> GetMergedPathParts()
+    {
+        static IEnumerable<string> Split(string? raw)
+            => (raw ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var set = new List<string>();
+        void AddRange(IEnumerable<string> items)
+        {
+            foreach (var p in items)
+            {
+                if (set.Any(x => x.Equals(p, StringComparison.OrdinalIgnoreCase))) continue;
+                set.Add(p);
+            }
+        }
+
+        // Process 常缺 GUI 启动后才写入的 User PATH；显式合并三层
+        AddRange(Split(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.Process)));
+        AddRange(Split(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User)));
+        AddRange(Split(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.Machine)));
+        return set;
+    }
+
+    private static IEnumerable<string> EnumerateDockerCliDirectories()
+    {
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        foreach (var dir in new[]
+                 {
+                     Path.Combine(programFiles, "Docker", "Docker", "resources", "bin"),
+                     Path.Combine(programFiles, "Docker", "Docker", "resources"),
+                     Path.Combine(programFilesX86, "Docker", "Docker", "resources", "bin"),
+                     Path.Combine(localApp, "Docker", "resources", "bin"),
+                     Path.Combine(programFiles, "Docker", "cli-plugins"),
+                     Path.Combine(userProfile, "scoop", "shims"),
+                     Path.Combine(userProfile, "scoop", "apps", "docker", "current"),
+                 })
+        {
+            if (Directory.Exists(dir) && File.Exists(Path.Combine(dir, "docker.exe")))
+                yield return dir;
+        }
+    }
+
+    private static string? FindDockerExeDirectory(IReadOnlyList<string> pathParts)
+    {
+        foreach (var dir in EnumerateDockerCliDirectories())
+            return dir;
+
+        foreach (var dir in pathParts)
+        {
+            try
+            {
+                if (File.Exists(Path.Combine(dir, "docker.exe")))
+                    return dir;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        return null;
     }
 
     private static bool LooksLikeSingleFilePublish(string dir, string rid)

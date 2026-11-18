@@ -355,9 +355,9 @@ public partial class MainWindow : Window
                 ? "本机模式：请先启动 Docker Desktop；Setup 会自动补齐常见 Docker PATH。"
                 : GetDockerAuthMode() switch
                 {
-                    "key" => "SSH 密钥：SSH.NET 隧道（无需本机 OpenSSH）；填写用户与私钥路径。",
-                    "password" => "SSH 密码：SSH.NET 隧道（无需本机 OpenSSH）；密码仅内存传递。",
-                    _ => "TCP 无认证：DOCKER_HOST=tcp://IP:端口（如局域网 Docker Desktop 暴露 2375）。"
+                    "key" => "SSH 密钥：远端 build/save 后拉回（无需本机 docker）。自动检测：能直连 docker 则不加 sudo，否则用免密 sudo。",
+                    "password" => "SSH 密码：远端 build/save 后拉回。自动检测 docker 权限；普通用户无权限时再用同一密码 sudo，管理员/docker 组用户不加 sudo。",
+                    _ => "TCP 无认证：DOCKER_HOST=tcp://IP:端口（如 2375）。本机需 docker 客户端。"
                 };
         }
 

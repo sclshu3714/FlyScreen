@@ -13,6 +13,12 @@ public sealed class ProcessRunner
         CancellationToken ct = default,
         IReadOnlyDictionary<string, string>? environment = null)
     {
+        // Windows PowerShell 5.1 控制台输出默认是「系统 ANSI」：
+        // 中文系统区多为 GBK，开了 UTF-8 Beta 则为 UTF-8。
+        // 若强制按 UTF-8 读，中文机日志会乱码；Encoding.Default 随系统区走，两台都不坏。
+        var consoleEncoding = OperatingSystem.IsWindows()
+            ? Encoding.Default
+            : Encoding.UTF8;
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
@@ -22,8 +28,8 @@ public sealed class ProcessRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
+            StandardOutputEncoding = consoleEncoding,
+            StandardErrorEncoding = consoleEncoding
         };
 
         if (environment != null)
