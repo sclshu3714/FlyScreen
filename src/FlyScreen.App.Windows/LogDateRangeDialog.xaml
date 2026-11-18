@@ -120,7 +120,7 @@
             </Button>
             <Popup x:Name="FromTimePopup" Placement="Bottom" PlacementTarget="{Binding ElementName=FromTime}"
                    StaysOpen="False" AllowsTransparency="True">
-              <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+              <Border Background="{DynamicResource PopupBg}" BorderBrush="{DynamicResource ControlBorder}"
                       BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,0">
                 <Border.Effect>
                   <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.18" Direction="270"/>
@@ -156,7 +156,7 @@
             </Button>
             <Popup x:Name="ToTimePopup" Placement="Bottom" PlacementTarget="{Binding ElementName=ToTime}"
                    StaysOpen="False" AllowsTransparency="True">
-              <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+              <Border Background="{DynamicResource PopupBg}" BorderBrush="{DynamicResource ControlBorder}"
                       BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,0">
                 <Border.Effect>
                   <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.18" Direction="270"/>

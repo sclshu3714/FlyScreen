@@ -52,10 +52,11 @@ public sealed class MauiScreenExtendController : IDisposable
 
     public void SetProjectionMode(DisplayProjectionMode mode) => _mode = mode;
 
-    /// <summary>设备管理的远程投影固定复制主屏，不占用虚拟副屏。</summary>
-    private bool UsesExtendDisplay
-        => _mode == DisplayProjectionMode.Extend
-           && _display.Source != ProjectionDisplaySource.HostPrimary;
+    /// <summary>
+    /// 是否采副屏：只看投影模式。远程投影入口强制 Clone，故仍走主屏；
+    /// HostPrimary 仅作分辨率模板，不参与选屏。
+    /// </summary>
+    private bool UsesExtendDisplay => _mode == DisplayProjectionMode.Extend;
 
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
         => _display = choice?.Clone() ?? new ProjectionDisplayChoice();
@@ -517,12 +518,15 @@ public sealed class MauiScreenExtendSinkWindow
     private readonly Microsoft.UI.Xaml.Window _window;
     private readonly Microsoft.UI.Xaml.Controls.Grid _shell;
     private readonly Microsoft.UI.Xaml.Controls.Border _titleBar;
+    /// <summary>仅中间空白作 SetTitleBar 拖拽区；Tab/按钮留在客户区以便 ToolTip。</summary>
+    private readonly Microsoft.UI.Xaml.Controls.Border _titleDragFill;
     private readonly Microsoft.UI.Xaml.Controls.StackPanel _tabsHost;
     private readonly Microsoft.UI.Xaml.Controls.Button _addTabBtn;
     private readonly Microsoft.UI.Xaml.Controls.Grid _contentHost;
     private readonly Microsoft.UI.Xaml.Controls.Image _image;
     private readonly Microsoft.UI.Xaml.Controls.TextBlock _waiting;
     private readonly Microsoft.UI.Xaml.Controls.Button _fullscreenBtn;
+    private readonly Microsoft.UI.Xaml.Controls.Button _maxBtn;
     private readonly Microsoft.UI.Xaml.Controls.Canvas _fsToolbarLayer;
     private readonly Microsoft.UI.Xaml.Controls.Border _fsToolbar;
     private readonly Microsoft.UI.Xaml.Controls.StackPanel _fsToolbarExtra;
@@ -639,6 +643,8 @@ public sealed class MauiScreenExtendSinkWindow
 
         _fullscreenBtn = ChromeGlyphBtn("⛶", 46, ToggleFullscreen);
         Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "全屏");
+        _maxBtn = ChromeGlyphBtn("□", 46, ToggleMaximize);
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_maxBtn, "最大化");
         var chrome = new Microsoft.UI.Xaml.Controls.StackPanel
         {
             Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
@@ -647,7 +653,7 @@ public sealed class MauiScreenExtendSinkWindow
             {
                 _fullscreenBtn,
                 ChromeGlyphBtn("─", 46, () => SetWindowState(minimized: true)),
-                ChromeGlyphBtn("□", 46, ToggleMaximize),
+                _maxBtn,
                 ChromeGlyphBtn("✕", 46, CloseWindow)
             }
         };
@@ -657,13 +663,13 @@ public sealed class MauiScreenExtendSinkWindow
         titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = new Microsoft.UI.Xaml.GridLength(1, Microsoft.UI.Xaml.GridUnitType.Star) });
         titleGrid.ColumnDefinitions.Add(new Microsoft.UI.Xaml.Controls.ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto });
         titleGrid.Children.Add(titleTabRow);
-        // 中间空白：显式命中层，拖动整窗（空列无背景时 WinUI 点不中）
-        var titleDragFill = new Microsoft.UI.Xaml.Controls.Border
+        // 中间空白：唯一 SetTitleBar 拖拽层（勿把整条标题栏设成拖拽，否则 Tab Border 悬停不出延迟 tip）
+        _titleDragFill = new Microsoft.UI.Xaml.Controls.Border
         {
             Background = HexBrush("#01000000")
         };
-        Microsoft.UI.Xaml.Controls.Grid.SetColumn(titleDragFill, 1);
-        titleGrid.Children.Add(titleDragFill);
+        Microsoft.UI.Xaml.Controls.Grid.SetColumn(_titleDragFill, 1);
+        titleGrid.Children.Add(_titleDragFill);
         Microsoft.UI.Xaml.Controls.Grid.SetColumn(chrome, 2);
         titleGrid.Children.Add(chrome);
 
@@ -793,7 +799,8 @@ public sealed class MauiScreenExtendSinkWindow
         try
         {
             _window.ExtendsContentIntoTitleBar = true;
-            _window.SetTitleBar(_titleBar);
+            // 只注册中间拖拽带；TabsHost / 系统按钮保持客户区命中（对齐 WPF IsHitTestVisibleInChrome）
+            _window.SetTitleBar(_titleDragFill);
         }
         catch { /* ignore */ }
         _window.Activated += (_, args) =>
@@ -861,20 +868,56 @@ public sealed class MauiScreenExtendSinkWindow
                 }
             }
 
-            if (sender.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter op) return;
-            if (op.State != Microsoft.UI.Windowing.OverlappedPresenterState.Maximized) return;
-
-            // 系统 Maximize → 还原后贴工作区（不盖任务栏）
-            _convertingSystemMaximize = true;
-            try
+            if (sender.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op
+                && op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
             {
-                op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
-                op.Restore();
-                FillWorkArea(sender, area);
+                // 系统 Maximize → 还原后贴工作区（不盖任务栏）
+                _convertingSystemMaximize = true;
+                try
+                {
+                    op.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
+                    op.Restore();
+                    FillWorkArea(sender, area);
+                }
+                finally { _convertingSystemMaximize = false; }
+                RefreshMaxIcon(sender, area);
+                return;
             }
-            finally { _convertingSystemMaximize = false; }
+
+            // 窗化 ↔ 工作区填充时同步可否拖边（对齐 WPF SyncResizeBorder）
+            SyncResizable(sender);
+            RefreshMaxIcon(sender, area);
         }
         catch { /* ignore */ }
+    }
+
+    /// <summary>对齐 Win/Desktop：工作区填充时显示「还原」图标 ❐，否则「最大化」□。</summary>
+    private void RefreshMaxIcon(
+        Microsoft.UI.Windowing.AppWindow? appWindow = null,
+        Microsoft.UI.Windowing.DisplayArea? area = null)
+    {
+        try
+        {
+            if (appWindow == null)
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+                var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+                appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+                area ??= Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                    id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            }
+
+            var filled = IsWorkAreaFilled(appWindow, area)
+                         || (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op
+                             && op.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized);
+            _maxBtn.Content = filled ? "❐" : "□";
+            Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_maxBtn, filled ? "还原" : "最大化");
+        }
+        catch
+        {
+            _maxBtn.Content = "□";
+            Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_maxBtn, "最大化");
+        }
     }
 
     private static Microsoft.UI.Xaml.Media.SolidColorBrush HexBrush(string hex)
@@ -1032,9 +1075,27 @@ public sealed class MauiScreenExtendSinkWindow
             NameText = nameText,
             LatencyTip = FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTipWait")
         };
-        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(tabBorder, state.LatencyTip);
+        SetLatencyToolTip(tabBorder, state.LatencyTip);
         DrawSignalOn(signalPanel, ref state.LastSignal, new ProjectionLatency.Signal(0, 0));
         return state;
+    }
+
+    /// <summary>Tab 延迟 tip（对齐 WPF TabBorder.ToolTip）；显式 ToolTip 便于 Placement。</summary>
+    private static void SetLatencyToolTip(Microsoft.UI.Xaml.FrameworkElement target, string tip)
+    {
+        // 收帧会高频更新：只改 Content，避免悬停中反复 SetToolTip 把气泡关掉
+        if (Microsoft.UI.Xaml.Controls.ToolTipService.GetToolTip(target) is Microsoft.UI.Xaml.Controls.ToolTip existing)
+        {
+            existing.Content = tip;
+            return;
+        }
+
+        var tt = new Microsoft.UI.Xaml.Controls.ToolTip
+        {
+            Content = tip,
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Bottom
+        };
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(target, tt);
     }
 
     private void SetActiveTab(string peer)
@@ -1205,6 +1266,7 @@ public sealed class MauiScreenExtendSinkWindow
                     opRest.Restore();
                 if (_hasPreFsBounds)
                     appWindow.MoveAndResize(_preFsBounds);
+                SyncResizable(appWindow);
             }
             else
             {
@@ -1221,6 +1283,8 @@ public sealed class MauiScreenExtendSinkWindow
                 try { FillWorkArea(appWindow, area); }
                 finally { _convertingSystemMaximize = false; }
             }
+
+            RefreshMaxIcon(appWindow, area);
         }
         catch { /* ignore */ }
     }
@@ -1239,7 +1303,31 @@ public sealed class MauiScreenExtendSinkWindow
                && Math.Abs(size.Height - wa.Height) <= 8;
     }
 
-    private static void FillWorkArea(
+    /// <summary>
+    /// 对齐 WPF <c>SyncResizeBorder</c>：工作区填充 / 全屏时禁止拖边改大小，普通窗化可调。
+    /// WinUI 无 ResizeBorderThickness，用 <see cref="Microsoft.UI.Windowing.OverlappedPresenter.IsResizable"/>。
+    /// </summary>
+    private void SyncResizable(Microsoft.UI.Windowing.AppWindow appWindow)
+    {
+        try
+        {
+            if (appWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter op)
+                return;
+
+            if (_chromeFullscreen)
+            {
+                op.IsResizable = false;
+                return;
+            }
+
+            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                appWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            op.IsResizable = !IsWorkAreaFilled(appWindow, area);
+        }
+        catch { /* ignore */ }
+    }
+
+    private void FillWorkArea(
         Microsoft.UI.Windowing.AppWindow appWindow,
         Microsoft.UI.Windowing.DisplayArea? area)
     {
@@ -1252,6 +1340,7 @@ public sealed class MauiScreenExtendSinkWindow
 
         if (area != null)
             appWindow.MoveAndResize(area.WorkArea);
+        SyncResizable(appWindow);
     }
 
     private void SetWindowState(bool minimized)
@@ -1299,7 +1388,7 @@ public sealed class MauiScreenExtendSinkWindow
         try
         {
             _window.ExtendsContentIntoTitleBar = true;
-            _window.SetTitleBar(_titleBar);
+            _window.SetTitleBar(_titleDragFill);
         }
         catch { /* ignore */ }
 
@@ -1441,12 +1530,16 @@ public sealed class MauiScreenExtendSinkWindow
                 if (_preFsMaximized)
                     FillWorkArea(appWindow, area);
                 else if (_hasPreFsBounds)
+                {
                     appWindow.MoveAndResize(_preFsBounds);
+                    SyncResizable(appWindow);
+                }
                 else
                     FillWorkArea(appWindow, area);
                 _cursorIdle.EndSession();
                 ForceShowLocalCursor();
                 Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fullscreenBtn, "全屏");
+                RefreshMaxIcon(appWindow, area);
             }
         }
         catch { /* ignore */ }
@@ -1670,11 +1763,13 @@ public sealed class MauiScreenExtendSinkWindow
             var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
                 id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
             FillWorkArea(appWindow, area);
+            RefreshMaxIcon(appWindow, area);
             appWindow.Show();
         }
         catch
         {
             _window.Activate();
+            RefreshMaxIcon();
         }
 
         _windowActive = true;
@@ -1734,7 +1829,7 @@ public sealed class MauiScreenExtendSinkWindow
     private void ApplyLatencyTipForTab(SinkTabState tab, string tip)
     {
         tab.LatencyTip = tip;
-        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(tab.TabBorder, tip);
+        SetLatencyToolTip(tab.TabBorder, tip);
         if (string.Equals(tab.Peer, _activePeer, StringComparison.OrdinalIgnoreCase))
             ApplyActiveLatencyTip();
     }
@@ -1743,7 +1838,7 @@ public sealed class MauiScreenExtendSinkWindow
     {
         var tab = FindTab(_activePeer);
         _latencyTip = tab?.LatencyTip ?? FlyScreen.Helpers.Localization.Loc.T("Proj.LatencyTipWait");
-        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(_fsGripBtn, _latencyTip);
+        SetLatencyToolTip(_fsGripBtn, _latencyTip);
     }
 
     private void ResetFsToolbarToTopCenter()

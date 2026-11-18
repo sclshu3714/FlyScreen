@@ -92,6 +92,17 @@ public static class MauiProgram
             native.VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
         });
 
+        // Picker：主题切换时 MAUI UpdateBackground 对已有 ComboBoxBackground 再写入会 WinRT HR 失败；
+        // 先清键再走原逻辑，再刷实心下拉底（PopupBg）。
+        Microsoft.Maui.Handlers.PickerHandler.Mapper.ModifyMapping(nameof(IView.Background), (handler, view, action) =>
+        {
+            Helpers.MauiPickerChrome.PrepareBackgroundUpdate(handler.PlatformView);
+            action?.Invoke(handler, view);
+            Helpers.MauiPickerChrome.Apply(handler.PlatformView);
+        });
+        Microsoft.Maui.Handlers.PickerHandler.Mapper.AppendToMapping("FlyScreenPickerPopup", (handler, _) =>
+            Helpers.MauiPickerChrome.Apply(handler.PlatformView));
+
         // RadioButton：Win 用 Label 刷字色；Android 须把 Label Content 收成 string（否则显示类型名）
         Microsoft.Maui.Handlers.RadioButtonHandler.Mapper.AppendToMapping("FlyScreenRadioTheme", (handler, view) =>
         {

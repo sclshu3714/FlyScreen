@@ -7,10 +7,14 @@
 | [clipboard.md](clipboard.md) | **共享剪贴板**：宣告/粘贴行为与各端格式对标表；文件占用语义 |
 | [edge-file-drag.md](edge-file-drag.md) | **穿边拖文件**：跨屏拖放、跟手提示、同名冲突 |
 | [extended-display.md](extended-display.md) | **电脑扩展屏 / 投影**：真扩展、声音同步、远程回控、1 对 1 互斥、VDD |
-| [tools.md](tools.md) | **工具系统规格（供实现）**：两端都装、分享、`.flytool`、开源哈希信任、标题栏、通用信封（未编码） |
-| [shared-devices.md](shared-devices.md) | **共享摄像头 / 麦克风 / 扬声器**：工具页三条独立工具；协议与冲突解决（未编码） |
-| [video-wall.md](video-wall.md) | **视频墙工具（规划）**：命名、需求、能力分级、架构、分期、`tools.md` 增量、验收；配套 [可行性](video-wall-feasibility.md) / [原型](video-wall-prototype.md) / [协议与编码矩阵](video-wall-sources.md) |
+| [tools.md](tools.md) | **工具系统规格**：宿主 / `.flytool` / 哈希信任 / 信封；真包骨架已编码（共享设备、取色、端口代理、视频墙） |
+| [color-picker.md](color-picker.md) | **颜色拾取器**：本机滴管与内嵌工作区 |
+| [shared-devices.md](shared-devices.md) | **共享摄像头 / 麦克风 / 扬声器**：合并为 `shared-devices`；申请→授权流程（会话细节） |
+| [video-wall.md](video-wall.md) | **视频墙**：规格与分期；实现见 `src/Tools/VideoWall/`；配套 [可行性](video-wall-feasibility.md) / [原型](video-wall-prototype.md) / [源矩阵](video-wall-sources.md) |
+| [relay-service.md](relay-service.md) | **自托管信令中继摘要**；完整协议见 [../src/FlyScreen.Relay/README.md](../src/FlyScreen.Relay/README.md) |
+| [remote-relay-architecture.md](remote-relay-architecture.md) | 跨网 NAT / 中继架构方案（背景） |
 | [THIRD_PARTY.md](THIRD_PARTY.md) | **第三方依赖与许可**：开源清单、专有依赖（ML Kit）、Linux 字体 |
+| [../setup/README.md](../setup/README.md) | **Setup 发布工具**：各端客户端、`.flytool`、中继 zip / Docker tar |
 | [../third_party/licenses/](../third_party/licenses/) | Monaco / VDD 等 MIT 许可文本 |
 | [device-matrix.md](device-matrix.md) | 设备形态（手机/平板/电视/桌面/鸿蒙电脑）× 功能矩阵 |
 | [protocol.md](protocol.md) | 协议版本与能力位协商概要 |
@@ -27,4 +31,4 @@
 
 当前产品仍以 **Windows 桌面（WPF）** 为唯一 stable 交付；Mac / Linux / Android / 鸿蒙 / MAUI 按 ROADMAP 分期，独立工程与独立安装包。
 
-**UI 同构（Win / Avalonia Desktop / MAUI）：** 侧栏（基础·网络·共享·安全·高级·关于·帮助·程序·**工具**）、彩色 Path 图标、安全密钥在安全页（生成按钮在标题工具栏）、高级顶栏功能/行为/穿边三列（窄屏堆叠）、共享传输列表列对齐、关于/帮助为页内内容；三端均有**程序**编辑器。全铺表格容器用主题 **`CardList`**（直角边框，避免圆角被表头/行盖住断裂）；普通内容卡仍用 `Card`。Linux GUI 细节见 [runbooks/build-linux.md](runbooks/build-linux.md)。进度见 [status.md](status.md)。共享剪贴板见 [clipboard.md](clipboard.md)。穿边拖文件见 [edge-file-drag.md](edge-file-drag.md)。投影 / 扩展屏见 [extended-display.md](extended-display.md)。工具系统见 [tools.md](tools.md)（投影/共享设备/VDD/标题栏/通用协议）；共享设备业务见 [shared-devices.md](shared-devices.md)；投影会话见 [extended-display.md](extended-display.md)（均未按工具态编码）。视频墙见 [video-wall.md](video-wall.md)（局域网扫描、画布轮播、加载动画）。
+**UI 同构（Win / Avalonia Desktop / MAUI）：** 侧栏（基础·网络·共享·安全·高级·关于·帮助·程序·**工具**）、彩色 Path 图标、安全密钥在安全页（生成按钮在标题工具栏）、高级顶栏功能/行为/穿边三列（窄屏堆叠）、共享传输列表列对齐、关于/帮助为页内内容；三端均有**程序**编辑器与**工具**页。全铺表格容器用主题 **`CardList`**（直角边框，避免圆角被表头/行盖住断裂）；普通内容卡仍用 `Card`。Linux GUI 细节见 [runbooks/build-linux.md](runbooks/build-linux.md)。进度见 [status.md](status.md)。共享剪贴板见 [clipboard.md](clipboard.md)。穿边拖文件见 [edge-file-drag.md](edge-file-drag.md)。投影 / 扩展屏见 [extended-display.md](extended-display.md)（仍主程序内置，不经工具页）。工具系统见 [tools.md](tools.md)；取色 [color-picker.md](color-picker.md)；共享设备 [shared-devices.md](shared-devices.md)；视频墙 [video-wall.md](video-wall.md)。跨网中继见 [relay-service.md](relay-service.md)。

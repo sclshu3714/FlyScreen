@@ -32,8 +32,12 @@ public static class DesktopThemeService
         if (app != null)
             app.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
 
-        foreach (var (key, hex) in ThemePalette.ToResourceMap(info.ResolveColors()))
+        var map = ThemePalette.ToResourceMap(info.ResolveColors());
+        foreach (var (key, hex) in map)
             Set(key, hex);
+        // Fluent ComboBox 下拉用独立键；自定义壁纸主题须跟实心 PopupBg
+        if (map.TryGetValue("PopupBg", out var popupBg))
+            Set("ComboBoxDropDownBackground", popupBg);
 
         window ??= TryGetMainWindow();
         if (window == null) return;
@@ -58,8 +62,11 @@ public static class DesktopThemeService
         var colors = ThemePalette.ForDialog(Current);
         var winBg = new SolidColorBrush(Color.Parse(colors.WinBg));
         var cardBg = new SolidColorBrush(Color.Parse(colors.CardBg));
-        foreach (var (key, hex) in ThemePalette.ToResourceMap(colors))
+        var map = ThemePalette.ToResourceMap(colors);
+        foreach (var (key, hex) in map)
             window.Resources[key] = new SolidColorBrush(Color.Parse(hex));
+        if (map.TryGetValue("PopupBg", out var popupBg))
+            window.Resources["ComboBoxDropDownBackground"] = new SolidColorBrush(Color.Parse(popupBg));
 
         // Mac/Linux：禁止透明层级，否则 DynamicResource 半透明会透出主窗
         window.TransparencyLevelHint = [WindowTransparencyLevel.None];

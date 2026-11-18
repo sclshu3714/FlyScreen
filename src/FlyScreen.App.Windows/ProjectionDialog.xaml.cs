@@ -372,7 +372,7 @@ public partial class ProjectionDialog : Window
                     ProjectionDisplaySource.Custom, w, h, 60, $"{w}×{h}"));
             }
 
-            if (!SelectRememberedResolution(previous))
+            if (!SelectRememberedResolution(previous, mode))
             {
                 if (mode == DisplayProjectionMode.Clone)
                     ResolutionCombo.SelectedItem = hostItem;
@@ -399,8 +399,27 @@ public partial class ProjectionDialog : Window
         }
     }
 
-    private bool SelectRememberedResolution(ResItem? previous)
+    private bool SelectRememberedResolution(ResItem? previous, DisplayProjectionMode mode)
     {
+        // 扩展模式：勿默认「本机主屏」（易误解为采主屏）；优先目标电脑项
+        if (mode == DisplayProjectionMode.Extend)
+        {
+            if (_displaySelectionReady && previous != null
+                && previous.Source != ProjectionDisplaySource.HostPrimary
+                && SelectResolution(previous.Source, previous.Width, previous.Height))
+                return true;
+
+            if (_displaySelectionReady)
+                return false;
+
+            var settings = _host.Settings;
+            var remembered = (ProjectionDisplaySource)settings.ScreenExtendDisplaySource;
+            if (remembered == ProjectionDisplaySource.HostPrimary)
+                return false;
+            return settings.ScreenExtendWidth > 0 && settings.ScreenExtendHeight > 0
+                && SelectResolution(remembered, settings.ScreenExtendWidth, settings.ScreenExtendHeight);
+        }
+
         if (_displaySelectionReady && previous != null
             && SelectResolution(previous.Source, previous.Width, previous.Height))
             return true;
@@ -408,12 +427,12 @@ public partial class ProjectionDialog : Window
         if (_displaySelectionReady)
             return false;
 
-        var settings = _host.Settings;
-        return settings.ScreenExtendWidth > 0 && settings.ScreenExtendHeight > 0
+        var s = _host.Settings;
+        return s.ScreenExtendWidth > 0 && s.ScreenExtendHeight > 0
             && SelectResolution(
-                (ProjectionDisplaySource)settings.ScreenExtendDisplaySource,
-                settings.ScreenExtendWidth,
-                settings.ScreenExtendHeight);
+                (ProjectionDisplaySource)s.ScreenExtendDisplaySource,
+                s.ScreenExtendWidth,
+                s.ScreenExtendHeight);
     }
 
     private bool SelectResolution(ProjectionDisplaySource source, int width, int height)

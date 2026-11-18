@@ -44,7 +44,7 @@
               </Viewbox>
             </Button>
             <Popup x:Name="FromTimePopup" Placement="Bottom" IsLightDismissEnabled="True">
-              <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+              <Border Background="{DynamicResource PopupBg}" BorderBrush="{DynamicResource Line}"
                       BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,0">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <ComboBox x:Name="FromHour" Width="64" MinHeight="32"
@@ -74,7 +74,7 @@
               </Viewbox>
             </Button>
             <Popup x:Name="ToTimePopup" Placement="Bottom" IsLightDismissEnabled="True">
-              <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+              <Border Background="{DynamicResource PopupBg}" BorderBrush="{DynamicResource Line}"
                       BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,0">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <ComboBox x:Name="ToHour" Width="64" MinHeight="32"

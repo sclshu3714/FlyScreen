@@ -2,9 +2,9 @@
 
 跨电脑键鼠与剪贴板共享工具。灵感来自 [Mouse without Borders](https://www.microsoft.com/en-us/download/details.aspx?id=35460)，也可以搜索 [Mouse without Borders](https://aka.ms/mm)。
 
-默认简体中文界面，并支持多语言与淡色/深色主题。相对原作强化了双向连接与心跳保活、电脑布局同步、剪贴板与文件的按需传输（复制只宣告元数据，进入目标机后再拉取），以及直接推送、穿边拖文件、扩展屏/投影等能力。
+默认简体中文界面，并支持多语言与淡色/深色主题。相对原作强化了双向连接与心跳保活、电脑布局同步、剪贴板与文件的按需传输（复制只宣告元数据，进入目标机后再拉取），以及直接推送、穿边拖文件、扩展屏/投影、可安装工具（`.flytool`）、可选自托管信令中继等能力。
 
-**最多 4 台电脑**共用一套键鼠；建议各机版本一致，并以**管理员身份**运行。
+**最多 4 台电脑**共用一套键鼠；建议各机版本一致，并以**管理员身份**运行。跨网/无公网 IP 时可自建 [FlyScreen.Relay](src/FlyScreen.Relay/README.md)（见下方 [信令中继](#信令中继flyscreenrelay)）。
 
 联系邮箱：`sclshu3714@163.com`  
 更新发布：<https://github.com/sclshu3714/FlyScreen/releases>
@@ -20,10 +20,13 @@
 - **[docs/clipboard.md](docs/clipboard.md)** — 共享剪贴板各端格式对标  
 - **[docs/edge-file-drag.md](docs/edge-file-drag.md)** — 穿边拖文件  
 - **[docs/extended-display.md](docs/extended-display.md)** — 电脑扩展屏 / 投影  
-- **[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)** — 第三方依赖与许可说明
+- **[docs/tools.md](docs/tools.md)** — 工具系统规格（宿主 / `.flytool` / 信封 / 安全）  
+- **[docs/relay-service.md](docs/relay-service.md)** — 自托管信令中继摘要（详情见工程 README）  
+- **[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)** — 第三方依赖与许可说明  
+- **[setup/README.md](setup/README.md)** — Setup：各端客户端 / 插件工具 / 中继一键打包
 
 原则：新平台独立工程与分发包；任何 stable 发版必须通过 Windows 回归清单。  
-当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏七页：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助）。  
+当前 **stable** 仍为 Windows WPF（**.NET 10**）；Avalonia（Mac/Linux）与 MAUI 为双轨 beta，UI 与 Win **同构**（侧栏：基础 / 网络 / 共享 / 安全 / 高级 / 关于 / 帮助 / 程序 / **工具**）。  
 MAUI Android：桌面控手机与**用户程序（Fly API / OCR）**均需开启「玄鸟键鼠注入」无障碍（详见 [docs/runbooks/programs-android.md](docs/runbooks/programs-android.md)）。
 
 ## 相对 Mouse without Borders 的改进
@@ -41,6 +44,8 @@ MAUI Android：桌面控手机与**用户程序（Fly API / OCR）**均需开启
 11. **更新与诊断** — 侧栏「帮助」页可检查/自动更新（优先 GitHub Release，失败自动改用 Gitee），以及连接一键检查/修复。
 12. **电脑扩展屏 / 投影** — 标题栏一键复制或扩展投到对端全屏；可选声音同步、远程回控、去黑边；1 对 1 互斥；手机可复制投到电脑（详见 [docs/extended-display.md](docs/extended-display.md)）。
 13. **穿边拖文件** — 拖着文件/文件夹穿边到另一台电脑松开即复制；同名冲突可替换/跳过；目标占用时双方失败提示一致（详见 [docs/edge-file-drag.md](docs/edge-file-drag.md)）。
+14. **可安装工具** — 侧栏「工具」页安装 `.flytool`：共享设备、颜色拾取器、端口代理、视频墙等；公开哈希校验，跨屏工具两端都装（详见下方 [工具](#工具flytool) 与 [docs/tools.md](docs/tools.md)）。
+15. **自托管信令中继** — 可选部署 `FlyScreen.Relay`：设备注册、房间发现、STUN、P2P 失败后中继转发密文；客户端连接配置区分本地 / 远程 / 服务（详见下方 [信令中继](#信令中继flyscreenrelay)）。
 
 ## 环境要求
 
@@ -65,17 +70,20 @@ dotnet run --project src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c R
 
 | 项目 | 说明 |
 |------|------|
-| `FlyScreen.Core` | 跨平台核心（协议 / 连接 / 发现 / 传输） |
+| `FlyScreen.Core` | 跨平台核心（协议 / 连接 / 发现 / 传输 / 工具宿主） |
 | `FlyScreen.Windows` + `FlyScreen.App.Windows` | Windows 适配 + WPF（**stable**，产物仍为 `FlyScreen.exe`） |
-| `FlyScreen.App.Desktop` | Avalonia 共用主界面（Mac / Linux；对齐 Win 七页导航） |
+| `FlyScreen.App.Desktop` | Avalonia 共用主界面（Mac / Linux；对齐 Win 侧栏导航） |
 | `FlyScreen.Mac` + `FlyScreen.App.Mac` | macOS 适配 + Avalonia 入口（W1） |
 | `FlyScreen.Linux` + `FlyScreen.App.Linux` | Linux：自动 GUI / CLI / Daemon（W2） |
 | `FlyScreen.App.Maui` | .NET MAUI 跨平台 UI（W7 beta：Win / Android / …） |
+| `FlyScreen.Relay` | 自托管信令 + STUN + 中继（独立服务，可 Docker） |
+| `FlyScreen.ToolSdk` + `src/Tools/*` | 工具契约与插件（颜色拾取 / 共享设备 / 端口代理 / 视频墙） |
+| `setup/FlyScreen.Setup` | 一键打包：各端客户端、`.flytool`、中继 zip / Docker tar |
 | `mobile/android` | Android Kotlin：触控板控桌面（W3） |
 | `mobile/harmony` | 鸿蒙 ArkTS：手机/平板 + 电脑（W5） |
 
 日常 Win 开发打开 `FlyScreen.sln` 即可。  
-**发布（VS）**：展开 `build`，右键 `FlyScreen.Publish.*` → **生成**；最终单文件在 `artifacts/release/`（见 [build/README.md](build/README.md)）。  
+**发布（VS）**：展开 `build`，右键 `FlyScreen.Publish.*` → **生成**；或运行 **FlyScreen.Setup**（见 [setup/README.md](setup/README.md)）；最终产物在 `artifacts/release/`（另见 [build/README.md](build/README.md)）。  
 macOS / Linux / Android / 鸿蒙 / MAUI 构建说明见 [docs/README.md](docs/README.md)（MAUI 见 [docs/runbooks/build-maui.md](docs/runbooks/build-maui.md)）。
 
 输出目录：`src\FlyScreen.App.Windows\bin\Release\net10.0-windows7.0\`（依赖本机已安装的 Desktop Runtime，**不宜直接拷到其它电脑**）。
@@ -151,12 +159,12 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 ## 使用方法
 
 1. 各电脑安装并启动「玄鸟」（**最多 4 台**），版本尽量一致。
-2. **安全**：填写各机**相同的安全密钥**（生成/显示在此页）。
-3. **网络**：选择真实通信网卡；确认局域网发现能看到对方。
-4. **基础**：从发现列表或手动添加电脑；按摆放调 1×4 / 2×2，点 **应用**（布局会同步到已连接电脑）。
+2. **安全**：填写各机**相同的安全密钥**（生成/显示在此页；跨网走中继时密钥兼作房间 `roomKey`）。
+3. **网络**：选择真实通信网卡；确认局域网发现能看到对方。跨网可在「连接配置」添加 **远程**（一对一）或 **服务**（中继，一对多），设备管理类型为本地 / 远程 / 服务。
+4. **基础**：从发现列表或手动添加电脑；按摆放调 1×4 / 2×2，点 **应用**（布局会同步到已连接电脑）。远程/服务设备不进布局槽位，可在设备管理中投影。
 5. 状态为「双向已连接」后，鼠标移出屏幕边缘即可切换（需开启「轻松鼠标」）。
 
-侧栏页面：**基础** · **网络** · **共享** · **安全** · **高级** · **关于** · **帮助**。
+侧栏页面：**基础** · **网络** · **共享** · **安全** · **高级** · **关于** · **帮助** · **程序** · **工具**。
 
 ### 高级选项（摘要）
 
@@ -184,7 +192,44 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 
 ### 投影（扩展屏）
 
-标题栏「投影」→ 选复制/扩展与目标电脑 → 开始。可选：**声音同步**、**远程控制**、**去黑边**。投影中标题栏变为「投影中」，再点或 Esc 停止。同一时刻每台最多一条投影会话。细节见 **[docs/extended-display.md](docs/extended-display.md)**。
+标题栏「投影」→ 选复制/扩展与目标电脑 → 开始。可选：**声音同步**、**远程控制**、**去黑边**。投影中标题栏变为「投影中」，再点或 Esc 停止。同一时刻每台最多一条投影会话。细节见 **[docs/extended-display.md](docs/extended-display.md)**。投影仍为主程序内置能力，**不**作为独立 `.flytool`。
+
+### 工具（`.flytool`）
+
+侧栏 **工具** 页：卡片网格安装 / 启动 / 卸载；支持导入本地包、Bundled 种子、远程索引；已装工具可拖到快捷栏。安装走公开 **contentSha256**（Bundled / KnownRelease / Unknown 确认），**不用**私有工具根密钥。跨屏工具（如共享设备）两端都须安装；工具**不能**使用无障碍 / Fly 注入（回控仍由主程序代注）。
+
+| ToolId | 说明 | 平台摘要 |
+|--------|------|----------|
+| `shared-devices` | 共享扬声器 / 麦克风 / 摄像头：申请端启动选目标 → 接收端同意（可记住适配） | 桌面申请/接收；Android 可作提供方 |
+| `color-picker` | 本机颜色拾取器（内嵌工作区 + 滴管） | 桌面（Win / Mac / Linux）；手机不显示 |
+| `port-proxy` | Windows `netsh` 端口代理工作区（需管理员） | 仅 Windows |
+| `video-wall` | 多源视频墙：宫格、局域网扫描、轮播（LibVLC）；大包走 Release / 远程索引，不默认 Bundled | 以 Windows 为主 |
+
+组包：`build/Pack-FlyTools.ps1` → `artifacts/flytools/`；Setup 可打 `FlyScreen-{ver}-flytools.zip`。规格与验收见 **[docs/tools.md](docs/tools.md)**；颜色拾取见 [docs/color-picker.md](docs/color-picker.md)；视频墙见 [docs/video-wall.md](docs/video-wall.md) 与 `src/Tools/VideoWall/`。
+
+### 信令中继（FlyScreen.Relay）
+
+可选独立服务，对标「控制面发现 + DERP 式边缘中继」：同安全密钥进同一房间；先 P2P（IPv6 / host / STUN），失败再经 WebSocket 转发**端到端密文**。
+
+| 端口（默认） | 用途 |
+|--------------|------|
+| TCP `8443` | 边缘：`/ws` 注册·信令·中继，`/v1/*` |
+| TCP `9080` | 管理网页 + `/api/*`（SSE 看板；**无令牌**，仅内网或反代后开放） |
+| TCP `15155` | 兼容连接配置「测试」/ ProbeOnly |
+| UDP `8443` | STUN |
+| UDP `15156` | 发现桥接（刷新发现单播 → 多条在线设备宣告，`Origin=service`） |
+
+```bash
+cd src/FlyScreen.Relay
+dotnet run
+# 或 docker compose up -d --build
+```
+
+- 管理页：`http://服务器:9080/`；边缘信息：`http://服务器:8443/v1/info`
+- 客户端：**网络 → 连接配置** 添加「服务」（`host` / `host:8443` / `ws(s)://…`）；两端安全密钥一致；设备须先经 `/ws` `hello` 注册后才会出现在发现列表
+- Docker：`src/FlyScreen.Relay/tools/pack-docker.ps1`（或 `.sh`）；Setup 目标「中继服务」可导出 `FlyScreen-{ver}-relay-docker.tar` 或 `relay-{rid}.zip`
+
+完整协议与客户端对照见 **[src/FlyScreen.Relay/README.md](src/FlyScreen.Relay/README.md)**；摘要 [docs/relay-service.md](docs/relay-service.md)；架构背景 [docs/remote-relay-architecture.md](docs/remote-relay-architecture.md)。
 
 ### 快捷键（默认）
 
@@ -200,6 +245,8 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 
 允许专用网络上的 TCP `15155`、UDP `15156`（可在网络设置中修改）。帮助里的「一键修复」可尝试添加「玄鸟」防火墙规则。
 
+自托管中继另需放行：TCP `8443` / `9080` / `15155`，UDP `8443` / `15156`（群晖等面板建容器时注意 **UDP 8443** 与边缘 TCP 同号，勿把容器端口填成字面量 `8443/udp`）。
+
 ## 配置与数据
 
 | 路径 | 说明 |
@@ -208,6 +255,8 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 | `%AppData%\FlyScreen\Inbox` | 剪贴板粘贴接收的文件缓存 |
 | `%AppData%\FlyScreen\PasteStaging` | 粘贴时原名暂存 |
 | `%AppData%\FlyScreen\transfer-history.json` | 传输历史 |
+| `{程序目录}/Tools/` | 工具 Bundled / Installed / 安装与快捷栏记录（不写 Roaming） |
+| 中继 `data/relay.db` | 自托管中继内嵌 SQLite（房间与注册；可改外部 MySQL/MariaDB） |
 
 ## 更新与诊断
 
@@ -225,11 +274,12 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 
 | 平台 | 工程 | 状态 | 一句话 |
 |------|------|------|--------|
-| **Windows 桌面** | `App.Windows`（WPF） | **stable** | 完整产品：键鼠、布局、剪贴板、文件、投影、穿边拖、更新、诊断 |
-| **MAUI-Windows** | `App.Maui` | beta | 与 WPF 主路径对齐（剪贴板全格式、投影 Host/Sink、穿边拖） |
-| **MAUI-Android** | `App.Maui` | beta | 触控板/键盘控桌面；剪贴板文/HTML/图；复制投屏 Host；无障碍被控；用户程序 Fly/OCR |
-| **macOS** | `App.Mac` + Avalonia | beta | 剪贴板尽力 + 直传/Inbox；可收投影 + 穿边拖；键鼠注入/捕获仍骨架 |
-| **Linux** | `App.Linux` + Avalonia | beta | 同 Mac 传输路径；可收投影 + 穿边拖；CLI/Daemon；键鼠主路径骨架 |
+| **Windows 桌面** | `App.Windows`（WPF） | **stable** | 完整产品：键鼠、布局、剪贴板、文件、投影、穿边拖、工具页、中继客户端、更新、诊断 |
+| **MAUI-Windows** | `App.Maui` | beta | 与 WPF 主路径对齐（剪贴板全格式、投影 Host/Sink、穿边拖、工具页） |
+| **MAUI-Android** | `App.Maui` | beta | 触控板/键盘控桌面；剪贴板文/HTML/图；复制投屏 Host；无障碍被控；用户程序 Fly/OCR；工具页（共享设备可作提供方） |
+| **macOS** | `App.Mac` + Avalonia | beta | 剪贴板尽力 + 直传/Inbox；可收投影 + 穿边拖；工具页壳；键鼠注入/捕获仍骨架 |
+| **Linux** | `App.Linux` + Avalonia | beta | 同 Mac 传输路径；可收投影 + 穿边拖；工具页壳；CLI/Daemon；键鼠主路径骨架 |
+| **中继服务** | `FlyScreen.Relay` | beta | 自托管信令 / STUN / 中继 / 管理站；Docker 或 publish zip |
 | 鸿蒙手机 / 电脑 | `mobile/harmony` | 骨架 | 触控板/设置壳；剪贴板与键鼠未齐 |
 
 ### 能力对照（桌面 / MAUI）
@@ -253,7 +303,11 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 | 主题 / 多语言 / 更新 / 诊断 | 完整 | 完整 | 部分 | — | — |
 | 用户程序编辑 / 共享 | 完整 | 完整 | 完整 | UI | UI |
 | 用户程序设备控制（`Fly.*` / OCR） | — | — | **完整**（须无障碍） | — | — |
-| 七页 UI 同构 | 完整 | 完整 | 完整（窄屏抽屉） | 完整 | 完整 |
+| 工具页 / `.flytool` 宿主 | 完整 | 完整 | 完整（窄屏） | 完整 | 完整 |
+| 共享设备工具 | 完整 | 完整 | 可作提供方 | 硬件视实现 | 硬件视实现 |
+| 颜色拾取 / 端口代理 / 视频墙 | 完整 | 部分 | —（清单过滤） | 取色尽力 | 取色尽力 |
+| 连接配置远程 / 服务（中继客户端） | 完整 | 完整 | 完整 | 完整 | 完整 |
+| 侧栏 UI 同构（含程序·工具） | 完整 | 完整 | 完整（窄屏抽屉） | 完整 | 完整 |
 
 ³ Linux 支持 `--daemon` + systemd 示例，无桌面托盘。
 
@@ -279,6 +333,7 @@ dotnet publish src\FlyScreen.App.Windows\FlyScreen.App.Windows.csproj -c Release
 | [Monaco Editor](https://github.com/microsoft/monaco-editor) | MAUI 用户程序编辑器 |
 | [Jint](https://github.com/sebastienros/jint) | 用户程序 JavaScript 引擎 |
 | [Roslyn](https://github.com/dotnet/roslyn)（`Microsoft.CodeAnalysis.CSharp.Scripting`） | 用户程序 C# 脚本 |
+| [LibVLC](https://www.videolan.org/vlc/libvlc.html) / [LibVLCSharp](https://code.videolan.org/videolan/LibVLCSharp) | 视频墙工具播放内核（随 `.flytool` 分发） |
 | [AndroidX](https://developer.android.com/jetpack/androidx) | Android 平台支持库 |
 | [System.Drawing.Common](https://www.nuget.org/packages/System.Drawing.Common) | Windows 图像与 GDI 相关能力 |
 | [Virtual Display Driver (VirtualDrivers / MikeTheTech)](https://github.com/VirtualDrivers/Virtual-Display-Driver) | Windows 虚拟副屏（MIT，离线包可再分发） |

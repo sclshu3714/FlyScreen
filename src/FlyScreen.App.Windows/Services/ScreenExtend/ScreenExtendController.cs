@@ -54,10 +54,11 @@ public sealed class ScreenExtendController : IDisposable
 
     public void SetProjectionMode(DisplayProjectionMode mode) => _mode = mode;
 
-    /// <summary>设备管理的远程投影固定复制主屏，不占用虚拟副屏。</summary>
-    private bool UsesExtendDisplay
-        => _mode == DisplayProjectionMode.Extend
-           && _display.Source != ProjectionDisplaySource.HostPrimary;
+    /// <summary>
+    /// 是否采副屏：只看投影模式。远程投影入口强制 Clone，故仍走主屏；
+    /// HostPrimary 仅作分辨率模板，不参与选屏。
+    /// </summary>
+    private bool UsesExtendDisplay => _mode == DisplayProjectionMode.Extend;
 
     public void SetDisplayChoice(ProjectionDisplayChoice? choice)
         => _display = choice?.Clone() ?? new ProjectionDisplayChoice();

@@ -97,7 +97,7 @@
             </ContentPresenter>
             <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                    AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-              <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+              <Border Background="{DynamicResource PopupBg}" BorderBrush="{DynamicResource ControlBorder}"
                       BorderThickness="1"
                       MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
                       MaxHeight="{TemplateBinding MaxDropDownHeight}">

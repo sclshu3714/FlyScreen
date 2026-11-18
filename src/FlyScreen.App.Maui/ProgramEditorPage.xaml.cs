@@ -60,6 +60,8 @@ public partial class ProgramEditorPage : ContentPage
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
         _runner = ProgramService.Instance.Runner;
+        // 全页 Modal：接入全局主题色板（与弹层一致用实心表面）
+        Helpers.MauiThemeService.ApplyToDialog(this);
 
         Title = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
         _closeLabel = Loc.T("Prog.DlgCancel") == "取消" ? "关闭" : "Close";
@@ -91,14 +93,6 @@ public partial class ProgramEditorPage : ContentPage
             ToolTipProperties.SetText(BtnBuild, Loc.T("Prog.BuiltinSourceReadonly"));
             ToolTipProperties.SetText(BtnPaste, Loc.T("Prog.BuiltinSourceReadonly"));
         }
-
-        ToolbarItems.Add(new ToolbarItem
-        {
-            Text = _closeLabel,
-            Priority = 0,
-            Order = ToolbarItemOrder.Primary,
-            Command = new Command(async () => await CloseAsync())
-        });
 
         _pendingSource = _catalog.ReadSource(program);
         // JS 通过 InvokeDotNet('GetBootstrap') 主动拉取源码（不依赖宿主先推送）
@@ -884,10 +878,9 @@ public partial class ProgramEditorPage : ContentPage
         TeardownEditorSession();
         try
         {
+            // 编辑器以 Modal 打开；勿 PopAsync，避免 Shell 根页被弹出导致主窗关闭
             if (Navigation.ModalStack.Count > 0)
                 await Navigation.PopModalAsync();
-            else if (Navigation.NavigationStack.Count > 1)
-                await Navigation.PopAsync();
         }
         catch
         {

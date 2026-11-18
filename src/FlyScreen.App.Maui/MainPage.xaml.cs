@@ -928,7 +928,12 @@ public partial class MainPage : ContentPage, IWallpaperHost
     {
         try
         {
-            await Navigation.PushAsync(new ProgramSettingsPage(prog));
+            var page = new ProgramSettingsPage(prog);
+            // 与「添加程序」一致：Modal 遮罩弹层，避免 PushAsync 弹出 Shell 根页关掉主窗
+            await PushModalAsync(page, withNavBar: false);
+            await page.WhenClosed;
+            ShowPage(8);
+            RefreshProgramsPage();
         }
         catch (Exception ex)
         {
@@ -3981,8 +3986,11 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private async Task ProgRowEditAsync(UserProgram prog)
     {
         var page = new ProgramEditorPage(prog);
-        // 用导航栈而非 Modal，便于 XAML 实时预览跟随到编辑页
-        await Navigation.PushAsync(page);
+        // 全页 Modal（保持 WinBg，勿走 PushModalAsync 的透明遮罩逻辑）
+        await Navigation.PushModalAsync(page, animated: true);
+#if WINDOWS
+        Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
         await page.WhenClosed;
         ShowPage(8);
         RefreshProgramsPage();
