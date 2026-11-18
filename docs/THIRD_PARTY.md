@@ -28,7 +28,8 @@
 | Avalonia.Fonts.Inter | SIL OFL | 嵌入 UI 字体 | NuGet |
 | AvalonEdit / AvaloniaEdit | MIT | 用户程序源码编辑器 | NuGet |
 | Jint | BSD-3-Clause | 用户程序 JavaScript | NuGet |
-| Roslyn（`Microsoft.CodeAnalysis.CSharp.Scripting`） | MIT | 用户程序 C# 脚本 | NuGet |
+| Roslyn（`Microsoft.CodeAnalysis.CSharp`） | MIT | 用户程序 C# 编译 | NuGet |
+| Microsoft.NETCore.App.Ref | MIT | 嵌入脚本编译用 reference assemblies | NuGet |
 | Monaco Editor | MIT | MAUI 程序编辑器（Web） | `src/FlyScreen.App.Maui/Resources/Raw/wwwroot/vs/` |
 | AndroidX / Material / Gson / Kotlin 协程等 | Apache-2.0 | Android Kotlin / MAUI Android | Gradle / NuGet |
 | System.Drawing.Common | MIT | Windows 图像 / GDI | NuGet |

@@ -43,3 +43,4 @@ mobile/harmony/.idea/
 
 # VS Code C# Dev Tools - Auto-generated runners
 .vscodecsdt/Runners/
+/build/version.json

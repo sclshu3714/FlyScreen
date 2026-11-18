@@ -332,7 +332,7 @@ dotnet run
 | [AvalonEdit](https://github.com/icsharpcode/AvalonEdit) / [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) | 用户程序源代码编辑器 |
 | [Monaco Editor](https://github.com/microsoft/monaco-editor) | MAUI 用户程序编辑器 |
 | [Jint](https://github.com/sebastienros/jint) | 用户程序 JavaScript 引擎 |
-| [Roslyn](https://github.com/dotnet/roslyn)（`Microsoft.CodeAnalysis.CSharp.Scripting`） | 用户程序 C# 脚本 |
+| [Roslyn](https://github.com/dotnet/roslyn)（`Microsoft.CodeAnalysis.CSharp`） | 用户程序 C# 编译（嵌入 net10 ref；Android 不用 Scripting） |
 | [LibVLC](https://www.videolan.org/vlc/libvlc.html) / [LibVLCSharp](https://code.videolan.org/videolan/LibVLCSharp) | 视频墙工具播放内核（随 `.flytool` 分发） |
 | [AndroidX](https://developer.android.com/jetpack/androidx) | Android 平台支持库 |
 | [System.Drawing.Common](https://www.nuget.org/packages/System.Drawing.Common) | Windows 图像与 GDI 相关能力 |

@@ -1,6 +1,5 @@
 using System.Text;
 using Jint;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
 
 namespace FlyScreen.Services.Programs;
 
@@ -119,10 +118,19 @@ public static class InProcessProgramExecutor
             onInfo($"调试「{prog.Name}」：断点 {bps.Count} 处已注入协作式暂停");
         }
 
-        var (wrapped, _) = ProgramScriptHost.WrapAsEntry(code);
-        var options = ProgramScriptHost.CreateScriptOptions();
         var gate = debugGate ?? (debug ? new ProgramDebugGate() : null);
         gate?.SetBreakpoints(prog.Breakpoints ?? []);
+
+        var compiled = ProgramScriptHost.Compile(code, emitAssembly: true);
+        if (!compiled.Success || compiled.AssemblyBytes is null)
+        {
+            var diags = ProgramScriptHost.MapDiagnostics(compiled.Diagnostics, "main.cs", compiled.LineOffset);
+            var report = string.Join(Environment.NewLine, diags.Select(d => d.FormatLine()));
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(report)
+                    ? "C# 脚本编译失败。"
+                    : report);
+        }
 
         await CSharpConsoleGate.WaitAsync(ct).ConfigureAwait(false);
         var prevOut = Console.Out;
@@ -133,13 +141,10 @@ public static class InProcessProgramExecutor
             Console.SetError(new LineLogWriter(s => onWarn($"[{prog.Name}] {s}")));
 
             gate?.BeginRun();
-            // 无 globalsType，避免单文件宿主 Location 为空导致元数据引用失败
-            var script = CSharpScript.Create(wrapped, options);
-            var state = await script.RunAsync(cancellationToken: ct).ConfigureAwait(false);
-            if (state.ReturnValue is Func<CancellationToken, ProgramDebugGate, Task> entry)
-                await entry(ct, gate ?? ProgramDebugGateNop.Instance).ConfigureAwait(false);
-            else if (state.ReturnValue is Task t)
-                await t.ConfigureAwait(false);
+            await ProgramScriptHost.RunCompiledAsync(
+                compiled.AssemblyBytes,
+                ct,
+                gate ?? ProgramDebugGateNop.Instance).ConfigureAwait(false);
         }
         finally
         {

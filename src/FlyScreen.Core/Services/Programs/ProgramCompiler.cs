@@ -1,12 +1,12 @@
 using System.Collections.Immutable;
-using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.Loader;
 using System.Text;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.Scripting;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace FlyScreen.Services.Programs;
 
@@ -70,17 +70,12 @@ public static class ProgramCompiler
         try
         {
             var prepared = ProgramScriptHost.PrepareSource(source ?? "");
-            var (code, lineOffset) = ProgramScriptHost.WrapAsEntry(prepared);
-            var options = ProgramScriptHost.CreateScriptOptions();
-            // 禁止传入 globalsType：单文件/部分宿主下其程序集 Location 为空，
-            // Roslyn 会抛「无法对不含位置的程序集创建元数据引用」。
-            var script = CSharpScript.Create(code, options);
-            var diags = script.Compile();
-            var list = MapDiagnostics(diags, fileName, lineOffset);
+            var result = ProgramScriptHost.Compile(prepared, emitAssembly: false);
+            var list = ProgramScriptHost.MapDiagnostics(result.Diagnostics, fileName, result.LineOffset);
             var hasError = list.Any(d => d.Severity == "error");
             return new ProgramCompileResult
             {
-                Success = !hasError,
+                Success = result.Success && !hasError,
                 Diagnostics = list
             };
         }
@@ -104,8 +99,138 @@ public static class ProgramCompiler
             };
         }
     }
+}
 
-    private static List<ProgramDiagnostic> MapDiagnostics(
+/// <summary>一次脚本编译的结果（可带 PE，供进程内加载运行）。</summary>
+public sealed class ProgramScriptCompileResult
+{
+    public bool Success { get; init; }
+    public int LineOffset { get; init; }
+    public ImmutableArray<Diagnostic> Diagnostics { get; init; } = ImmutableArray<Diagnostic>.Empty;
+    public byte[]? AssemblyBytes { get; init; }
+}
+
+/// <summary>
+/// C# 用户程序：用嵌入的 net10.0 <c>reference assemblies</c> + <see cref="CSharpCompilation"/> 编译。
+/// 避免 CSharp.Scripting 在 Android/单文件上对运行时 <c>System.Private.CoreLib</c> 做 CreateFromFile。
+/// </summary>
+public static class ProgramScriptHost
+{
+    public const string EntryTypeName = "FlyScreen.Services.Programs.Scripting.__FlyScriptEntry";
+    public const string EntryMethodName = "RunAsync";
+
+    /// <summary>保持从内存元数据创建的对象存活，避免引用失效。</summary>
+    private static readonly List<object> MetadataKeepAlive = [];
+
+    private static readonly object ReferencesGate = new();
+    private static ImmutableArray<MetadataReference>? CachedReferences;
+
+    /// <summary>
+    /// 可选：宿主在启动时注册额外 PE（如 Android 上从 MauiAsset 提供的宿主程序集）。
+    /// key = 简单名（无 .dll）。注册会失效引用缓存，须在首次编译前调用。
+    /// </summary>
+    private static readonly Dictionary<string, byte[]> ExtraImages =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public static void RegisterReferenceImage(string simpleName, byte[] peImage)
+    {
+        if (string.IsNullOrWhiteSpace(simpleName) || peImage is not { Length: > 0 })
+            return;
+        lock (ExtraImages)
+            ExtraImages[simpleName.Trim()] = peImage;
+        lock (ReferencesGate)
+            CachedReferences = null;
+    }
+
+    private static ImmutableArray<MetadataReference> GetSharedReferences()
+    {
+        lock (ReferencesGate)
+        {
+            if (CachedReferences is { } cached)
+                return cached;
+            var built = BuildReferences();
+            CachedReferences = built;
+            return built;
+        }
+    }
+
+    public static ProgramScriptCompileResult Compile(string preparedUserSource, bool emitAssembly)
+    {
+        var (code, lineOffset) = WrapAsEntry(preparedUserSource);
+        var parseOptions = new CSharpParseOptions(
+            languageVersion: LanguageVersion.CSharp12,
+            kind: SourceCodeKind.Regular);
+        var tree = CSharpSyntaxTree.ParseText(code, parseOptions, path: "main.cs", encoding: Encoding.UTF8);
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName: "FlyScreen.UserProgram",
+            syntaxTrees: [tree],
+            references: GetSharedReferences(),
+            options: new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                allowUnsafe: false,
+                concurrentBuild: false,
+                deterministic: true,
+                nullableContextOptions: NullableContextOptions.Enable));
+
+        if (!emitAssembly)
+        {
+            var diags = compilation.GetDiagnostics();
+            return new ProgramScriptCompileResult
+            {
+                Success = !diags.Any(d => d.Severity == DiagnosticSeverity.Error),
+                LineOffset = lineOffset,
+                Diagnostics = diags
+            };
+        }
+
+        using var peStream = new MemoryStream();
+        var emit = compilation.Emit(peStream, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.Embedded));
+        if (!emit.Success)
+        {
+            return new ProgramScriptCompileResult
+            {
+                Success = false,
+                LineOffset = lineOffset,
+                Diagnostics = emit.Diagnostics
+            };
+        }
+
+        return new ProgramScriptCompileResult
+        {
+            Success = true,
+            LineOffset = lineOffset,
+            Diagnostics = emit.Diagnostics,
+            AssemblyBytes = peStream.ToArray()
+        };
+    }
+
+    public static async Task RunCompiledAsync(
+        byte[] assemblyBytes,
+        CancellationToken ct,
+        ProgramDebugGate gate)
+    {
+        ArgumentNullException.ThrowIfNull(assemblyBytes);
+        using var pe = new MemoryStream(assemblyBytes, writable: false);
+        var alc = new AssemblyLoadContext("FlyScreen.UserProgram." + Guid.NewGuid().ToString("N"), isCollectible: true);
+        try
+        {
+            var asm = alc.LoadFromStream(pe);
+            var type = asm.GetType(EntryTypeName, throwOnError: true)!;
+            var method = type.GetMethod(EntryMethodName, BindingFlags.Public | BindingFlags.Static)
+                ?? throw new MissingMethodException(EntryTypeName, EntryMethodName);
+            var result = method.Invoke(null, [ct, gate]);
+            if (result is Task task)
+                await task.ConfigureAwait(false);
+        }
+        finally
+        {
+            alc.Unload();
+        }
+    }
+
+    public static List<ProgramDiagnostic> MapDiagnostics(
         ImmutableArray<Diagnostic> diags, string fileName, int lineOffset)
     {
         var list = new List<ProgramDiagnostic>();
@@ -133,168 +258,42 @@ public static class ProgramCompiler
         }
         return list;
     }
-}
-
-/// <summary>C# 脚本共享编译/运行选项。</summary>
-public static class ProgramScriptHost
-{
-    /// <summary>保持从内存元数据创建的 <see cref="AssemblyMetadata"/> 存活，避免引用失效。</summary>
-    private static readonly List<object> MetadataKeepAlive = [];
-
-    private static readonly Lazy<ImmutableArray<MetadataReference>> SharedReferences = new(BuildReferences);
-
-    public static ScriptOptions CreateScriptOptions()
-    {
-        var options = ScriptOptions.Default
-            .WithLanguageVersion(Microsoft.CodeAnalysis.CSharp.LanguageVersion.Latest)
-            // WithReferences 替换默认引用，避免宿主再按 Location 隐式加引用
-            .WithReferences(SharedReferences.Value)
-            .AddImports(
-                "System",
-                "System.Collections.Generic",
-                "System.Linq",
-                "System.Text",
-                "System.Threading",
-                "System.Threading.Tasks",
-                "FlyScreen.Services",
-                "FlyScreen.Services.Programs");
-
-        // Roslyn 仍会无条件 CreateFromFile(typeof(object).Assembly.Location) 注入 corlib；
-        // Android / 单文件上 Location 常是假路径（如 /System.Private.CoreLib.dll）→ FileNotFound。
-        return WithSafeCreateFromFile(options);
-    }
 
     /// <summary>
-    /// 钩住内部 <c>WithCreateFromFileFunc</c>：磁盘不存在时回退到已加载程序集的内存元数据。
-    /// </summary>
-    private static ScriptOptions WithSafeCreateFromFile(ScriptOptions options)
-    {
-        try
-        {
-            var method = typeof(ScriptOptions).GetMethod(
-                "WithCreateFromFileFunc",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            if (method == null)
-                return options;
-
-            var funcType = method.GetParameters()[0].ParameterType;
-            var metaImageType = funcType.GetGenericArguments()[3];
-            var impl = typeof(ProgramScriptHost).GetMethod(
-                nameof(CreateFromFileOrRawMetadata),
-                BindingFlags.Static | BindingFlags.NonPublic);
-            if (impl == null)
-                return options;
-
-            var pPath = Expression.Parameter(typeof(string), "path");
-            var pOpts = Expression.Parameter(typeof(PEStreamOptions), "opts");
-            var pProps = Expression.Parameter(typeof(MetadataReferenceProperties), "props");
-            var body = Expression.Convert(
-                Expression.Call(impl, pPath, pOpts, pProps),
-                metaImageType);
-            var lambda = Expression.Lambda(funcType, body, pPath, pOpts, pProps);
-            return (ScriptOptions)method.Invoke(options, [lambda.Compile()])!;
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn("脚本 CreateFromFile 安全钩子安装失败: " + ex.Message);
-            return options;
-        }
-    }
-
-    /// <summary>
-    /// Roslyn Script 注入 corlib 时的回调：优先读磁盘，否则从已加载程序集取元数据。
-    /// 返回值在运行时为内部类型 <c>MetadataImageReference</c>。
-    /// </summary>
-    private static MetadataReference CreateFromFileOrRawMetadata(
-        string filePath,
-        PEStreamOptions options,
-        MetadataReferenceProperties properties)
-    {
-        _ = options;
-        if (!string.IsNullOrEmpty(filePath))
-        {
-            try
-            {
-                if (File.Exists(filePath))
-                    return MetadataReference.CreateFromFile(filePath, properties);
-            }
-            catch (Exception)
-            {
-                // 假路径 / 无权限：回退内存元数据
-            }
-        }
-
-        var asm = ResolveLoadedAssemblyForPath(filePath);
-        if (asm != null)
-        {
-            var reference = CreateFromRawMetadata(asm);
-            if (properties != default)
-                reference = reference.WithProperties(properties);
-            return reference;
-        }
-
-        throw new FileNotFoundException(
-            "脚本编译找不到程序集元数据（Android/单文件宿主无磁盘路径）: " + filePath,
-            filePath);
-    }
-
-    private static Assembly? ResolveLoadedAssemblyForPath(string? filePath)
-    {
-        var name = Path.GetFileNameWithoutExtension(filePath ?? "");
-        if (string.IsNullOrEmpty(name))
-            name = "System.Private.CoreLib";
-
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            try
-            {
-                if (string.Equals(asm.GetName().Name, name, StringComparison.OrdinalIgnoreCase))
-                    return asm;
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        if (name.Contains("CoreLib", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("mscorlib", StringComparison.OrdinalIgnoreCase))
-            return typeof(object).Assembly;
-
-        try
-        {
-            return Assembly.Load(name);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// 将用户脚本包进无 globals 的入口委托，避免 CSharpScript 对 globals 程序集 CreateFromFile。
-    /// 返回 (完整脚本, 用户代码相对完整脚本的行偏移)。
+    /// 将用户脚本包进静态入口类，避免 CSharpScript globals / 运行时 CoreLib CreateFromFile。
+    /// 返回 (完整源码, 用户代码相对完整源码的行偏移)。
     /// </summary>
     public static (string Code, int LineOffset) WrapAsEntry(string preparedUserSource)
     {
-        // 行偏移 = 前缀行数（用户第 1 行对应完整脚本第 LineOffset+1 行）
         const string prefix =
             """
             #nullable enable
-            System.Func<System.Threading.CancellationToken, FlyScreen.Services.Programs.ProgramDebugGate, System.Threading.Tasks.Task> __flyEntry =
-                async (ct, __flyDbg) =>
+            global using System;
+            global using System.Collections.Generic;
+            global using System.Linq;
+            global using System.Text;
+            global using System.Threading;
+            global using System.Threading.Tasks;
+            global using FlyScreen.Services;
+            global using FlyScreen.Services.Programs;
+
+            namespace FlyScreen.Services.Programs.Scripting
+            {
+                public static class __FlyScriptEntry
                 {
-                    System.Threading.Tasks.Task Delay(int milliseconds) => System.Threading.Tasks.Task.Delay(milliseconds, ct);
+                    public static async Task RunAsync(CancellationToken ct, ProgramDebugGate __flyDbg)
+                    {
+                        Task Delay(int milliseconds) => Task.Delay(milliseconds, ct);
 
             """;
         const string suffix =
             """
 
-                };
-            return __flyEntry;
+                    }
+                }
+            }
             """;
 
-        // 诊断行号：用户第 1 行 = 完整脚本第 (newlineCount+1) 行 → 偏移 = prefix 中 \n 个数
         var lineOffset = 0;
         foreach (var ch in prefix)
         {
@@ -306,94 +305,148 @@ public static class ProgramScriptHost
 
     private static ImmutableArray<MetadataReference> BuildReferences()
     {
-        Assembly[] assemblies =
-        [
-            typeof(object).Assembly,
-            typeof(Console).Assembly,
-            typeof(Enumerable).Assembly,
-            typeof(Task).Assembly,
-            typeof(StringBuilder).Assembly,
-            typeof(Uri).Assembly,
-            typeof(Fly).Assembly,
-            typeof(ProgramDebugGate).Assembly,
-        ];
-
         var list = new List<MetadataReference>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var asm in assemblies)
-            TryAddReference(list, seen, asm);
 
-        // 脚本常需显式 System.Runtime / netstandard
-        TryAddBySimpleName(list, seen, "System.Runtime");
-        TryAddBySimpleName(list, seen, "netstandard");
-        TryAddBySimpleName(list, seen, "System.Collections");
-        TryAddBySimpleName(list, seen, "System.Linq");
-        TryAddBySimpleName(list, seen, "System.Console");
-        // 用户脚本若写 Regex；单文件/Android 上需显式带上（否则 CS1069）
-        TryAddBySimpleName(list, seen, "System.Text.RegularExpressions");
+        // 1) 嵌入的 net10.0 reference assemblies（Android / 单文件唯一可靠来源）
+        foreach (var (name, reference) in LoadEmbeddedRefImages())
+        {
+            if (!seen.Add(name)) continue;
+            list.Add(reference);
+        }
+
+        if (list.Count == 0)
+            AppLog.Warn("脚本编译：未加载到任何嵌入 ref（Microsoft.NETCore.App.Ref）。Android 上将无法编译 C# 程序。");
+
+        // 2) 额外注册的 PE（如 MauiAsset 宿主）
+        lock (ExtraImages)
+        {
+            foreach (var (name, bytes) in ExtraImages)
+            {
+                if (!seen.Add(name)) continue;
+                try
+                {
+                    list.Add(CreateFromImageBytes(bytes, name));
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn($"脚本编译：额外引用「{name}」失败: {ex.Message}");
+                    seen.Remove(name);
+                }
+            }
+        }
+
+        // 3) 宿主程序集（Fly API / DebugGate）
+        foreach (var asm in new[] { typeof(Fly).Assembly, typeof(ProgramDebugGate).Assembly })
+            TryAddHostAssembly(list, seen, asm);
 
         return list.ToImmutableArray();
     }
 
-    private static void TryAddReference(List<MetadataReference> list, HashSet<string> seen, Assembly asm)
+    private static IEnumerable<(string Name, MetadataReference Reference)> LoadEmbeddedRefImages()
     {
-        try
+        const string prefix = "FlyScreen.ScriptRefs.";
+        var asm = typeof(ProgramScriptHost).Assembly;
+        foreach (var resourceName in asm.GetManifestResourceNames())
         {
-            var reference = CreateMetadataReference(asm);
-            var key = asm.GetName().Name ?? asm.FullName ?? reference.Display ?? Guid.NewGuid().ToString("N");
-            if (!seen.Add(key)) return;
-            list.Add(reference);
-        }
-        catch
-        {
-            // 单个程序集失败不阻断其余引用
-        }
-    }
-
-    private static void TryAddBySimpleName(List<MetadataReference> list, HashSet<string> seen, string simpleName)
-    {
-        if (!seen.Add(simpleName)) return;
-        try
-        {
-            var path = ResolvePathByFileName(simpleName + ".dll");
-            if (!string.IsNullOrEmpty(path))
-            {
-                list.Add(MetadataReference.CreateFromFile(path));
-                return;
-            }
-
-            // Android / 单文件：无磁盘 DLL 时从已加载程序集读元数据
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                try
-                {
-                    if (!string.Equals(asm.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    list.Add(CreateMetadataReference(asm));
-                    return;
-                }
-                catch
-                {
-                    // try next
-                }
-            }
-
+            if (!resourceName.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+            var fileName = resourceName[prefix.Length..];
+            if (!fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var simpleName = fileName[..^4];
+            byte[] bytes;
             try
             {
-                list.Add(CreateMetadataReference(Assembly.Load(simpleName)));
-                return;
+                using var stream = asm.GetManifestResourceStream(resourceName);
+                if (stream == null) continue;
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                bytes = ms.ToArray();
             }
             catch
             {
-                // ignore
+                continue;
             }
 
-            seen.Remove(simpleName);
+            if (bytes.Length == 0) continue;
+            MetadataReference reference;
+            try
+            {
+                reference = CreateFromImageBytes(bytes, simpleName);
+            }
+            catch
+            {
+                continue;
+            }
+
+            yield return (simpleName, reference);
+        }
+    }
+
+    private static void TryAddHostAssembly(
+        List<MetadataReference> list, HashSet<string> seen, Assembly asm)
+    {
+        string? key = null;
+        try
+        {
+            key = asm.GetName().Name;
+            if (string.IsNullOrEmpty(key) || !seen.Add(key))
+                return;
+            list.Add(CreateHostMetadataReference(asm));
+        }
+        catch (Exception ex)
+        {
+            if (!string.IsNullOrEmpty(key))
+                seen.Remove(key!);
+            AppLog.Warn($"脚本编译：宿主程序集「{key ?? asm.FullName}」引用失败: {ex.Message}");
+        }
+    }
+
+    private static MetadataReference CreateHostMetadataReference(Assembly assembly)
+    {
+        try
+        {
+            var loc = assembly.Location;
+            if (!string.IsNullOrEmpty(loc) && File.Exists(loc))
+                return MetadataReference.CreateFromFile(loc);
         }
         catch
         {
-            seen.Remove(simpleName);
+            // continue
         }
+
+        var name = assembly.GetName().Name;
+        if (!string.IsNullOrEmpty(name))
+        {
+            lock (ExtraImages)
+            {
+                if (ExtraImages.TryGetValue(name, out var extra))
+                    return CreateFromImageBytes(extra, name);
+            }
+
+            var path = ResolvePathByFileName(name + ".dll");
+            if (!string.IsNullOrEmpty(path))
+                return MetadataReference.CreateFromFile(path);
+        }
+
+        // 桌面/部分宿主：内存元数据；Android Mono 上常不可用
+        return CreateFromRawMetadata(assembly);
+    }
+
+    private static MetadataReference CreateFromImageBytes(byte[] peImage, string? display)
+    {
+        // CreateFromImage 需要保持底层图像；用 MetadataKeepAlive 钉住模块
+        var module = ModuleMetadata.CreateFromImage(peImage);
+        var asmMeta = AssemblyMetadata.Create(module);
+        lock (MetadataKeepAlive)
+        {
+            MetadataKeepAlive.Add(peImage);
+            MetadataKeepAlive.Add(module);
+            MetadataKeepAlive.Add(asmMeta);
+        }
+
+        return asmMeta.GetReference(display: display);
     }
 
     private static string? ResolvePathByFileName(string fileName)
@@ -411,75 +464,6 @@ public static class ProgramScriptHost
             }
         }
 
-        try
-        {
-            if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
-            {
-                foreach (var path in tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    if (string.Equals(Path.GetFileName(path), fileName, StringComparison.OrdinalIgnoreCase)
-                        && File.Exists(path))
-                        return path;
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// 单文件发布 / 部分宿主下 <see cref="Assembly.Location"/> 为空，
-    /// 不能再用 <c>AddReferences(Assembly)</c>（内部 CreateFromFile 会抛
-    /// 「无法对不含位置的程序集创建元数据引用」）。
-    /// </summary>
-    private static MetadataReference CreateMetadataReference(Assembly assembly)
-    {
-        try
-        {
-            var loc = assembly.Location;
-            if (!string.IsNullOrEmpty(loc) && File.Exists(loc))
-                return MetadataReference.CreateFromFile(loc);
-        }
-        catch
-        {
-            // 继续回退
-        }
-
-        var resolved = ResolveAssemblyPath(assembly);
-        if (!string.IsNullOrEmpty(resolved) && File.Exists(resolved))
-            return MetadataReference.CreateFromFile(resolved);
-
-        return CreateFromRawMetadata(assembly);
-    }
-
-    private static string? ResolveAssemblyPath(Assembly assembly)
-    {
-        var name = assembly.GetName().Name;
-        if (string.IsNullOrEmpty(name)) return null;
-
-        var fileName = name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? name
-            : name + ".dll";
-
-        foreach (var dir in EnumerateProbeDirectories())
-        {
-            try
-            {
-                var path = Path.Combine(dir, fileName);
-                if (File.Exists(path))
-                    return path;
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        // 运行时 Trusted Platform Assemblies（框架程序集）
         try
         {
             if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is string tpa)
@@ -520,19 +504,19 @@ public static class ProgramScriptHost
 
         Add(AppContext.BaseDirectory);
         Add(Path.GetDirectoryName(Environment.ProcessPath));
-        Add(Path.GetDirectoryName(typeof(object).Assembly.Location));
-        Add(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
+        try { Add(Path.GetDirectoryName(typeof(object).Assembly.Location)); } catch { /* ignore */ }
+        try { Add(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory()); } catch { /* ignore */ }
 
         return set;
     }
 
     private static unsafe MetadataReference CreateFromRawMetadata(Assembly assembly)
     {
-        // System.Runtime.Loader：AssemblyExtensions.TryGetRawMetadata
         if (!assembly.TryGetRawMetadata(out byte* blob, out var length) || blob == null || length <= 0)
         {
             throw new NotSupportedException(
-                $"无法为程序集「{assembly.GetName().Name}」创建元数据引用（无磁盘路径且无法读取内存元数据）。");
+                $"无法为程序集「{assembly.GetName().Name}」创建元数据引用（无磁盘路径且无法读取内存元数据）。" +
+                "Android 请在启动时 ProgramScriptHost.RegisterReferenceImage 注册该 DLL。");
         }
 
         var module = ModuleMetadata.CreateFromMetadata((IntPtr)blob, length);
