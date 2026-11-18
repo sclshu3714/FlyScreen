@@ -240,9 +240,17 @@ public static class ProgramScriptHost
 
     private static Assembly? ResolveLoadedAssemblyForPath(string? filePath)
     {
-        var name = Path.GetFileNameWithoutExtension(filePath ?? "");
+        // Android / 单文件假路径常是「System.Private.CoreLib」无 .dll。
+        // Path.GetFileNameWithoutExtension 会按最后一个「.」裁成 System.Private，其它带点号程序集同理。
+        var name = GetAssemblySimpleNameFromPath(filePath);
+
+        // Roslyn 注入 corlib 时 Location 可能为空：空路径只对应这次注入，不是按名字猜。
         if (string.IsNullOrEmpty(name))
-            name = "System.Private.CoreLib";
+            return typeof(object).Assembly;
+
+        // 历史别名（改过名的运行时程序集），不是路径启发式。
+        if (name.Equals("mscorlib", StringComparison.OrdinalIgnoreCase))
+            return typeof(object).Assembly;
 
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
         {
@@ -257,10 +265,6 @@ public static class ProgramScriptHost
             }
         }
 
-        if (name.Contains("CoreLib", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("mscorlib", StringComparison.OrdinalIgnoreCase))
-            return typeof(object).Assembly;
-
         try
         {
             return Assembly.Load(name);
@@ -269,6 +273,25 @@ public static class ProgramScriptHost
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// 从磁盘路径或假路径得到程序集简单名。仅剥离真实 PE 后缀，保留带点号的程序集名。
+    /// </summary>
+    private static string GetAssemblySimpleNameFromPath(string? filePath)
+    {
+        var fileName = Path.GetFileName(filePath ?? "");
+        if (string.IsNullOrEmpty(fileName))
+            return "";
+
+        ReadOnlySpan<string> peExts = [".dll", ".exe", ".winmd", ".netmodule"];
+        foreach (var ext in peExts)
+        {
+            if (fileName.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                return fileName[..^ext.Length];
+        }
+
+        return fileName;
     }
 
     /// <summary>
