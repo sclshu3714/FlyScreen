@@ -1,0 +1,29 @@
+{
+  "id": "developer-tools",
+  "kind": "enhancement",
+  "crossScreen": false,
+  "group": "utilities",
+  "nameKey": "Tool.DeveloperTools.Name",
+  "summaryKey": "Tool.DeveloperTools.Summary",
+  "schemaVersion": 1,
+  "minAppVersion": "1.0.0",
+  "deviceClasses": ["Desktop"],
+  "platforms": ["Windows", "macOS", "Linux"],
+  "featuresByDeviceClass": {
+    "Desktop": ["scaffold"]
+  },
+  "roles": ["local"],
+  "supportsRepair": false,
+  "capNames": [],
+  "titleBar": false,
+  "hasWorkspace": true,
+  "icon": "tool-developer-tools",
+  "permissions": [],
+  "package": {
+    "version": "1.0.0",
+    "format": "flytool",
+    "formatVersion": 1
+  },
+  "entryAssembly": "FlyScreen.Tool.DeveloperTools.dll",
+  "entryType": "FlyScreen.Tool.DeveloperTools.Module"
+}

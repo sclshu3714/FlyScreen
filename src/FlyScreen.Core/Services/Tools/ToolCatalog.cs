@@ -446,6 +446,31 @@ public sealed class ToolCatalog
                 PackageVersion = "0.1.0",
                 EntryAssembly = "FlyScreen.Tool.VideoWall.dll",
                 EntryType = "FlyScreen.Tool.VideoWall.Module"
+            },
+            new ToolManifest
+            {
+                Id = ToolIds.DeveloperTools,
+                Kind = "enhancement",
+                CrossScreen = false,
+                Group = "utilities",
+                NameKey = "Tool.DeveloperTools.Name",
+                SummaryKey = "Tool.DeveloperTools.Summary",
+                SchemaVersion = 1,
+                DeviceClasses = ["Desktop"],
+                Platforms = ["Windows", "macOS", "Linux"],
+                FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desktop"] = ["scaffold"]
+                },
+                Roles = ["local"],
+                CapNames = [],
+                TitleBar = false,
+                HasWorkspace = true,
+                Icon = ToolIconKeys.DeveloperTools,
+                Permissions = [],
+                PackageVersion = "1.0.0",
+                EntryAssembly = "FlyScreen.Tool.DeveloperTools",
+                EntryType = "FlyScreen.Tool.DeveloperTools.Module"
             }
         ];
 }

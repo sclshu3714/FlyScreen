@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Tool.DeveloperTools</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.DeveloperTools</AssemblyName>
+    <Description>玄鸟开发者工具：生成独立插件工具脚手架</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\tool-developer-tools.png" LogicalName="FlyScreen.Tool.DeveloperTools.Icons.tool-developer-tools.png" />
+  </ItemGroup>
+</Project>
