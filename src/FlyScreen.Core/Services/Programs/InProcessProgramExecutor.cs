@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Jint;
+using Microsoft.CodeAnalysis;
 
 namespace FlyScreen.Services.Programs;
 
@@ -30,7 +32,8 @@ public static class InProcessProgramExecutor
         Action<string>? onInfo = null,
         Action<string>? onWarn = null,
         bool debug = false,
-        ProgramDebugGate? debugGate = null)
+        ProgramDebugGate? debugGate = null,
+        ProgramCatalog? catalog = null)
     {
         // Console.WriteLine → Info；失败类文案提升为 Warn（仍受程序 logLevel 过滤）
         onInfo ??= s =>
@@ -42,13 +45,15 @@ public static class InProcessProgramExecutor
         };
         onWarn ??= s => AppLog.Warn(s, prog.Id, prog.Name);
 
+        catalog ??= ProgramService.Instance.Catalog;
+
         switch (prog.Language)
         {
             case ProgramLanguage.JavaScript:
-                await RunJavaScriptAsync(prog, source, ct, onInfo, onWarn).ConfigureAwait(false);
+                await RunJavaScriptAsync(prog, source, ct, onInfo, onWarn, catalog).ConfigureAwait(false);
                 break;
             case ProgramLanguage.CSharp:
-                await RunCSharpAsync(prog, source, ct, onInfo, onWarn, debug, debugGate).ConfigureAwait(false);
+                await RunCSharpAsync(prog, source, ct, onInfo, onWarn, debug, debugGate, catalog).ConfigureAwait(false);
                 break;
             default:
                 throw new NotSupportedException($"进程内执行不支持：{prog.LanguageText}");
@@ -57,11 +62,14 @@ public static class InProcessProgramExecutor
 
     private static Task RunJavaScriptAsync(
         UserProgram prog, string source, CancellationToken ct,
-        Action<string> onInfo, Action<string> onWarn)
+        Action<string> onInfo, Action<string> onWarn, ProgramCatalog catalog)
     {
         return Task.Run(() =>
         {
             ct.ThrowIfCancellationRequested();
+            var folder = catalog.GetFolder(prog);
+            var useModules = LooksLikeEsModule(source) || catalog.ReadExtraSources(prog).Count > 0;
+
             var engine = new Engine(options =>
             {
                 options.LimitMemory(64_000_000);
@@ -69,6 +77,8 @@ public static class InProcessProgramExecutor
                 options.MaxStatements(10_000_000);
                 options.CancellationToken(ct);
                 options.Strict = false;
+                if (useModules)
+                    options.EnableModules(folder);
             });
 
             engine.SetValue("__flyLog", new Action<string>(s => onInfo($"[{prog.Name}] {s}")));
@@ -93,8 +103,37 @@ public static class InProcessProgramExecutor
                 };
                 """);
 
-            engine.Execute(source ?? "");
+            if (useModules)
+            {
+                // 确保磁盘上的入口与编辑缓冲一致（Runner 已读 source；写回避免 Import 读到旧文件）
+                try
+                {
+                    var entryPath = catalog.GetSourcePath(prog);
+                    Directory.CreateDirectory(Path.GetDirectoryName(entryPath)!);
+                    File.WriteAllText(entryPath, source ?? "", new UTF8Encoding(false));
+                }
+                catch
+                {
+                    // 内置只读等：仍尝试 Import 磁盘文件
+                }
+
+                var spec = "./" + (prog.FileName ?? "main.js").Replace('\\', '/');
+                engine.Modules.Import(spec);
+            }
+            else
+            {
+                engine.Execute(source ?? "");
+            }
         }, ct);
+    }
+
+    private static bool LooksLikeEsModule(string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return false;
+        return Regex.IsMatch(
+            source,
+            @"(^|\n)\s*(import\s|export\s)",
+            RegexOptions.CultureInvariant);
     }
 
     private static bool LooksLikeScriptWarn(string? s)
@@ -108,8 +147,9 @@ public static class InProcessProgramExecutor
     private static async Task RunCSharpAsync(
         UserProgram prog, string source, CancellationToken ct,
         Action<string> onInfo, Action<string> onWarn,
-        bool debug, ProgramDebugGate? debugGate)
+        bool debug, ProgramDebugGate? debugGate, ProgramCatalog catalog)
     {
+        catalog.NormalizeManifest(prog);
         var code = ProgramScriptHost.PrepareSource(source ?? "");
         if (debug)
         {
@@ -121,10 +161,59 @@ public static class InProcessProgramExecutor
         var gate = debugGate ?? (debug ? new ProgramDebugGate() : null);
         gate?.SetBreakpoints(prog.Breakpoints ?? []);
 
-        var compiled = ProgramScriptHost.Compile(code, emitAssembly: true);
+        var extras = catalog.ReadExtraSources(prog)
+            .Select(x => (x.RelativePath, x.Content))
+            .ToList();
+        var refs = new List<MetadataReference>();
+        foreach (var dll in catalog.ResolveLocalDllPaths(prog))
+        {
+            try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(dll)); }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"本地 DLL 引用失败「{Path.GetFileName(dll)}」: {ex.Message}");
+            }
+        }
+
+        if (prog.Packages.Count > 0)
+        {
+            if (ProgramNugetResolver.CanRestoreOnline)
+            {
+                var nuget = await ProgramNugetResolver.ResolveAsync(catalog, prog, ct).ConfigureAwait(false);
+                if (!nuget.Success)
+                    throw new InvalidOperationException(nuget.Error ?? "NuGet 还原失败");
+                foreach (var path in nuget.ReferencePaths)
+                {
+                    try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(path)); }
+                    catch (Exception ex)
+                    {
+                        throw new InvalidOperationException(
+                            $"NuGet 引用失败「{Path.GetFileName(path)}」: {ex.Message}");
+                    }
+                }
+            }
+            else if (catalog.ResolveLocalDllPaths(prog).Count == 0
+                     && ProgramNugetResolver.TryReadRefsCache(catalog, prog).Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "程序声明了 NuGet 包，但手机端不能在线还原。请把依赖 DLL 放入 refs/ 并在程序依赖中登记。");
+            }
+            else
+            {
+                foreach (var path in ProgramNugetResolver.TryReadRefsCache(catalog, prog))
+                {
+                    try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(path)); }
+                    catch { /* skip */ }
+                }
+            }
+        }
+
+        var entryName = string.IsNullOrWhiteSpace(prog.FileName) ? "main.cs" : prog.FileName;
+        var compiled = ProgramScriptHost.Compile(
+            code, emitAssembly: true, extras, refs, entryPath: entryName);
         if (!compiled.Success || compiled.AssemblyBytes is null)
         {
-            var diags = ProgramScriptHost.MapDiagnostics(compiled.Diagnostics, "main.cs", compiled.LineOffset);
+            var diags = ProgramScriptHost.MapDiagnostics(
+                compiled.Diagnostics, entryName, compiled.LineOffset, compiled.EntryPath);
             var report = string.Join(Environment.NewLine, diags.Select(d => d.FormatLine()));
             throw new InvalidOperationException(
                 string.IsNullOrWhiteSpace(report)

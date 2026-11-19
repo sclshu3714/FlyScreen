@@ -57,12 +57,12 @@ internal static class Win32PathPicker
         return files.Count > 0 ? files[0] : null;
     }
 
-    public static string? PickFolder()
+    public static string? PickFolder(string? title = null)
     {
         var bi = new BrowseInfo
         {
             hwndOwner = GetActiveWindow(),
-            lpszTitle = "选择要传输的文件夹",
+            lpszTitle = string.IsNullOrWhiteSpace(title) ? "选择文件夹" : title,
             ulFlags = Bif.NewDialogStyle | Bif.ReturnOnlyFsDirs
         };
 
@@ -167,4 +167,16 @@ internal static class Win32PathPicker
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetActiveWindow();
+
+    /// <summary>
+    /// 将 WinForms 风格 <c>Name|*.ext|All|*.*</c> 转为 Win32 <c>\0</c> 分隔过滤器。
+    /// </summary>
+    public static string ToNativeFilter(string? pipeFilter)
+    {
+        if (string.IsNullOrWhiteSpace(pipeFilter))
+            return "所有文件 (*.*)\0*.*\0\0";
+        var parts = pipeFilter.Split('|', StringSplitOptions.None);
+        if (parts.Length == 0) return "所有文件 (*.*)\0*.*\0\0";
+        return string.Join("\0", parts) + "\0\0";
+    }
 }

@@ -21,6 +21,15 @@ public sealed class UserProgram : INotifyPropertyChanged
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
     public List<int> Breakpoints { get; set; } = [];
 
+    /// <summary>相对程序根的附加源文件（如 lib/Helper.cs）；缺省为空=单文件旧行为。</summary>
+    public List<string> ExtraFiles { get; set; } = [];
+
+    /// <summary>相对程序根的本地 DLL（如 refs/Foo.dll）；C# 编译引用。</summary>
+    public List<string> LocalDlls { get; set; } = [];
+
+    /// <summary>C# NuGet 包清单；桌面可 restore，手机需自行放入 refs/。</summary>
+    public List<NugetPackageRef> Packages { get; set; } = [];
+
     /// <summary>安装包内置程序：不可删除；源码由 EnsureBuiltin 按版本更新。</summary>
     public bool IsBuiltin { get; set; }
 

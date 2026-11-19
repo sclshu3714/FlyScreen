@@ -5,10 +5,12 @@
              Title="编辑程序"
              NavigationPage.HasNavigationBar="False"
              BackgroundColor="{DynamicResource WinBg}">
-  <Grid RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
-    <HorizontalStackLayout x:Name="ToolBar" Spacing="6" HorizontalOptions="Start">
-        <!-- 返回：覆盖 SoftBlueBtn 的 MinWidth=88，避免撑宽叠到保存钮 -->
-        <Grid x:Name="BtnCloseHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32">
+  <Grid x:Name="RootLayout" RowDefinitions="Auto,*,Auto" Padding="12" RowSpacing="8">
+    <!-- 单工具条：窄屏 FlexLayout 自动换行 -->
+    <FlexLayout x:Name="ToolBar" Wrap="Wrap" Direction="Row" AlignItems="Center"
+                JustifyContent="Start" AlignContent="Start">
+        <Grid x:Name="BtnCloseHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36"
+              HeightRequest="32" Margin="0,0,6,6">
           <Button x:Name="BtnClose" Style="{StaticResource SoftBlueBtn}"
                   Text=" " Margin="0" Padding="0"
                   WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32"
@@ -20,24 +22,60 @@
                 Aspect="Uniform" WidthRequest="18" HeightRequest="18"
                 VerticalOptions="Center" HorizontalOptions="Center" />
         </Grid>
+        <Grid WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36"
+              HeightRequest="32" Margin="0,0,6,6">
+          <Button x:Name="BtnAddFile" Style="{StaticResource SoftBlueBtn}"
+                  Text=" " Margin="0" Padding="0"
+                  WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32"
+                  Clicked="AddFile_Clicked" ToolTipProperties.Text="新建" />
+          <Path InputTransparent="True"
+                Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"
+                Fill="{DynamicResource Blue}"
+                Aspect="Uniform" WidthRequest="16" HeightRequest="16"
+                VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
         <Button x:Name="BtnSave" Style="{StaticResource SoftBlueBtn}"
-                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="18"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0"
+                HeightRequest="32" FontSize="18" Margin="0,0,6,6"
                 Clicked="Save_Clicked" ToolTipProperties.Text="保存" />
+        <Grid x:Name="BtnDepsHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36"
+              HeightRequest="32" Margin="0,0,6,6">
+          <Button x:Name="BtnDeps" Style="{StaticResource SoftBlueBtn}"
+                  Text=" " Margin="0" Padding="0"
+                  WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32"
+                  Clicked="Deps_Clicked" ToolTipProperties.Text="C# 依赖" />
+          <Path InputTransparent="True"
+                Data="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L6.04,7.5L12,10.85L17.96,7.5L12,4.15M5,15.91L11,19.29V12.58L5,9.21V15.91M19,15.91V9.21L13,12.58V19.29L19,15.91Z"
+                Fill="{DynamicResource Blue}"
+                Aspect="Uniform" WidthRequest="16" HeightRequest="16"
+                VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
+        <Grid WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36"
+              HeightRequest="32" Margin="0,0,6,6">
+          <Button x:Name="BtnFlySettings" Style="{StaticResource SoftBlueBtn}"
+                  Text=" " Margin="0" Padding="0"
+                  WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32"
+                  Clicked="FlySettings_Clicked" ToolTipProperties.Text="fly-settings 配置" />
+          <Path InputTransparent="True"
+                Data="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"
+                Fill="{DynamicResource Blue}"
+                Aspect="Uniform" WidthRequest="16" HeightRequest="16"
+                VerticalOptions="Center" HorizontalOptions="Center" />
+        </Grid>
         <Button x:Name="BtnFind" Style="{StaticResource SoftBlueBtn}"
-                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="16"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0"
+                HeightRequest="32" FontSize="16" Margin="0,0,6,6"
                 Clicked="Find_Clicked" ToolTipProperties.Text="查找 (Ctrl+F)" />
         <Button x:Name="BtnPaste" Style="{StaticResource SoftBlueBtn}"
-                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="16"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0"
+                HeightRequest="32" FontSize="16" Margin="0,0,6,6"
                 Clicked="Paste_Clicked" ToolTipProperties.Text="粘贴" />
         <Button x:Name="BtnBuild" Style="{StaticResource SoftBlueBtn}"
-                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="18"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0"
+                HeightRequest="32" FontSize="18" Margin="0,0,6,6"
                 Clicked="Build_Clicked" ToolTipProperties.Text="生成" />
-        <!-- 调试：Path 图标随 Running/Paused 切换暂停/继续（避免 emoji 与调试 ▶ 无法区分） -->
-        <Grid x:Name="BtnDebugHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32">
+        <Grid x:Name="BtnDebugHost" WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36"
+              HeightRequest="32" Margin="0,0,6,6">
           <Button x:Name="BtnDebug" Style="{StaticResource SoftBlueBtn}"
                   Text=" " Margin="0" Padding="0"
                   WidthRequest="36" MinimumWidthRequest="36" MaximumWidthRequest="36" HeightRequest="32"
@@ -54,25 +92,29 @@
                 VerticalOptions="Center" HorizontalOptions="Center" />
         </Grid>
         <Button x:Name="BtnRun" Style="{StaticResource PrimaryBtn}"
-                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="20"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0"
+                HeightRequest="32" FontSize="20" Margin="0,0,6,6"
                 Clicked="Run_Clicked" ToolTipProperties.Text="运行" />
         <Button x:Name="BtnStop" Style="{StaticResource SoftBlueBtn}"
-                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0" HeightRequest="32"
-                FontSize="18" TextColor="#DC2626"
+                MinimumWidthRequest="36" MaximumWidthRequest="36" WidthRequest="36" Padding="0"
+                HeightRequest="32" FontSize="18" TextColor="#DC2626" Margin="0,0,6,6"
                 Clicked="Stop_Clicked" ToolTipProperties.Text="停止" />
-      </HorizontalStackLayout>
+        <Button x:Name="BtnFileSwitch" Style="{StaticResource SoftBlueBtn}"
+                Text="main.cs ▾" HeightRequest="32" Padding="10,0" Margin="0,0,0,6"
+                MinimumWidthRequest="120" MaximumWidthRequest="220"
+                Clicked="FileSwitch_Clicked" ToolTipProperties.Text="切换文件" />
+    </FlexLayout>
 
-    <Border Grid.Row="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
-            BackgroundColor="{DynamicResource CardBg}">
-      <!-- 默认 HybridRoot=wwwroot → Resources/Raw/wwwroot（已打包为 MauiAsset） -->
-      <HybridWebView x:Name="CodeWeb"
-                     HybridRoot="wwwroot"
-                     DefaultFile="index.html"
-                     RawMessageReceived="OnHybridMessage" />
-    </Border>
+    <Grid Grid.Row="1">
+      <Border Stroke="{DynamicResource Line}" StrokeThickness="1"
+              BackgroundColor="{DynamicResource CardBg}">
+        <HybridWebView x:Name="CodeWeb"
+                       HybridRoot="wwwroot"
+                       DefaultFile="index.html"
+                       RawMessageReceived="OnHybridMessage" />
+      </Border>
+    </Grid>
 
-    <!-- 行数状态放在编辑器与输出之间，避免窄屏盖住工具条按钮 -->
     <Grid Grid.Row="2" RowDefinitions="Auto,Auto" RowSpacing="4">
     <Label x:Name="BpHintText"
            TextColor="{DynamicResource Muted}" FontSize="11"
@@ -80,7 +122,6 @@
            VerticalOptions="Center" Margin="2,0"
            LineBreakMode="TailTruncation" />
 
-    <!-- 底部可折叠输出停靠窗 -->
     <Border Grid.Row="1" Stroke="{DynamicResource Line}" StrokeThickness="1"
             StrokeShape="RoundRectangle 8" BackgroundColor="{DynamicResource CardBg}">
       <Grid RowDefinitions="Auto,Auto">
@@ -101,7 +142,6 @@
                   Clicked="OutputClear_Clicked" />
         </Grid>
         <Grid x:Name="OutputBody" Grid.Row="1" IsVisible="False" HeightRequest="150">
-          <!-- ScrollView+Label：Editor.Text+= 会把滚动条打回顶部；这里追加后 ScrollToAsync 到底 -->
           <ScrollView x:Name="OutputScroll" BackgroundColor="{DynamicResource ListBg}"
                       VerticalOptions="Fill" HorizontalScrollBarVisibility="Never">
             <Label x:Name="OutputLabel" StyleClass="Mono" FontSize="12"
@@ -117,6 +157,23 @@
         </Grid>
       </Grid>
     </Border>
+    </Grid>
+
+    <!-- 文件切换浮层：铺满根布局，列表锚定到文件按钮下方 -->
+    <Grid x:Name="FileSwitchOverlay" Grid.RowSpan="3" IsVisible="False" ZIndex="30">
+      <BoxView Color="#66000000">
+        <BoxView.GestureRecognizers>
+          <TapGestureRecognizer Tapped="FileSwitchOverlay_Tapped" />
+        </BoxView.GestureRecognizers>
+      </BoxView>
+      <Border x:Name="FileSwitchPanel" VerticalOptions="Start" HorizontalOptions="End"
+              Margin="0,40,12,0" Stroke="{DynamicResource Line}" StrokeThickness="1"
+              StrokeShape="RoundRectangle 10" BackgroundColor="{DynamicResource CardBg}"
+              Padding="6" MinimumWidthRequest="220" MaximumWidthRequest="360">
+        <ScrollView MaximumHeightRequest="320">
+          <VerticalStackLayout x:Name="FileSwitchList" Spacing="2" />
+        </ScrollView>
+      </Border>
     </Grid>
   </Grid>
 </ContentPage>

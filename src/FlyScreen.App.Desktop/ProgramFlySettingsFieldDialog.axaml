@@ -1,0 +1,109 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.DesktopUi.ProgramFlySettingsFieldDialog"
+        Title="字段"
+        Width="820" Height="560"
+        MinWidth="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}">
+  <Window.Styles>
+    <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/DialogStyles.axaml"/>
+    <Style Selector="Button.titleBtn">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Width" Value="40"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+  </Window.Styles>
+  <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
+    <DockPanel>
+      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Classes="dlgTitleBar" IsVisible="False">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock x:Name="ClientTitleText" Text="字段" Classes="dlgTitleText" IsHitTestVisible="False"/>
+          <Button x:Name="TitleCloseBtn" Grid.Column="1" Classes="titleBtn" Content="×"/>
+        </Grid>
+      </Border>
+      <Border DockPanel.Dock="Bottom" Classes="dlgFooter">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="0">
+          <Button x:Name="BtnCancel" Classes="dlgNormal" Content="取消" Click="Cancel_Click"/>
+          <Button x:Name="BtnOk" Classes="dlgPrimary" Content="确定" Click="Ok_Click"/>
+        </StackPanel>
+      </Border>
+      <Grid Margin="20,16" ColumnDefinitions="*,12,*">
+        <!-- 左：编辑 -->
+        <Border Classes="dlgCard" Padding="14">
+          <ScrollViewer>
+            <StackPanel Spacing="2">
+              <TextBlock Text="字段属性" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"
+                         Foreground="{DynamicResource Muted}"/>
+              <TextBlock Text="键 (key)" FontWeight="SemiBold"/>
+              <TextBox x:Name="EdKey" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+              <TextBlock Text="标签" FontWeight="SemiBold"/>
+              <TextBox x:Name="EdLabel" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+              <TextBlock Text="类型" FontWeight="SemiBold"/>
+              <ComboBox x:Name="EdKind" Height="28" Margin="0,0,0,8" SelectionChanged="Kind_Changed"/>
+              <TextBlock x:Name="LblDefault" Text="默认值" FontWeight="SemiBold"/>
+              <TextBox x:Name="EdDefault" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+              <StackPanel x:Name="PanelOptions" IsVisible="False" Spacing="2">
+                <TextBlock Text="选项（逗号分隔）" FontWeight="SemiBold"/>
+                <TextBox x:Name="EdOptions" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+              </StackPanel>
+              <StackPanel x:Name="PanelFilter" IsVisible="False" Spacing="2">
+                <TextBlock Text="文件过滤器" FontWeight="SemiBold"/>
+                <TextBox x:Name="EdFilter" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+              </StackPanel>
+              <StackPanel x:Name="PanelEvent" IsVisible="False" Spacing="2">
+                <TextBlock Text="事件名 (event)" FontWeight="SemiBold"/>
+                <TextBox x:Name="EdEvent" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+              </StackPanel>
+              <StackPanel x:Name="PanelTable" IsVisible="False" Spacing="2">
+                <Grid ColumnDefinitions="*,8,*" Margin="0,0,0,8">
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="列数" FontWeight="SemiBold"/>
+                    <TextBox x:Name="EdCols" Height="28" TextChanged="Field_Changed"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" Spacing="2">
+                    <TextBlock Text="行数" FontWeight="SemiBold"/>
+                    <TextBox x:Name="EdRows" Height="28" TextChanged="Field_Changed"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="列名（逗号分隔）" FontWeight="SemiBold"/>
+                <TextBox x:Name="EdColNames" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+                <TextBlock Text="行名（逗号分隔）" FontWeight="SemiBold"/>
+                <TextBox x:Name="EdRowNames" Height="28" Margin="0,0,0,8" TextChanged="Field_Changed"/>
+                <CheckBox x:Name="EdRowHeader" Content="第一列作为行头" Margin="0,0,0,4" IsCheckedChanged="Field_Changed"/>
+                <CheckBox x:Name="EdCellButton" Content="单元格嵌入按钮" Margin="0,0,0,4" IsCheckedChanged="Field_Changed"/>
+                <TextBlock Text="单元格按钮事件" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                <TextBox x:Name="EdButtonEvent" Height="28" TextChanged="Field_Changed"/>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+
+        <!-- 右：类型说明与取值示例 -->
+        <Border Grid.Column="2" Classes="dlgCard" Padding="14">
+          <ScrollViewer>
+            <StackPanel Spacing="4">
+              <TextBlock Text="类型说明与取值示例" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,4"
+                         Foreground="{DynamicResource Muted}"/>
+              <TextBlock Text="类型说明" FontWeight="SemiBold"/>
+              <TextBlock x:Name="TxtKindDesc" TextWrapping="Wrap" Margin="0,0,0,10"/>
+              <TextBlock Text="取值示例" FontWeight="SemiBold"/>
+              <TextBox x:Name="TxtKindExample"
+                       IsReadOnly="True"
+                       AcceptsReturn="True"
+                       TextWrapping="Wrap"
+                       BorderThickness="0"
+                       Background="Transparent"
+                       FontFamily="Consolas, Cascadia Mono, Menlo, monospace"
+                       FontSize="12"/>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+    </DockPanel>
+  </Border>
+</Window>

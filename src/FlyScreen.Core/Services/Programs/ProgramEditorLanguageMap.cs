@@ -26,4 +26,40 @@ public static class ProgramEditorLanguageMap
         ProgramLanguage.Batch => "bat",
         _ => "plaintext"
     };
+
+    /// <summary>按相对路径扩展名解析高亮（如 fly-settings.json → JSON）。</summary>
+    public static string AvalonHighlightingNameForPath(string? relativePath, ProgramLanguage fallback)
+    {
+        var ext = Path.GetExtension(relativePath ?? "").TrimStart('.').ToLowerInvariant();
+        return ext switch
+        {
+            "json" => "JavaScript", // Avalon 无独立 JSON 定义时用 JS
+            "cs" => "C#",
+            "js" or "mjs" or "cjs" => "JavaScript",
+            "py" => "Python",
+            "ps1" => "PowerShell",
+            "sh" or "bash" => "Bash",
+            "bat" or "cmd" => "Batch",
+            _ => AvalonHighlightingName(fallback)
+        };
+    }
+
+    public static string MonacoLanguageIdForPath(string? relativePath, ProgramLanguage fallback)
+    {
+        var ext = Path.GetExtension(relativePath ?? "").TrimStart('.').ToLowerInvariant();
+        return ext switch
+        {
+            "json" => "json",
+            "cs" => "csharp",
+            "js" or "mjs" or "cjs" => "javascript",
+            "ts" => "typescript",
+            "py" => "python",
+            "ps1" => "powershell",
+            "sh" or "bash" => "shell",
+            "bat" or "cmd" => "bat",
+            "xml" or "xaml" or "axaml" => "xml",
+            "md" => "markdown",
+            _ => MonacoLanguageId(fallback)
+        };
+    }
 }

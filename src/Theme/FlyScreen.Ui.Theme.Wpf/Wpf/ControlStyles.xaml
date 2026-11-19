@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:tw="clr-namespace:FlyScreen.Ui.Theme.Wpf">
   <!-- ComboBox / CheckBox / RadioButton / 对话框按钮；TextBox 见 TextBoxStyles -->
 
   <Style TargetType="TextBlock">
@@ -94,6 +95,8 @@
     <Setter Property="Background" Value="{DynamicResource ControlBg}"/>
     <Setter Property="Foreground" Value="{DynamicResource Text}"/>
     <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+    <!-- 收起时滚轮不改选，交给外层滚动条 -->
+    <Setter Property="tw:ComboBoxWheelGuard.SuppressSelection" Value="True"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ComboBox">

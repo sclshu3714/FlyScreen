@@ -2614,9 +2614,14 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() != true) return;
         try
         {
-            ProgramService.Instance.Catalog.Create(
+            var prog = ProgramService.Instance.Catalog.Create(
                 dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
             RefreshProgramsPage();
+            var folder = ProgramService.Instance.Catalog.GetFolder(prog);
+            MessageBox.Show(this,
+                Loc.T("Prog.CreatedExternalDev", prog.Name, folder),
+                Loc.T("Prog.Add"),
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {

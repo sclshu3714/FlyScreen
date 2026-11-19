@@ -33,8 +33,7 @@ public sealed class ProgramSettingsPage : ContentPage
     {
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
-        var source = _catalog.ReadSource(program);
-        _fields = ProgramSettingsSchema.Parse(source);
+        _fields = ProgramFlySettingsStore.LoadSchema(_catalog, program);
         var disk = ProgramSettingsStore.LoadFile(ProgramSettingsStore.PathFor(_catalog, program));
         _values = ProgramSettingsStore.Resolve(_fields, disk);
 
@@ -141,24 +140,36 @@ public sealed class ProgramSettingsPage : ContentPage
         if (field.Kind == ProgramSettingKind.Bool)
             return MakeSwitchRow(field.Key, field.Label, ProgramSettingsSchema.AsBool(cur));
 
+        if (field.Kind == ProgramSettingKind.Button)
+            return MakeSettingButton(field);
+
         var box = new VerticalStackLayout { Spacing = 4 };
         box.Children.Add(FieldLabel(field.Label));
 
         View editor = field.Kind switch
         {
             ProgramSettingKind.Enum => MakePicker(field.Key, field.EnumOptions, cur),
+            ProgramSettingKind.Radio => MakeRadioGroup(field.Key, field.EnumOptions, cur),
+            ProgramSettingKind.Checks => MakeChecks(field.Key, field.EnumOptions, cur),
             ProgramSettingKind.StringList => MakeStringListEntry(field.Key, cur),
-            ProgramSettingKind.Double => MakeStepperEntry(field.Key, cur),
-            _ => MakeStringListEntry(field.Key, cur)
+            ProgramSettingKind.String => MakeSingleLineEntry(field.Key, cur),
+            ProgramSettingKind.Int or ProgramSettingKind.Long or ProgramSettingKind.Double
+                => MakeStepperEntry(field.Key, cur),
+            ProgramSettingKind.File => MakePathPicker(field, cur, folder: false),
+            ProgramSettingKind.Folder => MakePathPicker(field, cur, folder: true),
+            ProgramSettingKind.Table => MakeTable(field, cur),
+            _ => MakeSingleLineEntry(field.Key, cur)
         };
         _editors[field.Key] = editor;
         box.Children.Add(editor);
 
-        if (field.Kind == ProgramSettingKind.StringList)
+        if (field.Kind is ProgramSettingKind.StringList or ProgramSettingKind.Checks)
         {
             box.Children.Add(new Label
             {
-                Text = "可换行；也可用分号分隔。保存时自动整理",
+                Text = field.Kind == ProgramSettingKind.Checks
+                    ? "可多选；保存为换行列表"
+                    : "可换行；也可用分号分隔。保存时自动整理",
                 Style = TryStyle("DlgHint"),
                 Margin = new Thickness(0, 2, 0, 0)
             });
@@ -360,11 +371,265 @@ public sealed class ProgramSettingsPage : ContentPage
         _ => token
     };
 
+    private View MakeSettingButton(ProgramSettingField field)
+    {
+        var btn = MakePrimary(field.Label);
+        btn.HorizontalOptions = LayoutOptions.Start;
+        btn.Clicked += async (_, _) =>
+        {
+            var ev = string.IsNullOrWhiteSpace(field.EventName) ? field.Key : field.EventName;
+            ProgramSettingEventBus.Enqueue(_program.Id, ev, field.Key);
+            await DisplayAlertAsync(Title, Loc.T("Prog.SettingsEventQueued", ev), "OK");
+        };
+        return btn;
+    }
+
+    private View MakeSingleLineEntry(string key, string cur)
+    {
+        var entry = new Entry
+        {
+            Text = cur ?? "",
+            FontSize = 14,
+            HeightRequest = 40,
+            TextColor = ColorOf("Text") ?? Colors.Black,
+            BackgroundColor = ColorOf("CardBg") ?? Colors.White
+        };
+        entry.TextChanged += (_, e) => _values[key] = e.NewTextValue ?? "";
+        _values[key] = entry.Text ?? "";
+        return entry;
+    }
+
+    private View MakePathPicker(ProgramSettingField field, string cur, bool folder)
+    {
+        var entry = new Entry
+        {
+            Text = cur ?? "",
+            FontSize = 14,
+            HeightRequest = 40,
+            HorizontalOptions = LayoutOptions.Fill,
+            TextColor = ColorOf("Text") ?? Colors.Black,
+            BackgroundColor = ColorOf("CardBg") ?? Colors.White
+        };
+        entry.TextChanged += (_, e) => _values[field.Key] = e.NewTextValue ?? "";
+        var browse = MakeNormal("…");
+        browse.WidthRequest = 44;
+        browse.Clicked += async (_, _) =>
+        {
+            try
+            {
+                string? path = null;
+                if (folder)
+                {
+#if WINDOWS
+                    // unpackaged / 管理员下 MAUI 无可用 FolderPicker；用 Win32
+                    path = await MainThread.InvokeOnMainThreadAsync(() =>
+                        Platforms.Windows.Win32PathPicker.PickFolder(field.Label));
+#elif ANDROID
+                    path = await Platforms.Android.AndroidFolderMaterializer.PickAndMaterializeAsync()
+                        .ConfigureAwait(true);
+#else
+                    path = await DisplayPromptAsync(
+                        Loc.T("Prog.SettingsPickFolder"),
+                        field.Label,
+                        initialValue: entry.Text ?? "",
+                        maxLength: 512);
+#endif
+                }
+                else
+                {
+#if WINDOWS
+                    // unpackaged / 管理员下 MAUI FilePicker 常 COMException，并弹出空「OK」框
+                    var winFilter = Platforms.Windows.Win32PathPicker.ToNativeFilter(
+                        ProgramSettingsSchema.FormatFileFilter(field.Filter));
+                    path = await MainThread.InvokeOnMainThreadAsync(() =>
+                        Platforms.Windows.Win32PathPicker.PickSingleFile(
+                            title: field.Label,
+                            filter: winFilter));
+#else
+                    var types = string.IsNullOrWhiteSpace(field.Filter)
+                        ? null
+                        : field.Filter.Split([';', '|', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Select(p => p.TrimStart('*', '.'))
+                            .Where(p => p.Length > 0)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray();
+                    var pick = types is { Length: > 0 }
+                        ? await FilePicker.Default.PickAsync(new PickOptions
+                        {
+                            PickerTitle = field.Label,
+                            FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                            {
+                                { DevicePlatform.Android, types.Select(_ => "application/octet-stream") },
+                                { DevicePlatform.iOS, types },
+                                { DevicePlatform.MacCatalyst, types }
+                            })
+                        })
+                        : await FilePicker.Default.PickAsync(new PickOptions { PickerTitle = field.Label });
+                    if (pick != null)
+                    {
+                        path = pick.FullPath;
+                        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                        {
+                            await using var stream = await pick.OpenReadAsync();
+                            path = Path.Combine(Path.GetTempPath(), pick.FileName);
+                            await using var fs = File.Create(path);
+                            await stream.CopyToAsync(fs);
+                        }
+                    }
+#endif
+                }
+
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    entry.Text = path.Trim();
+                    _values[field.Key] = path.Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                var msg = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+                await DisplayAlertAsync(Title, msg, "OK");
+            }
+        };
+        _values[field.Key] = entry.Text ?? "";
+        var pathGrid = new Grid
+        {
+            ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) },
+            ColumnSpacing = 6
+        };
+        pathGrid.Add(entry, 0);
+        pathGrid.Add(browse, 1);
+        return pathGrid;
+    }
+
+    private View MakeRadioGroup(string key, IReadOnlyList<string> options, string cur)
+    {
+        var list = options.Count > 0 ? options.ToList() : ["A", "B"];
+        var panel = new VerticalStackLayout { Spacing = 4 };
+        foreach (var opt in list)
+        {
+            var rb = new RadioButton
+            {
+                Content = opt,
+                GroupName = "rg_" + key,
+                IsChecked = string.Equals(opt, cur, StringComparison.OrdinalIgnoreCase)
+            };
+            rb.CheckedChanged += (_, e) =>
+            {
+                if (e.Value)
+                    _values[key] = opt;
+            };
+            panel.Children.Add(rb);
+        }
+        if (!_values.ContainsKey(key) && list.Count > 0)
+            _values[key] = list.Any(o => string.Equals(o, cur, StringComparison.OrdinalIgnoreCase)) ? cur : list[0];
+        return panel;
+    }
+
+    private View MakeChecks(string key, IReadOnlyList<string> options, string cur)
+    {
+        var selected = new HashSet<string>(ProgramSettingsSchema.AsStringList(cur), StringComparer.OrdinalIgnoreCase);
+        var panel = new VerticalStackLayout { Spacing = 4 };
+        var boxes = new List<(string Opt, CheckBox Cb)>();
+        void Sync() => _values[key] = string.Join("\n", boxes.Where(x => x.Cb.IsChecked).Select(x => x.Opt));
+        foreach (var opt in options)
+        {
+            var cb = new CheckBox { IsChecked = selected.Contains(opt) };
+            var row = new HorizontalStackLayout
+            {
+                Spacing = 8,
+                Children =
+                {
+                    cb,
+                    new Label { Text = opt, VerticalOptions = LayoutOptions.Center }
+                }
+            };
+            cb.CheckedChanged += (_, _) => Sync();
+            boxes.Add((opt, cb));
+            panel.Children.Add(row);
+        }
+        Sync();
+        return panel;
+    }
+
+    private View MakeTable(ProgramSettingField field, string cur)
+    {
+        var spec = field.Table ?? new ProgramTableSpec { Cols = 1, Rows = 1 };
+        var data = ProgramTableData.ParseOrEmpty(cur, spec);
+        var rows = spec.Rows;
+        var cols = spec.Cols;
+        var grid = new Grid { ColumnSpacing = 4, RowSpacing = 4 };
+        var colOffset = spec.RowHeader ? 1 : 0;
+        if (spec.RowHeader)
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(64)));
+        for (var c = 0; c < cols; c++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        if (spec.CellButton)
+            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        for (var r = 0; r < rows; r++)
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+        void Header(string text, int col, int row)
+        {
+            var lab = new Label { Text = text, FontAttributes = FontAttributes.Bold, FontSize = 12 };
+            grid.Add(lab, col, row);
+        }
+        if (spec.RowHeader) Header("", 0, 0);
+        for (var c = 0; c < cols; c++)
+            Header(c < spec.ColNames.Count ? spec.ColNames[c] : "C" + (c + 1), c + colOffset, 0);
+        if (spec.CellButton) Header("", cols + colOffset, 0);
+
+        var cells = new Entry[rows, cols];
+        void Persist()
+        {
+            var next = ProgramTableData.CreateEmpty(rows, cols);
+            for (var r = 0; r < rows; r++)
+            for (var c = 0; c < cols; c++)
+                next.Cells[r][c] = cells[r, c]?.Text ?? "";
+            _values[field.Key] = next.ToJson();
+        }
+        for (var r = 0; r < rows; r++)
+        {
+            if (spec.RowHeader)
+                Header(r < spec.RowNames.Count ? spec.RowNames[r] : "R" + (r + 1), 0, r + 1);
+            for (var c = 0; c < cols; c++)
+            {
+                var en = new Entry
+                {
+                    Text = data.Cells[r][c],
+                    FontSize = 13,
+                    HeightRequest = 36,
+                    TextColor = ColorOf("Text") ?? Colors.Black,
+                    BackgroundColor = ColorOf("CardBg") ?? Colors.White
+                };
+                en.TextChanged += (_, _) => Persist();
+                cells[r, c] = en;
+                grid.Add(en, c + colOffset, r + 1);
+            }
+            if (spec.CellButton)
+            {
+                var rr = r;
+                var btn = MakeNormal("▶");
+                btn.WidthRequest = 40;
+                btn.Clicked += async (_, _) =>
+                {
+                    var ev = string.IsNullOrWhiteSpace(spec.ButtonEvent) ? field.Key : spec.ButtonEvent;
+                    ProgramSettingEventBus.Enqueue(_program.Id, ev, $"{rr},0");
+                    await DisplayAlertAsync(Title, Loc.T("Prog.SettingsEventQueued", ev + $" ({rr},0)"), "OK");
+                };
+                grid.Add(btn, cols + colOffset, r + 1);
+            }
+        }
+        Persist();
+        return grid;
+    }
+
     private void CollectFromEditors()
     {
         foreach (var field in _fields)
         {
-            if (field.Kind == ProgramSettingKind.Rect)
+            if (field.Kind is ProgramSettingKind.Rect or ProgramSettingKind.Button)
                 continue;
             if (!_editors.TryGetValue(field.Key, out var view)) continue;
             switch (view)
@@ -373,16 +638,20 @@ public sealed class ProgramSettingsPage : ContentPage
                     _values[field.Key] = sw.IsToggled ? "true" : "false";
                     break;
                 case Editor ed:
-                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, ed.Text);
+                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, ed.Text, field);
                     break;
                 case Entry en:
-                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, en.Text);
+                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, en.Text, field);
                     break;
                 case Picker pick:
                     if (_enumTokens.TryGetValue(field.Key, out var tokens)
                         && pick.SelectedIndex >= 0
                         && pick.SelectedIndex < tokens.Count)
                         _values[field.Key] = tokens[pick.SelectedIndex];
+                    break;
+                default:
+                    if (_values.TryGetValue(field.Key, out var raw))
+                        _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, raw, field);
                     break;
             }
         }

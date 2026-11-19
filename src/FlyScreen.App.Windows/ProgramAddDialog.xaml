@@ -30,6 +30,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="100"/>
@@ -63,7 +64,10 @@
           <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="32"
                    VerticalContentAlignment="Center"/>
 
-          <StackPanel Grid.Row="4" Grid.ColumnSpan="2">
+          <TextBlock x:Name="ExternalDevHint" Grid.Row="4" Grid.ColumnSpan="2"
+                     TextWrapping="Wrap" Style="{StaticResource DlgHint}" Margin="0,0,0,10"/>
+
+          <StackPanel Grid.Row="5" Grid.ColumnSpan="2">
             <TextBlock x:Name="DetectStatus" TextWrapping="Wrap" Style="{StaticResource DlgHint}" Margin="0"/>
             <StackPanel x:Name="DetectActions" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
               <Button x:Name="DetectAutoBtn" Content="自动修复" Style="{StaticResource DlgNormalBtn}"

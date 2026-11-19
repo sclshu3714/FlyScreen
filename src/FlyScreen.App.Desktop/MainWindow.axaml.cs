@@ -1982,10 +1982,11 @@ public partial class MainWindow : Window
         if (!dlg.Confirmed) return;
         try
         {
-            ProgramService.Instance.Catalog.Create(
+            var prog = ProgramService.Instance.Catalog.Create(
                 dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
             RefreshProgramsPage();
-            StatusText.Text = Loc.T("Prog.Add") + " OK";
+            var folder = ProgramService.Instance.Catalog.GetFolder(prog);
+            StatusText.Text = Loc.T("Prog.CreatedExternalDev", prog.Name, folder);
         }
         catch (Exception ex)
         {

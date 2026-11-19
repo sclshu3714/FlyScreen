@@ -11,6 +11,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="FlyScreen.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\FlyScreen.Assets\FlyScreen.Assets.csproj" />
   </ItemGroup>
@@ -27,6 +31,8 @@
     <Compile Remove="Services\Programs\Builtin\generic_swipe_main.cs" />
     <EmbeddedResource Include="Services\Programs\Builtin\generic_swipe_main.cs"
                       LogicalName="FlyScreen.Services.Programs.Builtin.generic_swipe_main.cs" />
+    <EmbeddedResource Include="Services\Programs\Builtin\generic_swipe_fly_settings.json"
+                      LogicalName="FlyScreen.Services.Programs.Builtin.generic_swipe_fly_settings.json" />
   </ItemGroup>
 
   <!-- 脚本编译引用：嵌入常用 net10.0 ref（约 2MB），供 Android/单文件 CreateFromImage -->

@@ -54,6 +54,14 @@ public partial class ProgramAddDialog : Window
         FileNameBox.GotFocus += (_, _) => _fileManual = true;
         SetNs(ChinesePinyin.ToNamespace(""));
         SetFile(ProgramLanguageInfo.DefaultFileName(ProgramLanguage.Python));
+        RefreshExternalDevHint();
+    }
+
+    private void RefreshExternalDevHint()
+    {
+        ExternalDevHint.Text = CurrentLanguage() == ProgramLanguage.CSharp
+            ? Loc.T("Prog.DlgExternalDevHintCs")
+            : Loc.T("Prog.DlgExternalDevHint");
     }
 
     private void NameBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -76,6 +84,7 @@ public partial class ProgramAddDialog : Window
         {
             SetFile(ProgramLanguageInfo.DefaultFileName(lang));
         }
+        RefreshExternalDevHint();
         ClearDetectUi();
     }
 

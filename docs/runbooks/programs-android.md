@@ -15,7 +15,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 | 内置源码 | 可打开编辑器阅读、复制、查找；**不可改字/保存**（改参数请用设置） |
 | 调试日志 | 设置 `debugLog`；运行时屏幕**左中**浮层显示最近 **5** 行程序日志（不挡触摸；需悬浮窗权限） |
 
-存储目录：与设置同级的 `Programs/{id}/`（含 `program.json`、`main.cs`、`settings.json`）。**各端本地一份**；跨端靠 **程序共享**。
+存储目录：与设置同级的 `Programs/{id}/`（含 `program.json`、入口 `main.*`、可选 `lib/` 附加源、`refs/*.dll`、`program.csproj`、`fly-settings.json` schema、`settings.json` 取值）。**各端本地一份**；跨端靠 **程序共享**。
 
 ## 2. 内置程序与设置
 
@@ -23,8 +23,33 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 |----|------|
 | 内置「通用识别操作」 | Id=`builtin-generic-swipe`；安装时 EnsureBuiltin；**不可删除**；源码只读 |
 | 程序列表 | 更多菜单：… → 共享 → **设置** → 删除（内置隐藏删除） |
-| `@fly-settings` | 脚本注释块声明可配项；设置页自动生成控件 |
-| `settings.json` | 覆盖标注默认值；运行前 `Fly.BindSettings`；**不回写** main.cs |
+| `fly-settings.json` | **唯一 schema 来源**（各语言通用）；编辑器工具条「配置」可视化维护，也可在文件列表打开手改 |
+| `@fly-settings` 注释 | **已弃用**：不再作为加载路径；仅在 `fly-settings.json` 被污染时一次性抢救 |
+| `settings.json` | 仅存运行时取值（覆盖 schema 默认值）；运行前 `Fly.BindSettings`；**不回写** schema |
+
+加载顺序：仅读 `fly-settings.json`（缺失/无效 → 空 schema）。
+
+### 控件类型（`fly-settings.json`）
+
+JSON 字段见 `ProgramFlySettingsStore`（`kind`/`key`/`label`/`defaultRaw`/`enumOptions`/`filter`/`eventName`/`table`）。
+
+| type | 说明 | rest 示例 | 读取 API |
+|------|------|-----------|----------|
+| `bool` | 开关 | `true` | `GetBool` |
+| `string` / `text` | 单行文本 | 默认值 | `GetString` |
+| `string[]` / `list` | 多行列表 | `a,b` | `GetStringList` |
+| `int` / `long` | 整数 | `3` | `GetInt` / `GetLong` |
+| `double` / `float` / `sec` | 浮点 | `0.7` | `GetDouble` |
+| `enum` / `action` | 下拉 | `A \| A,B,C` | `GetString` / `GetAction` |
+| `radio` | 单选组 | `A \| A,B,C` | `GetString` |
+| `checks` | 复选组 | `a,c \| a,b,c` | `GetStringList` |
+| `file` | 文件选择 | ` \| filter=*.json;*.txt` | `GetString` |
+| `folder` / `dir` | 文件夹选择 | 默认路径 | `GetString` |
+| `button` | 按钮（触发事件） | `event=Reset` | `TryConsumeSettingEvent` |
+| `table` / `grid` | 表格 | `cols=3;rows=2;colNames=A,B,C;rowNames=R1,R2;rowHeader=true;cellButton=true;buttonEvent=CellClick` | `GetTable` |
+| `rect` / `region` | 区域（手机标定表） | 空 | `GetRect` |
+
+按钮 / 表格单元格按钮：设置页点击后入队，脚本运行中 `Fly.TryConsumeSettingEvent`（JS：`Fly.consumeSettingEvent()`）消费；单元格 `detail` 为 `row,col`（0 基）。
 
 标注示例见嵌入源码 `Services/Programs/Builtin/generic_swipe_main.cs`。
 
@@ -50,9 +75,29 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 | 语言 | 执行方式 |
 |------|----------|
-| C# | 进程内 Roslyn 编译运行（手机）；模板见 `ProgramCatalog` |
-| JavaScript | Jint；API 为 camelCase（如 `Fly.hasText`） |
-| 其它 | 脚手架为主，设备控制以 C#/JS 为准 |
+| C# | 进程内 Roslyn 编译运行（全端）；入口仍 Wrap 为方法体；`lib/*.cs` 作普通 compilation unit |
+| JavaScript | 手机 Jint（支持相对路径 `import`）；电脑 `node`（工作目录=程序文件夹） |
+| 其它 | 桌面外部 CLI（工作目录=程序文件夹）；可用相对 `import`/`source`/`call` |
+
+### 多文件 / 依赖（本程序目录内）
+
+```text
+Programs/{id}/
+  program.json          # ExtraFiles / LocalDlls / Packages（均可缺省）
+  main.cs|js|…          # 入口
+  lib/Helper.cs         # 附加源（编辑器「添加文件」）
+  refs/Foo.dll          # 本地 DLL（C#）
+  program.csproj        # PackageReference（桌面可 dotnet restore）
+```
+
+| 能力 | 说明 |
+|------|------|
+| 附加源 | 编辑器文件列表切换；行数限制按**当前打开文件** |
+| C# 用法 | 入口调用 `lib` 中类型，例如 `Helper.Run()`；附加文件可写 `namespace`/`class` |
+| JS 用法 | `import { hello } from './lib/Module1.js'`（手机 Jint Modules；入口无 import 时仍整段执行） |
+| Python 等 | `import lib.foo` / `source ./lib/x.sh` / `call lib\x.bat`（相对程序根） |
+| NuGet | **仅桌面**在线 restore；手机请把 DLL 放入 `refs/` 并登记 LocalDlls |
+| 共享 | 传入口 + ExtraSources + Packages 元数据；**不传 DLL 二进制** |
 
 **Android C# 注意：** 宿主无真实 `Assembly.Location`，且 Mono 上 `TryGetRawMetadata` 常不可用。C# 程序改走 **`CSharpCompilation` + 嵌入的 `Microsoft.NETCore.App.Ref`（net10.0）** 用 `CreateFromImage` 建引用，**不再**用 `CSharp.Scripting`（其会强制对运行时 `System.Private.CoreLib` 做 `CreateFromFile`）。宿主 `FlyScreen.Core` 由 Maui 打进 `ScriptRefs/FlyScreen.Core.dll` 并在启动时 `RegisterReferenceImage`。语言版本固定 **C# 12**。若仍见缺引用 / CS0400，确认 APK 含上述嵌入 ref 与 ScriptRefs 资源。
 
@@ -77,7 +122,7 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 ## 5. 程序共享
 
-同 Id **覆盖**对端源码；内置 Id 共享时对方也会得到同 Id（仍为内置元数据视接收端 EnsureBuiltin）。
+同 Id **覆盖**对端源码（含附加源与 Packages 声明）；内置 Id 共享时对方也会得到同 Id（仍为内置元数据视接收端 EnsureBuiltin）。本地 DLL 仅传文件名清单，接收端需自行放入 `refs/`。
 
 ## 6. 相关工程
 
@@ -91,6 +136,9 @@ Win / Avalonia Desktop / MAUI 均可编辑与共享「用户程序」；**设备
 
 | 日期 | 说明 |
 |------|------|
+| 2026-11-19 | `@fly-settings` 扩展：string/int/long/file/folder/button/table/radio/checks；事件队列 `TryConsumeSettingEvent` |
+| 2026-11-19 | 独立 `fly-settings.json` + 多语言注释剥离；编辑器「配置」可视化维护（Win/Desktop/Maui） |
+| 2026-11-19 | 程序内多文件（ExtraFiles）+ 本地 DLL；桌面 C# NuGet restore；手机 Jint ES modules；共享 ExtraSources |
 | 2026-11-18 | C# 改为嵌入 net10.0 ref + `CSharpCompilation`（弃用 Scripting/CreateFromFile/TryGetRawMetadata 主路径）；Maui 打包 `ScriptRefs/FlyScreen.Core.dll` |
 | 2026-11-18 | 假路径无 `.dll` 时勿用 `GetFileNameWithoutExtension`（会把 `System.Private.CoreLib` 裁成 `System.Private`）；改为仅剥 PE 后缀的通用简单名解析 |
 | 2026-11-17 | 修复 Android Roslyn 因假路径 corlib 触发 `IO_FileNotFound_FileName` 导致「通用识别操作」运行失败 |

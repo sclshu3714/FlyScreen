@@ -34,6 +34,7 @@ public partial class ProgramAddDialog : Window
         DetectBtn.Content = Loc.T("Prog.DlgDetect");
         DetectAutoBtn.Content = Loc.T("Prog.DetectAuto");
         DetectOpenBtn.Content = Loc.T("Prog.DetectOpen");
+        RefreshExternalDevHint();
 
         foreach (var lang in ProgramLanguageInfo.All)
             LangCombo.Items.Add(new LangItem(lang));
@@ -43,6 +44,13 @@ public partial class ProgramAddDialog : Window
         FileNameBox.GotFocus += (_, _) => _fileManual = true;
         UpdateDerivedFields();
         NameBox.Focus();
+    }
+
+    private void RefreshExternalDevHint()
+    {
+        ExternalDevHint.Text = CurrentLanguage() == ProgramLanguage.CSharp
+            ? Loc.T("Prog.DlgExternalDevHintCs")
+            : Loc.T("Prog.DlgExternalDevHint");
     }
 
     private void NameBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -66,6 +74,7 @@ public partial class ProgramAddDialog : Window
         {
             SetFile(ProgramLanguageInfo.DefaultFileName(lang));
         }
+        RefreshExternalDevHint();
         ClearDetectUi();
     }
 

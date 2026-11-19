@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using FlyScreen.Helpers.Localization;
@@ -25,7 +26,7 @@ public partial class ProgramSettingsWindow : Window
         InitializeComponent();
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
-        _fields = ProgramSettingsSchema.Parse(_catalog.ReadSource(program));
+        _fields = ProgramFlySettingsStore.LoadSchema(_catalog, program);
         var disk = ProgramSettingsStore.LoadFile(ProgramSettingsStore.PathFor(_catalog, program));
         _values = ProgramSettingsStore.Resolve(_fields, disk);
         Title = $"{Loc.T("Prog.ActSettings")} — {program.Name}";
@@ -99,6 +100,14 @@ public partial class ProgramSettingsWindow : Window
                 continue;
             }
 
+            if (field.Kind == ProgramSettingKind.Button)
+            {
+                var btn = MakeSettingButton(field);
+                FieldsHost.Children.Add(btn);
+                i++;
+                continue;
+            }
+
             FieldsHost.Children.Add(new TextBlock
             {
                 Text = field.Label,
@@ -109,17 +118,26 @@ public partial class ProgramSettingsWindow : Window
             {
                 ProgramSettingKind.StringList => MakeText(field.Key,
                     string.Join("\n", ProgramSettingsSchema.AsStringList(cur)), 88),
+                ProgramSettingKind.Checks => MakeChecks(field.Key, field.EnumOptions, cur),
                 ProgramSettingKind.Enum => MakeCombo(field.Key, field.EnumOptions, cur),
-                ProgramSettingKind.Double => MakeText(field.Key, cur, 28),
+                ProgramSettingKind.Radio => MakeRadioGroup(field.Key, field.EnumOptions, cur),
+                ProgramSettingKind.String => MakeText(field.Key, cur, 28),
+                ProgramSettingKind.Int or ProgramSettingKind.Long or ProgramSettingKind.Double
+                    => MakeText(field.Key, cur, 28),
+                ProgramSettingKind.File => MakePathPicker(field, cur, folder: false),
+                ProgramSettingKind.Folder => MakePathPicker(field, cur, folder: true),
+                ProgramSettingKind.Table => MakeTable(field, cur),
                 _ => MakeText(field.Key, cur, 28)
             };
             _editors[field.Key] = editor;
             FieldsHost.Children.Add(editor);
-            if (field.Kind == ProgramSettingKind.StringList)
+            if (field.Kind is ProgramSettingKind.StringList or ProgramSettingKind.Checks)
             {
                 FieldsHost.Children.Add(new TextBlock
                 {
-                    Text = "可换行；也可用分号分隔。保存时自动整理",
+                    Text = field.Kind == ProgramSettingKind.Checks
+                        ? "可多选；保存为换行列表"
+                        : "可换行；也可用分号分隔。保存时自动整理",
                     FontSize = 11,
                     Foreground = System.Windows.Media.Brushes.Gray
                 });
@@ -297,11 +315,242 @@ public partial class ProgramSettingsWindow : Window
             _longPressPanel.Visibility = IsLongPressActionSelected() ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private System.Windows.Controls.Button MakeSettingButton(ProgramSettingField field)
+    {
+        var btn = new System.Windows.Controls.Button
+        {
+            Content = field.Label,
+            Height = 32,
+            Margin = new Thickness(0, 8, 0, 0),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+            Padding = new Thickness(14, 0, 14, 0)
+        };
+        btn.Click += (_, _) =>
+        {
+            var ev = string.IsNullOrWhiteSpace(field.EventName) ? field.Key : field.EventName;
+            ProgramSettingEventBus.Enqueue(_program.Id, ev, field.Key);
+            MessageBox.Show(this,
+                Loc.T("Prog.SettingsEventQueued", ev),
+                Loc.T("Prog.ActSettings"),
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        };
+        return btn;
+    }
+
+    private FrameworkElement MakePathPicker(ProgramSettingField field, string cur, bool folder)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 0, 0, 0) };
+        var browse = new System.Windows.Controls.Button
+        {
+            Content = "…", Width = 36, Height = 28, Margin = new Thickness(6, 0, 0, 0)
+        };
+        DockPanel.SetDock(browse, Dock.Right);
+        var tb = new TextBox { Text = cur ?? "", Height = 28, VerticalContentAlignment = VerticalAlignment.Center };
+        tb.TextChanged += (_, _) => _values[field.Key] = tb.Text ?? "";
+        browse.Click += (_, _) =>
+        {
+            if (folder)
+            {
+                using var dlg = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = field.Label,
+                    UseDescriptionForTitle = true,
+                    SelectedPath = Directory.Exists(tb.Text) ? tb.Text : ""
+                };
+                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    tb.Text = dlg.SelectedPath;
+                    _values[field.Key] = dlg.SelectedPath;
+                }
+            }
+            else
+            {
+                var dlg = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = field.Label,
+                    Filter = ProgramSettingsSchema.FormatFileFilter(field.Filter),
+                    FileName = File.Exists(tb.Text) ? tb.Text : ""
+                };
+                if (dlg.ShowDialog(this) == true)
+                {
+                    tb.Text = dlg.FileName;
+                    _values[field.Key] = dlg.FileName;
+                }
+            }
+        };
+        row.Children.Add(browse);
+        row.Children.Add(tb);
+        _values[field.Key] = tb.Text ?? "";
+        return row;
+    }
+
+    private FrameworkElement MakeRadioGroup(string key, IReadOnlyList<string> options, string cur)
+    {
+        var list = options.Count > 0 ? options.ToList() : ["A", "B"];
+        var panel = new StackPanel { Orientation = System.Windows.Controls.Orientation.Vertical, Margin = new Thickness(0, 2, 0, 0) };
+        var groupName = "rg_" + key;
+        foreach (var opt in list)
+        {
+            var rb = new System.Windows.Controls.RadioButton
+            {
+                Content = opt,
+                GroupName = groupName,
+                IsChecked = string.Equals(opt, cur, StringComparison.OrdinalIgnoreCase),
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+            rb.Checked += (_, _) =>
+            {
+                if (rb.IsChecked == true)
+                    _values[key] = opt;
+            };
+            panel.Children.Add(rb);
+        }
+        if (!_values.ContainsKey(key) && list.Count > 0)
+            _values[key] = list.Any(o => string.Equals(o, cur, StringComparison.OrdinalIgnoreCase)) ? cur : list[0];
+        return panel;
+    }
+
+    private FrameworkElement MakeChecks(string key, IReadOnlyList<string> options, string cur)
+    {
+        var selected = new HashSet<string>(ProgramSettingsSchema.AsStringList(cur), StringComparer.OrdinalIgnoreCase);
+        var panel = new StackPanel { Orientation = System.Windows.Controls.Orientation.Vertical };
+        var boxes = new List<(string Opt, CheckBox Cb)>();
+        void Sync()
+        {
+            _values[key] = string.Join("\n", boxes.Where(x => x.Cb.IsChecked == true).Select(x => x.Opt));
+        }
+        foreach (var opt in options)
+        {
+            var cb = new CheckBox
+            {
+                Content = opt,
+                IsChecked = selected.Contains(opt),
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+            cb.Checked += (_, _) => Sync();
+            cb.Unchecked += (_, _) => Sync();
+            boxes.Add((opt, cb));
+            panel.Children.Add(cb);
+        }
+        Sync();
+        return panel;
+    }
+
+    private FrameworkElement MakeTable(ProgramSettingField field, string cur)
+    {
+        var spec = field.Table ?? new ProgramTableSpec { Cols = 1, Rows = 1 };
+        var data = ProgramTableData.ParseOrEmpty(cur, spec);
+        var rows = spec.Rows;
+        var cols = spec.Cols;
+        var g = new Grid { Margin = new Thickness(0, 2, 0, 0) };
+        var lead = spec.RowHeader ? 1 : 0;
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // spacer for row header col if any
+        // rebuild properly
+        g.ColumnDefinitions.Clear();
+        if (spec.RowHeader)
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        for (var c = 0; c < cols; c++)
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (spec.CellButton)
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var r = 0; r < rows; r++)
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        void Header(string text, int col, int row)
+        {
+            var tb = new TextBlock
+            {
+                Text = text,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(4),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(tb, col);
+            Grid.SetRow(tb, row);
+            g.Children.Add(tb);
+        }
+
+        var colOffset = spec.RowHeader ? 1 : 0;
+        if (spec.RowHeader)
+            Header("", 0, 0);
+        for (var c = 0; c < cols; c++)
+        {
+            var name = c < spec.ColNames.Count ? spec.ColNames[c] : "C" + (c + 1);
+            Header(name, c + colOffset, 0);
+        }
+        if (spec.CellButton)
+            Header("", cols + colOffset, 0);
+
+        var cells = new TextBox[rows, cols];
+        void Persist()
+        {
+            var next = ProgramTableData.CreateEmpty(rows, cols);
+            for (var r = 0; r < rows; r++)
+            for (var c = 0; c < cols; c++)
+                next.Cells[r][c] = cells[r, c]?.Text ?? "";
+            _values[field.Key] = next.ToJson();
+        }
+
+        for (var r = 0; r < rows; r++)
+        {
+            if (spec.RowHeader)
+            {
+                var rn = r < spec.RowNames.Count ? spec.RowNames[r] : "R" + (r + 1);
+                Header(rn, 0, r + 1);
+            }
+            for (var c = 0; c < cols; c++)
+            {
+                var tb = new TextBox
+                {
+                    Text = data.Cells[r][c],
+                    Margin = new Thickness(2),
+                    Height = 26,
+                    VerticalContentAlignment = VerticalAlignment.Center
+                };
+                tb.TextChanged += (_, _) => Persist();
+                cells[r, c] = tb;
+                Grid.SetColumn(tb, c + colOffset);
+                Grid.SetRow(tb, r + 1);
+                g.Children.Add(tb);
+            }
+            if (spec.CellButton)
+            {
+                var rr = r;
+                var btn = new System.Windows.Controls.Button
+                {
+                    Content = "▶",
+                    Width = 32,
+                    Height = 26,
+                    Margin = new Thickness(2),
+                    Tag = rr
+                };
+                btn.Click += (_, _) =>
+                {
+                    var ev = string.IsNullOrWhiteSpace(spec.ButtonEvent) ? field.Key : spec.ButtonEvent;
+                    // detail: row (and optional focused col 0)
+                    ProgramSettingEventBus.Enqueue(_program.Id, ev, $"{rr},0");
+                    MessageBox.Show(this,
+                        Loc.T("Prog.SettingsEventQueued", ev + $" ({rr},0)"),
+                        Loc.T("Prog.ActSettings"),
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                };
+                Grid.SetColumn(btn, cols + colOffset);
+                Grid.SetRow(btn, r + 1);
+                g.Children.Add(btn);
+            }
+        }
+        Persist();
+        _ = lead;
+        return g;
+    }
+
     private void Collect()
     {
         foreach (var field in _fields)
         {
-            if (field.Kind == ProgramSettingKind.Rect) continue;
+            if (field.Kind is ProgramSettingKind.Rect or ProgramSettingKind.Button) continue;
             if (!_editors.TryGetValue(field.Key, out var el)) continue;
             switch (el)
             {
@@ -309,9 +558,15 @@ public partial class ProgramSettingsWindow : Window
                     _values[field.Key] = cb.IsChecked == true ? "true" : "false";
                     break;
                 case TextBox tb:
-                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, tb.Text);
+                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, tb.Text, field);
                     break;
                 case ComboBox:
+                case StackPanel:
+                case DockPanel:
+                case Grid:
+                    // 值已在交互时写入 _values
+                    if (_values.TryGetValue(field.Key, out var raw))
+                        _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, raw, field);
                     break;
             }
         }

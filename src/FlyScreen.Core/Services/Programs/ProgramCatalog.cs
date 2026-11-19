@@ -116,6 +116,8 @@ public sealed class ProgramCatalog
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
 
+        EnsureBuiltinSchemaFile(folder, force: needWriteSource);
+
         var prog = existing ?? new UserProgram
         {
             Id = id,
@@ -150,14 +152,28 @@ public sealed class ProgramCatalog
     }
 
     private static string ReadEmbeddedBuiltinSource()
+        => ReadEmbeddedText(BuiltinPrograms.ResourceName, "generic_swipe_main.cs");
+
+    private static void EnsureBuiltinSchemaFile(string folder, bool force)
+    {
+        var path = Path.Combine(folder, ProgramFlySettingsStore.SchemaFileName);
+        if (!force && File.Exists(path) && ProgramFlySettingsStore.IsValidSchemaText(File.ReadAllText(path)))
+            return;
+        var json = ReadEmbeddedText(BuiltinPrograms.SchemaResourceName, "generic_swipe_fly_settings.json");
+        if (string.IsNullOrWhiteSpace(json) || !ProgramFlySettingsStore.IsValidSchemaText(json))
+            json = ProgramFlySettingsStore.EmptySchemaText;
+        File.WriteAllText(path, ProgramFlySettingsStore.NormalizeSchemaText(json),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    private static string ReadEmbeddedText(string logicalName, string fileNameSuffix)
     {
         var asm = typeof(ProgramCatalog).Assembly;
-        using var stream = asm.GetManifestResourceStream(BuiltinPrograms.ResourceName);
+        using var stream = asm.GetManifestResourceStream(logicalName);
         if (stream == null)
         {
-            // 兜底：扫名称后缀
             var name = asm.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("generic_swipe_main.cs", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(n => n.EndsWith(fileNameSuffix, StringComparison.OrdinalIgnoreCase));
             if (name == null) return "";
             using var s2 = asm.GetManifestResourceStream(name);
             if (s2 == null) return "";
@@ -202,14 +218,24 @@ public sealed class ProgramCatalog
         };
 
         WriteScaffold(folder, prog);
+        ProgramExternalDevScaffold.Ensure(folder, prog.Language, prog.Packages);
         SaveMeta(prog);
         RefreshSize(prog);
 
         lock (_gate)
             _items.Add(prog);
-        AppLog.Info($"已添加程序「{prog.Name}」({prog.LanguageText}) → {folder}", prog.Id, prog.Name);
+        AppLog.Info(
+            $"已添加程序「{prog.Name}」({prog.LanguageText}) → {folder}（已生成外部 VS/VS Code 脚手架）",
+            prog.Id, prog.Name);
         RaiseChanged();
         return prog;
+    }
+
+    /// <summary>为已有程序补齐外部开发文件（DevHost / README 等）。</summary>
+    public void EnsureExternalDevScaffold(UserProgram prog)
+    {
+        ArgumentNullException.ThrowIfNull(prog);
+        ProgramExternalDevScaffold.Ensure(GetFolder(prog), prog.Language, prog.Packages);
     }
 
     public void SaveMeta(UserProgram prog)
@@ -235,19 +261,421 @@ public sealed class ProgramCatalog
     }
 
     public void WriteSource(UserProgram prog, string content)
-    {
-        if (prog.IsBuiltin
-            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("内置程序源码为只读，请用「设置」修改参数");
+        => WriteFile(prog, prog.FileName, content);
 
-        var path = GetSourcePath(prog);
+    private static readonly HashSet<string> ReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "program.json", "settings.json", "program.csproj", "packages.lock.json"
+    };
+
+    private static readonly HashSet<string> ReservedDirNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "obj", "bin", ".nuget"
+    };
+
+    /// <summary>入口 + ExtraFiles（相对路径，入口在前）。不含 fly-settings.json。</summary>
+    public IReadOnlyList<string> ListProgramFiles(UserProgram prog)
+    {
+        NormalizeManifest(prog);
+        var list = new List<string> { prog.FileName };
+        foreach (var f in prog.ExtraFiles)
+        {
+            if (string.IsNullOrWhiteSpace(f)) continue;
+            var rel = NormalizeRelativePath(f);
+            if (string.Equals(rel, prog.FileName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (IsConfigSchemaFile(rel)) continue;
+            if (!list.Contains(rel, StringComparer.OrdinalIgnoreCase))
+                list.Add(rel);
+        }
+        return list;
+    }
+
+    /// <summary>编辑器文件切换列表：源文件 + 末尾 fly-settings.json（始终显示）。</summary>
+    public IReadOnlyList<string> ListEditorFiles(UserProgram prog)
+    {
+        var list = ListProgramFiles(prog).ToList();
+        if (!list.Contains(ProgramFlySettingsStore.SchemaFileName, StringComparer.OrdinalIgnoreCase))
+            list.Add(ProgramFlySettingsStore.SchemaFileName);
+        return list;
+    }
+
+    public static bool IsConfigSchemaFile(string? relativePath)
+        => string.Equals(Path.GetFileName(relativePath ?? ""), ProgramFlySettingsStore.SchemaFileName,
+            StringComparison.OrdinalIgnoreCase);
+
+    public string ReadFile(UserProgram prog, string relativePath)
+    {
+        var rel = ResolveSafeRelative(prog, relativePath);
+        var path = Path.Combine(GetFolder(prog), rel);
+        if (IsConfigSchemaFile(rel))
+            return ReadSchemaFile(prog, path);
+        if (!File.Exists(path)) return "";
+        return NormalizeSourceText(File.ReadAllText(path, Encoding.UTF8));
+    }
+
+    private string ReadSchemaFile(UserProgram prog, string path)
+    {
+        if (!File.Exists(path))
+            return ProgramFlySettingsStore.EmptySchemaText;
+        var text = NormalizeSourceText(File.ReadAllText(path, Encoding.UTF8));
+        if (ProgramFlySettingsStore.IsValidSchemaText(text))
+            return text;
+
+        // 曾被源码误写入等污染：优先从旧注释抢救一次，否则写空模板
+        try
+        {
+            var recovered = ProgramSettingsSchema.Parse(ReadSource(prog));
+            if (recovered.Count > 0)
+            {
+                ProgramFlySettingsStore.SaveSchema(this, prog, recovered);
+                AppLog.Info($"已从源码注释恢复 {ProgramFlySettingsStore.SchemaFileName}", prog.Id, prog.Name);
+                return NormalizeSourceText(File.ReadAllText(path, Encoding.UTF8));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"抢救 {ProgramFlySettingsStore.SchemaFileName} 失败: {ex.Message}", prog.Id, prog.Name);
+        }
+
+        try
+        {
+            File.WriteAllText(path, ProgramFlySettingsStore.EmptySchemaText,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"修复 {ProgramFlySettingsStore.SchemaFileName} 失败: {ex.Message}");
+        }
+        return ProgramFlySettingsStore.EmptySchemaText;
+    }
+
+    public void WriteFile(UserProgram prog, string relativePath, string content)
+    {
+        var rel = ResolveSafeRelative(prog, relativePath);
+        if (IsConfigSchemaFile(rel))
+        {
+            WriteSchemaFile(prog, rel, content);
+            return;
+        }
+        EnsureWritable(prog);
+        EnsureNotReservedMeta(rel);
+        var path = Path.Combine(GetFolder(prog), rel);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var text = NormalizeSourceText(content);
+        File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        EnsureListed(prog, rel);
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RefreshSize(prog);
+        RaiseChanged();
+    }
+
+    /// <summary>fly-settings.json 允许内置程序写入；内容必须是合法 JSON。</summary>
+    private void WriteSchemaFile(UserProgram prog, string rel, string content)
+    {
+        if (!ProgramFlySettingsStore.IsValidSchemaText(content))
+            throw new InvalidOperationException(
+                $"{ProgramFlySettingsStore.SchemaFileName} 必须是合法 JSON，不能写入源码内容");
+        var path = Path.Combine(GetFolder(prog), rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var text = ProgramFlySettingsStore.NormalizeSchemaText(content);
         File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         prog.UpdatedUtc = DateTime.UtcNow;
         SaveMeta(prog);
         RefreshSize(prog);
         RaiseChanged();
+    }
+
+    /// <summary>新增附加源文件（默认内容为空模板）；返回规范化相对路径。</summary>
+    public string AddFile(UserProgram prog, string relativePath, string? initialContent = null)
+    {
+        EnsureWritable(prog);
+        var rel = ResolveSafeRelative(prog, relativePath);
+        if (string.Equals(rel, prog.FileName, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("不能添加与入口同名的附加文件");
+        if (IsConfigSchemaFile(rel))
+            throw new InvalidOperationException("fly-settings.json 已在文件列表中，请直接打开编辑");
+        EnsureNotReservedMeta(rel);
+        var path = Path.Combine(GetFolder(prog), rel);
+        if (File.Exists(path))
+            throw new InvalidOperationException($"文件已存在：{rel}");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var text = NormalizeSourceText(initialContent ?? BuildExtraFileStub(prog, rel));
+        File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        EnsureListed(prog, rel);
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RefreshSize(prog);
+        RaiseChanged();
+        return rel;
+    }
+
+    public void RemoveFile(UserProgram prog, string relativePath)
+    {
+        EnsureWritable(prog);
+        var rel = ResolveSafeRelative(prog, relativePath);
+        if (string.Equals(rel, prog.FileName, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("不能删除入口文件");
+        EnsureNotReservedMeta(rel);
+        var path = Path.Combine(GetFolder(prog), rel);
+        if (File.Exists(path))
+            File.Delete(path);
+        prog.ExtraFiles.RemoveAll(f =>
+            string.Equals(NormalizeRelativePath(f), rel, StringComparison.OrdinalIgnoreCase));
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RefreshSize(prog);
+        RaiseChanged();
+    }
+
+    public string RenameFile(UserProgram prog, string relativePath, string newRelativePath)
+    {
+        EnsureWritable(prog);
+        var from = ResolveSafeRelative(prog, relativePath);
+        var to = ResolveSafeRelative(prog, newRelativePath);
+        if (string.Equals(from, prog.FileName, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("请通过元数据修改入口文件名");
+        EnsureNotReservedMeta(from);
+        EnsureNotReservedMeta(to);
+        var folder = GetFolder(prog);
+        var fromPath = Path.Combine(folder, from);
+        var toPath = Path.Combine(folder, to);
+        if (!File.Exists(fromPath))
+            throw new FileNotFoundException("文件不存在", from);
+        if (File.Exists(toPath))
+            throw new InvalidOperationException($"目标已存在：{to}");
+        Directory.CreateDirectory(Path.GetDirectoryName(toPath)!);
+        File.Move(fromPath, toPath);
+        for (var i = 0; i < prog.ExtraFiles.Count; i++)
+        {
+            if (string.Equals(NormalizeRelativePath(prog.ExtraFiles[i]), from, StringComparison.OrdinalIgnoreCase))
+                prog.ExtraFiles[i] = to;
+        }
+        EnsureListed(prog, to);
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RefreshSize(prog);
+        RaiseChanged();
+        return to;
+    }
+
+    /// <summary>复制本地 DLL 到 refs/ 并登记 LocalDlls；返回相对路径。</summary>
+    public string AddLocalDll(UserProgram prog, string sourceDllPath)
+    {
+        EnsureWritable(prog);
+        if (string.IsNullOrWhiteSpace(sourceDllPath) || !File.Exists(sourceDllPath))
+            throw new FileNotFoundException("DLL 不存在", sourceDllPath);
+        var name = Path.GetFileName(sourceDllPath);
+        if (string.IsNullOrEmpty(name) || !name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("仅支持 .dll 文件");
+        var rel = NormalizeRelativePath(Path.Combine("refs", name));
+        var dest = Path.Combine(GetFolder(prog), rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.Copy(sourceDllPath, dest, overwrite: true);
+        prog.LocalDlls ??= [];
+        if (!prog.LocalDlls.Any(d => string.Equals(NormalizeRelativePath(d), rel, StringComparison.OrdinalIgnoreCase)))
+            prog.LocalDlls.Add(rel);
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RaiseChanged();
+        return rel;
+    }
+
+    public void RemoveLocalDll(UserProgram prog, string relativePath)
+    {
+        EnsureWritable(prog);
+        var rel = ResolveSafeRelative(prog, relativePath);
+        var path = Path.Combine(GetFolder(prog), rel);
+        if (File.Exists(path))
+            File.Delete(path);
+        prog.LocalDlls?.RemoveAll(d =>
+            string.Equals(NormalizeRelativePath(d), rel, StringComparison.OrdinalIgnoreCase));
+        prog.UpdatedUtc = DateTime.UtcNow;
+        SaveMeta(prog);
+        RaiseChanged();
+    }
+
+    /// <summary>读取入口 + ExtraFiles 内容，供编译/运行。</summary>
+    public IReadOnlyList<(string RelativePath, string Content)> ReadExtraSources(UserProgram prog)
+    {
+        NormalizeManifest(prog);
+        var list = new List<(string, string)>();
+        foreach (var f in prog.ExtraFiles)
+        {
+            if (string.IsNullOrWhiteSpace(f)) continue;
+            var rel = NormalizeRelativePath(f);
+            if (string.Equals(rel, prog.FileName, StringComparison.OrdinalIgnoreCase)) continue;
+            list.Add((rel, ReadFile(prog, rel)));
+        }
+        return list;
+    }
+
+    /// <summary>解析 LocalDlls 为绝对路径（仅存在的文件）。</summary>
+    public IReadOnlyList<string> ResolveLocalDllPaths(UserProgram prog)
+    {
+        NormalizeManifest(prog);
+        var folder = GetFolder(prog);
+        var list = new List<string>();
+        foreach (var d in prog.LocalDlls)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            try
+            {
+                var rel = ResolveSafeRelative(prog, d);
+                var path = Path.Combine(folder, rel);
+                if (File.Exists(path))
+                    list.Add(path);
+            }
+            catch
+            {
+                // skip invalid
+            }
+        }
+        return list;
+    }
+
+    public void NormalizeManifest(UserProgram prog)
+    {
+        prog.ExtraFiles ??= [];
+        prog.LocalDlls ??= [];
+        prog.Packages ??= [];
+        prog.ExtraFiles = prog.ExtraFiles
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Select(NormalizeRelativePath)
+            .Where(f => !string.Equals(f, prog.FileName, StringComparison.OrdinalIgnoreCase))
+            .Where(f => !IsConfigSchemaFile(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        prog.LocalDlls = prog.LocalDlls
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Select(NormalizeRelativePath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        prog.Packages = prog.Packages
+            .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
+            .GroupBy(p => p.Id.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.Last())
+            .ToList();
+    }
+
+    private void EnsureListed(UserProgram prog, string relativePath)
+    {
+        NormalizeManifest(prog);
+        if (string.Equals(relativePath, prog.FileName, StringComparison.OrdinalIgnoreCase))
+            return;
+        if (IsConfigSchemaFile(relativePath))
+            return;
+        if (!prog.ExtraFiles.Any(f => string.Equals(f, relativePath, StringComparison.OrdinalIgnoreCase)))
+            prog.ExtraFiles.Add(relativePath);
+    }
+
+    private static void EnsureWritable(UserProgram prog)
+    {
+        if (prog.IsBuiltin
+            || string.Equals(prog.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("内置程序源码为只读，请用「设置」修改参数");
+    }
+
+    private static void EnsureNotReservedMeta(string relativePath)
+    {
+        var name = Path.GetFileName(relativePath);
+        if (ReservedFileNames.Contains(name))
+            throw new InvalidOperationException($"不能把「{name}」当作源文件编辑");
+        var first = relativePath.Split('/', '\\')[0];
+        if (ReservedDirNames.Contains(first))
+            throw new InvalidOperationException($"不能写入保留目录「{first}」");
+    }
+
+    /// <summary>规范化相对路径并确保落在程序根内。</summary>
+    public string ResolveSafeRelative(UserProgram prog, string relativePath)
+    {
+        var rel = NormalizeRelativePath(relativePath);
+        if (string.IsNullOrEmpty(rel) || rel is "." or "..")
+            throw new ArgumentException("无效路径");
+        var root = Path.GetFullPath(GetFolder(prog));
+        if (!root.EndsWith(Path.DirectorySeparatorChar) && !root.EndsWith(Path.AltDirectorySeparatorChar))
+            root += Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(Path.Combine(GetFolder(prog), rel));
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("路径越出程序目录");
+        // 返回相对根的正斜杠形式，便于跨端
+        var relative = Path.GetRelativePath(GetFolder(prog), full);
+        return NormalizeRelativePath(relative);
+    }
+
+    public static string NormalizeRelativePath(string path)
+    {
+        var s = (path ?? "").Trim().Replace('\\', '/');
+        while (s.StartsWith("./", StringComparison.Ordinal))
+            s = s[2..];
+        s = s.TrimStart('/');
+        if (s.Contains("..", StringComparison.Ordinal))
+        {
+            // 先按段过滤 ..
+            var parts = s.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var stack = new List<string>();
+            foreach (var p in parts)
+            {
+                if (p == ".") continue;
+                if (p == "..")
+                {
+                    if (stack.Count == 0)
+                        throw new InvalidOperationException("路径越出程序目录");
+                    stack.RemoveAt(stack.Count - 1);
+                    continue;
+                }
+                stack.Add(p);
+            }
+            s = string.Join('/', stack);
+        }
+        return s;
+    }
+
+    private static string BuildExtraFileStub(UserProgram prog, string relativePath)
+    {
+        var name = Path.GetFileNameWithoutExtension(relativePath);
+        var ns = SanitizeCsNamespace(prog.Namespace);
+        var ident = SanitizeCsIdent(name);
+        return prog.Language switch
+        {
+            ProgramLanguage.CSharp =>
+                "// " + relativePath + "\n"
+                + "namespace " + ns + "\n{\n"
+                + "    public static class " + ident + "\n    {\n    }\n}\n",
+            ProgramLanguage.JavaScript =>
+                "// " + relativePath + "\n"
+                + "export function hello() {\n  return \"" + name + "\";\n}\n",
+            ProgramLanguage.Python =>
+                "# " + relativePath + "\n\ndef hello():\n    return \"" + name + "\"\n",
+            ProgramLanguage.PowerShell =>
+                "# " + relativePath + "\nfunction Get-Hello { \"" + name + "\" }\n",
+            ProgramLanguage.Bash =>
+                "# " + relativePath + "\nhello() { echo \"" + name + "\"; }\n",
+            ProgramLanguage.Batch =>
+                "@echo off\nrem " + relativePath + "\n",
+            _ => "# " + relativePath + "\n"
+        };
+    }
+
+    private static string SanitizeCsNamespace(string? ns)
+    {
+        var s = string.IsNullOrWhiteSpace(ns) ? "FlyUser" : ns.Trim();
+        var parts = s.Split('.', StringSplitOptions.RemoveEmptyEntries)
+            .Select(SanitizeCsIdent)
+            .Where(p => p.Length > 0);
+        var joined = string.Join('.', parts);
+        return string.IsNullOrEmpty(joined) ? "FlyUser" : joined;
+    }
+
+    private static string SanitizeCsIdent(string? name)
+    {
+        var s = Regex.Replace(name ?? "Lib", @"[^\w]", "_");
+        if (s.Length == 0 || char.IsDigit(s[0]))
+            s = "L" + s;
+        return s;
     }
 
     /// <summary>
@@ -281,14 +709,15 @@ public sealed class ProgramCatalog
     {
         try
         {
-            var path = GetSourcePath(prog);
-            if (!File.Exists(path))
+            NormalizeManifest(prog);
+            long len = 0;
+            foreach (var rel in ListProgramFiles(prog))
             {
-                prog.SizeText = "—";
-                return;
+                var path = Path.Combine(GetFolder(prog), ResolveSafeRelative(prog, rel));
+                if (File.Exists(path))
+                    len += new FileInfo(path).Length;
             }
-            var len = new FileInfo(path).Length;
-            prog.SizeText = FormatSize(len);
+            prog.SizeText = len <= 0 ? "—" : FormatSize(len);
         }
         catch
         {
@@ -338,7 +767,11 @@ public sealed class ProgramCatalog
     }
 
     /// <summary>写入对端共享来的程序。同 Id 或同名已存在时不覆盖。</summary>
-    public bool TryImportShared(UserProgram incoming, string? source, string? projectFile)
+    public bool TryImportShared(
+        UserProgram incoming,
+        string? source,
+        string? projectFile,
+        IReadOnlyList<ProgramShareFile>? extraSources = null)
     {
         incoming.Name = (incoming.Name ?? "").Trim();
         if (string.IsNullOrEmpty(incoming.Name)) return false;
@@ -352,10 +785,14 @@ public sealed class ProgramCatalog
         if (string.IsNullOrWhiteSpace(incoming.Namespace))
             incoming.Namespace = "com.xuanniao.app";
         incoming.Breakpoints ??= [];
+        incoming.ExtraFiles ??= [];
+        incoming.LocalDlls ??= [];
+        incoming.Packages ??= [];
         incoming.CreatedUtc = DateTime.UtcNow;
         incoming.UpdatedUtc = DateTime.UtcNow;
 
         Directory.CreateDirectory(folder);
+        Directory.CreateDirectory(Path.Combine(folder, "lib"));
         File.WriteAllText(
             Path.Combine(folder, incoming.FileName),
             source ?? "",
@@ -368,6 +805,9 @@ public sealed class ProgramCatalog
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
 
+        ApplyExtraSources(incoming, extraSources);
+        ProgramExternalDevScaffold.Ensure(folder, incoming.Language, incoming.Packages);
+
         SaveMeta(incoming);
         RefreshSize(incoming);
         lock (_gate)
@@ -375,6 +815,45 @@ public sealed class ProgramCatalog
         AppLog.Info($"已接收共享程序「{incoming.Name}」", incoming.Id, incoming.Name);
         RaiseChanged();
         return true;
+    }
+
+    /// <summary>覆盖已有程序的附加源（同 Id 共享更新）。</summary>
+    public void ApplyExtraSources(UserProgram prog, IReadOnlyList<ProgramShareFile>? extraSources)
+    {
+        NormalizeManifest(prog);
+        var folder = GetFolder(prog);
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (extraSources != null)
+        {
+            foreach (var item in extraSources)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.Path)) continue;
+                string rel;
+                try { rel = ResolveSafeRelative(prog, item.Path); }
+                catch { continue; }
+                if (string.Equals(rel, prog.FileName, StringComparison.OrdinalIgnoreCase)) continue;
+                try { EnsureNotReservedMeta(rel); }
+                catch { continue; }
+                var path = Path.Combine(folder, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, item.Content ?? "", new UTF8Encoding(false));
+                keep.Add(rel);
+            }
+        }
+
+        // 删除清单中已不在共享载荷里的附加文件
+        foreach (var old in prog.ExtraFiles.ToList())
+        {
+            var rel = NormalizeRelativePath(old);
+            if (keep.Contains(rel)) continue;
+            try
+            {
+                var path = Path.Combine(folder, ResolveSafeRelative(prog, rel));
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch { /* ignore */ }
+        }
+        prog.ExtraFiles = keep.ToList();
     }
 
     private static bool IsSafeId(string? id)
@@ -398,21 +877,10 @@ public sealed class ProgramCatalog
         var sourcePath = Path.Combine(folder, prog.FileName);
         var body = BuildTemplate(prog);
         File.WriteAllText(sourcePath, body, new UTF8Encoding(false));
-
+        Directory.CreateDirectory(Path.Combine(folder, "lib"));
         if (prog.Language == ProgramLanguage.CSharp)
-        {
-            var csproj = Path.Combine(folder, "program.csproj");
-            File.WriteAllText(csproj, """
-                <Project Sdk="Microsoft.NET.Sdk">
-                  <PropertyGroup>
-                    <OutputType>Exe</OutputType>
-                    <TargetFramework>net10.0</TargetFramework>
-                    <ImplicitUsings>enable</ImplicitUsings>
-                    <Nullable>enable</Nullable>
-                  </PropertyGroup>
-                </Project>
-                """, new UTF8Encoding(false));
-        }
+            Directory.CreateDirectory(Path.Combine(folder, "refs"));
+        // DevHost / README / props 由 ProgramExternalDevScaffold.Ensure 统一写出
     }
 
     private static string BuildTemplate(UserProgram prog) => prog.Language switch

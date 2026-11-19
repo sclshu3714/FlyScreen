@@ -3917,9 +3917,14 @@ public partial class MainPage : ContentPage, IWallpaperHost
         if (!ok) return;
         try
         {
-            ProgramService.Instance.Catalog.Create(
+            var prog = ProgramService.Instance.Catalog.Create(
                 page.ProgramName, page.SelectedLanguage, page.NamespaceValue, page.FileNameValue);
             RefreshProgramsPage();
+            var folder = ProgramService.Instance.Catalog.GetFolder(prog);
+            await DisplayAlertAsync(
+                Loc.T("Prog.Add"),
+                Loc.T("Prog.CreatedExternalDev", prog.Name, folder),
+                "OK");
         }
         catch (Exception ex)
         {

@@ -46,6 +46,14 @@ public partial class ProgramAddPage : ContentPage
         FileNameBox.Focused += (_, _) => _fileManual = true;
         NamespaceBox.Text = ChinesePinyin.ToNamespace("");
         FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(_languages[0]);
+        RefreshExternalDevHint();
+    }
+
+    private void RefreshExternalDevHint()
+    {
+        ExternalDevHint.Text = SelectedLanguage == ProgramLanguage.CSharp
+            ? Loc.T("Prog.DlgExternalDevHintCs")
+            : Loc.T("Prog.DlgExternalDevHint");
     }
 
     private void NameBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -67,6 +75,7 @@ public partial class ProgramAddPage : ContentPage
         {
             FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(lang);
         }
+        RefreshExternalDevHint();
         ClearDetectUi();
     }
 
