@@ -117,7 +117,7 @@ public sealed class ProgramRunner
                 {
                     var settings = ProgramSettingsStore.LoadResolved(_catalog, prog);
                     Fly.BindSettings(settings);
-                    Fly.BindLogContext(prog.Id, prog.Name);
+                    Fly.BindLogContext(prog.Id, prog.Name, _catalog.GetFolder(prog));
                     var logLevel = ProgramSettingsSchema.ResolveLogLevel(settings);
                     // 先宣告再设过滤：带 programId 的 Info 在 Error 级下会被丢掉
                     AppLog.Info($"「{prog.Name}」日志级别={logLevel}（低于此级的脚本日志不写入）");

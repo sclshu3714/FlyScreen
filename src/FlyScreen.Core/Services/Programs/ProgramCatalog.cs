@@ -510,27 +510,60 @@ public sealed class ProgramCatalog
         return list;
     }
 
-    /// <summary>解析 LocalDlls 为绝对路径（仅存在的文件）。</summary>
+    /// <summary>
+    /// 解析编译用本地 DLL 绝对路径：program.json LocalDlls + 程序目录 refs/*.dll。
+    /// 与 DevHost 一致；refs 落盘即可引用，避免仅依赖清单时被编辑器保存冲掉 LocalDlls。
+    /// </summary>
     public IReadOnlyList<string> ResolveLocalDllPaths(UserProgram prog)
     {
         NormalizeManifest(prog);
         var folder = GetFolder(prog);
         var list = new List<string>();
-        foreach (var d in prog.LocalDlls)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAdd(string path)
         {
-            if (string.IsNullOrWhiteSpace(d)) continue;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
             try
             {
-                var rel = ResolveSafeRelative(prog, d);
-                var path = Path.Combine(folder, rel);
-                if (File.Exists(path))
-                    list.Add(path);
+                var full = Path.GetFullPath(path);
+                if (!seen.Add(full)) return;
+                list.Add(full);
             }
             catch
             {
                 // skip invalid
             }
         }
+
+        foreach (var d in prog.LocalDlls)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            try
+            {
+                var rel = ResolveSafeRelative(prog, d);
+                TryAdd(Path.Combine(folder, rel));
+            }
+            catch
+            {
+                // skip invalid
+            }
+        }
+
+        var refsDir = Path.Combine(folder, "refs");
+        if (Directory.Exists(refsDir))
+        {
+            try
+            {
+                foreach (var dll in Directory.EnumerateFiles(refsDir, "*.dll"))
+                    TryAdd(dll);
+            }
+            catch
+            {
+                // skip unreadable refs/
+            }
+        }
+
         return list;
     }
 

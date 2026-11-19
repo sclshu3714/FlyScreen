@@ -230,10 +230,12 @@ public static class InProcessProgramExecutor
             Console.SetError(new LineLogWriter(s => onWarn($"[{prog.Name}] {s}")));
 
             gate?.BeginRun();
+            var probes = ProgramScriptHost.BuildRuntimeAssemblyProbePaths(catalog.GetFolder(prog));
             await ProgramScriptHost.RunCompiledAsync(
                 compiled.AssemblyBytes,
                 ct,
-                gate ?? ProgramDebugGateNop.Instance).ConfigureAwait(false);
+                gate ?? ProgramDebugGateNop.Instance,
+                probes).ConfigureAwait(false);
         }
         finally
         {

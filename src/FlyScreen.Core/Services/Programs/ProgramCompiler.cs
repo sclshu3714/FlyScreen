@@ -371,14 +371,28 @@ public static class ProgramScriptHost
         return list.ToImmutableArray();
     }
 
-    public static async Task RunCompiledAsync(
+    public static Task RunCompiledAsync(
         byte[] assemblyBytes,
         CancellationToken ct,
         ProgramDebugGate gate)
+        => RunCompiledAsync(assemblyBytes, ct, gate, assemblyProbePaths: null);
+
+    /// <param name="assemblyProbePaths">
+    /// 运行时依赖探测目录（如程序 <c>refs/</c>、WindowsDesktop 共享框架）。
+    /// 玄鸟宿主未带 WPF 时，脚本引用的 PresentationFramework 等由此加载。
+    /// </param>
+    public static async Task RunCompiledAsync(
+        byte[] assemblyBytes,
+        CancellationToken ct,
+        ProgramDebugGate gate,
+        IReadOnlyList<string>? assemblyProbePaths)
     {
         ArgumentNullException.ThrowIfNull(assemblyBytes);
         using var pe = new MemoryStream(assemblyBytes, writable: false);
-        var alc = new AssemblyLoadContext("FlyScreen.UserProgram." + Guid.NewGuid().ToString("N"), isCollectible: true);
+        var probes = NormalizeProbePaths(assemblyProbePaths);
+        var alc = new ScriptLoadContext(
+            "FlyScreen.UserProgram." + Guid.NewGuid().ToString("N"),
+            probes);
         try
         {
             var asm = alc.LoadFromStream(pe);
@@ -392,6 +406,154 @@ public static class ProgramScriptHost
         finally
         {
             alc.Unload();
+        }
+    }
+
+    /// <summary>程序 refs/ + 本机 Microsoft.WindowsDesktop.App 共享框架目录。</summary>
+    public static List<string> BuildRuntimeAssemblyProbePaths(string? programFolder)
+    {
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return;
+            try
+            {
+                var full = Path.GetFullPath(dir);
+                if (!Directory.Exists(full) || !seen.Add(full)) return;
+                list.Add(full);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(programFolder))
+            Add(Path.Combine(programFolder, "refs"));
+
+        try
+        {
+            var dotnetShared = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "dotnet", "shared");
+            foreach (var pack in new[] { "Microsoft.WindowsDesktop.App", "Microsoft.NETCore.App" })
+            {
+                var sharedRoot = Path.Combine(dotnetShared, pack);
+                if (!Directory.Exists(sharedRoot)) continue;
+                foreach (var dir in Directory.EnumerateDirectories(sharedRoot)
+                             .OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase))
+                    Add(dir);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return list;
+    }
+
+    private static List<string> NormalizeProbePaths(IReadOnlyList<string>? paths)
+    {
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (paths == null) return list;
+        foreach (var p in paths)
+        {
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            try
+            {
+                var full = Path.GetFullPath(p);
+                if (Directory.Exists(full) && seen.Add(full))
+                    list.Add(full);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+        return list;
+    }
+
+    private sealed class ScriptLoadContext : AssemblyLoadContext
+    {
+        private readonly List<string> _probes;
+
+        public ScriptLoadContext(string name, List<string> probes)
+            : base(name, isCollectible: true)
+        {
+            _probes = probes;
+        }
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            var simple = assemblyName.Name;
+            if (string.IsNullOrEmpty(simple))
+                return null;
+
+            // 与宿主共享的契约 / 已加载程序集，避免类型分裂
+            if (ShouldPreferDefault(simple))
+            {
+                try
+                {
+                    return Default.LoadFromAssemblyName(assemblyName);
+                }
+                catch (FileNotFoundException)
+                {
+                    /* fall through */
+                }
+                catch (FileLoadException)
+                {
+                    /* fall through */
+                }
+            }
+
+            var fileName = simple + ".dll";
+            foreach (var dir in _probes)
+            {
+                try
+                {
+                    var path = Path.Combine(dir, fileName);
+                    if (!File.Exists(path)) continue;
+                    // 读字节加载，避免把框架路径钉死在可回收 ALC 上
+                    var bytes = File.ReadAllBytes(path);
+                    return LoadFromStream(new MemoryStream(bytes));
+                }
+                catch
+                {
+                    // try next
+                }
+            }
+
+            try
+            {
+                return Default.LoadFromAssemblyName(assemblyName);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool ShouldPreferDefault(string name)
+        {
+            // WPF / Desktop 程序集必须从 WindowsDesktop 探测目录加载，不能走宿主 Default（Maui 无）
+            if (name is "PresentationFramework" or "PresentationCore" or "WindowsBase"
+                or "System.Xaml" or "System.IO.Packaging" or "DirectWriteForwarder"
+                or "UIAutomationTypes" or "UIAutomationProvider")
+                return false;
+            if (name.StartsWith("PresentationFramework.", StringComparison.Ordinal))
+                return false;
+
+            if (name is "FlyScreen.Core" or "FlyScreen.ToolSdk" or "FlyScreen.Assets"
+                or "netstandard" or "mscorlib")
+                return true;
+            if (name.StartsWith("System.", StringComparison.Ordinal)
+                || name.StartsWith("Microsoft.", StringComparison.Ordinal))
+                return true;
+            return false;
         }
     }
 

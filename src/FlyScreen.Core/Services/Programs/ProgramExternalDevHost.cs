@@ -39,6 +39,9 @@ public static class ProgramExternalDevHost
 
         BindSettingsFromDisk(folder);
 
+        var folderName = new DirectoryInfo(folder).Name;
+        Fly.BindLogContext(folderName, meta?.Name ?? folderName, folder);
+
         var source = File.ReadAllText(entryPath);
         source = ProgramScriptHost.PrepareSource(source);
 
@@ -75,7 +78,8 @@ public static class ProgramExternalDevHost
         var gate = ProgramDebugGateNop.Instance;
         try
         {
-            await ProgramScriptHost.RunCompiledAsync(compiled.AssemblyBytes, ct, gate)
+            var probes = ProgramScriptHost.BuildRuntimeAssemblyProbePaths(folder);
+            await ProgramScriptHost.RunCompiledAsync(compiled.AssemblyBytes, ct, gate, probes)
                 .ConfigureAwait(false);
             Console.WriteLine("[DevHost] 已结束 (exit=0)");
             return 0;
@@ -180,6 +184,7 @@ public static class ProgramExternalDevHost
 
     private sealed class DevMeta
     {
+        public string? Name { get; set; }
         public string? FileName { get; set; }
         public List<string>? ExtraFiles { get; set; }
         public List<string>? LocalDlls { get; set; }

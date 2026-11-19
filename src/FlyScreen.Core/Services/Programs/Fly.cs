@@ -112,18 +112,40 @@ public static class Fly
 
     private static string? _logProgramId;
     private static string? _logProgramName;
+    private static string? _logProgramFolder;
 
     /// <summary>由宿主在启动脚本前绑定，使 <see cref="LogDebug"/> 等写入带程序名的 AppLog。</summary>
-    public static void BindLogContext(string? programId, string? programName)
+    public static void BindLogContext(string? programId, string? programName, string? programFolder = null)
     {
         _logProgramId = programId;
         _logProgramName = programName;
+        _logProgramFolder = string.IsNullOrWhiteSpace(programFolder) ? null : Path.GetFullPath(programFolder);
     }
 
     public static void ClearLogContext()
     {
         _logProgramId = null;
         _logProgramName = null;
+        _logProgramFolder = null;
+    }
+
+    /// <summary>当前脚本程序 Id（未绑定时为 null）。</summary>
+    public static string? ProgramId => _logProgramId;
+
+    /// <summary>当前脚本程序显示名（未绑定时为 null）。</summary>
+    public static string? ProgramName => _logProgramName;
+
+    /// <summary>当前脚本程序目录（含 main.cs / MainWindow.xaml）；未绑定时为 null。</summary>
+    public static string? ProgramDirectory
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(_logProgramFolder))
+                return _logProgramFolder;
+            if (string.IsNullOrWhiteSpace(_logProgramId))
+                return null;
+            return Path.Combine(FlyScreenDataPaths.ProgramsDirectory, _logProgramId);
+        }
     }
 
     public static void LogDebug(string message) => AppLog.Debug(message, _logProgramId, _logProgramName);
