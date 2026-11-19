@@ -70,6 +70,8 @@ public sealed class MauiAppHost : IAsyncDisposable
         PlatformBanner = $"{platform} · {deviceClass} · {LocalPeerIdentity.MachineName}";
 
         Settings = AppSettings.Load();
+        // 须在 AttachSharedDevices / Bundled 探测打日志之前，否则会按默认 zh-CN 写入
+        FlyScreen.Helpers.Localization.Loc.SetCulture(Settings.UiLanguage);
         Settings.EnsureLocalMachineSlot();
         Settings.Save(); // 持久化 localhost → 真实设备名 迁移
         Connections = new ConnectionManager(Settings);
@@ -368,7 +370,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            PublishStatus("配置防火墙失败：" + ex.Message);
+            PublishStatus(FlyScreen.Helpers.Localization.Loc.T("Status.FirewallConfigFail", ex.Message));
         }
 #endif
         await Connections.StartAsync().ConfigureAwait(false);
@@ -382,7 +384,7 @@ public sealed class MauiAppHost : IAsyncDisposable
 
             _platform.StartClipboardMonitor();
         });
-        PublishStatus($"网络已启动 · {PlatformBanner} · {Connections.BindIp}");
+        PublishStatus(FlyScreen.Helpers.Localization.Loc.T("Status.NetworkStarted", PlatformBanner, Connections.BindIp));
     }
 
     /// <summary>强制整网重启（Stop+Start）。仅端口/网卡/密钥等监听参数变更时使用。</summary>
@@ -398,7 +400,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            PublishStatus("配置防火墙失败：" + ex.Message);
+            PublishStatus(FlyScreen.Helpers.Localization.Loc.T("Status.FirewallConfigFail", ex.Message));
         }
 #endif
         await Connections.StartAsync().ConfigureAwait(false);

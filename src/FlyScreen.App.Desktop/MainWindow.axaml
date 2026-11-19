@@ -793,10 +793,10 @@
                                         HorizontalContentAlignment="Center" FontWeight="SemiBold"
                                         Margin="0" MinWidth="0" Padding="10,0"
                                         Click="EndpointKind_Click" Tag="{Binding}"
-                                        ToolTip.Tip="点击切换：远程=一对一；服务=一对多（注册到 FlyScreen.Relay）"/>
+                                        ToolTip.Tip="{Binding KindToggleTip}"/>
                                 <TextBox Grid.Column="1" Text="{Binding Address}" Margin="0,0,8,0"
                                          VerticalContentAlignment="Center"
-                                         Watermark="远程 host:port 或仅 IP（未写端口用下方 TCP）；中转 wss://…"/>
+                                         Watermark="{Binding AddressPlaceholder}"/>
                                 <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                   <Button Classes="netIconOp" Content="⚡" ToolTip.Tip="测试（通过后才进入设备管理）"
                                           Click="TestEndpoint_Click" Tag="{Binding}"/>

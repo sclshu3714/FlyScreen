@@ -87,6 +87,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
             caps: LinuxInputFactory.CapsFor(SessionKind, Injector));
 
         Settings = AppSettings.Load();
+        // 须在 AttachSharedDevices / Bundled 探测打日志之前，否则会按默认 zh-CN 写入
+        FlyScreen.Helpers.Localization.Loc.SetCulture(Settings.UiLanguage);
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
@@ -202,8 +204,13 @@ public sealed class LinuxAppHost : IAsyncDisposable
 
         RefreshCaps();
         await Connections.StartAsync().ConfigureAwait(false);
-        PublishStatus(
-            $"网络已启动 | {LinuxRuntimeEnvironment.Describe()} | 注入={Injector.BackendName}({(Injector.IsAvailable ? "可用" : "不可用")})");
+        PublishStatus(FlyScreen.Helpers.Localization.Loc.T(
+            "Status.NetworkStartedLinux",
+            LinuxRuntimeEnvironment.Describe(),
+            Injector.BackendName,
+            Injector.IsAvailable
+                ? FlyScreen.Helpers.Localization.Loc.T("Status.Available")
+                : FlyScreen.Helpers.Localization.Loc.T("Status.Unavailable")));
     }
 
     public async Task RestartNetworkingAsync()

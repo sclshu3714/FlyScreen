@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using FlyScreen.Helpers;
+using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
 
@@ -293,18 +294,14 @@ public sealed class FileTransferService
 
         var fileCount = items.Count(i => !i.IsDirectory);
         var dirCount = items.Count(i => i.IsDirectory);
-        var summary = dirCount == 0
-            ? $"{fileCount} 个文件"
-            : fileCount == 0
-                ? $"{dirCount} 个文件夹"
-                : $"{fileCount} 个文件+{dirCount} 个文件夹";
+        var summary = FormatClipboardItemSummary(fileCount, dirCount);
 
         if (peers.Count == 0)
-            NotifyStatus($"已复制 {summary}（布局中无对端）");
+            NotifyStatus(Loc.T("Status.ClipCopiedNoPeer", summary));
         else if (sent == 0)
-            NotifyStatus($"已复制 {summary}（对端未连接，连上后需重新复制）");
+            NotifyStatus(Loc.T("Status.ClipCopiedPeerOffline", summary));
         else
-            NotifyStatus($"已复制 {summary} → {sent} 台，对端粘贴时传输");
+            NotifyStatus(Loc.T("Status.ClipCopiedSent", summary, sent));
 
         return true;
     }
@@ -441,7 +438,7 @@ public sealed class FileTransferService
         var peers = _connections.ConfiguredPeers().Where(_connections.IsPeerReachable).ToList();
         if (peers.Count == 0)
         {
-            NotifyStatus($"已复制{summary}到剪贴板（等待对端粘贴时传输）");
+            NotifyStatus(Loc.T("Status.ClipCopiedWaitPaste", summary));
             return;
         }
 
@@ -462,7 +459,7 @@ public sealed class FileTransferService
         foreach (var peer in peers)
             await _connections.SendToAsync(peer, MessageType.ClipboardInlineAnnounce, announce).ConfigureAwait(false);
 
-        NotifyStatus($"已宣告{summary} {blob.Length / 1024.0:0.#} KB，对端粘贴时再传输");
+        NotifyStatus(Loc.T("Status.ClipAnnouncedKb", summary, blob.Length / 1024.0));
     }
 
     /// <summary>粘贴目标机：向源端拉取内联剪贴板并解包。</summary>
@@ -1038,6 +1035,13 @@ public sealed class FileTransferService
 
     private void NotifyStatus(string message) => UiMarshal.Post(() => StatusMessage?.Invoke(message));
 
+    private static string FormatClipboardItemSummary(int fileCount, int dirCount)
+    {
+        if (dirCount == 0) return Loc.T("Status.ClipFiles", fileCount);
+        if (fileCount == 0) return Loc.T("Status.ClipFolders", dirCount);
+        return Loc.T("Status.ClipFilesAndFolders", fileCount, dirCount);
+    }
+
     private void OnMessage(string peer, NetMessage msg)
     {
         switch (msg.Type)
@@ -1335,10 +1339,8 @@ public sealed class FileTransferService
 
         var dirs = list.Count(f => f.IsDirectory);
         var filesOnly = list.Count - dirs;
-        var summary = dirs == 0 ? $"{filesOnly} 个文件"
-            : filesOnly == 0 ? $"{dirs} 个文件夹"
-            : $"{filesOnly} 文件+{dirs} 文件夹";
-        NotifyStatus($"对端 {display} 已复制 {summary}，粘贴时传输");
+        var summary = FormatClipboardItemSummary(filesOnly, dirs);
+        NotifyStatus(Loc.T("Status.PeerCopied", display, summary));
         try { RemoteFilesAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
@@ -1350,8 +1352,8 @@ public sealed class FileTransferService
 
         var display = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine.Trim();
         RegisterRemoteInline(new RemoteInlinePending(
-            announce.Sequence, peer, announce.TotalBytes, "图片", legacyPngOnly: true));
-        NotifyStatus($"对端 {display} 已复制图片 {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
+            announce.Sequence, peer, announce.TotalBytes, Loc.T("Clip.Summary.Image"), legacyPngOnly: true));
+        NotifyStatus(Loc.T("Status.PeerCopiedImageKb", display, announce.TotalBytes / 1024.0));
         try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
@@ -1362,11 +1364,13 @@ public sealed class FileTransferService
         if (announce.TotalBytes <= 0) return;
 
         var display = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine.Trim();
-        var summary = string.IsNullOrWhiteSpace(announce.Summary) ? "剪贴板" : announce.Summary;
+        var summary = string.IsNullOrWhiteSpace(announce.Summary)
+            ? Loc.T("Clip.Summary.Clipboard")
+            : announce.Summary;
         // 拉取目标用会话 peer，避免 SourceMachine 与握手机名不一致导致「宣告了但粘贴空」
         RegisterRemoteInline(new RemoteInlinePending(
             announce.Sequence, peer, announce.TotalBytes, summary, legacyPngOnly));
-        NotifyStatus($"对端 {display} 已复制{summary} {announce.TotalBytes / 1024.0:0.#} KB（鼠标移到本机再粘贴才会传输）");
+        NotifyStatus(Loc.T("Status.PeerCopiedInlineKb", display, summary, announce.TotalBytes / 1024.0));
         try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 

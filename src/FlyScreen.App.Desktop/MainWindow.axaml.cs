@@ -598,7 +598,7 @@ public partial class MainWindow : Window
         RefreshTitleProjectButton();
 
         await _host.StartAsync();
-        StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        StatusText.Text = Loc.T("Status.Listening", $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}");
         PlatformStatusText.Text = _host.PlatformStatusLine;
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -1071,6 +1071,15 @@ public partial class MainWindow : Window
         EdgeCrossSpeedRadio.Content = Loc.T("Opt.EdgeCross.SpeedBurst");
         EdgeCrossHotkeyRadio.Content = Loc.T("Opt.EdgeCross.HotkeyOnly");
         RefreshEdgeCrossTip();
+
+        foreach (var item in _host.Transfers.Items.ToList())
+            item.RefreshLocalized();
+        foreach (var slot in _slots.ToList())
+            slot.RefreshStatus();
+        foreach (var ep in _endpoints.ToList())
+            ep.RefreshLocalized();
+        RefreshNics();
+        RefreshListeningStatusLabel();
     }
 
     private static void SetOpt(CheckBox box, string contentKey, string tipKey)
@@ -2999,6 +3008,15 @@ public partial class MainWindow : Window
                                     ?? nics.FirstOrDefault();
         else if (nics.Count > 0)
             NicCombo.SelectedIndex = 0;
+    }
+
+    private void RefreshListeningStatusLabel()
+    {
+        var endpoint = $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        var text = StatusText.Text ?? "";
+        if (text.Contains(endpoint, StringComparison.Ordinal)
+            || text.Contains(_host.Connections.BindIp, StringComparison.Ordinal))
+            StatusText.Text = Loc.T("Status.Listening", endpoint);
     }
 
     private async void RefreshDiscovery_Click(object? sender, RoutedEventArgs e)

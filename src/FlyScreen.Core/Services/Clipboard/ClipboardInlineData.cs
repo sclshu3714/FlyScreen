@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Services.Clipboard;
 
@@ -25,12 +26,12 @@ public sealed class ClipboardInlineData
     public string BuildSummary()
     {
         var parts = new List<string>(5);
-        if (!string.IsNullOrEmpty(Text)) parts.Add("文本");
+        if (!string.IsNullOrEmpty(Text)) parts.Add(Loc.T("Clip.Summary.Text"));
         if (!string.IsNullOrEmpty(Html)) parts.Add("HTML");
         if (!string.IsNullOrEmpty(Rtf)) parts.Add("RTF");
         if (!string.IsNullOrEmpty(Csv)) parts.Add("CSV");
-        if (Png is { Length: > 0 }) parts.Add("图片");
-        return parts.Count == 0 ? "空" : string.Join("+", parts);
+        if (Png is { Length: > 0 }) parts.Add(Loc.T("Clip.Summary.Image"));
+        return parts.Count == 0 ? Loc.T("Clip.Summary.Empty") : string.Join("+", parts);
     }
 
     public static string BuildImageKey(byte[] png)

@@ -338,7 +338,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         try
         {
             await _host.StartAsync();
-            StatusLabel.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+            StatusLabel.Text = Loc.T("Status.Listening", $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}");
         }
         catch (System.Net.Sockets.SocketException ex)
         {
@@ -358,7 +358,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
             if (FlyScreen.Helpers.AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
             {
                 StatusLabel.Text =
-                    $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+                    Loc.T("Status.AutoStarted", $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}");
                 _host.Platform.HideToBackground(
                     showMain: () => { },
                     reconnect: () => _ = _host.Connections.ReconnectNowAsync(),
@@ -1350,9 +1350,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         ColSize.Text = Loc.T("Xfer.Col.Size");
         ColStatus.Text = Loc.T("Xfer.Col.Status");
         ColOption.Text = Loc.T("Xfer.Col.Option");
-        XferEmptyText.Text = Loc.Culture.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
-            ? "暂无传输任务。"
-            : "No transfers yet.";
+        XferEmptyText.Text = Loc.T("Xfer.Empty");
         ApplyXferListColumns();
 
         foreach (var item in _host.Transfers.Items)
@@ -1360,6 +1358,11 @@ public partial class MainPage : ContentPage, IWallpaperHost
 
         foreach (var slot in _slots)
             slot.RefreshStatus();
+
+        foreach (var ep in _endpoints)
+            ep.RefreshLocalized();
+        RefreshNics();
+        RefreshListeningStatusLabel();
 
         if (Window != null)
             Window.Title = Loc.T("App.Name");
@@ -5100,6 +5103,15 @@ public partial class MainPage : ContentPage, IWallpaperHost
         NicPicker.SelectedItem = preferred != null
             ? nics.FirstOrDefault(n => n.Id == preferred.Id && n.IPv4 == preferred.IPv4) ?? nics.FirstOrDefault()
             : nics.FirstOrDefault();
+    }
+
+    private void RefreshListeningStatusLabel()
+    {
+        var endpoint = $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        var text = StatusLabel.Text ?? "";
+        if (text.Contains(endpoint, StringComparison.Ordinal)
+            || text.Contains(_host.Connections.BindIp, StringComparison.Ordinal))
+            StatusLabel.Text = Loc.T("Status.Listening", endpoint);
     }
 
     private async void RefreshDiscovery_Clicked(object? sender, EventArgs e)

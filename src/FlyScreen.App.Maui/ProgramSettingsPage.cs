@@ -471,7 +471,7 @@ public sealed class ProgramSettingsPage : ContentPage
                         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
                         {
                             await using var stream = await pick.OpenReadAsync();
-                            path = Path.Combine(Path.GetTempPath(), pick.FileName);
+                            path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), pick.FileName);
                             await using var fs = File.Create(path);
                             await stream.CopyToAsync(fs);
                         }

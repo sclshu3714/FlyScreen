@@ -106,7 +106,7 @@ public static class ToolBundledCatalogAssets
             }
 
             MarkProbed(probeKey);
-            AppLog.Info($"已从 Bundled 提取卡片资源：{pack.Id}");
+            AppLog.Info(Helpers.Localization.Loc.T("Log.BundledCardExtracted", pack.Id));
         }
         catch (Exception ex)
         {

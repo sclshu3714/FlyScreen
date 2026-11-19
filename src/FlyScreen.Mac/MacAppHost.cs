@@ -95,6 +95,8 @@ public sealed class MacAppHost : IAsyncDisposable
             caps: PeerCaps.MacDesktopW1);
 
         Settings = AppSettings.Load();
+        // 须在 AttachSharedDevices / Bundled 探测打日志之前，否则会按默认 zh-CN 写入
+        FlyScreen.Helpers.Localization.Loc.SetCulture(Settings.UiLanguage);
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
@@ -224,8 +226,8 @@ public sealed class MacAppHost : IAsyncDisposable
 
         await Connections.StartAsync().ConfigureAwait(false);
         PublishStatus(AccessibilityPermission.IsTrusted()
-            ? "网络已启动；辅助功能已授权。"
-            : "网络已启动；辅助功能未授权 — 可连接，但键鼠注入/捕获不可用。");
+            ? FlyScreen.Helpers.Localization.Loc.T("Status.NetworkStartedMacOk")
+            : FlyScreen.Helpers.Localization.Loc.T("Status.NetworkStartedMacNoA11y"));
     }
 
     public async Task RestartNetworkingAsync()
