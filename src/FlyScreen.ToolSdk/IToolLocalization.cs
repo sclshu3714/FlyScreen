@@ -9,6 +9,9 @@ public interface IToolLocalization
     /// <summary>与 ToolId 对齐的插件源 Id。</summary>
     string SourceId { get; }
 
-    /// <summary>culture → (key → text)。至少含 zh-CN 与 en-US。</summary>
+    /// <summary>
+    /// culture → (key → text)。SHOULD cover all Loc.Languages cultures;
+    /// keys MUST align with zh-CN (use <see cref="ToolLocalizationBuilder"/>).
+    /// </summary>
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Tables { get; }
 }
