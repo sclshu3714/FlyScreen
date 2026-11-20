@@ -406,6 +406,9 @@ public static class Loc
             "创建后将生成外部开发脚手架（README-DEV.md）。C# 含 DevHost + program.csproj，可用 VS / VS Code 打开目录完整开发，再回玄鸟运行调试。",
         ["Prog.DlgExternalDevHintCs"] =
             "C#：生成 DevHost + program.csproj，引用玄鸟安装/exe 目录下的 FlyScreen.Core.dll（非源码工程）。用 VS / VS Code 打开目录开发；真机 Fly.* 回玄鸟验证。",
+        ["Prog.DlgEnableUi"] = "启用 UI",
+        ["Prog.DlgUiKindHint"] = "将生成 {0} UI；可共享到：{1}",
+        ["Prog.DlgUiKindHintNone"] = "本机宿主不支持子程序 UI。",
         ["Prog.CreatedExternalDev"] = "已创建「{0}」。可用 VS / VS Code 打开：{1}",
         ["Prog.DlgSave"] = "保存",
         ["Prog.DlgCancel"] = "取消",
@@ -1085,6 +1088,9 @@ public static class Loc
             "Creates an external-dev scaffold (README-DEV.md). C# also gets DevHost + program.csproj so you can develop in VS / VS Code, then run/debug back in FlyScreen.",
         ["Prog.DlgExternalDevHintCs"] =
             "C#: DevHost + program.csproj reference FlyScreen.Core.dll next to the installed/debug host (not the source .csproj). Open the folder in VS / VS Code; validate device Fly.* in FlyScreen.",
+        ["Prog.DlgEnableUi"] = "Enable UI",
+        ["Prog.DlgUiKindHint"] = "Will scaffold {0} UI; shareable to: {1}",
+        ["Prog.DlgUiKindHintNone"] = "This host does not support program UI.",
         ["Prog.CreatedExternalDev"] = "Created \"{0}\". Open in VS / VS Code: {1}",
         ["Prog.DlgSave"] = "Save",
         ["Prog.DlgCancel"] = "Cancel",

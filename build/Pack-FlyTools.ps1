@@ -315,7 +315,8 @@ if (-not $SkipAppCopy) {
         "src/FlyScreen.App.Desktop/bin/$Configuration/net10.0",
         "src/FlyScreen.App.Mac/bin/$Configuration/net10.0",
         "src/FlyScreen.App.Linux/bin/$Configuration/net10.0",
-        "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-windows10.0.19041.0/win-x64"
+        "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-windows10.0.19041.0/win-x64",
+        "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-android"
     )
     foreach ($rel in $targets) {
         $dir = Join-Path $repo $rel

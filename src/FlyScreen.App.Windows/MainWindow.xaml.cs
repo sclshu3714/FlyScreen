@@ -2629,7 +2629,7 @@ public partial class MainWindow : Window
         try
         {
             var prog = ProgramService.Instance.Catalog.Create(
-                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
+                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue, dlg.SelectedUiKind);
             RefreshProgramsPage();
             var folder = ProgramService.Instance.Catalog.GetFolder(prog);
             MessageBox.Show(this,

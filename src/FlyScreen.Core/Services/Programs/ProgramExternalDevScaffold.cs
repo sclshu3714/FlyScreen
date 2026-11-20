@@ -145,9 +145,24 @@ public static class ProgramExternalDevScaffold
             catch { /* ignore */ }
         }
 
-        // 已有 props、无宿主、且非旧版 ProjectReference 时不覆盖用户手改
+        // 已有 props：无宿主且非旧版 ProjectReference → 不覆盖；宿主路径已失效 → 继续重写
         if (File.Exists(path) && host == null && coreDll == null && !legacyProjectRef)
             return;
+        if (File.Exists(path) && host != null && !legacyProjectRef)
+        {
+            try
+            {
+                var existing = File.ReadAllText(path);
+                // props 内 HostDir 仍存在则保留用户手改（含自定义绝对路径）
+                if (existing.Contains(host, StringComparison.OrdinalIgnoreCase)
+                    || HostDirInPropsExists(existing))
+                    return;
+            }
+            catch
+            {
+                // fall through rewrite
+            }
+        }
 
         var sb = new StringBuilder();
         sb.AppendLine("<Project>");
@@ -251,6 +266,29 @@ public static class ProgramExternalDevScaffold
         File.WriteAllText(path,
             "{\n  \"recommendations\": " + ext + "\n}\n",
             new UTF8Encoding(false));
+    }
+
+    private static bool HostDirInPropsExists(string propsXml)
+    {
+        // 粗提取 <FlyScreenHostDir...>path</FlyScreenHostDir>
+        const string open = "<FlyScreenHostDir";
+        var i = propsXml.IndexOf(open, StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return false;
+        var gt = propsXml.IndexOf('>', i);
+        var close = propsXml.IndexOf("</FlyScreenHostDir>", gt + 1, StringComparison.OrdinalIgnoreCase);
+        if (gt < 0 || close < 0) return false;
+        var path = propsXml[(gt + 1)..close].Trim();
+        if (string.IsNullOrWhiteSpace(path) || path.Contains('$', StringComparison.Ordinal))
+            return false;
+        try
+        {
+            return Directory.Exists(path)
+                   && File.Exists(Path.Combine(path, "FlyScreen.Core.dll"));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string EscapeXml(string value)

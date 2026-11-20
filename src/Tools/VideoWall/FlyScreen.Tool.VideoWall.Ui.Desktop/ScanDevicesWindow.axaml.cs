@@ -51,13 +51,13 @@ public partial class ScanDevicesWindow : Window
     {
         Title = Loc.T("Tool.VideoWall.Scan.Title");
         TitleText.Text = Loc.T("Tool.VideoWall.Scan.Title");
-        SubnetLabel.Text = Loc.T("Tool.VideoWall.Scan.Subnet");
         ToolTip.SetTip(SubnetCombo, Loc.T("Tool.VideoWall.Scan.SubnetHint"));
-        VendorLabel.Text = Loc.T("Tool.VideoWall.Scan.Vendor");
-        UserLabel.Text = Loc.T("Tool.VideoWall.Scan.Username");
-        PassLabel.Text = Loc.T("Tool.VideoWall.Scan.Password");
+        ToolTip.SetTip(VendorCombo, Loc.T("Tool.VideoWall.Scan.Vendor"));
+        UserBox.Watermark = Loc.T("Tool.VideoWall.Scan.Username");
+        ToolTip.SetTip(UserBox, Loc.T("Tool.VideoWall.Scan.Username"));
         PassBox.ShowPasswordTip = Loc.T("Tool.VideoWall.ShowPassword");
         PassBox.HidePasswordTip = Loc.T("Tool.VideoWall.HidePassword");
+        ToolTip.SetTip(PassBox, Loc.T("Tool.VideoWall.Scan.Password"));
         RescanBtn.Content = Loc.T("Tool.VideoWall.Scan.Rescan");
         CloseBtn.Content = Loc.T("Tool.VideoWall.Scan.Close");
         HdrHost.Text = Loc.T("Tool.VideoWall.Scan.Host");

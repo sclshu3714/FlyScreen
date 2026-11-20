@@ -131,11 +131,20 @@ public static class ProgramCompiler
         var refs = new List<MetadataReference>();
         foreach (var dll in catalog.ResolveLocalDllPaths(prog))
         {
-            try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(dll)); }
-            catch (Exception ex)
+            if (ProgramScriptHost.TryCreateReferenceFromFile(dll, out var reference, out var error, out var nonManaged))
             {
-                return Fail($"本地 DLL 引用失败「{Path.GetFileName(dll)}」: {ex.Message}", entryName);
+                refs.Add(reference!);
+                continue;
             }
+
+            // 无 CLR 元数据：跳过（refs/ 误含 WinAppSDK 原生 DLL 时不应导致生成失败）
+            if (nonManaged)
+            {
+                AppLog.Warn("脚本编译: " + error);
+                continue;
+            }
+
+            return Fail($"本地 DLL 引用失败「{Path.GetFileName(dll)}」: {error}", entryName);
         }
 
         if (prog.Packages.Count > 0)
@@ -147,11 +156,19 @@ public static class ProgramCompiler
                     return Fail(nuget.Error ?? "NuGet 还原失败", entryName);
                 foreach (var path in nuget.ReferencePaths)
                 {
-                    try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(path)); }
-                    catch (Exception ex)
+                    if (ProgramScriptHost.TryCreateReferenceFromFile(path, out var reference, out var error, out var nonManaged))
                     {
-                        return Fail($"NuGet 引用失败「{Path.GetFileName(path)}」: {ex.Message}", entryName);
+                        refs.Add(reference!);
+                        continue;
                     }
+
+                    if (nonManaged)
+                    {
+                        AppLog.Warn("脚本编译: " + error);
+                        continue;
+                    }
+
+                    return Fail($"NuGet 引用失败「{Path.GetFileName(path)}」: {error}", entryName);
                 }
             }
             else
@@ -166,8 +183,8 @@ public static class ProgramCompiler
                 }
                 foreach (var path in cached)
                 {
-                    try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(path)); }
-                    catch { /* skip */ }
+                    if (ProgramScriptHost.TryCreateReferenceFromFile(path, out var reference, out _, out _))
+                        refs.Add(reference!);
                 }
             }
         }
@@ -329,19 +346,96 @@ public static class ProgramScriptHost
         };
     }
 
+    /// <summary>
+    /// 从磁盘创建托管程序集元数据引用。
+    /// 原生 / WinRT / 无 CLR 元数据的 PE（如 WinAppSDK 的 <c>Microsoft.Windows.Widgets.dll</c>）会抛
+    /// <see cref="BadImageFormatException"/>，避免落入 Roslyn 后变成 CS0009。
+    /// </summary>
     public static MetadataReference CreateReferenceFromFile(string dllPath)
     {
+        if (!TryCreateReferenceFromFile(dllPath, out var reference, out var error, out _))
+            throw new BadImageFormatException(error ?? "无法创建元数据引用", dllPath);
+        return reference!;
+    }
+
+    /// <summary>
+    /// 尝试创建托管元数据引用；非托管 PE / 坏映像返回 false（供 refs/ 批量扫描跳过）。
+    /// <paramref name="isNonManaged"/> 为 true 时表示无 CLR 元数据（可安全跳过，勿当致命错误）。
+    /// </summary>
+    public static bool TryCreateReferenceFromFile(
+        string dllPath,
+        out MetadataReference? reference,
+        out string? error,
+        out bool isNonManaged)
+    {
+        reference = null;
+        error = null;
+        isNonManaged = false;
         if (string.IsNullOrWhiteSpace(dllPath) || !File.Exists(dllPath))
-            throw new FileNotFoundException("引用 DLL 不存在", dllPath);
-        // Android / 单文件：优先读字节 CreateFromImage，避免不可靠路径
+        {
+            error = "引用 DLL 不存在: " + dllPath;
+            return false;
+        }
+
+        byte[] bytes;
         try
         {
-            var bytes = File.ReadAllBytes(dllPath);
-            return CreateFromImageBytes(bytes, Path.GetFileNameWithoutExtension(dllPath));
+            bytes = File.ReadAllBytes(dllPath);
+        }
+        catch (Exception ex)
+        {
+            error = $"读取失败「{Path.GetFileName(dllPath)}」: {ex.Message}";
+            return false;
+        }
+
+        if (!HasManagedMetadata(bytes))
+        {
+            isNonManaged = true;
+            error =
+                $"「{Path.GetFileName(dllPath)}」不是托管程序集（无 CLR 元数据，可能是原生/WinRT DLL），已跳过编译引用。";
+            return false;
+        }
+
+        try
+        {
+            reference = CreateFromImageBytes(bytes, Path.GetFileNameWithoutExtension(dllPath));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"「{Path.GetFileName(dllPath)}」元数据无效: {ex.Message}";
+            return false;
+        }
+    }
+
+    /// <summary>PE 是否含 CLI/CLR 元数据（可被 Roslyn 作 MetadataReference）。</summary>
+    public static bool HasManagedMetadata(byte[]? peImage)
+    {
+        if (peImage is not { Length: >= 64 })
+            return false;
+        try
+        {
+            using var ms = new MemoryStream(peImage, writable: false);
+            using var pe = new PEReader(ms);
+            return pe.HasMetadata && pe.PEHeaders?.CorHeader != null;
         }
         catch
         {
-            return MetadataReference.CreateFromFile(dllPath);
+            return false;
+        }
+    }
+
+    public static bool HasManagedMetadata(string dllPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(dllPath) || !File.Exists(dllPath))
+                return false;
+            return HasManagedMetadata(File.ReadAllBytes(dllPath));
+        }
+        catch
+        {
+            return false;
         }
     }
 

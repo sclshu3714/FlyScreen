@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Text.Json;
 
 namespace FlyScreen.Services.Programs;
@@ -15,6 +17,8 @@ public static class ProgramExternalDevHost
         AllowTrailingCommas = true
     };
 
+    private static int _resolverInstalled;
+
     /// <summary>
     /// 在程序目录运行（含 <c>main.cs</c> / <c>program.json</c> / 可选 <c>settings.json</c>）。
     /// Ctrl+C 取消 <paramref name="ct"/>。
@@ -26,6 +30,8 @@ public static class ProgramExternalDevHost
             Console.Error.WriteLine("程序目录不存在: " + programFolder);
             return 2;
         }
+
+        EnsureRuntimeAssemblyResolver();
 
         var folder = Path.GetFullPath(programFolder);
         var meta = TryReadMeta(folder);
@@ -101,6 +107,76 @@ public static class ProgramExternalDevHost
         }
     }
 
+    /// <summary>
+    /// 裸 Reference <c>FlyScreen.Core</c> 时 deps.json 不含 Roslyn/Jint；
+    /// 从宿主目录 / Core 旁 / 输出目录补解析（勿依赖 refs/ 整包拷贝）。
+    /// </summary>
+    public static void EnsureRuntimeAssemblyResolver()
+    {
+        if (Interlocked.Exchange(ref _resolverInstalled, 1) != 0)
+            return;
+
+        AssemblyLoadContext.Default.Resolving += (_, assemblyName) =>
+        {
+            var simple = assemblyName.Name;
+            if (string.IsNullOrEmpty(simple))
+                return null;
+
+            foreach (var dir in EnumerateRuntimeDependencyDirs())
+            {
+                try
+                {
+                    var path = Path.Combine(dir, simple + ".dll");
+                    if (!File.Exists(path) || !ProgramScriptHost.HasManagedMetadata(path))
+                        continue;
+                    return AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+                }
+                catch
+                {
+                    // try next
+                }
+            }
+
+            return null;
+        };
+    }
+
+    private static IEnumerable<string> EnumerateRuntimeDependencyDirs()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return;
+            try
+            {
+                var full = Path.GetFullPath(dir);
+                if (Directory.Exists(full))
+                    seen.Add(full);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        Add(AppContext.BaseDirectory);
+        try
+        {
+            var coreLoc = typeof(ProgramScriptHost).Assembly.Location;
+            if (!string.IsNullOrWhiteSpace(coreLoc))
+                Add(Path.GetDirectoryName(coreLoc));
+        }
+        catch
+        {
+            // ignore
+        }
+
+        Add(ProgramExternalDevScaffold.TryFindHostDirectory());
+        Add(Environment.GetEnvironmentVariable("FLYSCREEN_HOST_DIR"));
+
+        return seen;
+    }
+
     private static void BindSettingsFromDisk(string folder)
     {
         try
@@ -150,8 +226,13 @@ public static class ProgramExternalDevHost
             if (string.IsNullOrWhiteSpace(dll) || !File.Exists(dll)) return;
             var name = Path.GetFileNameWithoutExtension(dll);
             if (!seen.Add(name)) return;
-            try { list.Add(ProgramScriptHost.CreateReferenceFromFile(dll)); }
-            catch (Exception ex) { Console.Error.WriteLine($"[DevHost] 引用失败 {dll}: {ex.Message}"); }
+            if (!ProgramScriptHost.TryCreateReferenceFromFile(dll, out var reference, out var error, out _))
+            {
+                // 原生/WinRT DLL 常见于误拷宿主目录到 refs/；跳过以免 CS0009
+                Console.Error.WriteLine("[DevHost] " + (error ?? ("跳过引用: " + dll)));
+                return;
+            }
+            list.Add(reference!);
         }
 
         var refsDir = Path.Combine(folder, "refs");

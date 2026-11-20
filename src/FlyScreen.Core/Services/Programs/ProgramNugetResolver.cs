@@ -19,6 +19,9 @@ public static class ProgramNugetResolver
 {
     public const string FlyRefsCacheFile = "obj/fly-refs.txt";
 
+    /// <summary>与 <c>FlyScreen.Core.csproj</c> 中 Roslyn 包版本保持一致（DevHost 运行时编译依赖）。</summary>
+    public const string RoslynPackageVersion = "4.14.0";
+
     public static bool CanRestoreOnline
         => !OperatingSystem.IsAndroid() && !OperatingSystem.IsIOS();
 
@@ -28,7 +31,9 @@ public static class ProgramNugetResolver
         // DevHost 仅编译外部入口；main.cs / lib 由 ProgramScriptHost 在运行时 Wrap+编译。
         // 引用安装目录 / 宿主 exe 旁的 FlyScreen.Core.dll（禁止 ProjectReference 源码工程）。
         // Directory.Build.props：FlyScreenHostDir / FlyScreenCoreDll；或环境变量 FLYSCREEN_HOST_DIR。
-        sb.AppendLine("""
+        // Roslyn 必须用 PackageReference 拉进 deps.json：裸 Reference Core 不会传递 CodeAnalysis，
+        // 且勿再把宿主整目录塞进 refs/（原生 WinAppSDK DLL 会触发 CS0009）。
+        sb.AppendLine($$"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
@@ -52,13 +57,17 @@ public static class ProgramNugetResolver
                 <None Include="program.json" Condition="Exists('program.json')" />
                 <None Include="settings.json" Condition="Exists('settings.json')" />
               </ItemGroup>
+              <ItemGroup>
+                <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="{{RoslynPackageVersion}}" />
+              </ItemGroup>
               <ItemGroup Condition="'$(FlyScreenCoreDll)' != '' and Exists('$(FlyScreenCoreDll)')">
                 <Reference Include="FlyScreen.Core">
                   <HintPath>$(FlyScreenCoreDll)</HintPath>
-                  <Private>false</Private>
+                  <!-- 必须 CopyLocal：HintPath 只参与编译，Private=false 时运行会找不到 Core -->
+                  <Private>true</Private>
                 </Reference>
               </ItemGroup>
-              <!-- 把宿主目录 DLL 拷到输出，供运行时解析 Core 依赖（Roslyn 等） -->
+              <!-- 宿主旁 DLL → 输出（Jint/Assets 等）；Roslyn 优先走上面 PackageReference -->
               <Target Name="FlyScreen_CopyHostDeps" AfterTargets="Build"
                       Condition="'$(FlyScreenHostDir)' != '' and Exists('$(FlyScreenHostDir)')">
                 <ItemGroup>
@@ -134,7 +143,9 @@ public static class ProgramNugetResolver
     {
         if (prog.Language != ProgramLanguage.CSharp) return;
         catalog.NormalizeManifest(prog);
-        ProgramExternalDevScaffold.Ensure(catalog.GetFolder(prog), prog.Language, prog.Packages);
+        var folder = catalog.GetFolder(prog);
+        ProgramExternalDevScaffold.Ensure(folder, prog.Language, prog.Packages);
+        ProgramUiScaffold.Apply(folder, prog);
     }
 
     /// <summary>
@@ -230,6 +241,9 @@ public static class ProgramNugetResolver
                 foreach (var dll in EnumerateLibDlls(pkgDir))
                 {
                     if (!seen.Add(dll)) continue;
+                    // 跳过包内偶发的原生 PE，避免飞进 Roslyn 后 CS0009
+                    if (!ProgramScriptHost.HasManagedMetadata(dll))
+                        continue;
                     result.Add(dll);
                 }
             }

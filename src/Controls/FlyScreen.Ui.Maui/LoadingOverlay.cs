@@ -49,6 +49,9 @@ public sealed class LoadingOverlay : ContentView
             StrokeThickness = StrokeThickness,
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
+            // WinUI：未设锚点时改 Rotation 会写 RenderTransformOrigin 抛 COMException
+            AnchorX = 0.5,
+            AnchorY = 0.5,
             Rotation = 0
         };
         ApplySpinnerDash();
@@ -86,10 +89,10 @@ public sealed class LoadingOverlay : ContentView
 
         _timer = Dispatcher.CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(16);
-        _timer.Tick += (_, _) =>
+        _timer.Tick += OnSpinnerTick;
+        Unloaded += (_, _) =>
         {
-            _angle = (_angle + 8) % 360;
-            _spinner.Rotation = _angle;
+            _timer.Stop();
         };
     }
 
@@ -128,6 +131,27 @@ public sealed class LoadingOverlay : ContentView
     /// <summary>隐藏并停止动画。</summary>
     public void Hide() => IsActive = false;
 
+    private void OnSpinnerTick(object? sender, EventArgs e)
+    {
+        // 未挂接平台视图 / 尺寸为 0 时勿写 Rotation（Maui-Win 会崩）
+        if (!IsVisible || _spinner.Handler is null)
+            return;
+        if (_spinner.WidthRequest <= 0 || _spinner.HeightRequest <= 0)
+            return;
+
+        _angle = (_angle + 8) % 360;
+        try
+        {
+            _spinner.AnchorX = 0.5;
+            _spinner.AnchorY = 0.5;
+            _spinner.Rotation = _angle;
+        }
+        catch
+        {
+            /* WinUI Transformation 偶发失败：停一拍，下次 Tick 再试 */
+        }
+    }
+
     private static void OnIsActiveChanged(BindableObject b, object o, object n)
     {
         if (b is LoadingOverlay overlay)
@@ -164,7 +188,8 @@ public sealed class LoadingOverlay : ContentView
         {
             _timer.Stop();
             _angle = 0;
-            _spinner.Rotation = 0;
+            try { _spinner.Rotation = 0; }
+            catch { /* ignore */ }
         }
     }
 

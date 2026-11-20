@@ -33,6 +33,15 @@
           <Label x:Name="LblFile" Text="文件名称" Style="{StaticResource DlgSectionTitle}" Margin="0,6,0,0" />
           <Entry x:Name="FileNameBox" HeightRequest="40" />
 
+          <VerticalStackLayout x:Name="UiOptionsPanel" IsVisible="False" Spacing="4" Margin="0,6,0,0">
+            <HorizontalStackLayout Spacing="8">
+              <CheckBox x:Name="EnableUiCheck" VerticalOptions="Center"
+                        CheckedChanged="EnableUi_Changed" />
+              <Label x:Name="LblEnableUi" Text="启用 UI" VerticalOptions="Center" />
+            </HorizontalStackLayout>
+            <Label x:Name="UiKindHint" Style="{StaticResource DlgHint}" LineBreakMode="WordWrap" />
+          </VerticalStackLayout>
+
           <Label x:Name="ExternalDevHint" Style="{StaticResource DlgHint}" Margin="0,4,0,0"
                  LineBreakMode="WordWrap" />
 

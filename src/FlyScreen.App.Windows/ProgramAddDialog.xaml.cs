@@ -18,6 +18,11 @@ public partial class ProgramAddDialog : Window
     public ProgramLanguage SelectedLanguage => CurrentLanguage();
     public string NamespaceValue => NamespaceBox.Text.Trim();
     public string FileNameValue => FileNameBox.Text.Trim();
+    public bool EnableUi => EnableUiCheck.IsChecked == true
+                            && CurrentLanguage() == ProgramLanguage.CSharp
+                            && ProgramUiCompatibility.DefaultCreateUiKindForLocal() != ProgramUiKind.None;
+    public ProgramUiKind SelectedUiKind
+        => EnableUi ? ProgramUiCompatibility.DefaultCreateUiKindForLocal() : ProgramUiKind.None;
 
     public ProgramAddDialog()
     {
@@ -29,12 +34,14 @@ public partial class ProgramAddDialog : Window
         LblLang.Text = Loc.T("Prog.DlgLang");
         LblNs.Text = Loc.T("Prog.DlgNamespace");
         LblFile.Text = Loc.T("Prog.DlgFileName");
+        EnableUiCheck.Content = Loc.T("Prog.DlgEnableUi");
         SaveBtn.Content = Loc.T("Prog.DlgSave");
         CancelBtn.Content = Loc.T("Prog.DlgCancel");
         DetectBtn.Content = Loc.T("Prog.DlgDetect");
         DetectAutoBtn.Content = Loc.T("Prog.DetectAuto");
         DetectOpenBtn.Content = Loc.T("Prog.DetectOpen");
         RefreshExternalDevHint();
+        RefreshUiOptions();
 
         foreach (var lang in ProgramLanguageInfo.All)
             LangCombo.Items.Add(new LangItem(lang));
@@ -75,7 +82,40 @@ public partial class ProgramAddDialog : Window
             SetFile(ProgramLanguageInfo.DefaultFileName(lang));
         }
         RefreshExternalDevHint();
+        RefreshUiOptions();
         ClearDetectUi();
+    }
+
+    private void EnableUi_Changed(object sender, RoutedEventArgs e) => RefreshUiKindHint();
+
+    private void RefreshUiOptions()
+    {
+        var csharp = CurrentLanguage() == ProgramLanguage.CSharp;
+        var kind = ProgramUiCompatibility.DefaultCreateUiKindForLocal();
+        UiOptionsPanel.Visibility = csharp ? Visibility.Visible : Visibility.Collapsed;
+        if (!csharp)
+            EnableUiCheck.IsChecked = false;
+        EnableUiCheck.IsEnabled = kind != ProgramUiKind.None;
+        RefreshUiKindHint();
+    }
+
+    private void RefreshUiKindHint()
+    {
+        var kind = ProgramUiCompatibility.DefaultCreateUiKindForLocal();
+        if (kind == ProgramUiKind.None)
+        {
+            UiKindHint.Text = Loc.T("Prog.DlgUiKindHintNone");
+            return;
+        }
+        if (EnableUiCheck.IsChecked != true)
+        {
+            UiKindHint.Text = "";
+            return;
+        }
+        UiKindHint.Text = Loc.T(
+            "Prog.DlgUiKindHint",
+            ProgramUiCompatibility.DisplayName(kind),
+            ProgramUiCompatibility.ShareHint(kind));
     }
 
     private void UpdateDerivedFields()

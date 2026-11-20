@@ -31,11 +31,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private readonly Label _playbackTitle;
     private readonly Border _playbackVideoHost;
     private readonly LoadingOverlay _playbackLoading;
-#if WINDOWS
     private readonly VideoWallFrameSurface _playbackSurface;
-#else
-    private readonly Label _playbackVideoPlaceholder;
-#endif
     private readonly Border _playbackPlayPauseBtn;
     private readonly Path _playbackPlayPauseIcon;
     private readonly Slider _playbackSeekBar;
@@ -108,8 +104,7 @@ public sealed class VideoWallPlayerControl : ContentView
             margin: new Thickness(0), iconSize: 18);
         VideoWallMauiIcons.WireClicked(playbackBackPair.Host, async (_, _) => await PlaybackBackAsync());
 
-#if WINDOWS
-        // 软件帧 Image：无 HWND airspace，顶/底 chrome 可半透明叠在画面上
+        // 软件帧 Image：各端统一；Win 优先 WriteableBitmap，手机走 BMP
         _playbackSurface = new VideoWallFrameSurface
         {
             HorizontalOptions = LayoutOptions.Fill,
@@ -125,27 +120,6 @@ public sealed class VideoWallPlayerControl : ContentView
             Margin = 0,
             Content = _playbackSurface
         };
-#else
-        _playbackVideoPlaceholder = new Label
-        {
-            Text = Loc.T("Tool.VideoWall.DesktopOnly"),
-            TextColor = Colors.Gray,
-            HorizontalTextAlignment = TextAlignment.Center,
-            VerticalTextAlignment = TextAlignment.Center,
-            LineBreakMode = LineBreakMode.WordWrap,
-            Margin = new Thickness(12)
-        };
-        _playbackVideoHost = new Border
-        {
-            BackgroundColor = Colors.Black,
-            Stroke = Colors.Transparent,
-            StrokeThickness = 0,
-            StrokeShape = new RoundRectangle { CornerRadius = 0 },
-            Padding = 0,
-            Margin = 0,
-            Content = _playbackVideoPlaceholder
-        };
-#endif
 
         var playPausePair = VideoWallMauiIcons.CreateChromeIconButton(
             VideoWallMauiIcons.Geo.Pause, Loc.T("Tool.VideoWall.Pause"), iconSize: 22);
@@ -648,9 +622,7 @@ public sealed class VideoWallPlayerControl : ContentView
         _chromeHideTimer?.Stop();
         CloseMenu();
         RestorePresenter();
-#if WINDOWS
         _playbackSurface.Clear();
-#endif
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
         _pendingPlayId = null;
@@ -689,9 +661,7 @@ public sealed class VideoWallPlayerControl : ContentView
         _volumePopupHideTimer?.Stop();
         RestorePresenter();
         DetachServiceSubscriptions();
-#if WINDOWS
         _playbackSurface.Clear();
-#endif
     }
 
     private void DetachServiceSubscriptions()
@@ -772,24 +742,18 @@ public sealed class VideoWallPlayerControl : ContentView
         try
         {
             ShowPlaybackChrome();
-#if WINDOWS
             _playbackSurface.Clear();
-            // 无 HWND：直接回调出画，首帧即见画面，不因布局/resize 黑屏
+            // 软件帧回调出画（Win / Android / 其它 Maui 宿主）
             await _service.SinglePlayback
                 .PlaySourceAsync(sourceId, renderTarget: null, frameSink: _playbackSurface)
                 .ConfigureAwait(true);
-#else
-            await _service.SinglePlayback.PlaySourceAsync(sourceId).ConfigureAwait(true);
-#endif
             UpdateTransportChrome(_service.SinglePlayback.State);
             _progressTimer?.Start();
             ReportLog($"视频墙播放: {_playbackTitle.Text}");
         }
         catch (Exception ex)
         {
-#if WINDOWS
             _playbackSurface.Clear();
-#endif
             _progressTimer?.Stop();
             ReportLog($"视频墙播放异常「{_playbackTitle.Text}」: {ex.Message}");
         }

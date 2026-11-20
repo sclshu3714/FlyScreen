@@ -72,21 +72,37 @@ public sealed class VideoWallScanPage : ContentPage
             SelectedIndex = 0,
             HeightRequest = 40
         };
-        _status = new Label { TextColor = muted, FontSize = 12, LineBreakMode = LineBreakMode.WordWrap };
+        _status = new Label
+        {
+            TextColor = muted,
+            FontSize = 12,
+            LineBreakMode = LineBreakMode.TailTruncation,
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.End,
+            HorizontalTextAlignment = TextAlignment.End,
+            MaxLines = 1
+        };
         _rescan = new Button
         {
             Text = Loc.T("Tool.VideoWall.Scan.Rescan"),
             Style = TryStyle("DlgPrimaryBtn"),
             BackgroundColor = blue,
-            TextColor = Colors.White
+            TextColor = Colors.White,
+            VerticalOptions = LayoutOptions.Center
         };
         _rescan.Clicked += async (_, _) => await StartScanAsync();
+
+        ToolTipProperties.SetText(_subnet, Loc.T("Tool.VideoWall.Scan.SubnetHint"));
+        ToolTipProperties.SetText(_vendor, Loc.T("Tool.VideoWall.Scan.Vendor"));
+        _user.Placeholder = Loc.T("Tool.VideoWall.Scan.Username");
+        _pass.Placeholder = Loc.T("Tool.VideoWall.Scan.Password");
 
         var list = new CollectionView
         {
             ItemsSource = _rows,
             SelectionMode = SelectionMode.None,
             BackgroundColor = Colors.Transparent,
+            VerticalOptions = LayoutOptions.Fill,
             ItemTemplate = new DataTemplate(() =>
             {
                 var host = new Label { FontSize = 13, TextColor = text };
@@ -137,31 +153,23 @@ public sealed class VideoWallScanPage : ContentPage
         };
         closeBtn.Clicked += async (_, _) => await CloseAsync();
 
-        var subnetCol = Field(Loc.T("Tool.VideoWall.Scan.Subnet"), muted, _subnet);
-        var vendorCol = Field(Loc.T("Tool.VideoWall.Scan.Vendor"), muted, _vendor);
-        Grid.SetColumn(vendorCol, 1);
-        _rescan.VerticalOptions = LayoutOptions.End;
-        Grid.SetColumn(_rescan, 2);
-        var topRow = new Grid
+        // 单行工具条：网段 / 厂商 / 用户名 / 密码 / 扫描
+        Grid.SetColumn(_vendor, 1);
+        Grid.SetColumn(_user, 2);
+        Grid.SetColumn(_pass, 3);
+        Grid.SetColumn(_rescan, 4);
+        var toolbar = new Grid
         {
             ColumnDefinitions =
             [
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(new GridLength(120)),
+                new ColumnDefinition(new GridLength(1.2, GridUnitType.Star)),
+                new ColumnDefinition(new GridLength(100)),
+                new ColumnDefinition(new GridLength(0.8, GridUnitType.Star)),
+                new ColumnDefinition(new GridLength(0.8, GridUnitType.Star)),
                 new ColumnDefinition(GridLength.Auto)
             ],
             ColumnSpacing = 8,
-            Children = { subnetCol, vendorCol, _rescan }
-        };
-
-        var userCol = Field(Loc.T("Tool.VideoWall.Scan.Username"), muted, _user);
-        var passCol = Field(Loc.T("Tool.VideoWall.Scan.Password"), muted, _pass);
-        Grid.SetColumn(passCol, 1);
-        var credRow = new Grid
-        {
-            ColumnDefinitions = [new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Star)],
-            ColumnSpacing = 8,
-            Children = { userCol, passCol }
+            Children = { _subnet, _vendor, _user, _pass, _rescan }
         };
 
         var listBorder = new Border
@@ -171,24 +179,34 @@ public sealed class VideoWallScanPage : ContentPage
             BackgroundColor = listBg,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
             Padding = 4,
-            MinimumHeightRequest = 160,
+            VerticalOptions = LayoutOptions.Fill,
             Content = list
         };
+
+        var body = new Grid
+        {
+            Padding = new Thickness(16, 12),
+            RowDefinitions =
+            [
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Star)
+            ],
+            RowSpacing = 10,
+            Children = { toolbar, listBorder }
+        };
+        Grid.SetRow(listBorder, 1);
 
         var shell = new MauiDialogShell
         {
             Title = Loc.T("Tool.VideoWall.Scan.Title"),
             ShowClose = true,
-            SizeMode = MauiDialogSize.Wide,
-            Body = new ScrollView
-            {
-                Padding = new Thickness(16, 12),
-                Content = new VerticalStackLayout
-                {
-                    Spacing = 10,
-                    Children = { topRow, credRow, listBorder, _status }
-                }
-            },
+            // 固定宽高（对齐 Win/Desktop 720×520），避免 Wide 按内容收矮
+            SizeMode = MauiDialogSize.Fixed,
+            IdealWidth = 720,
+            IdealHeight = 520,
+            // 进度放在标题栏关闭按钮左侧
+            TitleAccessory = _status,
+            Body = body,
             Footer = new HorizontalStackLayout
             {
                 HorizontalOptions = LayoutOptions.End,
@@ -306,17 +324,6 @@ public sealed class VideoWallScanPage : ContentPage
             _status.Text = string.Format(Loc.T("Tool.VideoWall.Scan.AddFail"), ex.Message);
         }
     }
-
-    private static View Field(string label, Color muted, View editor)
-        => new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children =
-            {
-                new Label { Text = label, FontSize = 12, TextColor = muted },
-                editor
-            }
-        };
 
     private static Color? ColorOf(string key)
         => Application.Current?.Resources.TryGetValue(key, out var v) == true && v is Color c ? c : null;

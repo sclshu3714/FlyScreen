@@ -7,10 +7,12 @@
   "summaryKey": "Tool.VideoWall.Summary",
   "schemaVersion": 1,
   "minAppVersion": "1.0.0",
-  "deviceClasses": ["Desktop"],
-  "platforms": ["Windows"],
+  "deviceClasses": ["Desktop", "Phone", "Tablet"],
+  "platforms": ["Windows", "Android"],
   "featuresByDeviceClass": {
-    "Desktop": ["fixed-sources", "temp-sources", "grid", "composite"]
+    "Desktop": ["fixed-sources", "temp-sources", "grid", "composite"],
+    "Phone": ["fixed-sources", "temp-sources", "grid"],
+    "Tablet": ["fixed-sources", "temp-sources", "grid", "composite"]
   },
   "roles": ["local"],
   "supportsRepair": false,
@@ -20,7 +22,7 @@
   "icon": "tool-video-wall",
   "permissions": ["networkStream", "localFile.open", "speaker"],
   "package": {
-    "version": "0.1.0",
+    "version": "0.1.1",
     "format": "flytool",
     "formatVersion": 1
   },

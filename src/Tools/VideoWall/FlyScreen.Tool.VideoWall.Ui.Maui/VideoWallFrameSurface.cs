@@ -7,7 +7,8 @@ using FlyScreen.Tool.VideoWall.Contracts;
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
 /// <summary>
-/// Maui 单路完整播放面：LibVLC RV32 → Image，与 chrome 同树（无顶层浮层）。
+/// Maui 软件帧播放面：LibVLC RV32 → Image。
+/// Windows 优先 WriteableBitmap；其它宿主（含 Android）写 BMP 供 MAUI Image 显示。
 /// </summary>
 public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
 {
@@ -36,8 +37,11 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         Content = _image;
         BackgroundColor = Colors.Black;
 #if WINDOWS
-        _image.HandlerChanged += (_, _) => BindNativeImage();
-        HandlerChanged += (_, _) => BindNativeImage();
+        if (OperatingSystem.IsWindows())
+        {
+            _image.HandlerChanged += (_, _) => BindNativeImage();
+            HandlerChanged += (_, _) => BindNativeImage();
+        }
 #endif
     }
 
@@ -50,15 +54,18 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         }
 
         Interlocked.Exchange(ref _posted, 0);
-#if WINDOWS
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _bitmap = null;
-            if (_nativeImage is not null)
-                _nativeImage.Source = null;
+#if WINDOWS
+            if (OperatingSystem.IsWindows())
+            {
+                _bitmap = null;
+                if (_nativeImage is not null)
+                    _nativeImage.Source = null;
+            }
+#endif
             _image.Source = null;
         });
-#endif
     }
 
     public void OnVideoFormat(int width, int height, int strideBytes)
@@ -90,7 +97,6 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
             _stride = strideBytes;
         }
 
-        // 合并脏帧：UI 忙时丢中间帧，避免队列堆积
         if (Interlocked.Exchange(ref _posted, 1) == 0)
             MainThread.BeginInvokeOnMainThread(PresentOnUi);
     }
@@ -98,7 +104,6 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
     private void PresentOnUi()
     {
         Interlocked.Exchange(ref _posted, 0);
-#if WINDOWS
         byte[] pixels;
         int width, height, stride;
         lock (_gate)
@@ -111,9 +116,25 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
             pixels = _copy;
         }
 
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            PresentWindows(pixels, width, height, stride);
+            return;
+        }
+#endif
+        PresentPortableBmp(pixels, width, height, stride);
+    }
+
+#if WINDOWS
+    private void PresentWindows(byte[] pixels, int width, int height, int stride)
+    {
         BindNativeImage();
         if (_nativeImage is null)
+        {
+            PresentPortableBmp(pixels, width, height, stride);
             return;
+        }
 
         if (_bitmap is null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
         {
@@ -142,12 +163,8 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         {
             /* 宿主卸载/像素缓冲失效时忽略 */
         }
-#else
-        _ = this;
-#endif
     }
 
-#if WINDOWS
     private void BindNativeImage()
     {
         if (_image.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Image native)
@@ -158,4 +175,47 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         }
     }
 #endif
+
+    /// <summary>跨端兜底：BGRA → 32bpp BMP，无额外依赖。</summary>
+    private void PresentPortableBmp(byte[] pixels, int width, int height, int stride)
+    {
+        try
+        {
+            var bmp = EncodeBgraBmp(pixels, width, height, stride);
+            _image.Source = ImageSource.FromStream(() => new MemoryStream(bmp));
+        }
+        catch
+        {
+            /* 忽略单帧失败 */
+        }
+    }
+
+    private static byte[] EncodeBgraBmp(byte[] pixels, int width, int height, int stride)
+    {
+        var rowSize = width * 4;
+        var pixelBytes = rowSize * height;
+        var fileSize = 14 + 40 + pixelBytes;
+        var buf = new byte[fileSize];
+        // BITMAPFILEHEADER
+        buf[0] = (byte)'B';
+        buf[1] = (byte)'M';
+        BitConverter.TryWriteBytes(buf.AsSpan(2, 4), fileSize);
+        BitConverter.TryWriteBytes(buf.AsSpan(10, 4), 14 + 40);
+        // BITMAPINFOHEADER
+        BitConverter.TryWriteBytes(buf.AsSpan(14, 4), 40);
+        BitConverter.TryWriteBytes(buf.AsSpan(18, 4), width);
+        BitConverter.TryWriteBytes(buf.AsSpan(22, 4), -height); // top-down
+        BitConverter.TryWriteBytes(buf.AsSpan(26, 2), (short)1);
+        BitConverter.TryWriteBytes(buf.AsSpan(28, 2), (short)32);
+        BitConverter.TryWriteBytes(buf.AsSpan(34, 4), pixelBytes);
+
+        var dst = 54;
+        for (var y = 0; y < height; y++)
+        {
+            Buffer.BlockCopy(pixels, y * stride, buf, dst, rowSize);
+            dst += rowSize;
+        }
+
+        return buf;
+    }
 }

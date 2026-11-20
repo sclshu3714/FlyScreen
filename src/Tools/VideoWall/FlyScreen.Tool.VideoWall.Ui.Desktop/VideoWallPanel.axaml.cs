@@ -461,13 +461,20 @@ public partial class VideoWallPanel : UserControl
     {
         if (_suppressCheckSync || sender is not CheckBox cb) return;
 
-        // 单击：全选/取消全选（双击反选见 HdrSelectAll.DoubleTapped）
-        var target = cb.IsChecked == true;
-        foreach (var row in _rows)
-            row.IsSelected = target;
-
-        SyncListSelectionFromChecks();
-        SyncHeaderSelectAll();
+        // 整段 suppress：避免 SelectedItems / IsChecked 回写再次触发导致卡死
+        _suppressCheckSync = true;
+        try
+        {
+            var target = cb.IsChecked == true;
+            foreach (var row in _rows)
+                row.IsSelected = target;
+            SyncListSelectionFromChecksCore();
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+            SyncHeaderSelectAll();
+        }
     }
 
     private void RowCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
@@ -501,9 +508,7 @@ public partial class VideoWallPanel : UserControl
         _suppressCheckSync = true;
         try
         {
-            SourcesList.SelectedItems?.Clear();
-            foreach (var row in _rows.Where(r => r.IsSelected))
-                SourcesList.SelectedItems?.Add(row);
+            SyncListSelectionFromChecksCore();
         }
         finally
         {
@@ -511,8 +516,16 @@ public partial class VideoWallPanel : UserControl
         }
     }
 
+    private void SyncListSelectionFromChecksCore()
+    {
+        SourcesList.SelectedItems?.Clear();
+        foreach (var row in _rows.Where(r => r.IsSelected))
+            SourcesList.SelectedItems?.Add(row);
+    }
+
     private void SyncHeaderSelectAll()
     {
+        if (_suppressCheckSync) return;
         _suppressCheckSync = true;
         try
         {

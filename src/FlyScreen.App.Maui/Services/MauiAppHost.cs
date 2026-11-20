@@ -65,8 +65,10 @@ public sealed class MauiAppHost : IAsyncDisposable
             Platforms.Android.AndroidDeviceIdentity.ResolveFriendlyName);
         NicService.PreferredIpv4Hint = Platforms.Android.AndroidNetworkBootstrap.TryGetWifiIpv4;
 #endif
-        var (platform, deviceClass, caps) = DetectIdentity();
+        var (platform, deviceClass, hostKind, caps) = DetectIdentity();
+        ProgramUiCompatibility.ConfigureLocalHost(hostKind);
         LocalPeerIdentity.Configure(platform: platform, deviceClass: deviceClass, caps: caps);
+        ProgramUiHost.Register(new MauiProgramUiHost());
         PlatformBanner = $"{platform} · {deviceClass} · {LocalPeerIdentity.MachineName}";
 
         Settings = AppSettings.Load();
@@ -277,18 +279,28 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
     }
 
-    private static (string Platform, string DeviceClass, string[] Caps) DetectIdentity()
+    private static (string Platform, string DeviceClass, ProgramHostKind HostKind, string[] Caps) DetectIdentity()
     {
 #if WINDOWS
-        return (PeerPlatform.Windows, PeerDeviceClass.Desktop, PeerCaps.DesktopFull);
+        const ProgramHostKind host = ProgramHostKind.MauiWindows;
+        return (PeerPlatform.Windows, PeerDeviceClass.Desktop, host,
+            ProgramUiCompatibility.WithProgHost(PeerCaps.DesktopFull, host));
 #elif ANDROID
+        const ProgramHostKind host = ProgramHostKind.MauiMobile;
+        var caps = ProgramUiCompatibility.WithProgHost(PeerCaps.AndroidMobile, host);
         return DeviceInfo.Idiom == DeviceIdiom.Tablet
-            ? (PeerPlatform.Android, PeerDeviceClass.Tablet, PeerCaps.AndroidMobile)
-            : (PeerPlatform.Android, PeerDeviceClass.Phone, PeerCaps.AndroidMobile);
-#elif MACCATALYST || IOS
-        return (PeerPlatform.MacOS, PeerDeviceClass.Desktop, PeerCaps.MacDesktopW1);
+            ? (PeerPlatform.Android, PeerDeviceClass.Tablet, host, caps)
+            : (PeerPlatform.Android, PeerDeviceClass.Phone, host, caps);
+#elif MACCATALYST
+        const ProgramHostKind host = ProgramHostKind.MauiMacCatalyst;
+        return (PeerPlatform.MacOS, PeerDeviceClass.Desktop, host,
+            ProgramUiCompatibility.WithProgHost(PeerCaps.MacDesktopW1, host));
+#elif IOS
+        const ProgramHostKind host = ProgramHostKind.MauiMobile;
+        return (PeerPlatform.MacOS, PeerDeviceClass.Phone, host,
+            ProgramUiCompatibility.WithProgHost(PeerCaps.AndroidMobile, host));
 #else
-        return ("Unknown", PeerDeviceClass.Unknown, PeerCaps.AndroidMobile);
+        return ("Unknown", PeerDeviceClass.Unknown, ProgramHostKind.Unknown, PeerCaps.AndroidMobile);
 #endif
     }
 

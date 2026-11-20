@@ -5,10 +5,12 @@ using ShapePath = Microsoft.Maui.Controls.Shapes.Path;
 namespace FlyScreen.Ui.Maui;
 
 /// <summary>
-/// 独立安全密码框：单边框内左侧输入、右侧眼睛显隐。文案/主题由使用方或宿主资源提供。
+/// 独立安全密码框：单一边框输入框，显隐眼睛嵌在右侧（无「外框套内框」）。
 /// </summary>
 public sealed class SecurePasswordBox : ContentView
 {
+    private const string FlatStyleClass = "SecurePasswordFlat";
+
     public static readonly BindableProperty PasswordProperty = BindableProperty.Create(
         nameof(Password), typeof(string), typeof(SecurePasswordBox), string.Empty,
         BindingMode.TwoWay, propertyChanged: OnPasswordChanged);
@@ -34,9 +36,15 @@ public sealed class SecurePasswordBox : ContentView
     private readonly ShapePath _eyePath;
     private readonly Border _eyeHost;
     private bool _syncing;
+    private static int _mapperHooked;
+
+    static SecurePasswordBox()
+        => EnsureFlatEntryMapper();
 
     public SecurePasswordBox()
     {
+        BackgroundColor = Colors.Transparent;
+
         var text = ResolveColor("Text", Color.FromArgb("#111827"));
         var muted = ResolveColor("Muted", Color.FromArgb("#6B7280"));
         var line = ResolveColor("ControlBorder", Color.FromArgb("#D1D5DB"));
@@ -48,9 +56,10 @@ public sealed class SecurePasswordBox : ContentView
             TextColor = text,
             PlaceholderColor = muted,
             BackgroundColor = Colors.Transparent,
-            VerticalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Fill,
             HorizontalOptions = LayoutOptions.Fill,
-            Margin = new Thickness(0)
+            Margin = new Thickness(0),
+            StyleClass = [FlatStyleClass]
         };
         _entry.TextChanged += (_, e) =>
         {
@@ -62,16 +71,18 @@ public sealed class SecurePasswordBox : ContentView
         };
         _entry.Focused += (_, _) => ApplyFocusChrome(true);
         _entry.Unfocused += (_, _) => ApplyFocusChrome(false);
+        _entry.HandlerChanged += (_, _) => FlattenNativeEntry(_entry);
 
         _eyePath = new ShapePath
         {
             Data = ParseGeometry(IconCatalog.GetPath(IconCodes.EyeOff)),
             Aspect = Stretch.Uniform,
             Fill = muted,
-            WidthRequest = 18,
-            HeightRequest = 18,
+            WidthRequest = 16,
+            HeightRequest = 16,
             HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center
+            VerticalOptions = LayoutOptions.Center,
+            InputTransparent = true
         };
         _eyeHost = new Border
         {
@@ -90,15 +101,17 @@ public sealed class SecurePasswordBox : ContentView
         _eyeHost.GestureRecognizers.Add(tap);
         ApplyEyeHoverVisualStates(_eyeHost);
 
+        // 单层边框：Entry 去原生描边后与眼睛同处 chrome 内
         var row = new Grid
         {
             ColumnDefinitions =
             [
                 new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Auto)
+                new ColumnDefinition(new GridLength(32))
             ],
             ColumnSpacing = 0,
-            Padding = new Thickness(10, 0, 2, 0)
+            Padding = new Thickness(10, 0, 4, 0),
+            VerticalOptions = LayoutOptions.Fill
         };
         row.Children.Add(_entry);
         Grid.SetColumn(_eyeHost, 1);
@@ -111,6 +124,7 @@ public sealed class SecurePasswordBox : ContentView
             BackgroundColor = bg,
             StrokeShape = new RoundRectangle { CornerRadius = 6 },
             MinimumHeightRequest = 36,
+            HeightRequest = 36,
             Padding = new Thickness(0),
             VerticalOptions = LayoutOptions.Fill,
             HorizontalOptions = LayoutOptions.Fill,
@@ -118,6 +132,7 @@ public sealed class SecurePasswordBox : ContentView
         };
         Content = _chrome;
         HeightRequest = 36;
+        EnsureFlatEntryMapper();
     }
 
     public event EventHandler? PasswordChanged;
@@ -179,7 +194,6 @@ public sealed class SecurePasswordBox : ContentView
     private static Geometry? ParseGeometry(string data)
         => new PathGeometryConverter().ConvertFromInvariantString(data) as Geometry;
 
-    /// <summary>桌面 PointerOver 轻量悬浮；触控端无 PointerOver 则保持透明。</summary>
     private static void ApplyEyeHoverVisualStates(Border eyeHost)
     {
         var groups = VisualStateManager.GetVisualStateGroups(eyeHost);
@@ -200,6 +214,73 @@ public sealed class SecurePasswordBox : ContentView
         var blue = ResolveColor("Blue", Color.FromArgb("#2563EB"));
         var line = ResolveColor("ControlBorder", Color.FromArgb("#D1D5DB"));
         _chrome.Stroke = focused ? blue : line;
+        FlattenNativeEntry(_entry);
+    }
+
+    private static void EnsureFlatEntryMapper()
+    {
+        if (Interlocked.Exchange(ref _mapperHooked, 1) != 0) return;
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping(FlatStyleClass, (handler, view) =>
+        {
+            if (view is not Entry entry) return;
+            if (entry.StyleClass is null || !entry.StyleClass.Contains(FlatStyleClass)) return;
+            FlattenNativeEntry(entry);
+        });
+    }
+
+    private static void FlattenNativeEntry(Entry entry)
+    {
+        var native = entry.Handler?.PlatformView;
+        if (native is null) return;
+
+#if MAUI_WINDOWS
+        if (native is Microsoft.UI.Xaml.Controls.TextBox tb)
+        {
+            tb.BorderThickness = new Microsoft.UI.Xaml.Thickness(0);
+            tb.Style = null;
+            tb.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            tb.Padding = new Microsoft.UI.Xaml.Thickness(0, 4, 0, 4);
+            try
+            {
+                tb.Resources["TextControlBorderThemeThickness"] = new Microsoft.UI.Xaml.Thickness(0);
+                tb.Resources["TextControlBorderThemeThicknessFocused"] = new Microsoft.UI.Xaml.Thickness(0);
+                tb.Resources["TextControlBorderThemeThicknessPointerOver"] = new Microsoft.UI.Xaml.Thickness(0);
+                tb.Resources["TextControlBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                tb.Resources["TextControlBackgroundPointerOver"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                tb.Resources["TextControlBackgroundFocused"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+            catch
+            {
+                /* ignore theme key differences */
+            }
+            return;
+        }
+#endif
+
+        // Android EditText：纯反射清默认下划线/背景（Ui.Maui 无 android TFM）
+        if (OperatingSystem.IsAndroid())
+        {
+            try
+            {
+                var t = native.GetType();
+                foreach (var name in new[] { "SetBackground", "SetBackgroundDrawable" })
+                {
+                    foreach (var m in t.GetMethods().Where(m => m.Name == name && m.GetParameters().Length == 1))
+                    {
+                        try { m.Invoke(native, [null]); break; }
+                        catch { /* try next overload */ }
+                    }
+                }
+
+                t.GetMethod("SetPadding", [typeof(int), typeof(int), typeof(int), typeof(int)])
+                    ?.Invoke(native, [0, 0, 0, 0]);
+                t.GetProperty("Background")?.SetValue(native, null);
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
     }
 
     private static Color ResolveColor(string key, Color fallback)

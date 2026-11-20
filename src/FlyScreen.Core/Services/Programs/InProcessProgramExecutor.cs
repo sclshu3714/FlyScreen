@@ -150,6 +150,14 @@ public static class InProcessProgramExecutor
         bool debug, ProgramDebugGate? debugGate, ProgramCatalog catalog)
     {
         catalog.NormalizeManifest(prog);
+        if (prog.UiKind != ProgramUiKind.None
+            && !ProgramUiCompatibility.CanRunLocal(prog.UiKind))
+        {
+            throw new InvalidOperationException(
+                $"程序「{prog.Name}」需要 {ProgramUiCompatibility.DisplayName(prog.UiKind)} UI，" +
+                $"本机宿主（{ProgramUiCompatibility.LocalHostKind}）不兼容。");
+        }
+
         var code = ProgramScriptHost.PrepareSource(source ?? "");
         if (debug)
         {
@@ -167,11 +175,20 @@ public static class InProcessProgramExecutor
         var refs = new List<MetadataReference>();
         foreach (var dll in catalog.ResolveLocalDllPaths(prog))
         {
-            try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(dll)); }
-            catch (Exception ex)
+            if (ProgramScriptHost.TryCreateReferenceFromFile(dll, out var reference, out var error, out var nonManaged))
             {
-                throw new InvalidOperationException($"本地 DLL 引用失败「{Path.GetFileName(dll)}」: {ex.Message}");
+                refs.Add(reference!);
+                continue;
             }
+
+            if (nonManaged)
+            {
+                AppLog.Warn("脚本运行: " + error);
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"本地 DLL 引用失败「{Path.GetFileName(dll)}」: {error}");
         }
 
         if (prog.Packages.Count > 0)
@@ -183,12 +200,20 @@ public static class InProcessProgramExecutor
                     throw new InvalidOperationException(nuget.Error ?? "NuGet 还原失败");
                 foreach (var path in nuget.ReferencePaths)
                 {
-                    try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(path)); }
-                    catch (Exception ex)
+                    if (ProgramScriptHost.TryCreateReferenceFromFile(path, out var reference, out var error, out var nonManaged))
                     {
-                        throw new InvalidOperationException(
-                            $"NuGet 引用失败「{Path.GetFileName(path)}」: {ex.Message}");
+                        refs.Add(reference!);
+                        continue;
                     }
+
+                    if (nonManaged)
+                    {
+                        AppLog.Warn("脚本运行: " + error);
+                        continue;
+                    }
+
+                    throw new InvalidOperationException(
+                        $"NuGet 引用失败「{Path.GetFileName(path)}」: {error}");
                 }
             }
             else if (catalog.ResolveLocalDllPaths(prog).Count == 0
@@ -201,8 +226,8 @@ public static class InProcessProgramExecutor
             {
                 foreach (var path in ProgramNugetResolver.TryReadRefsCache(catalog, prog))
                 {
-                    try { refs.Add(ProgramScriptHost.CreateReferenceFromFile(path)); }
-                    catch { /* skip */ }
+                    if (ProgramScriptHost.TryCreateReferenceFromFile(path, out var reference, out _, out _))
+                        refs.Add(reference!);
                 }
             }
         }

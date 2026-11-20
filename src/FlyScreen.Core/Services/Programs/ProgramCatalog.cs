@@ -185,6 +185,14 @@ public sealed class ProgramCatalog
     }
 
     public UserProgram Create(string name, ProgramLanguage language, string? nameSpace, string? fileName)
+        => Create(name, language, nameSpace, fileName, ProgramUiKind.None);
+
+    public UserProgram Create(
+        string name,
+        ProgramLanguage language,
+        string? nameSpace,
+        string? fileName,
+        ProgramUiKind uiKind)
     {
         name = (name ?? "").Trim();
         if (string.IsNullOrEmpty(name))
@@ -202,6 +210,15 @@ public sealed class ProgramCatalog
         if (!file.EndsWith(ProgramLanguageInfo.Extension(language), StringComparison.OrdinalIgnoreCase))
             file = Path.GetFileNameWithoutExtension(file) + ProgramLanguageInfo.Extension(language);
 
+        if (language != ProgramLanguage.CSharp)
+            uiKind = ProgramUiKind.None;
+        else if (uiKind != ProgramUiKind.None
+                 && !ProgramUiCompatibility.CanRunLocal(uiKind))
+        {
+            throw new InvalidOperationException(
+                $"本机宿主无法运行 {ProgramUiCompatibility.DisplayName(uiKind)} UI（HostKind={ProgramUiCompatibility.LocalHostKind}）。");
+        }
+
         var id = Guid.NewGuid().ToString("N")[..12];
         var folder = Path.Combine(RootDirectory, id);
         Directory.CreateDirectory(folder);
@@ -213,19 +230,24 @@ public sealed class ProgramCatalog
             Language = language,
             Namespace = ns,
             FileName = file,
+            UiKind = uiKind,
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
 
         WriteScaffold(folder, prog);
         ProgramExternalDevScaffold.Ensure(folder, prog.Language, prog.Packages);
+        ProgramUiScaffold.Apply(folder, prog);
         SaveMeta(prog);
         RefreshSize(prog);
 
         lock (_gate)
             _items.Add(prog);
+        var uiNote = prog.UiKind == ProgramUiKind.None
+            ? ""
+            : $"，UI={ProgramUiCompatibility.DisplayName(prog.UiKind)}";
         AppLog.Info(
-            $"已添加程序「{prog.Name}」({prog.LanguageText}) → {folder}（已生成外部 VS/VS Code 脚手架）",
+            $"已添加程序「{prog.Name}」({prog.LanguageText}{uiNote}) → {folder}（已生成外部 VS/VS Code 脚手架）",
             prog.Id, prog.Name);
         RaiseChanged();
         return prog;
@@ -468,6 +490,10 @@ public sealed class ProgramCatalog
         var name = Path.GetFileName(sourceDllPath);
         if (string.IsNullOrEmpty(name) || !name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("仅支持 .dll 文件");
+        if (!ProgramScriptHost.HasManagedMetadata(sourceDllPath))
+            throw new BadImageFormatException(
+                $"「{name}」不是托管程序集（无 CLR 元数据，可能是原生/WinRT DLL），不能作为脚本编译引用。",
+                sourceDllPath);
         var rel = NormalizeRelativePath(Path.Combine("refs", name));
         var dest = Path.Combine(GetFolder(prog), rel);
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
@@ -495,7 +521,7 @@ public sealed class ProgramCatalog
         RaiseChanged();
     }
 
-    /// <summary>读取入口 + ExtraFiles 内容，供编译/运行。</summary>
+    /// <summary>读取入口 + ExtraFiles 中的 <c>.cs</c>，供 Roslyn 编译/运行（跳过 xaml 等资源）。</summary>
     public IReadOnlyList<(string RelativePath, string Content)> ReadExtraSources(UserProgram prog)
     {
         NormalizeManifest(prog);
@@ -505,7 +531,31 @@ public sealed class ProgramCatalog
             if (string.IsNullOrWhiteSpace(f)) continue;
             var rel = NormalizeRelativePath(f);
             if (string.Equals(rel, prog.FileName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!rel.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
             list.Add((rel, ReadFile(prog, rel)));
+        }
+        return list;
+    }
+
+    /// <summary>UI 附属文件（xaml/axaml 等），供共享；不参与 Roslyn。</summary>
+    public IReadOnlyList<(string RelativePath, string Content)> ReadUiAssetSources(UserProgram prog)
+    {
+        NormalizeManifest(prog);
+        if (prog.UiKind == ProgramUiKind.None) return [];
+        var folder = GetFolder(prog);
+        var names = prog.UiKind switch
+        {
+            ProgramUiKind.Wpf => new[] { "MainWindow.xaml", "MainWindow.xaml.cs" },
+            ProgramUiKind.Avalonia => new[] { "MainWindow.axaml", "MainWindow.axaml.cs" },
+            ProgramUiKind.Maui => new[] { "ProgramUiPage.xaml", "ProgramUiPage.xaml.cs" },
+            _ => Array.Empty<string>()
+        };
+        var list = new List<(string, string)>();
+        foreach (var name in names)
+        {
+            var path = Path.Combine(folder, name);
+            if (!File.Exists(path)) continue;
+            list.Add((NormalizeRelativePath(name), NormalizeSourceText(File.ReadAllText(path, Encoding.UTF8))));
         }
         return list;
     }
@@ -513,6 +563,7 @@ public sealed class ProgramCatalog
     /// <summary>
     /// 解析编译用本地 DLL 绝对路径：program.json LocalDlls + 程序目录 refs/*.dll。
     /// 与 DevHost 一致；refs 落盘即可引用，避免仅依赖清单时被编辑器保存冲掉 LocalDlls。
+    /// 调用方须经 <see cref="ProgramScriptHost.TryCreateReferenceFromFile"/>：无 CLR 元数据的原生 PE 会跳过。
     /// </summary>
     public IReadOnlyList<string> ResolveLocalDllPaths(UserProgram prog)
     {
@@ -840,6 +891,7 @@ public sealed class ProgramCatalog
 
         ApplyExtraSources(incoming, extraSources);
         ProgramExternalDevScaffold.Ensure(folder, incoming.Language, incoming.Packages);
+        ProgramUiScaffold.Apply(folder, incoming);
 
         SaveMeta(incoming);
         RefreshSize(incoming);

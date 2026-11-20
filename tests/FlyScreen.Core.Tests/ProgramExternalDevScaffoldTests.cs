@@ -22,6 +22,8 @@ public sealed class ProgramExternalDevScaffoldTests
             var csproj = File.ReadAllText(Path.Combine(dir, "program.csproj"));
             Assert.Contains("DevHost.cs", csproj, StringComparison.Ordinal);
             Assert.Contains("FlyScreen.Core.dll", csproj, StringComparison.Ordinal);
+            Assert.Contains("Microsoft.CodeAnalysis.CSharp", csproj, StringComparison.Ordinal);
+            Assert.Contains(ProgramNugetResolver.RoslynPackageVersion, csproj, StringComparison.Ordinal);
             Assert.DoesNotContain("ProjectReference", csproj, StringComparison.Ordinal);
             Assert.Contains("ProgramExternalDevHost", File.ReadAllText(Path.Combine(dir, "DevHost.cs")), StringComparison.Ordinal);
             var props = File.ReadAllText(Path.Combine(dir, "Directory.Build.props"));

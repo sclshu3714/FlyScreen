@@ -58,13 +58,12 @@ public partial class ScanDevicesDialog : Window
     private void ApplyLoc()
     {
         Title = Loc.T("Tool.VideoWall.Scan.Title");
-        SubnetLabel.Text = Loc.T("Tool.VideoWall.Scan.Subnet");
         SubnetCombo.ToolTip = Loc.T("Tool.VideoWall.Scan.SubnetHint");
-        VendorLabel.Text = Loc.T("Tool.VideoWall.Scan.Vendor");
-        UserLabel.Text = Loc.T("Tool.VideoWall.Scan.Username");
-        PassLabel.Text = Loc.T("Tool.VideoWall.Scan.Password");
+        VendorCombo.ToolTip = Loc.T("Tool.VideoWall.Scan.Vendor");
+        UserBox.ToolTip = Loc.T("Tool.VideoWall.Scan.Username");
         PassBox.ShowPasswordTip = Loc.T("Tool.VideoWall.ShowPassword");
         PassBox.HidePasswordTip = Loc.T("Tool.VideoWall.HidePassword");
+        PassBox.ToolTip = Loc.T("Tool.VideoWall.Scan.Password");
         RescanBtn.Content = Loc.T("Tool.VideoWall.Scan.Rescan");
         CloseBtn.Content = Loc.T("Tool.VideoWall.Scan.Close");
         HdrHost.Text = Loc.T("Tool.VideoWall.Scan.Host");

@@ -100,6 +100,7 @@ public partial class MainWindow : Window
 
     public MainWindow(IDesktopShellHost host)
     {
+        ProgramUiHost.Register(new AvaloniaProgramUiHost());
         _host = host ?? throw new ArgumentNullException(nameof(host));
         InitializeComponent();
         Title = "玄鸟";
@@ -1992,7 +1993,7 @@ public partial class MainWindow : Window
         try
         {
             var prog = ProgramService.Instance.Catalog.Create(
-                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
+                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue, dlg.SelectedUiKind);
             RefreshProgramsPage();
             var folder = ProgramService.Instance.Catalog.GetFolder(prog);
             StatusText.Text = Loc.T("Prog.CreatedExternalDev", prog.Name, folder);

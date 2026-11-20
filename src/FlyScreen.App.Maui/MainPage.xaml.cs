@@ -3921,7 +3921,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         try
         {
             var prog = ProgramService.Instance.Catalog.Create(
-                page.ProgramName, page.SelectedLanguage, page.NamespaceValue, page.FileNameValue);
+                page.ProgramName, page.SelectedLanguage, page.NamespaceValue, page.FileNameValue, page.SelectedUiKind);
             RefreshProgramsPage();
             var folder = ProgramService.Instance.Catalog.GetFolder(prog);
             await DisplayAlertAsync(
