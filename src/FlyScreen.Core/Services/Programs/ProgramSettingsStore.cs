@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace FlyScreen.Services.Programs;
 
-/// <summary>程序目录下 settings.json：覆盖脚本 @fly-settings 默认值。</summary>
+/// <summary>程序目录下 settings.json：覆盖 fly-settings.json 默认值。</summary>
 public static class ProgramSettingsStore
 {
     public const string FileName = "settings.json";
@@ -55,7 +55,7 @@ public static class ProgramSettingsStore
             var field = schema.FirstOrDefault(f =>
                 string.Equals(f.Key, k, StringComparison.OrdinalIgnoreCase));
             map[k] = field != null
-                ? ProgramSettingsSchema.NormalizeStored(field.Kind, v)
+                ? ProgramSettingsSchema.NormalizeStored(field.Kind, v, field)
                 : (v ?? "");
         }
         ProgramRegionKeys.MigrateLegacy(map);
@@ -64,8 +64,7 @@ public static class ProgramSettingsStore
 
     public static Dictionary<string, string> LoadResolved(ProgramCatalog catalog, UserProgram prog)
     {
-        var source = catalog.ReadSource(prog);
-        var schema = ProgramSettingsSchema.Parse(source);
+        var schema = ProgramFlySettingsStore.LoadSchema(catalog, prog);
         var disk = LoadFile(PathFor(catalog, prog));
         return Resolve(schema, disk);
     }

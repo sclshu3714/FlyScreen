@@ -63,6 +63,7 @@ public partial class VideoWallPanel : UserControl
         Player.RequestInAppMaximize += OnPlayerRequestInAppMaximize;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        ApplyCardItemWidth(_cardWidth);
         SearchBox.TextChanged += (_, _) =>
         {
             RefreshSources();
@@ -297,29 +298,70 @@ public partial class VideoWallPanel : UserControl
             ColAddress.Width = addressW;
     }
 
+    // 卡片：prefer 步长使默认窗（约 960）内容区自然约 3 列；缩放仍按宽算列数
+    private const double CardGap = 8;
+    private const double CardMinWidth = 160;
+    private const double CardPreferWidth = 200;
+    private double _cardWidth = CardPreferWidth;
+
+    private void SourcesCardsHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.NewSize.Width <= 1) return;
+        var next = ComputeCardWidth(e.NewSize.Width);
+        if (Math.Abs(next - _cardWidth) < 0.5) return;
+        _cardWidth = next;
+        ApplyCardItemWidth(_cardWidth);
+    }
+
+    private static double ComputeCardWidth(double hostWidth)
+    {
+        var inner = Math.Max(CardMinWidth, hostWidth - 8);
+        var cols = Math.Max(1, (int)Math.Floor((inner + CardGap) / (CardPreferWidth + CardGap)));
+        return Math.Clamp(inner / cols - CardGap, CardMinWidth, 280);
+    }
+
+    private void ApplyCardItemWidth(double width)
+    {
+        var style = new Style(typeof(System.Windows.Controls.ContentPresenter));
+        style.Setters.Add(new Setter(FrameworkElement.WidthProperty, width));
+        style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, CardGap, CardGap)));
+        style.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left));
+        style.Setters.Add(new Setter(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top));
+        SourcesCards.ItemContainerStyle = style;
+    }
+
     private bool _suppressCheckSync;
 
     private void HeaderSelectAll_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox) return;
         e.Handled = true;
-        // 单击：全选/取消；Shift+单击：反选
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        if (_suppressCheckSync) return;
+        _suppressCheckSync = true;
+        try
         {
-            foreach (var row in _rows)
-                row.IsSelected = !row.IsSelected;
-        }
-        else
-        {
-            var all = _rows.Count > 0 && _rows.All(r => r.IsSelected);
-            var target = !all;
-            foreach (var row in _rows)
-                row.IsSelected = target;
-        }
+            // 单击：全选/取消；Shift+单击：反选
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+            {
+                foreach (var row in _rows)
+                    row.IsSelected = !row.IsSelected;
+            }
+            else
+            {
+                var all = _rows.Count > 0 && _rows.All(r => r.IsSelected);
+                var target = !all;
+                foreach (var row in _rows)
+                    row.IsSelected = target;
+            }
 
-        SyncListSelectionFromChecks();
-        SyncHeaderSelectAll();
-        UpdateDeleteEnabled();
+            SyncListSelectionFromChecksCore();
+            UpdateDeleteEnabled();
+        }
+        finally
+        {
+            _suppressCheckSync = false;
+            SyncHeaderSelectAll();
+        }
     }
 
     private void RowCheck_Click(object sender, RoutedEventArgs e)
@@ -357,9 +399,7 @@ public partial class VideoWallPanel : UserControl
         _suppressCheckSync = true;
         try
         {
-            SourcesGrid.SelectedItems.Clear();
-            foreach (var row in _rows.Where(r => r.IsSelected))
-                SourcesGrid.SelectedItems.Add(row);
+            SyncListSelectionFromChecksCore();
         }
         finally
         {
@@ -367,16 +407,32 @@ public partial class VideoWallPanel : UserControl
         }
     }
 
+    private void SyncListSelectionFromChecksCore()
+    {
+        SourcesGrid.SelectedItems.Clear();
+        foreach (var row in _rows.Where(r => r.IsSelected))
+            SourcesGrid.SelectedItems.Add(row);
+    }
+
     private void SyncHeaderSelectAll()
     {
-        if (_rows.Count == 0)
+        var prev = _suppressCheckSync;
+        _suppressCheckSync = true;
+        try
         {
-            HeaderSelectAll.IsChecked = false;
-            return;
-        }
+            if (_rows.Count == 0)
+            {
+                HeaderSelectAll.IsChecked = false;
+                return;
+            }
 
-        var n = _rows.Count(r => r.IsSelected);
-        HeaderSelectAll.IsChecked = n == 0 ? false : n == _rows.Count ? true : null;
+            var n = _rows.Count(r => r.IsSelected);
+            HeaderSelectAll.IsChecked = n == 0 ? false : n == _rows.Count ? true : null;
+        }
+        finally
+        {
+            _suppressCheckSync = prev;
+        }
     }
 
     private void UpdateDeleteEnabled()
@@ -448,6 +504,15 @@ public partial class VideoWallPanel : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         SourcesCardsHost.Visibility = _browseView == BrowseView.Card && !empty
             ? Visibility.Visible : Visibility.Collapsed;
+        if (SourcesCardsHost.Visibility == Visibility.Visible && SourcesCardsHost.ActualWidth > 1)
+        {
+            var next = ComputeCardWidth(SourcesCardsHost.ActualWidth);
+            if (Math.Abs(next - _cardWidth) >= 0.5)
+            {
+                _cardWidth = next;
+                ApplyCardItemWidth(_cardWidth);
+            }
+        }
         SyncHeaderSelectAll();
         UpdateDeleteEnabled();
     }

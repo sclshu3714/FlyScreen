@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Services.Programs;
@@ -25,7 +27,7 @@ public partial class ProgramSettingsWindow : Window
         Loaded += (_, _) => DesktopThemeService.ApplyToChildWindow(this);
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
-        _fields = ProgramSettingsSchema.Parse(_catalog.ReadSource(program));
+        _fields = ProgramFlySettingsStore.LoadSchema(_catalog, program);
         var disk = ProgramSettingsStore.LoadFile(ProgramSettingsStore.PathFor(_catalog, program));
         _values = ProgramSettingsStore.Resolve(_fields, disk);
         Title = $"{Loc.T("Prog.ActSettings")} — {program.Name}";
@@ -103,6 +105,13 @@ public partial class ProgramSettingsWindow : Window
                 continue;
             }
 
+            if (field.Kind == ProgramSettingKind.Button)
+            {
+                FieldsHost.Children.Add(MakeSettingButton(field));
+                i++;
+                continue;
+            }
+
             FieldsHost.Children.Add(new TextBlock
             {
                 Text = field.Label,
@@ -113,17 +122,26 @@ public partial class ProgramSettingsWindow : Window
             {
                 ProgramSettingKind.StringList => MakeText(field.Key,
                     string.Join("\n", ProgramSettingsSchema.AsStringList(cur)), true),
+                ProgramSettingKind.Checks => MakeChecks(field.Key, field.EnumOptions, cur),
                 ProgramSettingKind.Enum => MakeCombo(field.Key, field.EnumOptions, cur),
-                ProgramSettingKind.Double => MakeText(field.Key, cur, false),
+                ProgramSettingKind.Radio => MakeRadioGroup(field.Key, field.EnumOptions, cur),
+                ProgramSettingKind.String => MakeText(field.Key, cur, false),
+                ProgramSettingKind.Int or ProgramSettingKind.Long or ProgramSettingKind.Double
+                    => MakeText(field.Key, cur, false),
+                ProgramSettingKind.File => MakePathPicker(field, cur, folder: false),
+                ProgramSettingKind.Folder => MakePathPicker(field, cur, folder: true),
+                ProgramSettingKind.Table => MakeTable(field, cur),
                 _ => MakeText(field.Key, cur, false)
             };
             _editors[field.Key] = editor;
             FieldsHost.Children.Add(editor);
-            if (field.Kind == ProgramSettingKind.StringList)
+            if (field.Kind is ProgramSettingKind.StringList or ProgramSettingKind.Checks)
             {
                 FieldsHost.Children.Add(new TextBlock
                 {
-                    Text = "可换行；也可用分号分隔。保存时自动整理",
+                    Text = field.Kind == ProgramSettingKind.Checks
+                        ? "可多选；保存为换行列表"
+                        : "可换行；也可用分号分隔。保存时自动整理",
                     FontSize = 11,
                     Foreground = Brushes.Gray
                 });
@@ -300,11 +318,214 @@ public partial class ProgramSettingsWindow : Window
             _longPressPanel.IsVisible = IsLongPressActionSelected();
     }
 
+    private Button MakeSettingButton(ProgramSettingField field)
+    {
+        var btn = new Button
+        {
+            Content = field.Label,
+            Height = 32,
+            Margin = new Avalonia.Thickness(0, 8, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Avalonia.Thickness(14, 0)
+        };
+        btn.Click += async (_, _) =>
+        {
+            var ev = string.IsNullOrWhiteSpace(field.EventName) ? field.Key : field.EventName;
+            ProgramSettingEventBus.Enqueue(_program.Id, ev, field.Key);
+            await ShowInfoAsync(Loc.T("Prog.SettingsEventQueued", ev));
+        };
+        return btn;
+    }
+
+    private Control MakePathPicker(ProgramSettingField field, string cur, bool folder)
+    {
+        var tb = new TextBox { Text = cur ?? "", MinHeight = 28 };
+        tb.TextChanged += (_, _) => _values[field.Key] = tb.Text ?? "";
+        var browse = new Button { Content = "…", Width = 36, Height = 28, Margin = new Avalonia.Thickness(6, 0, 0, 0) };
+        browse.Click += async (_, _) =>
+        {
+            if (folder)
+            {
+                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = field.Label,
+                    AllowMultiple = false
+                });
+                var path = folders.FirstOrDefault()?.TryGetLocalPath();
+                if (!string.IsNullOrEmpty(path))
+                {
+                    tb.Text = path;
+                    _values[field.Key] = path;
+                }
+            }
+            else
+            {
+                var patterns = string.IsNullOrWhiteSpace(field.Filter)
+                    ? ["*.*"]
+                    : field.Filter.Split([';', '|', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = field.Label,
+                    AllowMultiple = false,
+                    FileTypeFilter =
+                    [
+                        new FilePickerFileType("Files") { Patterns = patterns.ToList() }
+                    ]
+                });
+                var path = files.FirstOrDefault()?.TryGetLocalPath();
+                if (!string.IsNullOrEmpty(path))
+                {
+                    tb.Text = path;
+                    _values[field.Key] = path;
+                }
+            }
+        };
+        _values[field.Key] = tb.Text ?? "";
+        DockPanel.SetDock(browse, Dock.Right);
+        return new DockPanel { Children = { browse, tb } };
+    }
+
+    private Control MakeRadioGroup(string key, IReadOnlyList<string> options, string cur)
+    {
+        var list = options.Count > 0 ? options.ToList() : ["A", "B"];
+        var panel = new StackPanel { Spacing = 4 };
+        foreach (var opt in list)
+        {
+            var rb = new RadioButton
+            {
+                Content = opt,
+                GroupName = "rg_" + key,
+                IsChecked = string.Equals(opt, cur, StringComparison.OrdinalIgnoreCase)
+            };
+            rb.IsCheckedChanged += (_, _) =>
+            {
+                if (rb.IsChecked == true)
+                    _values[key] = opt;
+            };
+            panel.Children.Add(rb);
+        }
+        if (!_values.ContainsKey(key) && list.Count > 0)
+            _values[key] = list.Any(o => string.Equals(o, cur, StringComparison.OrdinalIgnoreCase)) ? cur : list[0];
+        return panel;
+    }
+
+    private Control MakeChecks(string key, IReadOnlyList<string> options, string cur)
+    {
+        var selected = new HashSet<string>(ProgramSettingsSchema.AsStringList(cur), StringComparer.OrdinalIgnoreCase);
+        var panel = new StackPanel { Spacing = 4 };
+        var boxes = new List<(string Opt, CheckBox Cb)>();
+        void Sync() => _values[key] = string.Join("\n", boxes.Where(x => x.Cb.IsChecked == true).Select(x => x.Opt));
+        foreach (var opt in options)
+        {
+            var cb = new CheckBox { Content = opt, IsChecked = selected.Contains(opt) };
+            cb.IsCheckedChanged += (_, _) => Sync();
+            boxes.Add((opt, cb));
+            panel.Children.Add(cb);
+        }
+        Sync();
+        return panel;
+    }
+
+    private Control MakeTable(ProgramSettingField field, string cur)
+    {
+        var spec = field.Table ?? new ProgramTableSpec { Cols = 1, Rows = 1 };
+        var data = ProgramTableData.ParseOrEmpty(cur, spec);
+        var rows = spec.Rows;
+        var cols = spec.Cols;
+        var g = new Avalonia.Controls.Grid();
+        if (spec.RowHeader)
+            g.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(72)));
+        for (var c = 0; c < cols; c++)
+            g.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        if (spec.CellButton)
+            g.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        for (var r = 0; r < rows; r++)
+            g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+        var colOffset = spec.RowHeader ? 1 : 0;
+        void Header(string text, int col, int row)
+        {
+            var tb = new TextBlock { Text = text, FontWeight = FontWeight.SemiBold, Margin = new Avalonia.Thickness(4) };
+            Avalonia.Controls.Grid.SetColumn(tb, col);
+            Avalonia.Controls.Grid.SetRow(tb, row);
+            g.Children.Add(tb);
+        }
+        if (spec.RowHeader) Header("", 0, 0);
+        for (var c = 0; c < cols; c++)
+            Header(c < spec.ColNames.Count ? spec.ColNames[c] : "C" + (c + 1), c + colOffset, 0);
+        if (spec.CellButton) Header("", cols + colOffset, 0);
+
+        var cells = new TextBox[rows, cols];
+        void Persist()
+        {
+            var next = ProgramTableData.CreateEmpty(rows, cols);
+            for (var r = 0; r < rows; r++)
+            for (var c = 0; c < cols; c++)
+                next.Cells[r][c] = cells[r, c]?.Text ?? "";
+            _values[field.Key] = next.ToJson();
+        }
+        for (var r = 0; r < rows; r++)
+        {
+            if (spec.RowHeader)
+                Header(r < spec.RowNames.Count ? spec.RowNames[r] : "R" + (r + 1), 0, r + 1);
+            for (var c = 0; c < cols; c++)
+            {
+                var tb = new TextBox { Text = data.Cells[r][c], Margin = new Avalonia.Thickness(2), MinHeight = 26 };
+                tb.TextChanged += (_, _) => Persist();
+                cells[r, c] = tb;
+                Avalonia.Controls.Grid.SetColumn(tb, c + colOffset);
+                Avalonia.Controls.Grid.SetRow(tb, r + 1);
+                g.Children.Add(tb);
+            }
+            if (spec.CellButton)
+            {
+                var rr = r;
+                var btn = new Button { Content = "▶", Width = 32, Height = 26, Margin = new Avalonia.Thickness(2) };
+                btn.Click += async (_, _) =>
+                {
+                    var ev = string.IsNullOrWhiteSpace(spec.ButtonEvent) ? field.Key : spec.ButtonEvent;
+                    ProgramSettingEventBus.Enqueue(_program.Id, ev, $"{rr},0");
+                    await ShowInfoAsync(Loc.T("Prog.SettingsEventQueued", ev + $" ({rr},0)"));
+                };
+                Avalonia.Controls.Grid.SetColumn(btn, cols + colOffset);
+                Avalonia.Controls.Grid.SetRow(btn, r + 1);
+                g.Children.Add(btn);
+            }
+        }
+        Persist();
+        return g;
+    }
+
+    private async Task ShowInfoAsync(string message)
+    {
+        var win = new Window
+        {
+            Title = Loc.T("Prog.ActSettings"),
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    new Button { Content = "OK", Width = 88, HorizontalAlignment = HorizontalAlignment.Right }
+                }
+            }
+        };
+        if (win.Content is StackPanel sp && sp.Children[^1] is Button ok)
+            ok.Click += (_, _) => win.Close();
+        await win.ShowDialog(this);
+    }
+
     private void Collect()
     {
         foreach (var field in _fields)
         {
-            if (field.Kind == ProgramSettingKind.Rect) continue;
+            if (field.Kind is ProgramSettingKind.Rect or ProgramSettingKind.Button) continue;
             if (!_editors.TryGetValue(field.Key, out var el)) continue;
             switch (el)
             {
@@ -312,7 +533,11 @@ public partial class ProgramSettingsWindow : Window
                     _values[field.Key] = cb.IsChecked == true ? "true" : "false";
                     break;
                 case TextBox tb:
-                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, tb.Text);
+                    _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, tb.Text, field);
+                    break;
+                default:
+                    if (_values.TryGetValue(field.Key, out var raw))
+                        _values[field.Key] = ProgramSettingsSchema.NormalizeStored(field.Kind, raw, field);
                     break;
             }
         }

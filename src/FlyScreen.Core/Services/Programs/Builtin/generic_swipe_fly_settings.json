@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "fields": [
+    {
+      "key": "enableOcr",
+      "kind": "bool",
+      "label": "启用OCR",
+      "defaultRaw": "true"
+    },
+    {
+      "key": "debugOcr",
+      "kind": "bool",
+      "label": "调试OCR",
+      "defaultRaw": "false"
+    },
+    {
+      "key": "logLevel",
+      "kind": "enum",
+      "label": "日志级别",
+      "defaultRaw": "信息",
+      "enumOptions": [ "错误", "警告", "信息", "调试" ]
+    },
+    {
+      "key": "debugLog",
+      "kind": "bool",
+      "label": "调试浮层",
+      "defaultRaw": "false"
+    },
+    {
+      "key": "appHints",
+      "kind": "stringList",
+      "label": "应用包名关键词",
+      "defaultRaw": "com.kylin.read,kylin.read,kylin,hongguo,phoenix.read,dragon.read,fanqie,novel.read"
+    },
+    {
+      "key": "swipeHints",
+      "kind": "stringList",
+      "label": "识别文案",
+      "defaultRaw": "上滑继续观看漫剧,上滑继续观看短剧,上滑继续观看剧集,上滑继续观看,继续观看漫剧,继续观看短剧,继续观看剧集"
+    },
+    {
+      "key": "action",
+      "kind": "enum",
+      "label": "命中后操作",
+      "defaultRaw": "SwipeUp",
+      "enumOptions": [ "SwipeUp", "SwipeDown", "SwipeLeft", "SwipeRight", "Tap", "DoubleTap", "LongPress" ]
+    },
+    {
+      "key": "longPressSec",
+      "kind": "double",
+      "label": "长按秒数",
+      "defaultRaw": "0.7"
+    },
+    {
+      "key": "ocrRegionPortrait",
+      "kind": "rect",
+      "label": "竖屏识别区",
+      "defaultRaw": ""
+    },
+    {
+      "key": "actionRegionPortrait",
+      "kind": "rect",
+      "label": "竖屏操作区",
+      "defaultRaw": ""
+    },
+    {
+      "key": "ocrRegionLandscape",
+      "kind": "rect",
+      "label": "横屏识别区",
+      "defaultRaw": ""
+    },
+    {
+      "key": "actionRegionLandscape",
+      "kind": "rect",
+      "label": "横屏操作区",
+      "defaultRaw": ""
+    }
+  ]
+}

@@ -25,6 +25,7 @@ public static class IconPaths
     public static string Save => IconCatalog.GetPath(IconCodes.Save);
     public static string Clock => IconCatalog.GetPath(IconCodes.Clock);
     public static string Build => IconCatalog.GetPath(IconCodes.Build);
+    public static string Deps => IconCatalog.GetPath(IconCodes.Deps);
     public static string EyeOpen => IconCatalog.GetPath(IconCodes.EyeOpen);
     public static string EyeOff => IconCatalog.GetPath(IconCodes.EyeOff);
 

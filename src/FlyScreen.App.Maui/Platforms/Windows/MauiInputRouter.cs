@@ -158,7 +158,7 @@ public sealed class MauiInputRouter : IDisposable
             }
             else
             {
-                AppLog.Info($"键鼠钩子已安装（独立泵线程={_hookThreadId}）");
+                AppLog.Info(FlyScreen.Helpers.Localization.Loc.T("Log.InputHookInstalled", _hookThreadId));
             }
 
             ShowLocalCursor();

@@ -1,0 +1,109 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:prog="clr-namespace:FlyScreen.Services.Programs;assembly=FlyScreen.Core"
+        x:Class="FlyScreen.DesktopUi.ProgramFlySettingsDesignerWindow"
+        Title="fly-settings 配置"
+        Width="820" Height="380"
+        MinWidth="680" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}">
+  <Window.Styles>
+    <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/DialogStyles.axaml"/>
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+    <Style Selector="Button.titleBtn">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Width" Value="40"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+    </Style>
+    <Style Selector="Button.iconOp">
+      <Setter Property="Width" Value="28"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Padding" Value="4"/>
+      <Setter Property="Margin" Value="2,0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+  </Window.Styles>
+  <Border x:Name="WindowFrame" Background="{DynamicResource WinBg}" BorderBrush="{DynamicResource Line}">
+    <DockPanel>
+      <Border x:Name="ClientTitleBar" DockPanel.Dock="Top" Classes="dlgTitleBar" IsVisible="False">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock x:Name="ClientTitleText" Text="fly-settings 配置" Classes="dlgTitleText" IsHitTestVisible="False"/>
+          <Button x:Name="TitleCloseBtn" Grid.Column="1" Classes="titleBtn" Content="×"/>
+        </Grid>
+      </Border>
+      <Border DockPanel.Dock="Bottom" Classes="dlgFooter">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="0">
+          <Button x:Name="BtnCancel" Classes="dlgNormal" Content="取消" Click="Cancel_Click"/>
+          <Button x:Name="BtnSave" Classes="dlgPrimary" Content="保存" Click="Save_Click"/>
+        </StackPanel>
+      </Border>
+      <Grid Margin="16,12" RowDefinitions="Auto,*">
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+          <Button x:Name="BtnAdd" Classes="dlgPrimary" Content="添加" Height="32" Click="Add_Click"/>
+          <Button x:Name="BtnRemove" Classes="dlgNormal" Content="删除" Height="32" Click="BatchRemove_Click"/>
+        </StackPanel>
+        <!-- 占满中间区域；行数超出时 DataGrid 内纵向滚动 -->
+        <DataGrid x:Name="FieldGrid"
+                  Grid.Row="1"
+                  AutoGenerateColumns="False"
+                  CanUserReorderColumns="False"
+                  IsReadOnly="True"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  SelectionMode="Extended"
+                  RowHeight="36"
+                  VerticalAlignment="Stretch"
+                  HorizontalAlignment="Stretch"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  Background="{DynamicResource CardBg}"
+                  BorderBrush="{DynamicResource Line}"
+                  BorderThickness="1">
+          <DataGrid.Columns>
+            <DataGridTemplateColumn Width="44">
+              <DataGridTemplateColumn.Header>
+                <CheckBox x:Name="HeaderCheck" IsCheckedChanged="HeaderCheck_Changed"/>
+              </DataGridTemplateColumn.Header>
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="prog:FlySettingsFieldEdit" x:CompileBindings="False">
+                  <CheckBox IsChecked="{Binding IsSelected}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="标签" Binding="{ReflectionBinding Label}" Width="*" MinWidth="100"/>
+            <DataGridTextColumn Header="键" Binding="{ReflectionBinding Key}" Width="120"/>
+            <DataGridTextColumn Header="类型" Binding="{ReflectionBinding KindText}" Width="90"/>
+            <DataGridTextColumn Header="事件" Binding="{ReflectionBinding EventDisplay}" Width="120"/>
+            <DataGridTemplateColumn Header="操作" Width="150">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate x:DataType="prog:FlySettingsFieldEdit" x:CompileBindings="False">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2">
+                    <Button Classes="iconOp" Tag="{Binding}" Click="RowEdit_Click" ToolTip.Tip="编辑">
+                      <Viewbox Width="14" Height="14">
+                        <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoEdit}"/>
+                      </Viewbox>
+                    </Button>
+                    <Button Classes="iconOp" Tag="{Binding}" Click="RowUp_Click" ToolTip.Tip="上移"
+                            Content="↑" FontWeight="SemiBold" Foreground="{DynamicResource Blue}"/>
+                    <Button Classes="iconOp" Tag="{Binding}" Click="RowDown_Click" ToolTip.Tip="下移"
+                            Content="↓" FontWeight="SemiBold" Foreground="{DynamicResource Blue}"/>
+                    <Button Classes="iconOp" Tag="{Binding}" Click="RowDelete_Click" ToolTip.Tip="删除">
+                      <Viewbox Width="14" Height="14">
+                        <Path Fill="#EF4444" Data="{StaticResource GeoDelete}"/>
+                      </Viewbox>
+                    </Button>
+                  </StackPanel>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+      </Grid>
+    </DockPanel>
+  </Border>
+</Window>

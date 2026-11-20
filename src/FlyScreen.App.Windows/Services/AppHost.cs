@@ -46,7 +46,12 @@ public sealed class AppHost : IAsyncDisposable
     private ISharedDevicesRuntime? _sharedDevices;
     private AppHost()
     {
+        ProgramUiCompatibility.ConfigureLocalHost(ProgramHostKind.WinWpf);
+        LocalPeerIdentity.Configure(
+            caps: ProgramUiCompatibility.WithProgHost(PeerCaps.DesktopFull, ProgramHostKind.WinWpf));
         Settings = AppSettings.Load();
+        // 须在 AttachSharedDevices / Bundled 探测打日志之前，否则会按默认 zh-CN 写入
+        FlyScreen.Helpers.Localization.Loc.SetCulture(Settings.UiLanguage);
         Settings.EnsureLocalMachineSlot();
         Connections = new ConnectionManager(Settings);
         ProgramShareService.Attach(Connections);
@@ -253,7 +258,7 @@ public sealed class AppHost : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            PublishStatus("配置防火墙失败：" + ex.Message);
+            PublishStatus(FlyScreen.Helpers.Localization.Loc.T("Status.FirewallConfigFail", ex.Message));
         }
     }
 

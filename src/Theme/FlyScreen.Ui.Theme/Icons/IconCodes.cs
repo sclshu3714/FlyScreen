@@ -24,6 +24,7 @@ public static class IconCodes
     public const string Save = "icon.save";
     public const string Clock = "icon.clock";
     public const string Build = "icon.build";
+    public const string Deps = "icon.deps";
 
     // —— 显隐 ——
     public const string EyeOpen = "icon.eye.open";

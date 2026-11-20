@@ -20,6 +20,11 @@ public partial class ProgramAddPage : ContentPage
             : _languages[0];
     public string NamespaceValue => NamespaceBox.Text?.Trim() ?? "";
     public string FileNameValue => FileNameBox.Text?.Trim() ?? "";
+    public bool EnableUi => EnableUiCheck.IsChecked
+                            && SelectedLanguage == ProgramLanguage.CSharp
+                            && ProgramUiCompatibility.DefaultCreateUiKindForLocal() != ProgramUiKind.None;
+    public ProgramUiKind SelectedUiKind
+        => EnableUi ? ProgramUiCompatibility.DefaultCreateUiKindForLocal() : ProgramUiKind.None;
     public Task<bool> Result => _tcs.Task;
 
     public ProgramAddPage()
@@ -32,6 +37,7 @@ public partial class ProgramAddPage : ContentPage
         LblLang.Text = Loc.T("Prog.DlgLang");
         LblNs.Text = Loc.T("Prog.DlgNamespace");
         LblFile.Text = Loc.T("Prog.DlgFileName");
+        LblEnableUi.Text = Loc.T("Prog.DlgEnableUi");
         SaveBtn.Text = Loc.T("Prog.DlgSave");
         CancelBtn.Text = Loc.T("Prog.DlgCancel");
         DetectBtn.Text = Loc.T("Prog.DlgDetect");
@@ -46,6 +52,47 @@ public partial class ProgramAddPage : ContentPage
         FileNameBox.Focused += (_, _) => _fileManual = true;
         NamespaceBox.Text = ChinesePinyin.ToNamespace("");
         FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(_languages[0]);
+        RefreshExternalDevHint();
+        RefreshUiOptions();
+    }
+
+    private void RefreshExternalDevHint()
+    {
+        ExternalDevHint.Text = SelectedLanguage == ProgramLanguage.CSharp
+            ? Loc.T("Prog.DlgExternalDevHintCs")
+            : Loc.T("Prog.DlgExternalDevHint");
+    }
+
+    private void EnableUi_Changed(object? sender, CheckedChangedEventArgs e) => RefreshUiKindHint();
+
+    private void RefreshUiOptions()
+    {
+        var csharp = SelectedLanguage == ProgramLanguage.CSharp;
+        var kind = ProgramUiCompatibility.DefaultCreateUiKindForLocal();
+        UiOptionsPanel.IsVisible = csharp;
+        if (!csharp)
+            EnableUiCheck.IsChecked = false;
+        EnableUiCheck.IsEnabled = kind != ProgramUiKind.None;
+        RefreshUiKindHint();
+    }
+
+    private void RefreshUiKindHint()
+    {
+        var kind = ProgramUiCompatibility.DefaultCreateUiKindForLocal();
+        if (kind == ProgramUiKind.None)
+        {
+            UiKindHint.Text = Loc.T("Prog.DlgUiKindHintNone");
+            return;
+        }
+        if (!EnableUiCheck.IsChecked)
+        {
+            UiKindHint.Text = "";
+            return;
+        }
+        UiKindHint.Text = Loc.T(
+            "Prog.DlgUiKindHint",
+            ProgramUiCompatibility.DisplayName(kind),
+            ProgramUiCompatibility.ShareHint(kind));
     }
 
     private void NameBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -67,6 +114,8 @@ public partial class ProgramAddPage : ContentPage
         {
             FileNameBox.Text = ProgramLanguageInfo.DefaultFileName(lang);
         }
+        RefreshExternalDevHint();
+        RefreshUiOptions();
         ClearDetectUi();
     }
 

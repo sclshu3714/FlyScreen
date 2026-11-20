@@ -3,12 +3,13 @@ using Microsoft.Maui.Controls.Shapes;
 
 namespace FlyScreen.Ui.Maui;
 
-/// <summary>弹窗尺寸档：表单卡 / 宽内容卡 / 固定理想尺寸（如投影）。</summary>
+/// <summary>弹窗尺寸档：表单卡 / 宽内容卡 / 固定理想尺寸 / 铺满宿主可用区。</summary>
 public enum MauiDialogSize
 {
     Form,
     Wide,
-    Fixed
+    Fixed,
+    Fill
 }
 
 /// <summary>
@@ -319,6 +320,9 @@ public sealed class MauiDialogShell : ContentView
             case MauiDialogSize.Fixed:
                 ApplyFixedCard(maxW, maxH);
                 break;
+            case MauiDialogSize.Fill:
+                ApplyFixedCard(maxW, maxH, fillHost: true);
+                break;
             default:
                 ApplyFluidCard(MauiDialogLayout.FormCardMaxWidth(pageW), maxW, maxH);
                 break;
@@ -338,10 +342,10 @@ public sealed class MauiDialogShell : ContentView
         _card.HorizontalOptions = LayoutOptions.Center;
     }
 
-    private void ApplyFixedCard(double maxW, double maxH)
+    private void ApplyFixedCard(double maxW, double maxH, bool fillHost = false)
     {
-        var shellW = Math.Min(IdealWidth, maxW);
-        var shellH = Math.Min(IdealHeight, maxH);
+        var shellW = fillHost ? maxW : Math.Min(IdealWidth, maxW);
+        var shellH = fillHost ? maxH : Math.Min(IdealHeight, maxH);
         _card.WidthRequest = shellW;
         _card.MaximumWidthRequest = shellW;
         _card.MinimumWidthRequest = Math.Min(320, shellW);

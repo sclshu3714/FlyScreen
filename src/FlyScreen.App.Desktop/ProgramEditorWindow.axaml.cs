@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit.Highlighting;
@@ -31,6 +32,9 @@ public partial class ProgramEditorWindow : Window
     private bool _toolsCompact;
     private bool _outputExpanded;
     private bool _outputRefreshPending;
+    private bool _filePickerUpdating;
+    private string _currentRelativePath = "";
+    private string _baselineText = "";
     private DateTime _outputSince = DateTime.MinValue;
     private AppLogEntry? _outputLastWritten;
     private ProgramDebugGate? _debugGate;
@@ -46,10 +50,12 @@ public partial class ProgramEditorWindow : Window
         _program = program;
         _catalog = ProgramService.Instance.Catalog;
         _runner = ProgramService.Instance.Runner;
+        _catalog.NormalizeManifest(_program);
+        _currentRelativePath = _program.FileName;
         InitializeComponent();
         DesktopThemeService.ApplyToChildWindow(this);
 
-        var displayTitle = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {program.FileName}";
+        var displayTitle = $"{Loc.T("Prog.EditorTitle")} — {program.Name} · {program.LanguageText} · {_currentRelativePath}";
         _chrome = LinuxClientChrome.Attach(
             this, ClientTitleBar, ClientTitleText, displayTitle,
             TitleMinBtn, TitleMaxBtn, TitleCloseBtn, allowMaximize: true);
@@ -58,28 +64,36 @@ public partial class ProgramEditorWindow : Window
             && font is FontFamily ff)
             FontFamily = ff;
 
+        ToolTip.SetTip(BtnAddFile, Loc.T("Prog.NewFile"));
         SetTool(BtnSave, BtnSaveText, "Prog.Save");
+        ToolTip.SetTip(BtnDeps, Loc.T("Prog.DepsTitle"));
+        BtnDeps.IsVisible = _program.Language == ProgramLanguage.CSharp;
+        ToolTip.SetTip(BtnFlySettings, Loc.T("Prog.FlySettingsTitle"));
         SetTool(BtnFind, BtnFindText, "Prog.Find");
         SetTool(BtnBuild, BtnBuildText, "Prog.Build");
         SetTool(BtnDebug, BtnDebugText, "Prog.Debug");
         SetTool(BtnRun, BtnRunText, "Prog.Run");
         SetTool(BtnStop, BtnStopText, "Prog.StopRun");
+        ToolTip.SetTip(BtnFileSwitch, Loc.T("Prog.SwitchFile"));
         OutputTitleText.Text = Loc.T("Prog.Output");
         OutputClearBtn.Content = Loc.T("Prog.OutputClear");
         OutputEmptyText.Text = Loc.T("Prog.OutputEmpty");
         ApplyOutputExpanded(false);
         RefreshDebugUi();
+        RefreshFilePicker();
 
         CodeEditor.Options.EnableHyperlinks = false;
         CodeEditor.Options.ConvertTabsToSpaces = true;
-        CodeEditor.Text = _catalog.ReadSource(program);
-        ApplyHighlighting();
+        FileSwitchPopup.PlacementTarget = BtnFileSwitch;
+        LoadEditorText(_catalog.ReadFile(program, _currentRelativePath));
         if (program.IsBuiltin
             || string.Equals(program.Id, BuiltinPrograms.GenericSwipeId, StringComparison.OrdinalIgnoreCase))
         {
             CodeEditor.IsReadOnly = true;
             BtnSave.IsEnabled = false;
             BtnBuild.IsEnabled = false;
+            BtnAddFile.IsEnabled = false;
+            BtnDeps.IsEnabled = false;
             ToolTip.SetTip(BtnSave, Loc.T("Prog.BuiltinSourceReadonly"));
             ToolTip.SetTip(BtnBuild, Loc.T("Prog.BuiltinSourceReadonly"));
         }
@@ -105,7 +119,7 @@ public partial class ProgramEditorWindow : Window
 
     private void ApplyHighlighting()
     {
-        var name = ProgramEditorLanguageMap.AvalonHighlightingName(_program.Language);
+        var name = ProgramEditorLanguageMap.AvalonHighlightingNameForPath(_currentRelativePath, _program.Language);
         var def = HighlightingManager.Instance.GetDefinition(name);
         if (def == null && name is "PowerShell" or "Bash" or "Batch")
             def = HighlightingManager.Instance.GetDefinition("JavaScript");
@@ -287,16 +301,57 @@ public partial class ProgramEditorWindow : Window
         return false;
     }
 
-    /// <summary>按语言自动格式化。</summary>
+    private bool IsDirty
+        => !CodeEditor.IsReadOnly
+           && !string.Equals(
+               ProgramCatalog.NormalizeSourceText(CodeEditor.Text ?? ""),
+               ProgramCatalog.NormalizeSourceText(_baselineText),
+               StringComparison.Ordinal);
+
+    private void LoadEditorText(string text)
+    {
+        var next = text ?? "";
+        // 换 Document 比只改 Text 更能保证视图立刻刷新
+        CodeEditor.Document = new AvaloniaEdit.Document.TextDocument(next);
+        CodeEditor.CaretOffset = 0;
+        try { CodeEditor.ScrollToHome(); } catch { /* ignore */ }
+        _baselineText = next;
+        ApplyHighlighting();
+        RefreshBpHint();
+    }
+
+    /// <summary>按当前文件类型自动格式化。</summary>
     private bool ApplyAutoFormat()
     {
         var current = CodeEditor.Text ?? "";
-        var formatted = ProgramEditorFormatter.Format(current, _program.Language);
+        string formatted;
+        if (ProgramCatalog.IsConfigSchemaFile(_currentRelativePath))
+            formatted = ProgramFlySettingsStore.NormalizeSchemaText(current);
+        else
+            formatted = ProgramEditorFormatter.Format(current, _program.Language);
         if (string.Equals(current, formatted, StringComparison.Ordinal)) return false;
         var caret = CodeEditor.CaretOffset;
         CodeEditor.Text = formatted;
         CodeEditor.CaretOffset = Math.Clamp(caret, 0, formatted.Length);
         RefreshBpHint();
+        return true;
+    }
+
+    /// <returns>true=可继续；false=取消。</returns>
+    private async Task<bool> PromptSaveIfDirtyAsync()
+    {
+        if (!IsDirty) return true;
+        var r = await PromptYesNoCancelAsync(Loc.T("Prog.UnsavedChanges"));
+        if (r == null) return false;
+        if (r == true)
+        {
+            try { SaveSilent(); }
+            catch (Exception ex)
+            {
+                await ShowAlertAsync(ex.Message);
+                return false;
+            }
+        }
         return true;
     }
 
@@ -327,6 +382,56 @@ public partial class ProgramEditorWindow : Window
         if (win.Content is StackPanel sp && sp.Children[^1] is Button ok)
             ok.Click += (_, _) => win.Close();
         await win.ShowDialog(this);
+    }
+
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        var r = await PromptYesNoCancelAsync(message, includeCancel: false);
+        return r == true;
+    }
+
+    /// <returns>true=是/保存；false=否/不保存；null=取消。</returns>
+    private async Task<bool?> PromptYesNoCancelAsync(string message, bool includeCancel = true)
+    {
+        var tcs = new TaskCompletionSource<bool?>();
+        var yes = new Button { Content = Loc.T("Prog.Save"), Width = 72, Margin = new Thickness(0, 0, 8, 0) };
+        var no = new Button { Content = Loc.T("Prog.DontSave"), Width = 88, Margin = new Thickness(0, 0, 8, 0) };
+        var cancel = new Button { Content = Loc.T("Prog.DlgCancel"), Width = 72, IsVisible = includeCancel };
+        if (!includeCancel)
+        {
+            yes.Content = "Yes";
+            no.Content = "No";
+            no.Margin = new Thickness(0);
+        }
+        var win = new Window
+        {
+            Title = Loc.T("Prog.EditorTitle"),
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { yes, no, cancel }
+                    }
+                }
+            }
+        };
+        yes.Click += (_, _) => { tcs.TrySetResult(true); win.Close(); };
+        no.Click += (_, _) => { tcs.TrySetResult(false); win.Close(); };
+        cancel.Click += (_, _) => { tcs.TrySetResult(null); win.Close(); };
+        win.Closed += (_, _) => tcs.TrySetResult(includeCancel ? null : false);
+        await win.ShowDialog(this);
+        return await tcs.Task;
     }
 
     private void ToggleBreakpoint(int line)
@@ -400,8 +505,7 @@ public partial class ProgramEditorWindow : Window
     {
         ApplyAutoFormat();
         if (!await EnsureWithinLineLimitAsync()) return;
-        _catalog.WriteSource(_program, CodeEditor.Text ?? "");
-        _catalog.SaveMeta(_program);
+        SaveSilent();
         AppLog.Info($"已保存程序「{_program.Name}」");
     }
 
@@ -414,11 +518,325 @@ public partial class ProgramEditorWindow : Window
         if (!await EnsureWithinLineLimitAsync()) return false;
         EnsureOutputVisible();
         SaveSilent();
-        var file = string.IsNullOrWhiteSpace(_program.FileName) ? "main.cs" : _program.FileName;
-        var result = ProgramCompiler.Compile(_program.Language, CodeEditor.Text ?? "", file);
+        var entryOverride = string.Equals(_currentRelativePath, _program.FileName, StringComparison.OrdinalIgnoreCase)
+            ? CodeEditor.Text
+            : null;
+        var result = await ProgramCompiler.CompileProgramAsync(_catalog, _program, entryOverride);
         AppLog.Info(result.FormatReport($"—— {Loc.T("Prog.Build")} {_program.Name} ——"), _program.Id, _program.Name);
         RefreshOutput();
         return result.Success;
+    }
+
+    private void RefreshEditorTitle()
+    {
+        var t = $"{Loc.T("Prog.EditorTitle")} — {_program.Name} · {_program.LanguageText} · {_currentRelativePath}";
+        Title = t;
+        _chrome?.SetTitle(t);
+    }
+
+    private void RefreshFilePicker()
+    {
+        FileSwitchLabel.Text = ProgramEditorFileBadge.DisplayName(_currentRelativePath);
+        FileSwitchList.Children.Clear();
+        foreach (var f in _catalog.ListEditorFiles(_program))
+            FileSwitchList.Children.Add(BuildFileSwitchRow(f));
+        RefreshEditorTitle();
+    }
+
+    private Control BuildFileSwitchRow(string relativePath)
+    {
+        var isCurrent = string.Equals(relativePath, _currentRelativePath, StringComparison.OrdinalIgnoreCase);
+        var isEntry = string.Equals(relativePath, _program.FileName, StringComparison.OrdinalIgnoreCase);
+        var canDelete = !isEntry && !CodeEditor.IsReadOnly
+                        && !ProgramCatalog.IsConfigSchemaFile(relativePath);
+
+        var del = new Button
+        {
+            Content = "×",
+            Width = 22,
+            Height = 22,
+            Padding = new Thickness(0),
+            FontSize = 14,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            IsVisible = canDelete && isCurrent
+        };
+        ToolTip.SetTip(del, Loc.T("Prog.RemoveFile"));
+        del.Click += async (_, e) =>
+        {
+            e.Handled = true;
+            FileSwitchPopup.IsOpen = false;
+            await RemoveFileAtAsync(relativePath);
+        };
+
+        IBrush? blueSoft = null;
+        IBrush? subtle = null;
+        if (Application.Current?.Resources.TryGetResource("BlueSoft", null, out var bs) == true)
+            blueSoft = bs as IBrush;
+        if (Application.Current?.Resources.TryGetResource("SubtleBg", null, out var sb) == true)
+            subtle = sb as IBrush;
+
+        var badge = new TextBlock
+        {
+            Text = ProgramEditorFileBadge.ForPath(relativePath),
+            FontSize = 10,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+            MinWidth = 22
+        };
+        var name = new TextBlock
+        {
+            Text = ProgramEditorFileBadge.DisplayName(relativePath),
+            FontSize = 12,
+            FontWeight = isCurrent ? FontWeight.SemiBold : FontWeight.Normal,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Grid.SetColumn(name, 1);
+        Grid.SetColumn(del, 2);
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+        grid.Children.Add(badge);
+        grid.Children.Add(name);
+        grid.Children.Add(del);
+
+        var row = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(8, 6, 4, 6),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            Background = isCurrent ? blueSoft : Brushes.Transparent,
+            Child = grid
+        };
+        row.PointerEntered += (_, _) =>
+        {
+            if (!isCurrent && subtle != null) row.Background = subtle;
+            if (canDelete) del.IsVisible = true;
+        };
+        row.PointerExited += (_, _) =>
+        {
+            row.Background = isCurrent ? blueSoft : Brushes.Transparent;
+            if (canDelete && !isCurrent) del.IsVisible = false;
+        };
+        // PointerPressed：赶在 IsLightDismiss 关闭 Popup 之前完成切文件
+        row.PointerPressed += async (_, e) =>
+        {
+            if (e.Handled) return;
+            // 点删除按钮时不切换文件
+            if (e.Source is Visual v)
+            {
+                for (var cur = v as Visual; cur != null; cur = cur.GetVisualParent())
+                {
+                    if (ReferenceEquals(cur, del)) return;
+                }
+            }
+            e.Handled = true;
+            FileSwitchPopup.IsOpen = false;
+            await SwitchToFileAsync(relativePath);
+        };
+        return row;
+    }
+
+    private void FileSwitch_Click(object? sender, RoutedEventArgs e)
+    {
+        RefreshFilePicker();
+        FileSwitchPopup.PlacementTarget = BtnFileSwitch;
+        FileSwitchPopup.IsOpen = true;
+    }
+
+    private async Task SwitchToFileAsync(string next)
+    {
+        if (string.IsNullOrWhiteSpace(next)) return;
+        var same = string.Equals(next, _currentRelativePath, StringComparison.OrdinalIgnoreCase);
+        if (!same && !await PromptSaveIfDirtyAsync()) return;
+        _currentRelativePath = next;
+        // 同路径也强制重载，避免徽标已切、缓冲仍是旧文件内容
+        LoadEditorText(_catalog.ReadFile(_program, _currentRelativePath));
+        RefreshFilePicker();
+    }
+
+    private async void AddFile_Click(object? sender, RoutedEventArgs e)
+    {
+        if (CodeEditor.IsReadOnly) return;
+        var ext = ProgramLanguageInfo.Extension(_program.Language);
+        var suggested = SuggestExtraPath(ext);
+        var path = await PromptTextSimpleAsync(Loc.T("Prog.NewFile"), Loc.T("Prog.AddFilePrompt"), suggested);
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (!await PromptSaveIfDirtyAsync()) return;
+        try
+        {
+            var rel = _catalog.AddFile(_program, path.Trim());
+            _currentRelativePath = rel;
+            LoadEditorText(_catalog.ReadFile(_program, rel));
+            RefreshFilePicker();
+        }
+        catch (Exception ex) { await ShowAlertAsync(ex.Message); }
+    }
+
+    private async Task RemoveFileAtAsync(string relativePath)
+    {
+        if (CodeEditor.IsReadOnly) return;
+        if (string.Equals(relativePath, _program.FileName, StringComparison.OrdinalIgnoreCase))
+        {
+            await ShowAlertAsync(Loc.T("Prog.CannotRemoveEntry"));
+            return;
+        }
+        if (!await ConfirmAsync(Loc.T("Prog.RemoveFile") + "?\n" + relativePath)) return;
+        try
+        {
+            _catalog.RemoveFile(_program, relativePath);
+            if (string.Equals(_currentRelativePath, relativePath, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentRelativePath = _program.FileName;
+                LoadEditorText(_catalog.ReadFile(_program, _currentRelativePath));
+            }
+            RefreshFilePicker();
+        }
+        catch (Exception ex) { await ShowAlertAsync(ex.Message); }
+    }
+
+    private async void Deps_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_program.Language != ProgramLanguage.CSharp) return;
+        await ShowDepsDialogAsync();
+    }
+
+    private async void FlySettings_Click(object? sender, RoutedEventArgs e)
+    {
+        var win = new ProgramFlySettingsDesignerWindow(_program, this);
+        await win.ShowDialog(this);
+    }
+
+    private string SuggestExtraPath(string ext)
+    {
+        for (var i = 1; i < 100; i++)
+        {
+            var rel = $"lib/Module{i}{ext}";
+            if (!_catalog.ListProgramFiles(_program)
+                    .Any(f => string.Equals(f, rel, StringComparison.OrdinalIgnoreCase)))
+                return rel;
+        }
+        return "lib/Extra" + ext;
+    }
+
+    private async Task<string?> PromptTextSimpleAsync(string title, string label, string initial)
+    {
+        var tb = new TextBox { Text = initial };
+        var tcs = new TaskCompletionSource<string?>();
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 420,
+            Height = 170,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+        var okBtn = new Button { Content = "OK", Width = 72, Margin = new Thickness(0, 0, 8, 0) };
+        var cancelBtn = new Button { Content = "Cancel", Width = 72 };
+        okBtn.Click += (_, _) => { tcs.TrySetResult(tb.Text); dlg.Close(); };
+        cancelBtn.Click += (_, _) => { tcs.TrySetResult(null); dlg.Close(); };
+        dlg.Closed += (_, _) => tcs.TrySetResult(null); // OK/Cancel 已 TrySet 时忽略
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0),
+            Children = { okBtn, cancelBtn }
+        };
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        var body = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap }, tb } };
+        var root = new DockPanel { Margin = new Thickness(12), Children = { buttons, body } };
+        dlg.Content = root;
+        await dlg.ShowDialog(this);
+        return await tcs.Task;
+    }
+
+    private async Task ShowDepsDialogAsync()
+    {
+        _catalog.NormalizeManifest(_program);
+        var list = new ListBox { Margin = new Thickness(12, 12, 12, 0) };
+        void Reload()
+        {
+            list.Items.Clear();
+            foreach (var p in _program.Packages)
+                list.Items.Add($"NuGet: {p.Id} {(string.IsNullOrWhiteSpace(p.Version) ? "" : "(" + p.Version + ")")}");
+            foreach (var d in _program.LocalDlls)
+                list.Items.Add($"DLL: {d}");
+        }
+        Reload();
+        var dlg = new Window
+        {
+            Title = Loc.T("Prog.DepsTitle"),
+            Width = 480,
+            Height = 360,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var addNuget = new Button { Content = Loc.T("Prog.AddNuget"), Height = 28, Padding = new Thickness(10, 0) };
+        var addDll = new Button { Content = Loc.T("Prog.AddDll"), Height = 28, Padding = new Thickness(10, 0) };
+        var remove = new Button { Content = Loc.T("Prog.RemoveDep"), Height = 28, Padding = new Thickness(10, 0) };
+        addNuget.Click += async (_, _) =>
+        {
+            var id = await PromptTextSimpleAsync(Loc.T("Prog.AddNuget"), Loc.T("Prog.NugetId"), "");
+            if (string.IsNullOrWhiteSpace(id)) return;
+            var ver = await PromptTextSimpleAsync(Loc.T("Prog.AddNuget"), Loc.T("Prog.NugetVersion"), "") ?? "";
+            _program.Packages.RemoveAll(p => string.Equals(p.Id, id.Trim(), StringComparison.OrdinalIgnoreCase));
+            _program.Packages.Add(new NugetPackageRef { Id = id.Trim(), Version = ver.Trim() });
+            ProgramNugetResolver.SyncCsproj(_catalog, _program);
+            _catalog.SaveMeta(_program);
+            Reload();
+        };
+        addDll.Click += async (_, _) =>
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+            {
+                AllowMultiple = false,
+                FileTypeFilter =
+                [
+                    new Avalonia.Platform.Storage.FilePickerFileType("DLL") { Patterns = ["*.dll"] }
+                ]
+            });
+            var path = files.FirstOrDefault()?.TryGetLocalPath();
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                _catalog.AddLocalDll(_program, path);
+                Reload();
+            }
+            catch (Exception ex) { await ShowAlertAsync(ex.Message); }
+        };
+        remove.Click += async (_, _) =>
+        {
+            var idx = list.SelectedIndex;
+            if (idx < 0) return;
+            if (idx < _program.Packages.Count)
+            {
+                _program.Packages.RemoveAt(idx);
+                ProgramNugetResolver.SyncCsproj(_catalog, _program);
+                _catalog.SaveMeta(_program);
+            }
+            else
+            {
+                var dllIdx = idx - _program.Packages.Count;
+                if (dllIdx >= 0 && dllIdx < _program.LocalDlls.Count)
+                {
+                    try { _catalog.RemoveLocalDll(_program, _program.LocalDlls[dllIdx]); }
+                    catch (Exception ex) { await ShowAlertAsync(ex.Message); }
+                }
+            }
+            Reload();
+        };
+        var bar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Thickness(12),
+            Children = { addNuget, addDll, remove }
+        };
+        DockPanel.SetDock(bar, Dock.Bottom);
+        dlg.Content = new DockPanel { Children = { bar, list } };
+        await dlg.ShowDialog(this);
     }
 
     private async void Debug_Click(object? sender, RoutedEventArgs e)
@@ -610,7 +1028,7 @@ public partial class ProgramEditorWindow : Window
     {
         ApplyAutoFormat();
         if (!ProgramEditorLimits.IsWithinLimit(CodeEditor.Text)) return;
-        _catalog.WriteSource(_program, CodeEditor.Text ?? "");
-        _catalog.SaveMeta(_program);
+        _catalog.WriteFile(_program, _currentRelativePath, CodeEditor.Text ?? "");
+        _baselineText = CodeEditor.Text ?? "";
     }
 }

@@ -1,19 +1,5 @@
-// @fly-settings
-// bool enableOcr | 启用OCR | true
-// bool debugOcr | 调试OCR | false
-// enum logLevel | 日志级别 | 信息 | 错误,警告,信息,调试
-// bool debugLog | 调试浮层 | false
-// string[] appHints | 应用包名关键词 | com.kylin.read,kylin.read,kylin,hongguo,phoenix.read,dragon.read,fanqie,novel.read
-// string[] swipeHints | 识别文案 | 上滑继续观看漫剧,上滑继续观看短剧,上滑继续观看剧集,上滑继续观看,继续观看漫剧,继续观看短剧,继续观看剧集
-// enum action | 命中后操作 | SwipeUp | SwipeUp,SwipeDown,SwipeLeft,SwipeRight,Tap,DoubleTap,LongPress
-// double longPressSec | 长按秒数 | 0.7
-// rect ocrRegionPortrait | 竖屏识别区 |
-// rect actionRegionPortrait | 竖屏操作区 |
-// rect ocrRegionLandscape | 横屏识别区 |
-// rect actionRegionLandscape | 横屏操作区 |
-// @fly-settings-end
-//
-// 内置通用识别操作 v11：HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满，再多停 0.5s 后操作。
+// 内置通用识别操作 v12：配置见 fly-settings.json。
+// HasText →（仅当前朝向已标定识别区才）OCR → 文案含「7s / 7秒」则等满，再多停 0.5s 后操作。
 // 横/竖识别区互不回退；当前朝向未标定则不做 OCR。两侧都未标定 ≈ 未启用 OCR。
 // tipArmed：仅成功执行后解除；失败保持武装并可重试。静默等待/冷却打调试心跳。
 // logLevel：错误/警告/信息/调试 — 仅控制脚本日志落盘；调试浮层只看 debugLog。

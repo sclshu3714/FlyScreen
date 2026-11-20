@@ -16,8 +16,9 @@ src/Tools/VideoWall/
 ├── FlyScreen.Tool.VideoWall/           业务：Sources / Backend(VLC) / Wall / Player / Module
 ├── FlyScreen.Tool.VideoWall.Ui.Win/    WPF 工作区（源管理 + 单路 + 宫格 + 扫描）
 ├── FlyScreen.Tool.VideoWall.Ui.Desktop/ Avalonia 同构
-└── FlyScreen.Tool.VideoWall.Ui.Maui/   MAUI 同构（Maui-Win 可 HWND 嵌入）
+└── FlyScreen.Tool.VideoWall.Ui.Maui/   MAUI 同构（Maui-Win HWND；手机软帧 + 源管理）
 ```
+
 
 ## 构建与打包
 

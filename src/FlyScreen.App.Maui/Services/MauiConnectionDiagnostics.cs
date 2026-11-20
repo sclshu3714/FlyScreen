@@ -191,7 +191,7 @@ public sealed class MauiConnectionDiagnostics
             await Run($"advfirewall firewall add rule name=\"{name}\" dir=out action=allow protocol=TCP localport={tcp} profile=any").ConfigureAwait(false);
             await Run($"advfirewall firewall add rule name=\"{name}\" dir=out action=allow protocol=UDP localport={udp} profile=any").ConfigureAwait(false);
             if (tcpIn == 0 && udpIn == 0)
-                return (true, $"已放行防火墙 TCP {tcp} / UDP {udp}");
+                return (true, FlyScreen.Helpers.Localization.Loc.T("Status.FirewallAllowed", tcp, udp));
             return (false, "写入防火墙失败（需要管理员权限），对端将无法连入本机");
         }
         catch (Exception ex)

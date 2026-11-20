@@ -1,10 +1,17 @@
+using System.Runtime.CompilerServices;
+
 namespace FlyScreen.AppMaui.Helpers;
 
 /// <summary>
 /// MAUI Picker（WinUI ComboBox）下拉列表背景：自定义壁纸主题下须实心 PopupBg，避免选项透底。
+/// 并在收起时屏蔽滚轮改选，把滚轮交给外层滚动。
 /// </summary>
 public static class MauiPickerChrome
 {
+#if WINDOWS
+    private static readonly ConditionalWeakTable<object, object> WheelWired = new();
+#endif
+
     /// <summary>MAUI <c>PickerExtensions.UpdateBackground</c> 会写入的键；WinRT 字典对已存在键再赋值会 HR 失败。</summary>
     private static readonly string[] MauiBackgroundKeys =
     [
@@ -51,8 +58,40 @@ public static class MauiPickerChrome
         {
             // 主题级联刷新中偶发 WinRT 字典失败，忽略以免打断切主题
         }
+
+        WireWheelGuard(combo);
 #endif
     }
+
+#if WINDOWS
+    private static void WireWheelGuard(Microsoft.UI.Xaml.Controls.ComboBox combo)
+    {
+        if (!WheelWired.TryAdd(combo, combo))
+            return;
+        combo.PointerWheelChanged += OnPointerWheel;
+    }
+
+    private static void OnPointerWheel(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is not Microsoft.UI.Xaml.Controls.ComboBox combo || combo.IsDropDownOpen)
+            return;
+
+        e.Handled = true;
+
+        var delta = e.GetCurrentPoint(combo).Properties.MouseWheelDelta;
+        if (delta == 0) return;
+
+        for (var p = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(combo);
+             p != null;
+             p = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(p))
+        {
+            if (p is not Microsoft.UI.Xaml.Controls.ScrollViewer sv) continue;
+            var steps = Math.Max(1, Math.Abs(delta) / 120);
+            sv.ChangeView(null, sv.VerticalOffset - Math.Sign(delta) * steps * 48, null, true);
+            break;
+        }
+    }
+#endif
 
 #if WINDOWS
     private static void RemoveKeys(Microsoft.UI.Xaml.Controls.ComboBox combo, IEnumerable<string> keys)

@@ -21,6 +21,11 @@ public partial class ProgramAddDialog : Window
     public ProgramLanguage SelectedLanguage => CurrentLanguage();
     public string NamespaceValue => NamespaceBox.Text?.Trim() ?? "";
     public string FileNameValue => FileNameBox.Text?.Trim() ?? "";
+    public bool EnableUi => EnableUiCheck.IsChecked == true
+                            && CurrentLanguage() == ProgramLanguage.CSharp
+                            && ProgramUiCompatibility.DefaultCreateUiKindForLocal() != ProgramUiKind.None;
+    public ProgramUiKind SelectedUiKind
+        => EnableUi ? ProgramUiCompatibility.DefaultCreateUiKindForLocal() : ProgramUiKind.None;
 
     public ProgramAddDialog()
     {
@@ -40,6 +45,7 @@ public partial class ProgramAddDialog : Window
         LblLang.Text = Loc.T("Prog.DlgLang");
         LblNs.Text = Loc.T("Prog.DlgNamespace");
         LblFile.Text = Loc.T("Prog.DlgFileName");
+        EnableUiCheck.Content = Loc.T("Prog.DlgEnableUi");
         SaveBtn.Content = Loc.T("Prog.DlgSave");
         CancelBtn.Content = Loc.T("Prog.DlgCancel");
         DetectBtn.Content = Loc.T("Prog.DlgDetect");
@@ -54,6 +60,47 @@ public partial class ProgramAddDialog : Window
         FileNameBox.GotFocus += (_, _) => _fileManual = true;
         SetNs(ChinesePinyin.ToNamespace(""));
         SetFile(ProgramLanguageInfo.DefaultFileName(ProgramLanguage.Python));
+        RefreshExternalDevHint();
+        RefreshUiOptions();
+    }
+
+    private void RefreshExternalDevHint()
+    {
+        ExternalDevHint.Text = CurrentLanguage() == ProgramLanguage.CSharp
+            ? Loc.T("Prog.DlgExternalDevHintCs")
+            : Loc.T("Prog.DlgExternalDevHint");
+    }
+
+    private void EnableUi_Changed(object? sender, RoutedEventArgs e) => RefreshUiKindHint();
+
+    private void RefreshUiOptions()
+    {
+        var csharp = CurrentLanguage() == ProgramLanguage.CSharp;
+        var kind = ProgramUiCompatibility.DefaultCreateUiKindForLocal();
+        UiOptionsPanel.IsVisible = csharp;
+        if (!csharp)
+            EnableUiCheck.IsChecked = false;
+        EnableUiCheck.IsEnabled = kind != ProgramUiKind.None;
+        RefreshUiKindHint();
+    }
+
+    private void RefreshUiKindHint()
+    {
+        var kind = ProgramUiCompatibility.DefaultCreateUiKindForLocal();
+        if (kind == ProgramUiKind.None)
+        {
+            UiKindHint.Text = Loc.T("Prog.DlgUiKindHintNone");
+            return;
+        }
+        if (EnableUiCheck.IsChecked != true)
+        {
+            UiKindHint.Text = "";
+            return;
+        }
+        UiKindHint.Text = Loc.T(
+            "Prog.DlgUiKindHint",
+            ProgramUiCompatibility.DisplayName(kind),
+            ProgramUiCompatibility.ShareHint(kind));
     }
 
     private void NameBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -76,6 +123,8 @@ public partial class ProgramAddDialog : Window
         {
             SetFile(ProgramLanguageInfo.DefaultFileName(lang));
         }
+        RefreshExternalDevHint();
+        RefreshUiOptions();
         ClearDetectUi();
     }
 

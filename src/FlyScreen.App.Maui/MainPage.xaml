@@ -400,7 +400,7 @@
                                                                     BackgroundColor="{DynamicResource BlueSoft}"
                                                                     TextColor="{DynamicResource Text}" />
                                                             <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
-                                                                   Placeholder="远程 host:port；服务 ws://host:8443 或 host:8443" />
+                                                                   Placeholder="{Binding AddressPlaceholder}" />
                                                             <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
                                                                 <Button Style="{StaticResource NetIconOpBtn}" Text="⚡"
                                                                         CommandParameter="{Binding}" Clicked="TestEndpoint_Clicked" />

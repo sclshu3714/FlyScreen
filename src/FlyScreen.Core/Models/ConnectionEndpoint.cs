@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using FlyScreen.Helpers.Localization;
 
 namespace FlyScreen.Models;
 
@@ -94,7 +95,16 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     }
 
     [JsonIgnore]
-    public string KindLabel => Kind == KindRelay ? "服务" : "远程";
+    public string KindLabel => Kind == KindRelay ? Loc.T("Net.Kind.Service") : Loc.T("Net.Kind.Remote");
+
+    [JsonIgnore]
+    public string AddressPlaceholder => Loc.T("Net.AddressPlaceholder");
+
+    [JsonIgnore]
+    public string KindToggleTip => Loc.T("Net.KindToggleTip");
+
+    [JsonIgnore]
+    public string AddressTip => Loc.T("Net.AddressTip");
 
     /// <summary>最近一次失败原因（仅 UI）。</summary>
     public string LastError
@@ -111,10 +121,14 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
     {
         StateConnected when Kind == KindRelay
             => FormatRelayConnectedStatus(),
-        StateConnected => LastRttMs is int ms ? $"● 测试通过 {ms}ms" : "● 测试通过",
-        StateDisconnected => "○ 未测试",
-        StateError => string.IsNullOrWhiteSpace(LastError) ? "○ 无法连接" : $"○ {LastError}",
-        _ => "○ 未测试"
+        StateConnected => LastRttMs is int ms
+            ? Loc.T("Net.Status.TestOkMs", ms)
+            : Loc.T("Net.Status.TestOk"),
+        StateDisconnected => Loc.T("Net.Status.Untested"),
+        StateError => string.IsNullOrWhiteSpace(LastError)
+            ? Loc.T("Net.Status.CannotConnect")
+            : $"○ {LastError}",
+        _ => Loc.T("Net.Status.Untested")
     };
 
     /// <summary>中转是否已扫到可进设备管理的设备。远程配置永不直接进清单。</summary>
@@ -139,19 +153,29 @@ public sealed class ConnectionEndpoint : INotifyPropertyChanged
         LastRttMs = null;
     }
 
+    /// <summary>语言切换后刷新绑定文案。</summary>
+    public void RefreshLocalized()
+    {
+        OnPropertyChanged(nameof(KindLabel));
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(AddressPlaceholder));
+        OnPropertyChanged(nameof(KindToggleTip));
+        OnPropertyChanged(nameof(AddressTip));
+    }
+
     private string FormatRelayConnectedStatus()
     {
         var n = DiscoveredDevices?.Count ?? 0;
         if (n > 0)
         {
             return LastRttMs is int ms
-                ? $"● 已注册 · {n} 台设备 · {ms}ms"
-                : $"● 已注册 · {n} 台设备";
+                ? Loc.T("Net.Status.RelayRegisteredDevicesMs", n, ms)
+                : Loc.T("Net.Status.RelayRegisteredDevices", n);
         }
 
         return LastRttMs is int rtt
-            ? $"● 已注册 · {rtt}ms（等待其它设备）"
-            : "● 已注册（等待其它设备）";
+            ? Loc.T("Net.Status.RelayRegisteredWaitMs", rtt)
+            : Loc.T("Net.Status.RelayRegisteredWait");
     }
 
     public void TryInferKindFromAddress()

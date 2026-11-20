@@ -232,13 +232,13 @@ public sealed class ConnectionDiagnostics
             }
 
             if (r1.ExitCode == 0 && r2.ExitCode == 0)
-                return (true, $"已放行 TCP {tcpPort}、UDP {udpPort} 及程序入站");
+                return (true, FlyScreen.Helpers.Localization.Loc.T("Status.FirewallAllowedWin", tcpPort, udpPort));
 
             return (false, $"添加规则可能失败：TCP={r1.ExitCode} UDP={r2.ExitCode}。请确认以管理员运行。");
         }
         catch (Exception ex)
         {
-            return (false, "配置防火墙失败：" + ex.Message);
+            return (false, FlyScreen.Helpers.Localization.Loc.T("Status.FirewallConfigFail", ex.Message));
         }
     }
 

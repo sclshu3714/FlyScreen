@@ -431,11 +431,13 @@ public sealed class ToolCatalog
                 NameKey = "Tool.VideoWall.Name",
                 SummaryKey = "Tool.VideoWall.Summary",
                 SchemaVersion = 1,
-                DeviceClasses = ["Desktop"],
-                Platforms = ["Windows"],
+                DeviceClasses = ["Desktop", "Phone", "Tablet"],
+                Platforms = ["Windows", "Android"],
                 FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ["Desktop"] = ["fixed-sources", "temp-sources", "grid", "composite"]
+                    ["Desktop"] = ["fixed-sources", "temp-sources", "grid", "composite"],
+                    ["Phone"] = ["fixed-sources", "temp-sources", "grid"],
+                    ["Tablet"] = ["fixed-sources", "temp-sources", "grid", "composite"]
                 },
                 Roles = ["local"],
                 CapNames = [],
@@ -443,9 +445,34 @@ public sealed class ToolCatalog
                 HasWorkspace = true,
                 Icon = ToolIconKeys.VideoWall,
                 Permissions = ["networkStream", "localFile.open", "speaker"],
-                PackageVersion = "0.1.0",
+                PackageVersion = "0.1.1",
                 EntryAssembly = "FlyScreen.Tool.VideoWall.dll",
                 EntryType = "FlyScreen.Tool.VideoWall.Module"
+            },
+            new ToolManifest
+            {
+                Id = ToolIds.DeveloperTools,
+                Kind = "enhancement",
+                CrossScreen = false,
+                Group = "utilities",
+                NameKey = "Tool.DeveloperTools.Name",
+                SummaryKey = "Tool.DeveloperTools.Summary",
+                SchemaVersion = 1,
+                DeviceClasses = ["Desktop"],
+                Platforms = ["Windows", "macOS", "Linux"],
+                FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Desktop"] = ["scaffold"]
+                },
+                Roles = ["local"],
+                CapNames = [],
+                TitleBar = false,
+                HasWorkspace = true,
+                Icon = ToolIconKeys.DeveloperTools,
+                Permissions = [],
+                PackageVersion = "1.0.0",
+                EntryAssembly = "FlyScreen.Tool.DeveloperTools",
+                EntryType = "FlyScreen.Tool.DeveloperTools.Module"
             }
         ];
 }

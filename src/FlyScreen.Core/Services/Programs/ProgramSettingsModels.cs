@@ -2,13 +2,22 @@ using System.Text.Json.Serialization;
 
 namespace FlyScreen.Services.Programs;
 
-/// <summary>设置字段控件类型（由 @fly-settings 标注解析）。</summary>
+/// <summary>设置字段控件类型（fly-settings.json）。</summary>
 public enum ProgramSettingKind
 {
     Bool,
+    String,
     StringList,
     Enum,
+    Radio,
+    Checks,
+    Int,
+    Long,
     Double,
+    File,
+    Folder,
+    Button,
+    Table,
     Rect
 }
 
@@ -108,16 +117,102 @@ public readonly struct NormRect
     private static double Clamp01(double v) => Math.Clamp(v, 0, 1);
 }
 
-/// <summary>脚本 @fly-settings 中声明的一项。</summary>
+/// <summary>表格字段规格（cols/rows/表头/单元格按钮）。</summary>
+public sealed class ProgramTableSpec
+{
+    public int Cols { get; init; } = 1;
+    public int Rows { get; init; } = 1;
+    public IReadOnlyList<string> ColNames { get; init; } = [];
+    public IReadOnlyList<string> RowNames { get; init; } = [];
+    /// <summary>第一列作为行头（显示 RowNames，不可编辑）。</summary>
+    public bool RowHeader { get; init; }
+    /// <summary>单元格内嵌按钮。</summary>
+    public bool CellButton { get; init; }
+    /// <summary>单元格按钮事件名；detail 为 "row,col"。</summary>
+    public string ButtonEvent { get; init; } = "";
+}
+
+/// <summary>表格落盘 JSON。</summary>
+public sealed class ProgramTableData
+{
+    public int V { get; set; } = 1;
+    public string[][] Cells { get; set; } = [];
+
+    public static ProgramTableData CreateEmpty(int rows, int cols)
+    {
+        rows = Math.Clamp(rows, 1, 50);
+        cols = Math.Clamp(cols, 1, 20);
+        var cells = new string[rows][];
+        for (var r = 0; r < rows; r++)
+        {
+            cells[r] = new string[cols];
+            for (var c = 0; c < cols; c++)
+                cells[r][c] = "";
+        }
+        return new ProgramTableData { Cells = cells };
+    }
+
+    public static ProgramTableData ParseOrEmpty(string? raw, ProgramTableSpec? spec)
+    {
+        var rows = Math.Max(1, spec?.Rows ?? 1);
+        var cols = Math.Max(1, spec?.Cols ?? 1);
+        if (string.IsNullOrWhiteSpace(raw))
+            return CreateEmpty(rows, cols);
+        try
+        {
+            var data = System.Text.Json.JsonSerializer.Deserialize<ProgramTableData>(raw,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (data?.Cells == null || data.Cells.Length == 0)
+                return CreateEmpty(rows, cols);
+            return NormalizeSize(data, rows, cols);
+        }
+        catch
+        {
+            return CreateEmpty(rows, cols);
+        }
+    }
+
+    public static ProgramTableData NormalizeSize(ProgramTableData data, int rows, int cols)
+    {
+        rows = Math.Clamp(rows, 1, 50);
+        cols = Math.Clamp(cols, 1, 20);
+        var cells = new string[rows][];
+        for (var r = 0; r < rows; r++)
+        {
+            cells[r] = new string[cols];
+            for (var c = 0; c < cols; c++)
+            {
+                if (r < data.Cells.Length && data.Cells[r] != null && c < data.Cells[r].Length)
+                    cells[r][c] = data.Cells[r][c] ?? "";
+                else
+                    cells[r][c] = "";
+            }
+        }
+        return new ProgramTableData { V = 1, Cells = cells };
+    }
+
+    public string ToJson()
+        => System.Text.Json.JsonSerializer.Serialize(this);
+}
+
+/// <summary>fly-settings.json 中声明的一项。</summary>
 public sealed class ProgramSettingField
 {
     public required string Key { get; init; }
     public required ProgramSettingKind Kind { get; init; }
     public required string Label { get; init; }
     public string DefaultRaw { get; init; } = "";
-    /// <summary>enum 可选值（原始 token）。</summary>
+    /// <summary>enum / radio / checks 可选值。</summary>
     public IReadOnlyList<string> EnumOptions { get; init; } = [];
+    /// <summary>file 过滤器，如 <c>*.txt;*.csv</c>。</summary>
+    public string Filter { get; init; } = "";
+    /// <summary>button / table 单元格按钮事件名。</summary>
+    public string EventName { get; init; } = "";
+    public ProgramTableSpec? Table { get; init; }
 }
+
+/// <summary>设置页按钮触发、供脚本消费的事件。</summary>
+public sealed record ProgramSettingEvent(string Name, string Detail, long UtcTicks);
 
 /// <summary>落盘 settings.json。</summary>
 public sealed class ProgramSettingsFile
@@ -130,7 +225,8 @@ public sealed class ProgramSettingsFile
 public static class BuiltinPrograms
 {
     public const string GenericSwipeId = "builtin-generic-swipe";
-    public const int GenericSwipeSourceVersion = 11;
+    public const int GenericSwipeSourceVersion = 12;
     public const string GenericSwipeName = "通用识别操作";
     public const string ResourceName = "FlyScreen.Services.Programs.Builtin.generic_swipe_main.cs";
+    public const string SchemaResourceName = "FlyScreen.Services.Programs.Builtin.generic_swipe_fly_settings.json";
 }

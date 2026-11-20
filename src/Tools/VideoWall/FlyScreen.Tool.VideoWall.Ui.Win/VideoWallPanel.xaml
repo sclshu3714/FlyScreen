@@ -444,7 +444,7 @@
             </ListView>
             <ScrollViewer x:Name="SourcesCardsHost" Visibility="Collapsed"
                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                          Padding="4">
+                          Padding="4" SizeChanged="SourcesCardsHost_SizeChanged">
               <ItemsControl x:Name="SourcesCards" HorizontalAlignment="Left">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
@@ -454,7 +454,8 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="ContentPresenter">
-                    <Setter Property="Width" Value="220"/>
+                    <!-- 宽度由代码按宿主宽算：默认窗约 3 列，缩放仍自适应列数 -->
+                    <Setter Property="Width" Value="200"/>
                     <Setter Property="Margin" Value="0,0,8,8"/>
                     <Setter Property="HorizontalAlignment" Value="Left"/>
                     <Setter Property="VerticalAlignment" Value="Top"/>
@@ -462,10 +463,10 @@
                 </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <Border Width="220" MinHeight="132" Margin="0" Padding="10" CornerRadius="8"
+                    <Border MinHeight="132" Margin="0" Padding="10" CornerRadius="8"
                             BorderBrush="{DynamicResource Line}" BorderThickness="1"
                             Background="{DynamicResource CardBg}" Cursor="Hand"
-                            HorizontalAlignment="Left" VerticalAlignment="Top"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Top"
                             MouseLeftButtonDown="Card_MouseLeftButtonDown">
                       <Grid>
                         <Grid.RowDefinitions>

@@ -13,6 +13,18 @@ public sealed class ProgramSharePayload
     public string FileName { get; set; } = "";
     public string Source { get; set; } = "";
     public string? ProjectFile { get; set; }
+
+    /// <summary>附加源文件（相对路径 + 内容）。旧对端忽略。</summary>
+    public List<ProgramShareFile>? ExtraSources { get; set; }
+
+    /// <summary>本地 DLL 文件名清单（不含二进制）。</summary>
+    public List<string>? LocalDllNames { get; set; }
+
+    /// <summary>C# NuGet 包声明。</summary>
+    public List<NugetPackageRef>? Packages { get; set; }
+
+    /// <summary>UI 框架；0=无。旧对端忽略。</summary>
+    public int UiKind { get; set; }
 }
 
 /// <summary>把程序发给已连接对端。同 Id 覆盖源码；仅同名不同 Id 才跳过。</summary>
@@ -67,30 +79,67 @@ public sealed class ProgramShareService
 
         if (bytes.Length > MessageCodec.MaxPayload - 32)
         {
-            AppLog.Error($"程序「{prog.Name}」过大，无法共享", prog.Id, prog.Name);
+            AppLog.Error($"程序「{prog.Name}」过大，无法共享（含附加文件）", prog.Id, prog.Name);
             return new ProgramShareResult(peers.Count, 0);
         }
 
         var sent = 0;
+        var skipped = 0;
         foreach (var peer in peers)
         {
+            if (prog.UiKind != ProgramUiKind.None)
+            {
+                var info = _connections.GetPeerRemoteInfo(peer);
+                var caps = info?.Caps;
+                // 无 ProgHost Cap 的旧端：无法确认能否跑 UI，跳过
+                if (caps == null || caps.Length == 0
+                    || !ProgramUiCompatibility.PeerCanRun(caps, prog.UiKind))
+                {
+                    skipped++;
+                    AppLog.Info(
+                        $"跳过共享「{prog.Name}」→ {peer}：对端无法运行 {ProgramUiCompatibility.DisplayName(prog.UiKind)} UI",
+                        prog.Id, prog.Name);
+                    continue;
+                }
+            }
+
             if (await _connections.SendToAsync(peer, MessageType.ProgramShare, bytes).ConfigureAwait(false))
                 sent++;
         }
 
-        AppLog.Info($"已将程序「{prog.Name}」发送到 {sent} 台电脑", prog.Id, prog.Name);
+        AppLog.Info(
+            skipped > 0
+                ? $"已将程序「{prog.Name}」发送到 {sent} 台（跳过不兼容 {skipped} 台）"
+                : $"已将程序「{prog.Name}」发送到 {sent} 台电脑",
+            prog.Id, prog.Name);
         return new ProgramShareResult(peers.Count, sent);
     }
 
     private ProgramSharePayload BuildPayload(UserProgram prog)
     {
+        _catalog.NormalizeManifest(prog);
         string? project = null;
         if (prog.Language == ProgramLanguage.CSharp)
         {
+            ProgramNugetResolver.SyncCsproj(_catalog, prog);
             var path = Path.Combine(_catalog.GetFolder(prog), "program.csproj");
             if (File.Exists(path))
                 project = File.ReadAllText(path);
         }
+
+        var extras = new List<ProgramShareFile>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddExtra(string rel, string content)
+        {
+            rel = ProgramCatalog.NormalizeRelativePath(rel);
+            if (!seen.Add(rel)) return;
+            extras.Add(new ProgramShareFile { Path = rel, Content = content });
+        }
+
+        foreach (var (rel, content) in _catalog.ReadExtraSources(prog))
+            AddExtra(rel, content);
+        foreach (var (rel, content) in _catalog.ReadUiAssetSources(prog))
+            AddExtra(rel, content);
 
         return new ProgramSharePayload
         {
@@ -100,7 +149,13 @@ public sealed class ProgramShareService
             Namespace = prog.Namespace,
             FileName = prog.FileName,
             Source = _catalog.ReadSource(prog),
-            ProjectFile = project
+            ProjectFile = project,
+            ExtraSources = extras.Count > 0 ? extras : null,
+            LocalDllNames = prog.LocalDlls.Count > 0
+                ? prog.LocalDlls.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).Cast<string>().ToList()
+                : null,
+            Packages = prog.Packages.Count > 0 ? prog.Packages.ToList() : null,
+            UiKind = (int)prog.UiKind
         };
     }
 
@@ -134,11 +189,25 @@ public sealed class ProgramShareService
                         byId.FileName = Path.GetFileName(payload.FileName.Trim());
                     if (!string.IsNullOrWhiteSpace(payload.Namespace))
                         byId.Namespace = payload.Namespace.Trim();
+                    ApplyManifest(byId, payload);
                     _catalog.WriteSource(byId, payload.Source ?? "");
-                    if (byId.Language == ProgramLanguage.CSharp && !string.IsNullOrWhiteSpace(payload.ProjectFile))
+                    _catalog.ApplyExtraSources(byId, payload.ExtraSources);
+                    if (byId.Language == ProgramLanguage.CSharp)
                     {
-                        var csproj = Path.Combine(_catalog.GetFolder(byId), "program.csproj");
-                        File.WriteAllText(csproj, payload.ProjectFile, new System.Text.UTF8Encoding(false));
+                        if (!string.IsNullOrWhiteSpace(payload.ProjectFile))
+                        {
+                            var csproj = Path.Combine(_catalog.GetFolder(byId), "program.csproj");
+                            File.WriteAllText(csproj, payload.ProjectFile, new System.Text.UTF8Encoding(false));
+                        }
+                        else
+                            ProgramNugetResolver.SyncCsproj(_catalog, byId);
+                    }
+                    _catalog.SaveMeta(byId);
+                    if (payload.LocalDllNames is { Count: > 0 })
+                    {
+                        AppLog.Info(
+                            $"共享程序「{byId.Name}」含本地 DLL 清单（未传文件）：{string.Join(", ", payload.LocalDllNames)}。请自行放入 refs/。",
+                            byId.Id, byId.Name);
                     }
                     AppLog.Info($"已更新共享程序「{byId.Name}」源码（来自 {peer}）", byId.Id, byId.Name);
                     return;
@@ -159,8 +228,15 @@ public sealed class ProgramShareService
                     Namespace = payload.Namespace,
                     FileName = payload.FileName
                 };
-                if (!_catalog.TryImportShared(prog, payload.Source, payload.ProjectFile))
+                ApplyManifest(prog, payload);
+                if (!_catalog.TryImportShared(prog, payload.Source, payload.ProjectFile, payload.ExtraSources))
                     AppLog.Info($"已跳过重复程序「{payload.Name.Trim()}」（来自 {peer}）", payload.Id, payload.Name.Trim());
+                else if (payload.LocalDllNames is { Count: > 0 })
+                {
+                    AppLog.Info(
+                        $"共享程序「{prog.Name}」含本地 DLL 清单（未传文件）：{string.Join(", ", payload.LocalDllNames)}。请自行放入 refs/。",
+                        prog.Id, prog.Name);
+                }
             }
             catch (Exception ex)
             {
@@ -172,5 +248,28 @@ public sealed class ProgramShareService
             _ui.Post(_ => Apply(), null);
         else
             Apply();
+    }
+
+    private static void ApplyManifest(UserProgram prog, ProgramSharePayload payload)
+    {
+        prog.UiKind = ProgramUiCompatibility.ParseUiKind(payload.UiKind);
+        prog.Packages = payload.Packages?.Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id)).ToList() ?? [];
+        prog.LocalDlls = [];
+        if (payload.LocalDllNames != null)
+        {
+            foreach (var name in payload.LocalDllNames)
+            {
+                var file = Path.GetFileName((name ?? "").Trim());
+                if (string.IsNullOrEmpty(file)) continue;
+                prog.LocalDlls.Add(ProgramCatalog.NormalizeRelativePath(Path.Combine("refs", file)));
+            }
+        }
+        // ExtraFiles 仅登记 .cs（Roslyn）；xaml 等仍由 ApplyExtraSources 落盘
+        prog.ExtraFiles = payload.ExtraSources?
+            .Where(f => f != null && !string.IsNullOrWhiteSpace(f.Path))
+            .Select(f => ProgramCatalog.NormalizeRelativePath(f.Path))
+            .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
     }
 }

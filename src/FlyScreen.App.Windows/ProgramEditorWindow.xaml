@@ -123,11 +123,15 @@
 
   <Border Background="{DynamicResource WinBg}" Padding="12">
     <DockPanel>
-      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
-        <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
-                   Foreground="{DynamicResource Muted}" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
-        <Grid x:Name="ToolBarHost" SizeChanged="ToolBarHost_SizeChanged">
-          <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left">
+      <Grid x:Name="ToolBarHost" DockPanel.Dock="Top" Margin="0,0,0,8" SizeChanged="ToolBarHost_SizeChanged">
+          <!-- 窄窗时 WrapPanel 自动换两行；ToolsCompact 先藏文案减宽 -->
+          <WrapPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left">
+            <Button x:Name="BtnAddFile" Style="{StaticResource EditorToolBtn}" Click="AddFile_Click"
+                    ToolTip="新建" Width="32" MinWidth="32" Padding="0" Margin="0,0,6,4">
+              <Viewbox Width="18" Height="18">
+                <Path Data="{StaticResource GeoAdd}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+              </Viewbox>
+            </Button>
             <Button x:Name="BtnSave" Style="{StaticResource EditorToolBtn}" Click="Save_Click" ToolTip="保存">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Viewbox Style="{StaticResource EditorToolIcon}">
@@ -135,6 +139,18 @@
                 </Viewbox>
                 <TextBlock x:Name="BtnSaveText" Text="保存" Style="{StaticResource EditorToolLabel}"/>
               </StackPanel>
+            </Button>
+            <Button x:Name="BtnDeps" Style="{StaticResource EditorToolBtn}" Click="Deps_Click"
+                    ToolTip="C# 依赖" Width="32" MinWidth="32" Padding="0" Margin="0,0,6,4">
+              <Viewbox Width="18" Height="18">
+                <Path Data="{StaticResource GeoDeps}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+              </Viewbox>
+            </Button>
+            <Button x:Name="BtnFlySettings" Style="{StaticResource EditorToolBtn}" Click="FlySettings_Click"
+                    ToolTip="fly-settings 配置" Width="32" MinWidth="32" Padding="0" Margin="0,0,6,4">
+              <Viewbox Width="18" Height="18">
+                <Path Data="{StaticResource GeoSettings}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+              </Viewbox>
             </Button>
             <Button x:Name="BtnFind" Style="{StaticResource EditorToolBtn}" Click="Find_Click" ToolTip="查找 (Ctrl+F)">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -168,7 +184,7 @@
                 <TextBlock x:Name="BtnRunText" Text="运行" Style="{StaticResource EditorToolLabel}"/>
               </StackPanel>
             </Button>
-            <Button x:Name="BtnStop" Style="{StaticResource EditorToolBtn}" Margin="0" Click="Stop_Click" ToolTip="停止">
+            <Button x:Name="BtnStop" Style="{StaticResource EditorToolBtn}" Click="Stop_Click" ToolTip="停止">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Viewbox Style="{StaticResource EditorToolIcon}">
                   <Path Data="{StaticResource GeoStopSmall}" Fill="#DC2626"/>
@@ -176,9 +192,31 @@
                 <TextBlock x:Name="BtnStopText" Text="停止" Style="{StaticResource EditorToolLabel}"/>
               </StackPanel>
             </Button>
-          </StackPanel>
-        </Grid>
-      </DockPanel>
+            <!-- 文件切换：下拉列表 + 行内 X 删除 -->
+            <Grid x:Name="FileSwitchHost" MinWidth="148" MaxWidth="240" Height="32" Margin="0,0,6,4">
+              <Button x:Name="BtnFileSwitch" Style="{StaticResource EditorToolBtn}" Margin="0"
+                      HorizontalContentAlignment="Stretch" Padding="10,0,8,0"
+                      Click="FileSwitch_Click" ToolTip="切换文件">
+                <DockPanel LastChildFill="True">
+                  <TextBlock DockPanel.Dock="Right" Text="▾" FontSize="11" VerticalAlignment="Center"
+                             Foreground="{DynamicResource Muted}" Margin="6,0,0,0"/>
+                  <TextBlock x:Name="FileSwitchLabel" Text="main.cs" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" FontSize="12"/>
+                </DockPanel>
+              </Button>
+              <Popup x:Name="FileSwitchPopup" Placement="Bottom"
+                     StaysOpen="False" AllowsTransparency="True">
+                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
+                        BorderThickness="1" CornerRadius="10" Padding="6" MinWidth="220" MaxHeight="320"
+                        SnapsToDevicePixels="True">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="300">
+                    <StackPanel x:Name="FileSwitchList" />
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+          </WrapPanel>
+      </Grid>
       <!-- 底部可折叠输出停靠窗 -->
       <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
               Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource ControlBorder}"
@@ -219,6 +257,12 @@
           </Border>
         </DockPanel>
       </Border>
+
+      <!-- 行号状态：夹在编辑器与输出卡片之间 -->
+      <TextBlock x:Name="BpHintText" DockPanel.Dock="Bottom"
+                 Foreground="{DynamicResource Muted}" FontSize="11"
+                 HorizontalAlignment="Right" Margin="0,6,2,0"
+                 TextTrimming="CharacterEllipsis"/>
 
       <Border BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1"
               Background="{DynamicResource ControlBg}">

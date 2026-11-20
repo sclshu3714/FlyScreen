@@ -4,7 +4,11 @@ using FlyScreen.Services;
 
 namespace FlyScreen.Services.Programs;
 
-/// <summary>从源码中的 <c>// @fly-settings</c> … <c>// @fly-settings-end</c> 解析可配项。</summary>
+/// <summary>
+/// 从源码注释块 <c>@fly-settings</c> … <c>@fly-settings-end</c> 解析可配项。
+/// 支持各语言行注释：<c>//</c>（C#/JS）、<c>#</c>（Python/Bash/PowerShell）、
+/// <c>rem</c>/<c>::</c>（Batch）。优先请用独立文件 <c>fly-settings.json</c>。
+/// </summary>
 public static partial class ProgramSettingsSchema
 {
     private static readonly Regex LineRx = LineRegex();
@@ -25,9 +29,7 @@ public static partial class ProgramSettingsSchema
         string? line;
         while ((line = reader.ReadLine()) != null)
         {
-            var t = line.Trim();
-            if (t.StartsWith("//", StringComparison.Ordinal))
-                t = t[2..].Trim();
+            var t = StripLineComment(line);
             if (t.Length == 0
                 || t.StartsWith("@fly-settings", StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -45,25 +47,79 @@ public static partial class ProgramSettingsSchema
             var kind = MapKind(typeTok);
             string defaultRaw = rest;
             IReadOnlyList<string> enumOpts = [];
-            if (kind == ProgramSettingKind.Enum)
+            var filter = "";
+            var eventName = "";
+            ProgramTableSpec? table = null;
+
+            switch (kind)
             {
-                // default | opt1,opt2,...   或仅 opt1,opt2（第一项为默认）
-                var pipe = rest.IndexOf('|');
-                if (pipe >= 0)
+                case ProgramSettingKind.Enum:
+                case ProgramSettingKind.Radio:
                 {
-                    defaultRaw = rest[..pipe].Trim();
-                    enumOpts = SplitCsv(rest[(pipe + 1)..]);
+                    var pipe = rest.IndexOf('|');
+                    if (pipe >= 0)
+                    {
+                        defaultRaw = rest[..pipe].Trim();
+                        enumOpts = SplitCsv(rest[(pipe + 1)..]);
+                    }
+                    else
+                    {
+                        enumOpts = SplitCsv(rest);
+                        defaultRaw = enumOpts.Count > 0 ? enumOpts[0] : "";
+                    }
+                    break;
                 }
-                else
+                case ProgramSettingKind.Checks:
                 {
-                    enumOpts = SplitCsv(rest);
-                    defaultRaw = enumOpts.Count > 0 ? enumOpts[0] : "";
+                    // selected | opt1,opt2  或仅 opt1,opt2（默认全不选）
+                    var pipe = rest.IndexOf('|');
+                    if (pipe >= 0)
+                    {
+                        defaultRaw = rest[..pipe].Trim().Replace(';', ',').Replace(',', '\n');
+                        enumOpts = SplitCsv(rest[(pipe + 1)..]);
+                    }
+                    else
+                    {
+                        enumOpts = SplitCsv(rest);
+                        defaultRaw = "";
+                    }
+                    break;
                 }
-            }
-            else if (kind == ProgramSettingKind.StringList)
-            {
-                // 默认：逗号或分号分隔，设置页用换行编辑
-                defaultRaw = rest.Replace(';', '\n').Replace(',', '\n');
+                case ProgramSettingKind.StringList:
+                    defaultRaw = rest.Replace(';', '\n').Replace(',', '\n');
+                    break;
+                case ProgramSettingKind.File:
+                {
+                    var (def, meta) = SplitDefaultAndMeta(rest);
+                    defaultRaw = def;
+                    filter = meta.GetValueOrDefault("filter")
+                             ?? meta.GetValueOrDefault("ext")
+                             ?? "";
+                    break;
+                }
+                case ProgramSettingKind.Folder:
+                {
+                    var (def, _) = SplitDefaultAndMeta(rest);
+                    defaultRaw = def;
+                    break;
+                }
+                case ProgramSettingKind.Button:
+                {
+                    var (_, meta) = SplitDefaultAndMeta(rest);
+                    eventName = meta.GetValueOrDefault("event")
+                                ?? meta.GetValueOrDefault("action")
+                                ?? key;
+                    defaultRaw = "";
+                    break;
+                }
+                case ProgramSettingKind.Table:
+                {
+                    var (_, meta) = SplitDefaultAndMeta(rest);
+                    table = ParseTableSpec(meta);
+                    defaultRaw = ProgramTableData.CreateEmpty(table.Rows, table.Cols).ToJson();
+                    eventName = table.ButtonEvent;
+                    break;
+                }
             }
 
             fields.Add(new ProgramSettingField
@@ -72,7 +128,10 @@ public static partial class ProgramSettingsSchema
                 Kind = kind,
                 Label = label,
                 DefaultRaw = defaultRaw,
-                EnumOptions = enumOpts
+                EnumOptions = enumOpts,
+                Filter = filter,
+                EventName = eventName,
+                Table = table
             });
         }
 
@@ -83,11 +142,18 @@ public static partial class ProgramSettingsSchema
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in fields)
-            map[f.Key] = NormalizeStored(f.Kind, f.DefaultRaw);
+        {
+            if (f.Kind == ProgramSettingKind.Button)
+                continue;
+            map[f.Key] = NormalizeStored(f.Kind, f.DefaultRaw, f);
+        }
         return map;
     }
 
     public static string NormalizeStored(ProgramSettingKind kind, string? raw)
+        => NormalizeStored(kind, raw, field: null);
+
+    public static string NormalizeStored(ProgramSettingKind kind, string? raw, ProgramSettingField? field)
     {
         raw ??= "";
         return kind switch
@@ -95,13 +161,26 @@ public static partial class ProgramSettingsSchema
             ProgramSettingKind.Bool =>
                 bool.TryParse(raw.Trim(), out var b) ? (b ? "true" : "false")
                     : raw.Trim() is "1" or "yes" or "on" ? "true" : "false",
-            ProgramSettingKind.StringList => string.Join("\n",
+            ProgramSettingKind.StringList or ProgramSettingKind.Checks => string.Join("\n",
                 raw.Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+            ProgramSettingKind.Int =>
+                long.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
+                    ? ((int)Math.Clamp(i, int.MinValue, int.MaxValue)).ToString(CultureInfo.InvariantCulture)
+                    : "0",
+            ProgramSettingKind.Long =>
+                long.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var l)
+                    ? l.ToString(CultureInfo.InvariantCulture)
+                    : "0",
             ProgramSettingKind.Double =>
                 double.TryParse(raw.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
                     ? d.ToString(CultureInfo.InvariantCulture)
                     : "0",
             ProgramSettingKind.Rect => NormRect.TryParse(raw)?.ToString() ?? "",
+            ProgramSettingKind.Table =>
+                ProgramTableData.ParseOrEmpty(raw, field?.Table).ToJson(),
+            ProgramSettingKind.Button => "",
+            ProgramSettingKind.File or ProgramSettingKind.Folder or ProgramSettingKind.String
+                or ProgramSettingKind.Enum or ProgramSettingKind.Radio => raw.Trim(),
             _ => raw.Trim()
         };
     }
@@ -111,6 +190,24 @@ public static partial class ProgramSettingsSchema
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
         if (bool.TryParse(raw, out var b)) return b;
         return raw.Trim() is "1" or "yes" or "on";
+    }
+
+    public static int AsInt(string? raw, int fallback = 0)
+    {
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
+            return i;
+        if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+            return (int)d;
+        return fallback;
+    }
+
+    public static long AsLong(string? raw, long fallback = 0)
+    {
+        if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
+            return l;
+        if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+            return (long)d;
+        return fallback;
     }
 
     public static double AsDouble(string? raw, double fallback = 0)
@@ -125,6 +222,9 @@ public static partial class ProgramSettingsSchema
         if (string.IsNullOrWhiteSpace(raw)) return [];
         return raw.Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
+
+    public static ProgramTableData AsTable(string? raw, ProgramTableSpec? spec)
+        => ProgramTableData.ParseOrEmpty(raw, spec);
 
     public static ProgramHitAction AsAction(string? raw, ProgramHitAction fallback = ProgramHitAction.SwipeUp)
     {
@@ -169,26 +269,151 @@ public static partial class ProgramSettingsSchema
         return level;
     }
 
+    /// <summary>将 Windows 风格 filter（如 <c>*.txt;*.csv</c>）转为对话框用描述。</summary>
+    public static string FormatFileFilter(string? filter, string fallback = "All|*.*")
+    {
+        if (string.IsNullOrWhiteSpace(filter)) return fallback;
+        var parts = filter.Split([';', '|', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return fallback;
+        var pattern = string.Join(";", parts);
+        return $"Files ({pattern})|{pattern}|All|*.*";
+    }
+
     private static ProgramSettingKind MapKind(string typeTok)
     {
         var t = typeTok.Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant();
         return t switch
         {
             "bool" or "boolean" => ProgramSettingKind.Bool,
+            "string" or "text" or "str" => ProgramSettingKind.String,
             "string[]" or "strings" or "list" or "stringlist" => ProgramSettingKind.StringList,
             "enum" or "action" => ProgramSettingKind.Enum,
+            "radio" or "radiogroup" or "radios" => ProgramSettingKind.Radio,
+            "checks" or "checkboxgroup" or "checkboxes" or "multiselect" => ProgramSettingKind.Checks,
+            "int" or "integer" => ProgramSettingKind.Int,
+            "long" or "int64" => ProgramSettingKind.Long,
             "double" or "float" or "number" or "sec" => ProgramSettingKind.Double,
+            "file" or "filepath" or "openfile" => ProgramSettingKind.File,
+            "folder" or "directory" or "dir" or "path" => ProgramSettingKind.Folder,
+            "button" or "btn" => ProgramSettingKind.Button,
+            "table" or "grid" or "matrix" => ProgramSettingKind.Table,
             "rect" or "region" => ProgramSettingKind.Rect,
             _ when t.StartsWith("enum", StringComparison.Ordinal) => ProgramSettingKind.Enum,
-            _ => ProgramSettingKind.Bool
+            _ => ProgramSettingKind.String
+        };
+    }
+
+    private static (string Default, Dictionary<string, string> Meta) SplitDefaultAndMeta(string rest)
+    {
+        var meta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(rest))
+            return ("", meta);
+
+        // 支持：default | k=v;k=v   或整段全是 k=v;k=v
+        string body;
+        var pipe = rest.IndexOf('|');
+        if (pipe >= 0)
+        {
+            var left = rest[..pipe].Trim();
+            body = rest[(pipe + 1)..].Trim();
+            if (!left.Contains('=', StringComparison.Ordinal))
+            {
+                ParseMeta(body, meta);
+                return (left, meta);
+            }
+            // 左侧也像 meta：整段当 meta
+            ParseMeta(rest.Replace('|', ';'), meta);
+            return (meta.GetValueOrDefault("default") ?? "", meta);
+        }
+
+        if (rest.Contains('=', StringComparison.Ordinal))
+        {
+            ParseMeta(rest, meta);
+            return (meta.GetValueOrDefault("default") ?? "", meta);
+        }
+
+        return (rest.Trim(), meta);
+    }
+
+    private static void ParseMeta(string s, Dictionary<string, string> meta)
+    {
+        foreach (var part in s.Split([';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var eq = part.IndexOf('=');
+            if (eq <= 0) continue;
+            var k = part[..eq].Trim();
+            var v = part[(eq + 1)..].Trim();
+            if (k.Length > 0)
+                meta[k] = v;
+        }
+    }
+
+    private static ProgramTableSpec ParseTableSpec(Dictionary<string, string> meta)
+    {
+        static int Num(Dictionary<string, string> m, string key, int fallback)
+            => int.TryParse(m.GetValueOrDefault(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+                ? Math.Clamp(n, 1, 50)
+                : fallback;
+
+        static bool Flag(Dictionary<string, string> m, string key)
+        {
+            if (!m.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) return false;
+            return AsBool(v, false) || string.Equals(v, "1", StringComparison.Ordinal);
+        }
+
+        var cols = Num(meta, "cols", 1);
+        var rows = Num(meta, "rows", 1);
+        var colNames = SplitCsv(meta.GetValueOrDefault("colNames")
+                                ?? meta.GetValueOrDefault("columns")
+                                ?? "");
+        var rowNames = SplitCsv(meta.GetValueOrDefault("rowNames")
+                                ?? meta.GetValueOrDefault("rowsNames")
+                                ?? "");
+        if (colNames.Count == 0)
+            colNames = Enumerable.Range(1, cols).Select(i => "C" + i).ToList();
+        if (rowNames.Count == 0)
+            rowNames = Enumerable.Range(1, rows).Select(i => "R" + i).ToList();
+
+        return new ProgramTableSpec
+        {
+            Cols = cols,
+            Rows = rows,
+            ColNames = colNames,
+            RowNames = rowNames,
+            RowHeader = Flag(meta, "rowHeader") || Flag(meta, "rowHeaders"),
+            CellButton = Flag(meta, "cellButton") || Flag(meta, "cellButtons") || Flag(meta, "buttons"),
+            ButtonEvent = meta.GetValueOrDefault("buttonEvent")
+                          ?? meta.GetValueOrDefault("event")
+                          ?? ""
         };
     }
 
     private static IReadOnlyList<string> SplitCsv(string s)
-        => s.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        => string.IsNullOrWhiteSpace(s)
+            ? []
+            : s.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>去掉各脚本语言的行注释前缀，得到可解析正文。</summary>
+    public static string StripLineComment(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return "";
+        var t = line.Trim();
+        if (t.StartsWith("//", StringComparison.Ordinal))
+            return t[2..].Trim();
+        if (t.StartsWith("::", StringComparison.Ordinal))
+            return t[2..].Trim();
+        if (t.StartsWith('#')
+            && !t.StartsWith("#!", StringComparison.Ordinal)) // 保留 shebang 当空行跳过即可
+            return t[1..].Trim();
+        if (t.StartsWith("rem", StringComparison.OrdinalIgnoreCase)
+            && (t.Length == 3 || char.IsWhiteSpace(t[3])))
+            return t[3..].Trim();
+        // 无前缀时也允许（独立粘贴的块）
+        return t;
+    }
 
     [GeneratedRegex(
-        @"^(?<type>bool|boolean|string\[\]|strings|list|stringlist|enum|action|double|float|number|sec|rect|region)\s+(?<key>[A-Za-z_][A-Za-z0-9_]*)\s*\|\s*(?<label>[^|]+)\|(?<rest>.*)$",
+        @"^(?<type>bool|boolean|string\[\]|strings|list|stringlist|string|text|str|enum|action|radio|radiogroup|radios|checks|checkboxgroup|checkboxes|multiselect|int|integer|long|int64|double|float|number|sec|file|filepath|openfile|folder|directory|dir|path|button|btn|table|grid|matrix|rect|region)\s+(?<key>[A-Za-z_][A-Za-z0-9_]*)\s*\|\s*(?<label>[^|]+)\|(?<rest>.*)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LineRegex();
 }

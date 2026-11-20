@@ -145,8 +145,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             catch { /* MaintainLoop 内已处理 */ }
         });
         StatusMessage?.Invoke(listenAny
-            ? $"已在 0.0.0.0:{_settings.TcpPort} 监听（全部网卡）"
-            : $"已在 {_bindIp}:{_settings.TcpPort} 监听");
+            ? Helpers.Localization.Loc.T("Status.ListeningAll", _settings.TcpPort)
+            : Helpers.Localization.Loc.T("Status.ListeningBound", _bindIp, _settings.TcpPort));
 
         RelayHub.AttachSettings(_settings);
         RelayHub.SetLocalAcceptDial(DialLocalListenerAsync);

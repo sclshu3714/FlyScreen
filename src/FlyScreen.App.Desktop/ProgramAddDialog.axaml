@@ -41,7 +41,7 @@
 
       <ScrollViewer Padding="20,16,20,8">
         <Border Classes="dlgCard" Margin="0">
-          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*">
             <TextBlock x:Name="LblName" Text="程序名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
             <TextBox x:Name="NameBox" Grid.Column="1" Margin="0,0,0,10" Height="28" TextChanged="NameBox_TextChanged"/>
 
@@ -59,7 +59,15 @@
             <TextBlock x:Name="LblFile" Grid.Row="3" Text="文件名称" VerticalAlignment="Center" Margin="0,0,0,10"/>
             <TextBox x:Name="FileNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10" Height="28"/>
 
-            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Spacing="6">
+            <StackPanel x:Name="UiOptionsPanel" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,10" IsVisible="False" Spacing="4">
+              <CheckBox x:Name="EnableUiCheck" Content="启用 UI" IsCheckedChanged="EnableUi_Changed"/>
+              <TextBlock x:Name="UiKindHint" Classes="dlgHint" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <TextBlock x:Name="ExternalDevHint" Grid.Row="5" Grid.ColumnSpan="2"
+                       Classes="dlgHint" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+            <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Spacing="6">
               <TextBlock x:Name="DetectStatus" Classes="dlgHint" Margin="0"/>
               <StackPanel x:Name="DetectActions" Orientation="Horizontal" Spacing="0" IsVisible="False">
                 <Button x:Name="DetectAutoBtn" Classes="dlgNormal" Content="自动修复" Height="28" Click="DetectAuto_Click"/>

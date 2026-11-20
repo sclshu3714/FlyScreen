@@ -211,6 +211,13 @@ public static class PeerCaps
     /// <summary>对端会按实机枚举宣告 <c>Tool:shared-devices:speaker|microphone|camera</c>。</summary>
     public const string ToolSharedDevicesKindsV1 = "Tool:shared-devices:kinds-v1";
 
+    /// <summary>子程序宿主形态（区分同为 Windows 的 WPF 桌面与 Maui-Win）。</summary>
+    public const string ProgHostWinWpf = "ProgHost:win-wpf";
+    public const string ProgHostMauiWin = "ProgHost:maui-win";
+    public const string ProgHostMauiMobile = "ProgHost:maui-mobile";
+    public const string ProgHostMauiMac = "ProgHost:maui-mac";
+    public const string ProgHostAvalonia = "ProgHost:avalonia";
+
     public static string ToolCap(string toolId) => "Tool:" + toolId;
 
     public static string ToolSharedDevicesKindCap(string kind)

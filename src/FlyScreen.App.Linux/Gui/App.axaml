@@ -16,5 +16,6 @@
     <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
     <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/ScrollBar.axaml" />
     <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/DialogStyles.axaml" />
+    <StyleInclude Source="avares://FlyScreen.App.Desktop/Themes/ComboBoxWheel.axaml" />
   </Application.Styles>
 </Application>

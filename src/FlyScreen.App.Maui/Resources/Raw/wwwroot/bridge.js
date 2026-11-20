@@ -441,6 +441,29 @@
   window.flyLineCount = function () {
     return editor && editor.getModel() ? editor.getModel().getLineCount() : 1;
   };
+  /** 宿主切文件：直接设值+语言，避免走消息总线失败时 Monaco 不刷新 */
+  window.flyApplyFile = function (v, language) {
+    if (!editor) return 'no-editor';
+    editor.setValue(v == null ? '' : String(v));
+    try {
+      if (language) monaco.editor.setModelLanguage(editor.getModel(), language);
+    } catch (e) { /* ignore */ }
+    reportCaret();
+    return String(editor.getModel() ? editor.getModel().getLineCount() : 0);
+  };
+  /** 与启动同路径：从 DotNet 拉当前缓冲（EvaluateJavaScript 推大包不可靠时用） */
+  window.flyReloadFromHost = async function () {
+    try {
+      if (!window.HybridWebView || typeof HybridWebView.InvokeDotNet !== 'function')
+        return 'no-hwv';
+      const data = await HybridWebView.InvokeDotNet('GetBootstrap');
+      if (!data) return 'empty';
+      applyBootstrap(typeof data === 'string' ? JSON.parse(data) : data);
+      return String(editor && editor.getModel() ? editor.getModel().getLineCount() : 0);
+    } catch (e) {
+      return 'err:' + (e && e.message ? e.message : String(e));
+    }
+  };
 
   window.addEventListener('HybridWebViewMessageReceived', function (e) {
     let raw = null;

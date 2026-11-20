@@ -18,7 +18,7 @@ public static class Fly
     private static IReadOnlyDictionary<string, string> _settings =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>运行前由宿主绑定本程序 settings.json（覆盖 @fly-settings 默认）。</summary>
+    /// <summary>运行前由宿主绑定本程序 settings.json（覆盖 fly-settings.json 默认）。</summary>
     public static void BindSettings(IReadOnlyDictionary<string, string>? values)
     {
         lock (SettingsGate)
@@ -34,6 +34,7 @@ public static class Fly
     {
         lock (SettingsGate)
             _settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // 注意：不在此处 Clear 事件队列，以便设置页触发的事件可在随后启动的脚本中消费。
     }
 
     private static string? Raw(string key)
@@ -46,20 +47,60 @@ public static class Fly
     public static bool GetBool(string key, bool fallback = false)
         => ProgramSettingsSchema.AsBool(Raw(key), fallback);
 
+    /// <summary>读取整数设置。</summary>
+    public static int GetInt(string key, int fallback = 0)
+        => ProgramSettingsSchema.AsInt(Raw(key), fallback);
+
+    /// <summary>读取长整数设置。</summary>
+    public static long GetLong(string key, long fallback = 0)
+        => ProgramSettingsSchema.AsLong(Raw(key), fallback);
+
     /// <summary>读取浮点设置。</summary>
     public static double GetDouble(string key, double fallback = 0)
         => ProgramSettingsSchema.AsDouble(Raw(key), fallback);
 
-    /// <summary>读取字符串设置。</summary>
+    /// <summary>读取字符串设置（含 file/folder 路径）。</summary>
     public static string GetString(string key, string fallback = "")
     {
         var v = Raw(key);
         return string.IsNullOrEmpty(v) ? fallback : v;
     }
 
-    /// <summary>读取字符串列表（换行/逗号分隔）。</summary>
+    /// <summary>读取字符串列表（换行/逗号分隔；checks 复选组同）。</summary>
     public static string[] GetStringList(string key)
         => ProgramSettingsSchema.AsStringList(Raw(key)).ToArray();
+
+    /// <summary>读取表格 JSON 单元格；缺省空表。</summary>
+    public static string[][] GetTable(string key, int rows = 1, int cols = 1)
+    {
+        var spec = new ProgramTableSpec { Rows = Math.Max(1, rows), Cols = Math.Max(1, cols) };
+        return ProgramSettingsSchema.AsTable(Raw(key), spec).Cells;
+    }
+
+    /// <summary>
+    /// 消费设置页按钮 / 表格单元格按钮事件（FIFO）。
+    /// 单元格 detail 为 <c>row,col</c>（0 基）。
+    /// </summary>
+    public static bool TryConsumeSettingEvent(out string eventName, out string detail)
+    {
+        eventName = "";
+        detail = "";
+        if (!ProgramSettingEventBus.TryDequeue(_logProgramId, out var ev))
+            return false;
+        eventName = ev.Name;
+        detail = ev.Detail;
+        return true;
+    }
+
+    /// <summary>消费指定名称的设置事件。</summary>
+    public static bool TryConsumeSettingEvent(string eventName, out string detail)
+    {
+        detail = "";
+        if (!ProgramSettingEventBus.TryDequeue(_logProgramId, eventName, out var ev))
+            return false;
+        detail = ev.Detail;
+        return true;
+    }
 
     /// <summary>读取命中后动作；无法解析时返回 <paramref name="fallback"/>。</summary>
     public static ProgramHitAction GetAction(string key, ProgramHitAction fallback = ProgramHitAction.SwipeUp)
@@ -71,18 +112,40 @@ public static class Fly
 
     private static string? _logProgramId;
     private static string? _logProgramName;
+    private static string? _logProgramFolder;
 
     /// <summary>由宿主在启动脚本前绑定，使 <see cref="LogDebug"/> 等写入带程序名的 AppLog。</summary>
-    public static void BindLogContext(string? programId, string? programName)
+    public static void BindLogContext(string? programId, string? programName, string? programFolder = null)
     {
         _logProgramId = programId;
         _logProgramName = programName;
+        _logProgramFolder = string.IsNullOrWhiteSpace(programFolder) ? null : Path.GetFullPath(programFolder);
     }
 
     public static void ClearLogContext()
     {
         _logProgramId = null;
         _logProgramName = null;
+        _logProgramFolder = null;
+    }
+
+    /// <summary>当前脚本程序 Id（未绑定时为 null）。</summary>
+    public static string? ProgramId => _logProgramId;
+
+    /// <summary>当前脚本程序显示名（未绑定时为 null）。</summary>
+    public static string? ProgramName => _logProgramName;
+
+    /// <summary>当前脚本程序目录（含 main.cs / MainWindow.xaml）；未绑定时为 null。</summary>
+    public static string? ProgramDirectory
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(_logProgramFolder))
+                return _logProgramFolder;
+            if (string.IsNullOrWhiteSpace(_logProgramId))
+                return null;
+            return Path.Combine(FlyScreenDataPaths.ProgramsDirectory, _logProgramId);
+        }
     }
 
     public static void LogDebug(string message) => AppLog.Debug(message, _logProgramId, _logProgramName);
@@ -571,9 +634,18 @@ public sealed class FlyScriptBridge
     /// <inheritdoc cref="Fly.OpenSettings"/>
     public void openSettings() => Fly.OpenSettings();
     public bool getBool(string key, bool fallback = false) => Fly.GetBool(key, fallback);
+    public int getInt(string key, int fallback = 0) => Fly.GetInt(key, fallback);
+    public long getLong(string key, long fallback = 0) => Fly.GetLong(key, fallback);
     public double getDouble(string key, double fallback = 0) => Fly.GetDouble(key, fallback);
     public string getString(string key, string fallback = "") => Fly.GetString(key, fallback);
     public string[] getStringList(string key) => Fly.GetStringList(key);
+    public string[][] getTable(string key, int rows = 1, int cols = 1) => Fly.GetTable(key, rows, cols);
+    /// <summary>消费下一设置事件；无则 null。返回 [name, detail]。</summary>
+    public string[]? consumeSettingEvent()
+        => Fly.TryConsumeSettingEvent(out var n, out var d) ? [n, d] : null;
+    /// <summary>消费指定名称事件；无则 null。返回 detail。</summary>
+    public string? consumeSettingEvent(string eventName)
+        => Fly.TryConsumeSettingEvent(eventName, out var d) ? d : null;
     public void logDebug(string message) => Fly.LogDebug(message);
     public void logInfo(string message) => Fly.LogInfo(message);
     public void logWarn(string message) => Fly.LogWarn(message);

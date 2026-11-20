@@ -65,14 +65,16 @@
 
       <Border Padding="12">
         <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="True">
-            <TextBlock x:Name="BpHintText" DockPanel.Dock="Right"
-                       Foreground="{DynamicResource Muted}" FontSize="11"
-                       VerticalAlignment="Center" Margin="8,0,0,0"/>
-            <Border x:Name="ToolBarHost" HorizontalAlignment="Stretch"
-                    SizeChanged="ToolBarHost_SizeChanged">
-              <StackPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left"
-                          VerticalAlignment="Center">
+          <Border x:Name="ToolBarHost" DockPanel.Dock="Top" Margin="0,0,0,8"
+                  HorizontalAlignment="Stretch"
+                  SizeChanged="ToolBarHost_SizeChanged">
+              <WrapPanel x:Name="ToolBar" Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button x:Name="BtnAddFile" Classes="editorTool" Click="AddFile_Click" ToolTip.Tip="新建"
+                        Width="32" MinWidth="32" Padding="0" Margin="0,0,6,4">
+                  <Viewbox Width="18" Height="18">
+                    <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoAdd}"/>
+                  </Viewbox>
+                </Button>
                 <Button x:Name="BtnSave" Classes="editorTool" Click="Save_Click" ToolTip.Tip="保存">
                   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Viewbox Width="18" Height="18" VerticalAlignment="Center">
@@ -80,6 +82,18 @@
                     </Viewbox>
                     <TextBlock x:Name="BtnSaveText" Text="保存" VerticalAlignment="Center" FontSize="13"/>
                   </StackPanel>
+                </Button>
+                <Button x:Name="BtnDeps" Classes="editorTool" Click="Deps_Click" ToolTip.Tip="C# 依赖"
+                        Width="32" MinWidth="32" Padding="0" Margin="0,0,6,4">
+                  <Viewbox Width="18" Height="18">
+                    <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoDeps}"/>
+                  </Viewbox>
+                </Button>
+                <Button x:Name="BtnFlySettings" Classes="editorTool" Click="FlySettings_Click"
+                        ToolTip.Tip="fly-settings 配置" Width="32" MinWidth="32" Padding="0" Margin="0,0,6,4">
+                  <Viewbox Width="18" Height="18">
+                    <Path Fill="{DynamicResource Blue}" Data="{StaticResource GeoSettings}"/>
+                  </Viewbox>
                 </Button>
                 <Button x:Name="BtnFind" Classes="editorTool" Click="Find_Click" ToolTip.Tip="查找 (Ctrl+F)">
                   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -113,7 +127,7 @@
                     <TextBlock x:Name="BtnRunText" Text="运行" VerticalAlignment="Center" FontSize="13" Foreground="White"/>
                   </StackPanel>
                 </Button>
-                <Button x:Name="BtnStop" Classes="editorTool" Margin="0" Click="Stop_Click" ToolTip.Tip="停止">
+                <Button x:Name="BtnStop" Classes="editorTool" Click="Stop_Click" ToolTip.Tip="停止">
                   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Viewbox Width="18" Height="18" VerticalAlignment="Center">
                       <Path Fill="#DC2626" Data="{StaticResource GeoStopSmall}"/>
@@ -121,9 +135,28 @@
                     <TextBlock x:Name="BtnStopText" Text="停止" VerticalAlignment="Center" FontSize="13"/>
                   </StackPanel>
                 </Button>
-              </StackPanel>
-            </Border>
-          </DockPanel>
+                <Panel x:Name="FileSwitchHost" MinWidth="148" MaxWidth="240" Height="32" Margin="0,0,6,4">
+                  <Button x:Name="BtnFileSwitch" Classes="editorTool" Margin="0" Padding="10,0,8,0"
+                          HorizontalContentAlignment="Stretch" Click="FileSwitch_Click" ToolTip.Tip="切换文件">
+                    <DockPanel LastChildFill="True">
+                      <TextBlock DockPanel.Dock="Right" Text="▾" FontSize="11" VerticalAlignment="Center"
+                                 Foreground="{DynamicResource Muted}" Margin="6,0,0,0"/>
+                      <TextBlock x:Name="FileSwitchLabel" Text="main.cs" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" FontSize="12"/>
+                    </DockPanel>
+                  </Button>
+                  <Popup x:Name="FileSwitchPopup" Placement="Bottom"
+                         IsLightDismissEnabled="True">
+                    <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                            BorderThickness="1" CornerRadius="10" Padding="6" MinWidth="220" MaxHeight="320">
+                      <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="FileSwitchList" Spacing="2"/>
+                      </ScrollViewer>
+                    </Border>
+                  </Popup>
+                </Panel>
+              </WrapPanel>
+          </Border>
           <Border x:Name="OutputDock" DockPanel.Dock="Bottom" Margin="0,8,0,0"
                   Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
                   BorderThickness="1" CornerRadius="8">
@@ -158,6 +191,12 @@
               </Border>
             </DockPanel>
           </Border>
+
+          <!-- 行号状态：夹在编辑器与输出卡片之间 -->
+          <TextBlock x:Name="BpHintText" DockPanel.Dock="Bottom"
+                     Foreground="{DynamicResource Muted}" FontSize="11"
+                     HorizontalAlignment="Right" Margin="0,6,2,0"
+                     TextTrimming="CharacterEllipsis"/>
 
           <Border BorderBrush="{DynamicResource Line}" BorderThickness="1"
                   Background="{DynamicResource ControlBg}">

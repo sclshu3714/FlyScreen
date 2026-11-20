@@ -74,6 +74,7 @@ public sealed class VideoWallPanel : ContentView
 #if WINDOWS
     private readonly Dictionary<int, VideoWallHwndSurface> _tileSurfaces = new();
 #endif
+    private readonly Dictionary<int, VideoWallFrameSurface> _tileFrameSurfaces = new();
 
     private PanelMode _mode = PanelMode.Sources;
     private BrowseView _browseView = BrowseView.List;
@@ -223,13 +224,40 @@ public sealed class VideoWallPanel : ContentView
                 _ = RefreshCanvasAsync();
         };
 
-        _mainToolbar = new Border
+        var viewToggle = new HorizontalStackLayout
         {
-            Stroke = _line,
-            BackgroundColor = _card,
-            Padding = new Thickness(10, 8),
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-            Content = new Grid
+            Spacing = 0,
+            Children = { _viewCardBtn, _viewListBtn, _viewCanvasBtn }
+        };
+        // 手机窄屏：工具条换行；桌面仍单行
+        View toolbarContent;
+        if (DeviceInfo.Idiom == DeviceIdiom.Phone)
+        {
+            toolbarContent = new FlexLayout
+            {
+                Direction = FlexDirection.Row,
+                Wrap = FlexWrap.Wrap,
+                JustifyContent = FlexJustify.Start,
+                AlignItems = FlexAlignItems.Center,
+                AlignContent = FlexAlignContent.Start,
+                Children =
+                {
+                    addPair.Host,
+                    scanPair.Host,
+                    _deleteBtn,
+                    viewToggle,
+                    _layoutDrop,
+                    _carouselPanel,
+                    _groupDrop,
+                    _search
+                }
+            };
+            _search.MinimumWidthRequest = 140;
+            _search.WidthRequest = 180;
+        }
+        else
+        {
+            toolbarContent = new Grid
             {
                 ColumnDefinitions =
                 [
@@ -248,17 +276,22 @@ public sealed class VideoWallPanel : ContentView
                     addPair.Host,
                     scanPair.Host.Also(v => Grid.SetColumn(v, 1)),
                     _deleteBtn.Also(v => Grid.SetColumn(v, 2)),
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 0,
-                        Children = { _viewCardBtn, _viewListBtn, _viewCanvasBtn }
-                    }.Also(v => Grid.SetColumn(v, 3)),
+                    viewToggle.Also(v => Grid.SetColumn(v, 3)),
                     _layoutDrop.Also(v => Grid.SetColumn(v, 4)),
                     _carouselPanel.Also(v => Grid.SetColumn(v, 5)),
                     _groupDrop.Also(v => Grid.SetColumn(v, 6)),
                     _search.Also(v => Grid.SetColumn(v, 7))
                 }
-            }
+            };
+        }
+
+        _mainToolbar = new Border
+        {
+            Stroke = _line,
+            BackgroundColor = _card,
+            Padding = new Thickness(10, 8),
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            Content = toolbarContent
         };
 
         _headerSelectAll = new CheckBox
@@ -271,10 +304,19 @@ public sealed class VideoWallPanel : ContentView
         var invertTap = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
         invertTap.Tapped += (_, _) =>
         {
-            foreach (var row in _rows)
-                row.IsSelected = !row.IsSelected;
-            SyncHeaderSelectAll();
-            UpdateDeleteEnabled();
+            if (_suppressHeaderSelect) return;
+            _suppressHeaderSelect = true;
+            try
+            {
+                foreach (var row in _rows)
+                    row.IsSelected = !row.IsSelected;
+                UpdateDeleteEnabled();
+            }
+            finally
+            {
+                _suppressHeaderSelect = false;
+                SyncHeaderSelectAll();
+            }
         };
         _headerSelectAll.GestureRecognizers.Add(invertTap);
 
@@ -308,6 +350,14 @@ public sealed class VideoWallPanel : ContentView
             IsVisible = false,
             BackgroundColor = _listBg,
             Content = _cardsFlex
+        };
+        _cardsHost.SizeChanged += (_, _) =>
+        {
+            if (_cardsHost.Width <= 1) return;
+            var next = ComputeCardWidth(_cardsHost.Width);
+            if (Math.Abs(next - _cardWidth) < 0.5) return;
+            _cardWidth = next;
+            ApplyCardWidths();
         };
 
         _emptyState = new VerticalStackLayout
@@ -570,6 +620,15 @@ public sealed class VideoWallPanel : ContentView
         _emptyState.IsVisible = empty && _mode == PanelMode.Sources;
         _listView.IsVisible = _browseView == BrowseView.List && !empty;
         _cardsHost.IsVisible = _browseView == BrowseView.Card && !empty;
+        if (_cardsHost.IsVisible)
+            Dispatcher.Dispatch(() =>
+            {
+                if (_cardsHost.Width <= 1) return;
+                var next = ComputeCardWidth(_cardsHost.Width);
+                if (Math.Abs(next - _cardWidth) >= 0.5)
+                    _cardWidth = next;
+                ApplyCardWidths();
+            });
         SyncHeaderSelectAll();
         UpdateDeleteEnabled();
     }
@@ -704,6 +763,9 @@ public sealed class VideoWallPanel : ContentView
 #if WINDOWS
         _tileSurfaces.Clear();
 #endif
+        foreach (var s in _tileFrameSurfaces.Values)
+            s.Clear();
+        _tileFrameSurfaces.Clear();
     }
 
     private async void OnCarouselTimerTick(object? sender, EventArgs e)
@@ -744,17 +806,24 @@ public sealed class VideoWallPanel : ContentView
             var tile = i < _service.Tiles.Count ? _service.Tiles[i] : null;
             if (tile?.SourceId is null || !tile.HasPlayer) continue;
 #if WINDOWS
-            if (!_tileSurfaces.TryGetValue(i, out var surface))
-                continue;
-            var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
-            if (hwnd == IntPtr.Zero)
+            if (OperatingSystem.IsWindows() && _tileSurfaces.TryGetValue(i, out var surface))
             {
-                ReportLog($"视频墙格{i}: HWND 未就绪，跳过开播以免弹出独立窗口");
-                continue;
+                var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+                if (hwnd == IntPtr.Zero)
+                {
+                    ReportLog($"视频墙格{i}: HWND 未就绪，跳过开播以免弹出独立窗口");
+                    continue;
+                }
+
+                tile.SetRenderTarget(hwnd);
+            }
+            else
+#endif
+            if (_tileFrameSurfaces.TryGetValue(i, out var frame))
+            {
+                tile.AttachFrameSink(frame);
             }
 
-            tile.SetRenderTarget(hwnd);
-#endif
             try { await _service.StartTileAsync(i); }
             catch (Exception ex) { ReportLog($"视频墙格{i}开播失败: {ex.Message}"); }
         }
@@ -1136,9 +1205,9 @@ public sealed class VideoWallPanel : ContentView
                 InputTransparent = true
             });
         }
-#if WINDOWS
-        else
+        else if (OperatingSystem.IsWindows())
         {
+#if WINDOWS
             var surface = new VideoWallHwndSurface
             {
                 HorizontalOptions = LayoutOptions.Fill,
@@ -1146,24 +1215,26 @@ public sealed class VideoWallPanel : ContentView
             };
             body.Children.Add(surface);
             _tileSurfaces[index] = surface;
-        }
 #else
+            var frame = new VideoWallFrameSurface
+            {
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill
+            };
+            body.Children.Add(frame);
+            _tileFrameSurfaces[index] = frame;
+#endif
+        }
         else
         {
-            body.Children.Add(new Label
+            var frame = new VideoWallFrameSurface
             {
-                Text = Loc.T("Tool.VideoWall.DesktopOnly"),
-                TextColor = Colors.Gray,
-                FontSize = 11,
-                HorizontalOptions = LayoutOptions.Center,
-                VerticalOptions = LayoutOptions.Center,
-                HorizontalTextAlignment = TextAlignment.Center,
-                LineBreakMode = LineBreakMode.WordWrap,
-                Margin = new Thickness(8),
-                InputTransparent = true
-            });
+                HorizontalOptions = LayoutOptions.Fill,
+                VerticalOptions = LayoutOptions.Fill
+            };
+            body.Children.Add(frame);
+            _tileFrameSurfaces[index] = frame;
         }
-#endif
 
         if (tile?.SourceId is not null)
         {
@@ -1198,15 +1269,26 @@ public sealed class VideoWallPanel : ContentView
             var tile = i < tiles.Count ? tiles[i] : null;
             var hasSource = tile?.SourceId is not null;
 #if WINDOWS
-            var hasSurface = _tileSurfaces.ContainsKey(i);
+            var hasSurface = _tileSurfaces.ContainsKey(i) || _tileFrameSurfaces.ContainsKey(i);
+#else
+            var hasSurface = _tileFrameSurfaces.ContainsKey(i);
+#endif
             if (hasSource != hasSurface)
             {
                 PopulateTileCell(i, preserveOtherPlayers: true);
-                if (hasSource && _tileSurfaces.TryGetValue(i, out var surface))
+#if WINDOWS
+                if (hasSource && OperatingSystem.IsWindows() && _tileSurfaces.TryGetValue(i, out var surface))
                     _ = RebindTileSurfaceAsync(i, surface);
+                else
+#endif
+                if (hasSource && _tileFrameSurfaces.TryGetValue(i, out var frame)
+                    && _service.Tiles.Count > i)
+                {
+                    _service.Tiles[i].AttachFrameSink(frame);
+                    _ = _service.StartTileAsync(i);
+                }
                 continue;
             }
-#endif
             if (_tileTitleBlocks.TryGetValue(i, out var title))
                 title.Text = ResolveTileTitle(tile);
             if (_tileStatusBlocks.TryGetValue(i, out var status))
@@ -1447,17 +1529,25 @@ public sealed class VideoWallPanel : ContentView
     {
         if (_suppressHeaderSelect) return;
 
-        // 单击：全选 / 取消全选（双击反选见 GestureRecognizer）
-        var target = e.Value;
-        foreach (var row in _rows)
-            row.IsSelected = target;
-
-        SyncHeaderSelectAll();
-        UpdateDeleteEnabled();
+        // 整段 suppress：避免行勾选绑定回写再次触发 CheckedChanged 造成 UI 线程死循环卡死
+        _suppressHeaderSelect = true;
+        try
+        {
+            var target = e.Value;
+            foreach (var row in _rows)
+                row.IsSelected = target;
+            UpdateDeleteEnabled();
+        }
+        finally
+        {
+            _suppressHeaderSelect = false;
+            SyncHeaderSelectAll();
+        }
     }
 
     private void SyncHeaderSelectAll()
     {
+        if (_suppressHeaderSelect) return;
         _suppressHeaderSelect = true;
         try
         {
@@ -1496,6 +1586,7 @@ public sealed class VideoWallPanel : ContentView
         check.SetBinding(CheckBox.IsCheckedProperty, nameof(SourceRowVm.IsSelected));
         check.CheckedChanged += (_, _) =>
         {
+            if (_suppressHeaderSelect) return;
             SyncHeaderSelectAll();
             UpdateDeleteEnabled();
         };
@@ -1586,8 +1677,28 @@ public sealed class VideoWallPanel : ContentView
         return row;
     }
 
-    private const double CardWidth = 220;
+    // prefer 步长：默认窗内容区约 3 列；缩放仍按宽算列数（非强制 3）
     private const double CardGap = 8;
+    private const double CardMinWidth = 160;
+    private const double CardPreferWidth = 200;
+    private double _cardWidth = CardPreferWidth;
+
+    private static double ComputeCardWidth(double hostWidth)
+    {
+        var inner = Math.Max(CardMinWidth, hostWidth - 8);
+        var cols = Math.Max(1, (int)Math.Floor((inner + CardGap) / (CardPreferWidth + CardGap)));
+        return Math.Clamp(inner / cols - CardGap, CardMinWidth, 280);
+    }
+
+    private void ApplyCardWidths()
+    {
+        foreach (var child in _cardsFlex.Children)
+        {
+            if (child is not Border b) continue;
+            b.WidthRequest = _cardWidth;
+            b.MaximumWidthRequest = _cardWidth;
+        }
+    }
 
     private View BuildCard()
     {
@@ -1625,12 +1736,12 @@ public sealed class VideoWallPanel : ContentView
                 await DeleteOneAsync(id);
         });
 
-        // 定宽 220 + 右/下间距；Flex 换行不均分列，圆角完整可见
+        // 定宽 + 右/下间距；列数随宿主宽变化（默认约 3 列）
         var card = new Border
         {
-            WidthRequest = CardWidth,
+            WidthRequest = _cardWidth,
             MinimumHeightRequest = 132,
-            MaximumWidthRequest = CardWidth,
+            MaximumWidthRequest = _cardWidth,
             HorizontalOptions = LayoutOptions.Start,
             VerticalOptions = LayoutOptions.Start,
             Margin = new Thickness(0, 0, CardGap, CardGap),

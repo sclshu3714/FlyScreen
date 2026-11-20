@@ -117,7 +117,7 @@ public sealed class ProgramRunner
                 {
                     var settings = ProgramSettingsStore.LoadResolved(_catalog, prog);
                     Fly.BindSettings(settings);
-                    Fly.BindLogContext(prog.Id, prog.Name);
+                    Fly.BindLogContext(prog.Id, prog.Name, _catalog.GetFolder(prog));
                     var logLevel = ProgramSettingsSchema.ResolveLogLevel(settings);
                     // 先宣告再设过滤：带 programId 的 Info 在 Error 级下会被丢掉
                     AppLog.Info($"「{prog.Name}」日志级别={logLevel}（低于此级的脚本日志不写入）");
@@ -146,7 +146,8 @@ public sealed class ProgramRunner
                 await InProcessProgramExecutor.RunAsync(
                     prog, source, cts.Token,
                     debug: debug,
-                    debugGate: gate).ConfigureAwait(false);
+                    debugGate: gate,
+                    catalog: _catalog).ConfigureAwait(false);
                 job.ExitCode = 0;
                 if (!job.Stopping)
                     AppLog.Info($"「{prog.Name}」已结束 (exit=0)", prog.Id, prog.Name);
@@ -193,7 +194,23 @@ public sealed class ProgramRunner
 
     private async Task StartProcessAsync(UserProgram prog, string source, bool debug, CancellationToken ct)
     {
-        var (fileName, args, workDir) = BuildLaunch(prog, source, debug);
+        string? psRunnerPath = null;
+        string launchSource = source;
+        if (prog.Language == ProgramLanguage.PowerShell)
+        {
+            try
+            {
+                var settings = ProgramSettingsStore.LoadResolved(_catalog, prog);
+                psRunnerPath = ProgramCliFlyBridge.CreatePowerShellRunner(source, settings);
+                launchSource = psRunnerPath;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"PowerShell Fly 桥接准备失败，回退直接运行: {ex.Message}", prog.Id, prog.Name);
+            }
+        }
+
+        var (fileName, args, workDir) = BuildLaunch(prog, launchSource, debug);
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
@@ -214,6 +231,7 @@ public sealed class ProgramRunner
         }
         catch (Exception ex)
         {
+            ProgramCliFlyBridge.TryDeleteRunnerArtifacts(psRunnerPath);
             prog.RuntimeStatus = ProgramStatus.Error;
             AppLog.Error(ex, $"启动「{prog.Name}」失败（请确认已安装 {prog.LanguageText} 运行时）", prog.Id, prog.Name);
             throw;
@@ -221,12 +239,13 @@ public sealed class ProgramRunner
 
         if (process == null)
         {
+            ProgramCliFlyBridge.TryDeleteRunnerArtifacts(psRunnerPath);
             prog.RuntimeStatus = ProgramStatus.Error;
             AppLog.Error($"启动「{prog.Name}」失败：无法创建进程", prog.Id, prog.Name);
             return;
         }
 
-        var job = RunningJob.FromProcess(process, debug);
+        var job = RunningJob.FromProcess(process, debug, psRunnerPath);
         _running[prog.Id] = job;
         prog.RuntimeStatus = ProgramStatus.Running;
         AppLog.Info(debug
@@ -416,6 +435,7 @@ public sealed class ProgramRunner
             prog.RuntimeStatus = job.ExitCode is null or 0
                 ? ProgramStatus.Idle
                 : ProgramStatus.Error;
+            ProgramCliFlyBridge.TryDeleteRunnerArtifacts(job.TempScriptPath);
             try { p.Dispose(); } catch { /* ignore */ }
             NotifyRunningCountChanged();
         }
@@ -534,6 +554,7 @@ public sealed class ProgramRunner
         public Process? Process { get; private init; }
         public CancellationTokenSource? Cancel { get; private init; }
         public bool Debug { get; private init; }
+        public string? TempScriptPath { get; private init; }
         public bool Stopping { get; set; }
         public bool ForceStopped { get; set; }
         public int? ExitCode { get; set; }
@@ -542,10 +563,11 @@ public sealed class ProgramRunner
         public bool IsAlive
             => Process != null ? !Process.HasExited : !Completed;
 
-        public static RunningJob FromProcess(Process process, bool debug) => new()
+        public static RunningJob FromProcess(Process process, bool debug, string? tempScriptPath = null) => new()
         {
             Process = process,
-            Debug = debug
+            Debug = debug,
+            TempScriptPath = tempScriptPath
         };
 
         public static RunningJob InProcess(CancellationTokenSource cts, bool debug) => new()

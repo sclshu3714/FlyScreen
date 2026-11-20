@@ -370,12 +370,12 @@ public partial class MainWindow : Window
 
         _host.Clipboard.Start(this);
         await _host.StartAsync();
-        StatusText.Text = $"监听 {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        StatusText.Text = Loc.T("Status.Listening", $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}");
 
         // 开机自启：隐藏到托盘，后台已自动连接（构造时已 Hidden，此处再 Hide 一次兜底）
         if (AutoStartHelper.IsAutostartLaunch(Environment.GetCommandLineArgs()))
         {
-            StatusText.Text = $"已自启并连接 · {_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+            StatusText.Text = Loc.T("Status.AutoStarted", $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}");
             ShowInTaskbar = false;
             Hide();
         }
@@ -1139,6 +1139,11 @@ public partial class MainWindow : Window
         foreach (var slot in _slots.ToList())
             slot.RefreshStatus();
 
+        foreach (var ep in _endpoints.ToList())
+            ep.RefreshLocalized();
+        RefreshNics();
+        RefreshListeningStatusLabel();
+
         // 强制刷新列表主题（避免系统默认白底）
         ThemeService.Apply(ThemeService.Current, this, _host.Settings.UiWallpaperPath);
         TransferList.Background = (System.Windows.Media.Brush)Resources["ListBg"];
@@ -1537,6 +1542,15 @@ public partial class MainWindow : Window
                                     ?? nics.FirstOrDefault();
         else if (nics.Count > 0)
             NicCombo.SelectedIndex = 0;
+    }
+
+    private void RefreshListeningStatusLabel()
+    {
+        var endpoint = $"{_host.Connections.BindIp}:{_host.Settings.TcpPort}";
+        var text = StatusText.Text ?? "";
+        if (text.Contains(endpoint, StringComparison.Ordinal)
+            || text.Contains(_host.Connections.BindIp, StringComparison.Ordinal))
+            StatusText.Text = Loc.T("Status.Listening", endpoint);
     }
 
     private async void RefreshDiscovery_Click(object sender, RoutedEventArgs e)
@@ -2614,9 +2628,14 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() != true) return;
         try
         {
-            ProgramService.Instance.Catalog.Create(
-                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue);
+            var prog = ProgramService.Instance.Catalog.Create(
+                dlg.ProgramName, dlg.SelectedLanguage, dlg.NamespaceValue, dlg.FileNameValue, dlg.SelectedUiKind);
             RefreshProgramsPage();
+            var folder = ProgramService.Instance.Catalog.GetFolder(prog);
+            MessageBox.Show(this,
+                Loc.T("Prog.CreatedExternalDev", prog.Name, folder),
+                Loc.T("Prog.Add"),
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {

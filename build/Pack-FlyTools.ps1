@@ -73,6 +73,16 @@ $tools = @(
             "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Desktop/FlyScreen.Tool.VideoWall.Ui.Desktop.csproj",
             "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Maui/FlyScreen.Tool.VideoWall.Ui.Maui.csproj"
         )
+    },
+    @{
+        Id = "developer-tools"
+        Proj = "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools/FlyScreen.Tool.DeveloperTools.csproj"
+        Manifest = "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools/manifest.json"
+        UiProjs = @(
+            "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Win/FlyScreen.Tool.DeveloperTools.Ui.Win.csproj",
+            "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Desktop/FlyScreen.Tool.DeveloperTools.Ui.Desktop.csproj",
+            "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Maui/FlyScreen.Tool.DeveloperTools.Ui.Maui.csproj"
+        )
     }
 )
 
@@ -305,7 +315,8 @@ if (-not $SkipAppCopy) {
         "src/FlyScreen.App.Desktop/bin/$Configuration/net10.0",
         "src/FlyScreen.App.Mac/bin/$Configuration/net10.0",
         "src/FlyScreen.App.Linux/bin/$Configuration/net10.0",
-        "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-windows10.0.19041.0/win-x64"
+        "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-windows10.0.19041.0/win-x64",
+        "src/FlyScreen.App.Maui/bin/$Configuration/net10.0-android"
     )
     foreach ($rel in $targets) {
         $dir = Join-Path $repo $rel
