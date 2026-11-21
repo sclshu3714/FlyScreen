@@ -123,6 +123,7 @@ static int TryParseCountdownSec(string? raw)
 }
 
 var skipOcrLog = 0;
+var emptyOcrLog = 0;
 
 /// <returns>hit=匹配到的提示；raw=OCR 原文（供解析倒计时）。</returns>
 (string? hit, string raw) FindHitOcr()
@@ -142,12 +143,21 @@ var skipOcrLog = 0;
 
     var ocrKey = Fly.CurrentOcrRegionKey();
     var ocr = (Fly.OcrSettingRegion(ocrKey) ?? "").Trim();
-    if (debugOcr || debugLog)
+    var orient = Fly.IsLandscape ? "横屏" : "竖屏";
+    // 有字每次打日志；空结果节流，避免刷屏
+    if (ocr.Length > 0)
     {
-        var orient = Fly.IsLandscape ? "横屏" : "竖屏";
-        var preview = ocr.Length == 0 ? "" : (ocr.Length <= 80 ? ocr : ocr.Substring(0, 80) + "…");
-        Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] OCR {orient} key={ocrKey} len={ocr.Length} [{preview}]");
+        emptyOcrLog = 0;
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] OCR识别 {orient} key={ocrKey} len={ocr.Length}：{ocr}");
     }
+    else
+    {
+        emptyOcrLog++;
+        if (emptyOcrLog == 1 || emptyOcrLog % 10 == 0)
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] OCR识别 {orient} key={ocrKey}：（空）");
+    }
+    if (debugOcr || debugLog)
+        Fly.LogDebug($"[{DateTime.Now:HH:mm:ss}] OCR {orient} key={ocrKey} len={ocr.Length}");
     return (MatchHints(ocr), ocr);
 }
 
@@ -271,6 +281,16 @@ try
             hit = ocrHit;
             hitRaw = ocrRaw;
             hitVia = "ocr";
+            // OCR 空时补采无障碍可见文本，便于未命中日志对照
+            if (string.IsNullOrWhiteSpace(hitRaw))
+            {
+                var texts = Fly.Texts(20);
+                if (texts.Length > 0)
+                {
+                    hitRaw = string.Join(" | ", texts);
+                    hitVia = "a11y-scan";
+                }
+            }
         }
         else
         {
@@ -292,8 +312,11 @@ try
             tipArmed = true;
             holdTipLog = 0;
             missLog++;
-            if (missLog == 1 || missLog % 10 == 0)
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 未识别到提示文案");
+            // 未命中也打印本次识别到的原文（有字每次打；空结果节流）
+            if (!string.IsNullOrWhiteSpace(hitRaw))
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 未命中提示文案 via={hitVia} 识别到：{hitRaw}");
+            else if (missLog == 1 || missLog % 10 == 0)
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 未命中提示文案 via={hitVia} 识别到：（空）");
             Heartbeat("未命中文案");
             await Delay(1000);
             continue;
