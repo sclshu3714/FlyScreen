@@ -241,6 +241,8 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
 
     public void Start()
     {
+        // 关标签会 Stop 并 Dispose LibVLC；再次进入必须重建后端，否则第二次开播打到已释放实例
+        EnsureMediaStack();
         lock (_gate)
             _running = true;
         RaiseSession();
@@ -256,12 +258,58 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
             _tiles.Clear();
         }
 
-        SinglePlayback.Dispose();
+        try { SinglePlayback.Dispose(); }
+        catch { /* ignore */ }
 
         if (Backend is IDisposable d)
-            d.Dispose();
+        {
+            try { d.Dispose(); }
+            catch { /* ignore */ }
+        }
+
+        // 占位：避免 UI 继续引用已 Dispose 的 VlcMediaBackend；真正重建在 Start/EnsureMediaStack
+        Backend = new NullMediaBackend();
+        SinglePlayback = new SinglePlaybackController(Backend, Catalog, SaveCatalogAsync);
+        CoverCapture = new CoverCaptureService(Backend, Covers, Credentials);
 
         RaiseSession();
+    }
+
+    /// <summary>保证 Backend / SinglePlayback / 墙格可用（Stop 后或首次 Start）。</summary>
+    private void EnsureMediaStack()
+    {
+        if (Backend is VlcMediaBackend vlc && vlc.IsAvailable && !vlc.IsDisposed)
+        {
+            lock (_gate)
+            {
+                if (_tiles.Count == 0)
+                    EnsureTiles(_layout);
+            }
+
+            return;
+        }
+
+        if (Backend is IDisposable old && Backend is not NullMediaBackend)
+        {
+            try { old.Dispose(); }
+            catch { /* ignore */ }
+        }
+
+        var created = new VlcMediaBackend(Credentials);
+        Backend = created.IsAvailable ? created : new NullMediaBackend();
+        if (!created.IsAvailable)
+            AppLog.Warn(OperatingSystem.IsAndroid()
+                ? "视频墙：重新初始化后 LibVLC 仍不可用"
+                : "视频墙：重新初始化后 LibVLC 原生库未就绪");
+
+        try { SinglePlayback.Dispose(); }
+        catch { /* ignore */ }
+
+        SinglePlayback = new SinglePlaybackController(Backend, Catalog, SaveCatalogAsync);
+        CoverCapture = new CoverCaptureService(Backend, Covers, Credentials);
+
+        lock (_gate)
+            EnsureTiles(_layout);
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)

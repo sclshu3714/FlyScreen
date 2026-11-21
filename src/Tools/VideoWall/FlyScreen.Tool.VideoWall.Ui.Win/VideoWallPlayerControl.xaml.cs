@@ -688,20 +688,43 @@ public sealed partial class VideoWallPlayerControl : UserControl
             RememberPipBounds();
             _floatWindow.ResizeMode = ResizeMode.CanResize;
             _floatWindow.Topmost = true;
+            // 先 Normal 再 Maximized，避免从 PiP 尺寸直接 Maximize 被系统忽略
+            _floatWindow.WindowState = WindowState.Normal;
             _floatWindow.WindowState = WindowState.Maximized;
         }
-        else // Fullscreen
+        else // Fullscreen：无边框铺满当前屏（含任务栏区域）
         {
             RememberPipBounds();
             _floatWindow.ResizeMode = ResizeMode.NoResize;
             _floatWindow.Topmost = true;
-            _floatWindow.WindowState = WindowState.Maximized;
+            _floatWindow.WindowState = WindowState.Normal;
+            try
+            {
+                _floatWindow.Left = SystemParameters.VirtualScreenLeft;
+                _floatWindow.Top = SystemParameters.VirtualScreenTop;
+                _floatWindow.Width = SystemParameters.PrimaryScreenWidth;
+                _floatWindow.Height = SystemParameters.PrimaryScreenHeight;
+                _floatWindow.WindowState = WindowState.Maximized;
+            }
+            catch
+            {
+                _floatWindow.WindowState = WindowState.Maximized;
+            }
         }
 
         _floatMode = mode;
         UpdateFloatChrome();
         ShowPlaybackChrome();
         _floatWindow.Activate();
+        // Show 后下一帧再强制一次，避免首开只停在 PiP 尺寸
+        if (mode is FloatMode.Maximized or FloatMode.Fullscreen)
+        {
+            _floatWindow.Dispatcher.BeginInvoke(() =>
+            {
+                if (_floatWindow is null || _floatMode != mode) return;
+                _floatWindow.WindowState = WindowState.Maximized;
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
     }
 
     private void EnsureFloatWindow()
@@ -712,9 +735,9 @@ public sealed partial class VideoWallPlayerControl : UserControl
         var title = string.IsNullOrWhiteSpace(PlaybackTitle.Text)
             ? Loc.T("Tool.VideoWall.Name")
             : PlaybackTitle.Text;
+        // 不设 Owner：画中画作为桌面级独立窗，可拖出主程序、压在其它应用上
         var win = new Window
         {
-            Owner = Window.GetWindow(this),
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.CanResize,
             Background = Brushes.Black,
@@ -868,6 +891,9 @@ public sealed partial class VideoWallPlayerControl : UserControl
     {
         _volumePopupHideTimer.Stop();
         SyncVolumeUiFromService();
+        // 每次打开重绑，避免 Collapsed/浮动窗后 PlacementTarget 丢失漂到画面中央
+        PlaybackVolumePopup.PlacementTarget = PlaybackVolumeHost;
+        PlaybackVolumePopup.Placement = PlacementMode.Top;
         if (PlaybackVolumePopup.IsOpen && !_volumePopupAnimating
             && PlaybackVolumePopupPanel.Opacity >= 0.99)
             return;

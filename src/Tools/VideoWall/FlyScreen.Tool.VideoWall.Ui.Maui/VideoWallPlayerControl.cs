@@ -21,6 +21,9 @@ public sealed class VideoWallPlayerControl : ContentView
     private const double CompactChromeThreshold = 300;
     private const double TitleChromeHeight = 56;
     private const double TransportChromeHeight = 128;
+    private const double VolumePopupWidth = 64;
+    private const double VolumePopupHeight = 168;
+    private const double VolumePopupGap = 8;
     private static readonly float[] SpeedSteps = [0.75f, 1f, 1.25f, 1.5f, 2f];
 
     private static readonly Color PlaybackAccent = Color.FromArgb("#00D4C8");
@@ -76,6 +79,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private bool _showEpisodeTitle = true;
     private FloatMode _floatMode;
     private VideoWallMauiFloatHost? _floatHost;
+    private VideoWallMauiDesktopFloatWindow? _desktopFloat;
     private Border? _floatPlaceholder;
     private bool _volumePopupAnimating;
     private IDispatcherTimer? _progressTimer;
@@ -278,10 +282,11 @@ public sealed class VideoWallPlayerControl : ContentView
             if (_volumeDragging) ApplyVolumeFromBar();
         };
 
+        // 挂到 _root 叠层定位（勿放进 transport Grid，否则会撑高进度行）
         _playbackVolumePopup = new Border
         {
             IsVisible = false,
-            ZIndex = 20,
+            ZIndex = 40,
             Opacity = 0,
             TranslationY = 18,
             StrokeThickness = 1,
@@ -289,9 +294,10 @@ public sealed class VideoWallPlayerControl : ContentView
             BackgroundColor = Color.FromArgb("#E6111827"),
             Padding = new Thickness(10, 12),
             StrokeShape = new RoundRectangle { CornerRadius = 10 },
-            VerticalOptions = LayoutOptions.End,
-            HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(0, 0, 150, 44),
+            VerticalOptions = LayoutOptions.Start,
+            HorizontalOptions = LayoutOptions.Start,
+            WidthRequest = VolumePopupWidth,
+            InputTransparent = false,
             Content = new VerticalStackLayout
             {
                 Spacing = 8,
@@ -573,8 +579,7 @@ public sealed class VideoWallPlayerControl : ContentView
                 Children =
                 {
                     progressRow,
-                    _controlsRow.Also(v => Grid.SetRow(v, 1)),
-                    _playbackVolumePopup
+                    _controlsRow.Also(v => Grid.SetRow(v, 1))
                 }
             }
         };
@@ -628,7 +633,8 @@ public sealed class VideoWallPlayerControl : ContentView
                 _playbackLoading,
                 _playbackTitleBarHost,
                 _playbackTransportBar,
-                _menuHost
+                _menuHost,
+                _playbackVolumePopup
             }
         };
         var playbackPointer = new PointerGestureRecognizer();
@@ -717,12 +723,14 @@ public sealed class VideoWallPlayerControl : ContentView
                 _ = HideVolumePopupAnimatedAsync();
         };
         SyncSpeedButton();
+        VideoWallMauiAndroidPip.Subscribe(OnAndroidSystemPipModeChanged);
         // 布局完成后再算溢出，避免首帧 Width 未就绪
         Dispatcher.Dispatch(() => RelayoutChromeOverflow());
     }
 
     private void OnUnloaded(object? sender, EventArgs e)
     {
+        VideoWallMauiAndroidPip.Unsubscribe(OnAndroidSystemPipModeChanged);
         _progressTimer?.Stop();
         _chromeHideTimer?.Stop();
         _volumePopupHideTimer?.Stop();
@@ -912,10 +920,84 @@ public sealed class VideoWallPlayerControl : ContentView
     {
         _volumePopupHideTimer?.Stop();
         SyncVolumeUi();
+        PositionVolumePopupAboveHost();
         if (_playbackVolumePopup.IsVisible && !_volumePopupAnimating && _playbackVolumePopup.Opacity >= 0.99)
             return;
         _playbackVolumePopup.IsVisible = true;
         _ = AnimateVolumePopupAsync(show: true);
+    }
+
+    /// <summary>将音量条锚定到喇叭按钮上方，不参与 transport 行高测量。</summary>
+    private void PositionVolumePopupAboveHost()
+    {
+        var rootW = Math.Max(_root.Width, Width);
+        var rootH = Math.Max(_root.Height, Height);
+        if (rootW <= 0 || rootH <= 0) return;
+
+        double x;
+        double y;
+        if (_playbackVolumeHost.IsVisible
+            && _playbackVolumeHost.Width > 0
+            && _playbackVolumeHost.Height > 0)
+        {
+            var origin = GetOriginInRoot(_playbackVolumeHost);
+            x = origin.X + _playbackVolumeHost.Width / 2 - VolumePopupWidth / 2;
+            y = origin.Y - VolumePopupGap - VolumePopupHeight;
+        }
+        else
+        {
+            // 喇叭已收进「更多」：贴底栏右侧，避免飞到画面中央
+            x = rootW - VolumePopupWidth - 72;
+            y = rootH - TransportChromeHeight - VolumePopupHeight - VolumePopupGap;
+        }
+
+        x = Math.Clamp(x, 8, Math.Max(8, rootW - VolumePopupWidth - 8));
+        y = Math.Clamp(y, 8, Math.Max(8, rootH - VolumePopupHeight - 8));
+        _playbackVolumePopup.Margin = new Thickness(x, y, 0, 0);
+    }
+
+    private Point GetOriginInRoot(VisualElement view)
+    {
+#if WINDOWS
+        try
+        {
+            if (view.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe
+                && _root.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement rootFe)
+            {
+                var p = fe.TransformToVisual(rootFe).TransformPoint(new Windows.Foundation.Point(0, 0));
+                return new Point(p.X, p.Y);
+            }
+        }
+        catch { /* fall through */ }
+#endif
+        var (x, y) = AccumulateOrigin(view, _root);
+        return new Point(x, y);
+    }
+
+    private static (double X, double Y) AccumulateOrigin(VisualElement? from, VisualElement? stop)
+    {
+        double x = 0, y = 0;
+        var cur = from;
+        while (cur != null && !ReferenceEquals(cur, stop) && cur is not Page)
+        {
+            x += cur.X;
+            y += cur.Y;
+            if (cur is View v)
+            {
+                x += v.Margin.Left;
+                y += v.Margin.Top;
+            }
+
+            if (cur.Parent is ScrollView sv)
+            {
+                x -= sv.ScrollX;
+                y -= sv.ScrollY;
+            }
+
+            cur = cur.Parent as VisualElement;
+        }
+
+        return (x, y);
     }
 
     private async Task HideVolumePopupAnimatedAsync()
@@ -1523,12 +1605,19 @@ public sealed class VideoWallPlayerControl : ContentView
             ? $"{stats.Height}P"
             : Loc.T("Tool.VideoWall.QualityAuto");
 
-    // ───────── 画中画 / 最大化 / 全屏（面板 AbsoluteLayout 浮窗，手机与电脑共用） ─────────
+    // ───────── 画中画 / 最大化 / 全屏 ─────────
+    // 电脑（Win/Mac）：独立 Window 浮到桌面
+    // Android：系统 Activity PiP（桌面最上层）；失败再回退 AbsoluteLayout 应用内浮层
+
+    private static bool UsesDesktopFloatWindow()
+        => OperatingSystem.IsWindows()
+           || OperatingSystem.IsMacOS()
+           || OperatingSystem.IsMacCatalyst();
 
     private void TogglePictureInPicture()
     {
         CloseMenu();
-        if (_floatMode != FloatMode.None)
+        if (_floatMode != FloatMode.None || VideoWallMauiAndroidPip.IsActive)
             CloseFloatHost();
         else
             ApplyFloatMode(FloatMode.Pip);
@@ -1563,6 +1652,163 @@ public sealed class VideoWallPlayerControl : ContentView
             return;
         }
 
+        // 手机：画中画走系统 PiP（可压在其它应用/桌面之上）
+        if (OperatingSystem.IsAndroid() && mode == FloatMode.Pip)
+        {
+            if (TryEnterAndroidSystemPip())
+                return;
+        }
+
+        if (UsesDesktopFloatWindow())
+        {
+            ApplyDesktopFloatMode(mode);
+            return;
+        }
+
+        ApplyInAppFloatMode(mode);
+    }
+
+    private bool TryEnterAndroidSystemPip()
+    {
+        if (!VideoWallMauiAndroidPip.IsSupported)
+            return false;
+
+        // 只把视频面交给宿主全屏，再进系统 PiP；否则小窗会显示「应用/退出」等壳
+        _playbackTitleBarHost.IsVisible = false;
+        _playbackTransportBar.IsVisible = false;
+        _playbackLoading.IsVisible = false;
+        _menuHost.IsVisible = false;
+        _pipExitBtn.IsVisible = false;
+
+        if (!OsPictureInPictureBridge.TryPresentVideoFullscreen(_playbackVideoHost))
+        {
+            ReportLog(Loc.T("Tool.VideoWall.PictureInPicture") + ": present video failed");
+            ShowPlaybackChrome();
+            return false;
+        }
+
+        var (aw, ah) = ResolvePipAspect();
+        // 等一帧布局，避免系统仍按旧壳截图进 PiP
+        Dispatcher.Dispatch(() =>
+        {
+            if (!VideoWallMauiAndroidPip.TryEnter(aw, ah))
+            {
+                OsPictureInPictureBridge.DismissPresentedVideo();
+                ReportLog(Loc.T("Tool.VideoWall.PictureInPicture") + ": system PiP unavailable");
+                _floatMode = FloatMode.None;
+                ShowPlaybackChrome();
+                UpdateFloatChrome();
+                return;
+            }
+
+            _floatMode = FloatMode.Pip;
+            UpdateFloatChrome();
+        });
+
+        _floatMode = FloatMode.Pip;
+        UpdateFloatChrome();
+        return true;
+    }
+
+    private (int W, int H) ResolvePipAspect()
+    {
+        try
+        {
+            var stats = _service?.SinglePlayback.LastStats;
+            if (stats is { Width: > 0, Height: > 0 })
+            {
+                var w = Math.Clamp(stats.Width, 1, 239);
+                var h = Math.Clamp(stats.Height, 1, 239);
+                // Rational 要求互质且在范围内；简化为 16:9 / 4:3 等常见比
+                if (Math.Abs(w / (double)h - 16 / 9.0) < 0.15) return (16, 9);
+                if (Math.Abs(w / (double)h - 4 / 3.0) < 0.15) return (4, 3);
+                return (w, h);
+            }
+        }
+        catch { /* ignore */ }
+
+        return (16, 9);
+    }
+
+    private void OnAndroidSystemPipModeChanged(bool isInPip)
+    {
+        if (isInPip)
+        {
+            _floatMode = FloatMode.Pip;
+            _playbackTitleBarHost.IsVisible = false;
+            _playbackTransportBar.IsVisible = false;
+            UpdateFloatChrome();
+            return;
+        }
+
+        // 退出系统 PiP：宿主已 Dismiss 视频面；还原本机 chrome
+        if (_floatMode != FloatMode.Pip) return;
+        if (_desktopFloat?.IsOpen == true || _floatHost?.IsOpen == true) return;
+        _floatMode = FloatMode.None;
+        _pipExitBtn.IsVisible = false;
+        UpdateFloatChrome();
+        ShowPlaybackChrome();
+    }
+
+    private void ApplyDesktopFloatMode(FloatMode mode)
+    {
+        _desktopFloat ??= new VideoWallMauiDesktopFloatWindow();
+        _desktopFloat.Closed -= OnDesktopFloatClosed;
+        _desktopFloat.Closed += OnDesktopFloatClosed;
+
+        var deskMode = mode switch
+        {
+            FloatMode.Maximized => VideoWallMauiDesktopFloatWindow.Mode.Maximized,
+            FloatMode.Fullscreen => VideoWallMauiDesktopFloatWindow.Mode.Fullscreen,
+            _ => VideoWallMauiDesktopFloatWindow.Mode.Pip
+        };
+
+        if (!_desktopFloat.IsOpen)
+        {
+            _floatPlaceholder ??= new Border { BackgroundColor = Colors.Black, MinimumHeightRequest = 120 };
+            Content = _floatPlaceholder;
+            try
+            {
+                _desktopFloat.Open(
+                    _root,
+                    string.IsNullOrWhiteSpace(_playbackTitle.Text) ? Loc.T("Tool.VideoWall.Name") : _playbackTitle.Text,
+                    deskMode);
+            }
+            catch (Exception ex)
+            {
+                Content = _root;
+                ReportLog(Loc.T("Tool.VideoWall.PictureInPicture") + ": " + ex.Message);
+                // 桌面窗失败时回退到应用内浮层
+                ApplyInAppFloatMode(mode);
+                return;
+            }
+        }
+        else
+        {
+            _desktopFloat.ApplyMode(deskMode);
+        }
+
+        _floatMode = mode;
+        _pipExitBtn.IsVisible = true;
+        UpdateFloatChrome();
+        ShowPlaybackChrome();
+    }
+
+    private void OnDesktopFloatClosed()
+    {
+        if (_floatMode == FloatMode.None && ReferenceEquals(Content, _root))
+            return;
+        _chromeHideTimer?.Stop();
+        if (!ReferenceEquals(Content, _root))
+            Content = _root;
+        _floatMode = FloatMode.None;
+        _pipExitBtn.IsVisible = false;
+        UpdateFloatChrome();
+        ShowPlaybackChrome();
+    }
+
+    private void ApplyInAppFloatMode(FloatMode mode)
+    {
         var host = EnsureFloatHost();
         if (host is null)
         {
@@ -1580,7 +1826,6 @@ public sealed class VideoWallPlayerControl : ContentView
         if (!host.IsOpen)
         {
             _floatPlaceholder ??= new Border { BackgroundColor = Colors.Black, MinimumHeightRequest = 120 };
-            // 先迁出 _root（FloatHost 会清空 Content），再放占位，避免布局塌陷
             host.Open(_root, mauiMode);
             Content = _floatPlaceholder;
         }
@@ -1616,6 +1861,16 @@ public sealed class VideoWallPlayerControl : ContentView
     private void CloseFloatHost()
     {
         _chromeHideTimer?.Stop();
+        if (VideoWallMauiAndroidPip.IsActive)
+            VideoWallMauiAndroidPip.TryLeave();
+
+        if (_desktopFloat?.IsOpen == true)
+        {
+            _desktopFloat.Closed -= OnDesktopFloatClosed;
+            _desktopFloat.RememberPipBounds();
+            _desktopFloat.Close();
+        }
+
         if (_floatHost?.IsOpen == true)
             _floatHost.Close();
         if (!ReferenceEquals(Content, _root))

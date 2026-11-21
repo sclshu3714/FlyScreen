@@ -1,7 +1,8 @@
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
 /// <summary>
-/// 在视频墙面板 AbsoluteLayout 上挂载可拖拽/缩放的浮窗壳（手机与 Maui-Win 共用，不改宿主 AppWindow）。
+/// 在视频墙面板 AbsoluteLayout 上挂载可拖拽/缩放的浮窗壳（手机/Android 应用内 PiP）。
+/// 电脑桌面 PiP 见 <see cref="VideoWallMauiDesktopFloatWindow"/>。
 /// </summary>
 internal sealed class VideoWallMauiFloatHost
 {

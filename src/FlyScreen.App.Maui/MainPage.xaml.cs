@@ -101,6 +101,15 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private bool _matrixMoved;
     private const double PanDragThreshold = 12;
 
+    // 系统视频 PiP：把视频面挂到 RootGrid 全屏，隐藏顶栏/底栏/工具壳
+    private View? _pipVideo;
+    private Element? _pipVideoParent;
+    private int _pipVideoIndex = -1;
+    private bool _pipPhoneTopVisible;
+    private bool _pipFooterVisible;
+    private bool _pipSideVisible;
+    private Thickness _pipMainPadding;
+
     public MainPage()
     {
         InitializeComponent();
@@ -125,6 +134,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
     {
         _pageAlive = false;
         _statusTimer?.Stop();
+        DismissVideoPipPresentation();
         UnwireHost();
     }
 
@@ -227,6 +237,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         _host.ScreenExtend.SinkSessionReady += OnProjectionSessionChanged;
         _host.ScreenExtend.SessionEnded += OnProjectionSessionChanged;
         RegisterToolUiBridge();
+        WireVideoPipBridge();
         ToolService.Instance.Catalog.Changed += OnToolsCatalogChanged;
         ToolService.Instance.InstallProgress.Changed += OnToolsCatalogChanged;
         ToolService.Instance.Workspace.Changed += OnToolsWorkspaceChanged;
@@ -243,6 +254,142 @@ public partial class MainPage : ContentPage, IWallpaperHost
                 RefreshSlotStatuses();
         };
         RefreshPhoneProjectButton();
+    }
+
+    private void WireVideoPipBridge()
+    {
+        OsPictureInPictureBridge.PresentVideoFullscreen = PresentVideoPipPresentation;
+        OsPictureInPictureBridge.DismissVideoFullscreen = DismissVideoPipPresentation;
+    }
+
+    /// <summary>
+    /// 系统 PiP 前：视频面盖到 RootGrid 最上层，只藏顶栏/底栏。
+    /// 勿设 MainPane.IsVisible=false（会 Unload 工具页，退出 PiP 后面包屑被清掉）。
+    /// </summary>
+    private bool PresentVideoPipPresentation(View video)
+    {
+        if (!OperatingSystem.IsAndroid()) return false;
+        if (_pipVideo is not null)
+            return ReferenceEquals(_pipVideo, video);
+
+        try
+        {
+            _pipVideo = video;
+            _pipVideoParent = video.Parent;
+            _pipVideoIndex = -1;
+            if (video.Parent is Layout layout)
+            {
+                _pipVideoIndex = layout.Children.IndexOf(video);
+                layout.Children.Remove(video);
+            }
+            else if (video.Parent is Border border && ReferenceEquals(border.Content, video))
+                border.Content = null;
+            else if (video.Parent is ContentView cv && ReferenceEquals(cv.Content, video))
+                cv.Content = null;
+            else
+            {
+                _pipVideo = null;
+                _pipVideoParent = null;
+                return false;
+            }
+
+            _pipPhoneTopVisible = PhoneTopBar.IsVisible;
+            _pipFooterVisible = FooterBar.IsVisible;
+            _pipSideVisible = SidePane.IsVisible;
+            _pipMainPadding = MainPane.Padding;
+
+            PhoneTopBar.IsVisible = false;
+            FooterBar.IsVisible = false;
+            SidePane.IsVisible = false;
+            NavScrim.IsVisible = false;
+            // MainPane 保持可见：工具面包屑/工作区不卸载
+            MainPane.Padding = new Thickness(0);
+
+            video.HorizontalOptions = LayoutOptions.Fill;
+            video.VerticalOptions = LayoutOptions.Fill;
+            video.BackgroundColor = Colors.Black;
+            Grid.SetRow(video, 0);
+            Grid.SetRowSpan(video, 2);
+            video.ZIndex = 200;
+            RootGrid.Children.Add(video);
+            return true;
+        }
+        catch
+        {
+            DismissVideoPipPresentation();
+            return false;
+        }
+    }
+
+    private void DismissVideoPipPresentation()
+    {
+        var video = _pipVideo;
+        var parent = _pipVideoParent;
+        var index = _pipVideoIndex;
+        _pipVideo = null;
+        _pipVideoParent = null;
+        _pipVideoIndex = -1;
+
+        if (video is not null)
+        {
+            try
+            {
+                if (ReferenceEquals(video.Parent, RootGrid))
+                    RootGrid.Children.Remove(video);
+                else if (video.Parent is Layout rootLay)
+                    rootLay.Children.Remove(video);
+            }
+            catch { /* ignore */ }
+
+            try
+            {
+                if (parent is Layout layout)
+                {
+                    if (layout.Children.IndexOf(video) < 0)
+                    {
+                        var idx = index < 0 ? layout.Children.Count : Math.Clamp(index, 0, layout.Children.Count);
+                        layout.Children.Insert(idx, video);
+                    }
+                }
+                else if (parent is Border border)
+                    border.Content = video;
+                else if (parent is ContentView cv)
+                    cv.Content = video;
+            }
+            catch { /* ignore */ }
+
+            video.ZIndex = 0;
+            Grid.SetRow(video, 0);
+            Grid.SetRowSpan(video, 1);
+        }
+
+        try
+        {
+            PhoneTopBar.IsVisible = _pipPhoneTopVisible;
+            FooterBar.IsVisible = _pipFooterVisible;
+            SidePane.IsVisible = _pipSideVisible;
+            MainPane.IsVisible = true;
+            MainPane.Padding = _pipMainPadding;
+        }
+        catch { /* ignore */ }
+
+        // PiP 往返后立刻刷一次，再延迟一帧：缩窗时量宽失败的面包屑需在全屏布局后重建
+        void restoreToolsNav()
+        {
+            try
+            {
+                if (PageTools.IsVisible)
+                    RefreshToolsWorkspace();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("PiP 还原工具面包屑失败: " + ex.Message);
+            }
+        }
+
+        restoreToolsNav();
+        Dispatcher.Dispatch(restoreToolsNav);
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), restoreToolsNav);
     }
 
     private void OnProjectionSessionChanged()
@@ -294,6 +441,9 @@ public partial class MainPage : ContentPage, IWallpaperHost
             _onToolModuleStateChanged = null;
         }
         DeviceDisplay.MainDisplayInfoChanged -= OnToolsDisplayInfoChanged;
+
+        OsPictureInPictureBridge.PresentVideoFullscreen = null;
+        OsPictureInPictureBridge.DismissVideoFullscreen = null;
 
         _onStatusMessage = null;
         _onProjectionNotice = null;
@@ -2709,7 +2859,11 @@ public partial class MainPage : ContentPage, IWallpaperHost
             _toolsBreadcrumbWired = true;
         }
 
+        // 先从旧父级卸下，再 Clear：避免 Clear 后 Parent 残留导致 Add 失败、面包屑空白
+        if (_toolsBreadcrumb.Parent is Layout oldParent)
+            oldParent.Children.Remove(_toolsBreadcrumb);
         ToolsWorkspaceNavPanel.Children.Clear();
+        ToolsWorkspaceNavPanel.IsVisible = true;
         if (hasTabs)
         {
             var crumbs = new List<BreadcrumbSegment>
@@ -2736,6 +2890,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
                 });
             }
             _toolsBreadcrumb.SetItems(crumbs);
+            _toolsBreadcrumb.IsVisible = true;
             ToolsWorkspaceNavPanel.Children.Add(_toolsBreadcrumb);
         }
 

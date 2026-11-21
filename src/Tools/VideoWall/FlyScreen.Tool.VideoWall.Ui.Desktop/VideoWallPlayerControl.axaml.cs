@@ -707,6 +707,8 @@ public sealed partial class VideoWallPlayerControl : UserControl
     {
         _volumePopupHideTimer.Stop();
         SyncVolumeUi();
+        PlaybackVolumePopup.PlacementTarget = PlaybackVolumeHost;
+        PlaybackVolumePopup.Placement = PlacementMode.Top;
         if (PlaybackVolumePopup.IsOpen && !_volumePopupAnimating
             && PlaybackVolumePopupPanel.Opacity >= 0.99)
             return;

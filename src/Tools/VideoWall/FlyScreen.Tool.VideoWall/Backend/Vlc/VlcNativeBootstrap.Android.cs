@@ -17,7 +17,7 @@ internal static partial class VlcNativeBootstrap
     private static bool TryInitializeAndroid()
     {
         // 部署探针：若仍看到「强制标记已加载」说明设备在跑旧 .flytool
-        AppLog.Info("视频墙：Android 引导 v0.1.11（需宿主 Java Load + JNI_OnLoad）");
+        AppLog.Info("视频墙：Android 引导 v0.1.12（需宿主 Java Load + JNI_OnLoad）");
 
         if (AppContext.GetData(HostReadyDataKey) is true
             || string.Equals(AppContext.GetData(HostReadyDataKey)?.ToString(), "True", StringComparison.OrdinalIgnoreCase))

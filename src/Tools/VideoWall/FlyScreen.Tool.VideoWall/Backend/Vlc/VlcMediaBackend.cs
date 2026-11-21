@@ -25,6 +25,9 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
 
     public bool IsAvailable { get; }
 
+    /// <summary>关闭工作区 <c>Stop</c> 后为 true；须重建实例再开播。</summary>
+    public bool IsDisposed => _disposed;
+
     public IMediaPlayer CreatePlayer(VideoEndpoint endpoint, MediaPlayerOptions options)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

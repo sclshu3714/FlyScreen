@@ -547,14 +547,18 @@
                 <Grid x:Name="PageTools" IsVisible="False">
                     <Border Style="{StaticResource Card}" Padding="16">
                         <Grid RowDefinitions="Auto,Auto,Auto,*">
-                            <Grid>
-                                <HorizontalStackLayout Spacing="0" HorizontalOptions="Start">
+                            <!-- 分列：避免与「导入」叠同一格时 PiP 缩窗后左侧量成 0 宽，面包屑消失 -->
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <HorizontalStackLayout Spacing="0" VerticalOptions="Center"
+                                                       HorizontalOptions="Fill">
                                     <Label x:Name="ToolsTitleText" Text="工具" FontSize="15" FontAttributes="Bold"
                                            VerticalOptions="Center" />
                                     <HorizontalStackLayout x:Name="ToolsWorkspaceNavPanel" Spacing="0"
-                                                           VerticalOptions="Center" />
+                                                           VerticalOptions="Center"
+                                                           HorizontalOptions="Fill" />
                                 </HorizontalStackLayout>
-                                <Button x:Name="ToolsImportBtn" Text="导入" HorizontalOptions="End"
+                                <Button x:Name="ToolsImportBtn" Grid.Column="1" Text="导入"
+                                        VerticalOptions="Center"
                                         Padding="12,4" Clicked="ToolsImport_Clicked" />
                             </Grid>
                             <VerticalStackLayout Grid.Row="1" Spacing="8" Margin="0,4,0,8">
