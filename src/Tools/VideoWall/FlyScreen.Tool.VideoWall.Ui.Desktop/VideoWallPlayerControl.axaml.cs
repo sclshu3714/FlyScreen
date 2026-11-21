@@ -23,7 +23,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private const double CueHitSize = 14;
     private const double CueDotSize = 6;
     private const double SeekBarMax = 1000;
-    private const double CompactChromeThreshold = 500;
+    private const double CompactChromeThreshold = 300;
     private const double TitleChromeHeight = 56;
     private const double TransportChromeHeight = 128;
     private static readonly float[] SpeedSteps = [0.75f, 1f, 1.25f, 1.5f, 2f];

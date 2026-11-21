@@ -436,7 +436,7 @@ public sealed class ToolCatalog
                 FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["Desktop"] = ["fixed-sources", "temp-sources", "grid", "composite"],
-                    ["Phone"] = ["fixed-sources", "temp-sources", "grid"],
+                    ["Phone"] = ["fixed-sources", "temp-sources"],
                     ["Tablet"] = ["fixed-sources", "temp-sources", "grid", "composite"]
                 },
                 Roles = ["local"],
@@ -445,7 +445,7 @@ public sealed class ToolCatalog
                 HasWorkspace = true,
                 Icon = ToolIconKeys.VideoWall,
                 Permissions = ["networkStream", "localFile.open", "speaker"],
-                PackageVersion = "0.1.1",
+                PackageVersion = "0.1.2",
                 EntryAssembly = "FlyScreen.Tool.VideoWall.dll",
                 EntryType = "FlyScreen.Tool.VideoWall.Module"
             },

@@ -213,6 +213,8 @@
 
   <!-- 与 ML Kit 对齐 AndroidX，避免 Fragment/Lifecycle 主包与 Ktx 版本错位导致 R8 duplicate class。 -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <!-- 视频墙 LibVLC 原生库进 APK；C# 绑定仍由 .flytool 旁路 LibVLCSharp -->
+    <PackageReference Include="VideoLAN.LibVLC.Android" Version="3.5.3" />
     <PackageReference Include="Xamarin.AndroidX.DocumentFile" Version="1.1.0.1" />
     <PackageReference Include="Xamarin.Google.MLKit.TextRecognition.Chinese" Version="116.0.1.9" Condition="'$(FlyEnableMlKit)' == 'true'" />
     <PackageReference Include="Xamarin.AndroidX.Fragment" Version="1.9.0" />

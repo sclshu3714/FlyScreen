@@ -288,7 +288,9 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         var vlc = new VlcMediaBackend(Credentials);
         Backend = vlc.IsAvailable ? vlc : new NullMediaBackend();
         if (!vlc.IsAvailable)
-            AppLog.Warn("视频墙：LibVLC 原生库未就绪（检查 Tools/_native/libvlc 或 Installed/video-wall/*/libvlc）");
+            AppLog.Warn(OperatingSystem.IsAndroid()
+                ? "视频墙：LibVLC 不可用（检查宿主 APK 是否含 VideoLAN.LibVLC.Android）"
+                : "视频墙：LibVLC 原生库未就绪（检查 Tools/_native/libvlc 或 Installed/video-wall/*/libvlc）");
         else if (!string.IsNullOrEmpty(VlcNativeBootstrap.LastResolvedDirectory))
             AppLog.Info($"视频墙：LibVLC ← {VlcNativeBootstrap.LastResolvedDirectory}");
 
@@ -554,8 +556,10 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
             foreach (var ver in Directory.EnumerateDirectories(root)
                          .OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase))
             {
+                // Windows 安装包带 libvlc；Android 原生库在宿主 APK，安装目录仅作 SetNativeRoot 提示
                 if (File.Exists(Path.Combine(ver, "libvlc", "win-x64", "libvlc.dll"))
-                    || File.Exists(Path.Combine(ver, "runtimes", "win-x64", "native", "libvlc.dll")))
+                    || File.Exists(Path.Combine(ver, "runtimes", "win-x64", "native", "libvlc.dll"))
+                    || OperatingSystem.IsAndroid())
                     return ver;
             }
         }

@@ -843,7 +843,8 @@ public partial class VideoWallPanel : UserControl
     {
         if (_service is null) return;
         var dlg = new AddSourceDialog(_service, Window.GetWindow(this));
-        if (dlg.ShowDialog() != true) return;
+        dlg.ShowDialog();
+        if (!dlg.Saved) return;
         // 延后刷新，避免对话框关闭后的鼠标抬起穿透到列表「播放」按钮
         Dispatcher.BeginInvoke(new Action(RefreshAll), System.Windows.Threading.DispatcherPriority.Background);
     }
@@ -887,7 +888,8 @@ public partial class VideoWallPanel : UserControl
         var src = _service.Catalog.Sources.FirstOrDefault(s => s.Id == id);
         if (src is null) return;
         var dlg = new AddSourceDialog(_service, Window.GetWindow(this), src);
-        if (dlg.ShowDialog() != true) return;
+        dlg.ShowDialog();
+        if (!dlg.Saved) return;
         Dispatcher.BeginInvoke(new Action(RefreshAll), System.Windows.Threading.DispatcherPriority.Background);
     }
 

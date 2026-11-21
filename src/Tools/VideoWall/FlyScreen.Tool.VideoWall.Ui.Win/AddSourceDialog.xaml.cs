@@ -392,19 +392,33 @@ public partial class AddSourceDialog : Window
             if (!cover.Ok)
                 ErrorText.Text = Loc.T("Tool.VideoWall.CaptureFailed");
 
+            // await 期间用户可能已 Esc/关窗；此时再设 DialogResult 会抛 InvalidOperationException
             Saved = true;
-            DialogResult = true;
-            Close();
+            TrySetDialogResult(true);
         }
         finally
         {
-            SaveBtn.IsEnabled = true;
+            if (IsLoaded)
+                SaveBtn.IsEnabled = true;
         }
     }
 
     private void CancelBtn_Click(object sender, RoutedEventArgs e)
+        => TrySetDialogResult(false);
+
+    /// <summary>
+    /// ShowDialog 路径设 DialogResult（自动关窗）；非模态或已关闭时退回 Close。
+    /// </summary>
+    private void TrySetDialogResult(bool? value)
     {
-        DialogResult = false;
-        Close();
+        try
+        {
+            DialogResult = value;
+        }
+        catch (InvalidOperationException)
+        {
+            if (IsVisible)
+                Close();
+        }
     }
 }

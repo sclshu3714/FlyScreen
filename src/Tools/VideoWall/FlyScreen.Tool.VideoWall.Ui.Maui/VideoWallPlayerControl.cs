@@ -18,7 +18,7 @@ public sealed class VideoWallPlayerControl : ContentView
     private const int SeekCatchupHoldMs = 400;
     private const double CueHitHeight = 16;
     private const double CueDotSize = 6;
-    private const double CompactChromeThreshold = 500;
+    private const double CompactChromeThreshold = 300;
     private const double TitleChromeHeight = 56;
     private const double TransportChromeHeight = 128;
     private static readonly float[] SpeedSteps = [0.75f, 1f, 1.25f, 1.5f, 2f];

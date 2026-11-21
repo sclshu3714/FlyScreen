@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using FlyScreen.Services;
 using LibVLCSharp.Shared;
 
@@ -9,8 +10,9 @@ namespace FlyScreen.Tool.VideoWall.Backend.Vlc;
 /// 工具经 ALC <c>LoadFromStream</c> 加载时 <see cref="Assembly.Location"/> 为空，
 /// MUST 依赖宿主写入的安装目录或 <see cref="FlyScreenDataPaths.ToolsInstalledDirectory"/>。
 /// <para>
-/// 原生库优先落在 <c>Tools/_native/libvlc/win-x64</c> 再 Initialize，
+/// Windows：原生库优先落在 <c>Tools/_native/libvlc/win-x64</c> 再 Initialize，
 /// 避免 LoadLibrary 锁死 <c>Tools/Installed/video-wall/&lt;ver&gt;</c> 导致无法卸载/重装。
+/// Android：宿主 APK 已含 <c>VideoLAN.LibVLC.Android</c> 的 <c>.so</c>，直接 <see cref="Core.Initialize()"/>。
 /// </para>
 /// </summary>
 internal static class VlcNativeBootstrap
@@ -22,7 +24,7 @@ internal static class VlcNativeBootstrap
     private static bool _available;
     private static string? _nativeRootOverride;
 
-    /// <summary>显式指定含 <c>libvlc/win-x64</c> 的工具安装根目录。</summary>
+    /// <summary>显式指定含原生库子目录的工具安装根目录（Windows 为 <c>libvlc/win-x64</c>）。</summary>
     public static void SetNativeRoot(string? installDir)
     {
         lock (Gate)
@@ -44,6 +46,15 @@ internal static class VlcNativeBootstrap
             _initialized = true;
             try
             {
+                if (OperatingSystem.IsAndroid())
+                {
+                    // 宿主 APK 已打包 libvlc.so；ALC 内 LibVLCSharp 通过 loadLibrary 解析
+                    Core.Initialize();
+                    _available = true;
+                    LastResolvedDirectory = "(android-apk)";
+                    return _available;
+                }
+
                 var dir = ResolveLibVlcDirectory();
                 if (!string.IsNullOrEmpty(dir))
                     Core.Initialize(dir);
@@ -52,9 +63,10 @@ internal static class VlcNativeBootstrap
 
                 _available = true;
             }
-            catch
+            catch (Exception ex)
             {
                 _available = false;
+                AppLog.Warn($"视频墙：LibVLC Initialize 失败：{ex.Message}");
             }
 
             return _available;
@@ -65,9 +77,12 @@ internal static class VlcNativeBootstrap
 
     private static string? ResolveLibVlcDirectory()
     {
+        var rid = NativeRidFolder;
+        var nativeFile = NativeLibFileName;
+
         // 1) 已有稳定缓存 → 直接用（不锁 Installed）
         var cached = NativeCacheLibVlcDir;
-        if (File.Exists(Path.Combine(cached, "libvlc.dll")))
+        if (File.Exists(Path.Combine(cached, nativeFile)))
         {
             LastResolvedDirectory = cached;
             return cached;
@@ -95,8 +110,32 @@ internal static class VlcNativeBootstrap
         return null;
     }
 
+    private static string NativeRidFolder
+    {
+        get
+        {
+            if (OperatingSystem.IsWindows())
+                return "win-x64";
+            if (OperatingSystem.IsAndroid())
+            {
+                return RuntimeInformation.ProcessArchitecture switch
+                {
+                    Architecture.Arm64 => "android-arm64",
+                    Architecture.Arm => "android-arm",
+                    Architecture.X64 => "android-x64",
+                    _ => "android-arm64"
+                };
+            }
+
+            return "win-x64";
+        }
+    }
+
+    private static string NativeLibFileName
+        => OperatingSystem.IsWindows() ? "libvlc.dll" : "libvlc.so";
+
     private static string NativeCacheLibVlcDir
-        => Path.Combine(FlyScreenDataPaths.ToolsNativeDirectory, "libvlc", "win-x64");
+        => Path.Combine(FlyScreenDataPaths.ToolsNativeDirectory, "libvlc", NativeRidFolder);
 
     private static string? TrySeedNativeCache(string sourceLibVlcDir)
     {
@@ -105,7 +144,8 @@ internal static class VlcNativeBootstrap
             if (string.IsNullOrWhiteSpace(sourceLibVlcDir) || !Directory.Exists(sourceLibVlcDir))
                 return null;
 
-            var srcDll = Path.Combine(sourceLibVlcDir, "libvlc.dll");
+            var nativeFile = NativeLibFileName;
+            var srcDll = Path.Combine(sourceLibVlcDir, nativeFile);
             if (!File.Exists(srcDll))
                 return null;
 
@@ -113,7 +153,7 @@ internal static class VlcNativeBootstrap
             var stampPath = Path.Combine(FlyScreenDataPaths.ToolsNativeDirectory, "libvlc", "source.stamp");
             var stamp = $"{Path.GetFullPath(sourceLibVlcDir)}|{File.GetLastWriteTimeUtc(srcDll).Ticks}|{new FileInfo(srcDll).Length}";
 
-            if (File.Exists(Path.Combine(dest, "libvlc.dll"))
+            if (File.Exists(Path.Combine(dest, nativeFile))
                 && File.Exists(stampPath)
                 && string.Equals(File.ReadAllText(stampPath).Trim(), stamp, StringComparison.Ordinal))
                 return dest;
@@ -129,7 +169,7 @@ internal static class VlcNativeBootstrap
                     catch
                     {
                         // 旧缓存若正被本进程占用，直接沿用
-                        if (File.Exists(Path.Combine(dest, "libvlc.dll")))
+                        if (File.Exists(Path.Combine(dest, nativeFile)))
                         {
                             try { Directory.Delete(staging, recursive: true); } catch { /* ignore */ }
                             return dest;
@@ -221,16 +261,18 @@ internal static class VlcNativeBootstrap
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
             return null;
 
+        var rid = NativeRidFolder;
+        var nativeFile = NativeLibFileName;
         var candidates = new[]
         {
-            Path.Combine(root, "libvlc", "win-x64"),
-            Path.Combine(root, "runtimes", "win-x64", "native"),
+            Path.Combine(root, "libvlc", rid),
+            Path.Combine(root, "runtimes", rid, "native"),
             root
         };
 
         foreach (var dir in candidates)
         {
-            if (File.Exists(Path.Combine(dir, "libvlc.dll")))
+            if (File.Exists(Path.Combine(dir, nativeFile)))
                 return dir;
         }
 

@@ -14,13 +14,19 @@ using Path = Microsoft.Maui.Controls.Shapes.Path;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
-/// <summary>Maui 视频墙：对齐 Win 结构（源浏览 / 画布 / 单路回放）；Maui-Win 用 Win32 子 HWND 嵌入 LibVLC。</summary>
+/// <summary>
+/// Maui 视频墙：对齐 Win 结构（源浏览 / 画布 / 单路回放）；Maui-Win 用 Win32 子 HWND 嵌入 LibVLC。
+/// 手机（Phone）仅卡片/列表 + 单路播放，不提供画布宫格。
+/// </summary>
 public sealed class VideoWallPanel : ContentView
 {
     private static readonly int[] LayoutEdges = [1, 2, 3, 4];
 
     private enum PanelMode { Sources, Wall, Playback }
     private enum BrowseView { Card, List, Canvas }
+
+    /// <summary>手机：只浏览源并单路播放，隐藏画布/布局/轮播。</summary>
+    private static bool IsPhoneBrowseOnly => DeviceInfo.Idiom == DeviceIdiom.Phone;
 
     private readonly IVideoWallService? _service;
     private readonly ObservableCollection<SourceRowVm> _rows = new();
@@ -154,9 +160,12 @@ public sealed class VideoWallPanel : ContentView
         _viewCardIcon = cardPair.Icon;
         VideoWallMauiIcons.WireClicked(_viewCardBtn, (_, _) => ApplyBrowseView(BrowseView.Card));
 
+        var listCorner = IsPhoneBrowseOnly
+            ? VideoWallMauiIcons.SegmentCorner.Right
+            : VideoWallMauiIcons.SegmentCorner.Middle;
         var listPair = VideoWallMauiIcons.CreateSegmentIconButton(
             VideoWallMauiIcons.Geo.ViewList, Loc.T("Tool.VideoWall.ViewList"),
-            VideoWallMauiIcons.SegmentCorner.Middle, _text, _card, _line);
+            listCorner, _text, _card, _line);
         _viewListBtn = listPair.Host;
         _viewListIcon = listPair.Icon;
         VideoWallMauiIcons.WireClicked(_viewListBtn, (_, _) => ApplyBrowseView(BrowseView.List));
@@ -166,6 +175,7 @@ public sealed class VideoWallPanel : ContentView
             VideoWallMauiIcons.SegmentCorner.Right, _text, _card, _line);
         _viewCanvasBtn = canvasPair.Host;
         _viewCanvasIcon = canvasPair.Icon;
+        _viewCanvasBtn.IsVisible = !IsPhoneBrowseOnly;
         VideoWallMauiIcons.WireClicked(_viewCanvasBtn, (_, _) => ApplyBrowseView(BrowseView.Canvas));
 
         _layoutDrop = new VideoWallDropDown(_text, _muted, _line, _card);
@@ -229,9 +239,9 @@ public sealed class VideoWallPanel : ContentView
             Spacing = 0,
             Children = { _viewCardBtn, _viewListBtn, _viewCanvasBtn }
         };
-        // 手机窄屏：工具条换行；桌面仍单行
+        // 手机窄屏：工具条换行，且无画布/布局/轮播
         View toolbarContent;
-        if (DeviceInfo.Idiom == DeviceIdiom.Phone)
+        if (IsPhoneBrowseOnly)
         {
             toolbarContent = new FlexLayout
             {
@@ -246,14 +256,16 @@ public sealed class VideoWallPanel : ContentView
                     scanPair.Host,
                     _deleteBtn,
                     viewToggle,
-                    _layoutDrop,
-                    _carouselPanel,
                     _groupDrop,
                     _search
                 }
             };
             _search.MinimumWidthRequest = 140;
             _search.WidthRequest = 180;
+            _layoutDrop.IsVisible = false;
+            _carouselPanel.IsVisible = false;
+            if (_browseView == BrowseView.Canvas)
+                _browseView = BrowseView.Card;
         }
         else
         {
@@ -671,6 +683,9 @@ public sealed class VideoWallPanel : ContentView
 
     private async void ApplyBrowseView(BrowseView view)
     {
+        if (IsPhoneBrowseOnly && view == BrowseView.Canvas)
+            view = BrowseView.Card;
+
         var leavingCanvas = _browseView == BrowseView.Canvas && view != BrowseView.Canvas;
         _browseView = view;
         if (leavingCanvas)
@@ -688,16 +703,18 @@ public sealed class VideoWallPanel : ContentView
             SetMode(PanelMode.Sources);
     }
 
-    /// <summary>单路返回：画布模式回到墙并按轮播页重建；否则回到列表/卡片。</summary>
+    /// <summary>单路返回：画布模式回到墙并按轮播页重建；手机/列表卡片回到源浏览。</summary>
     private async Task OnPlayerClosedAsync()
     {
-        if (_browseView == BrowseView.Canvas)
+        if (!IsPhoneBrowseOnly && _browseView == BrowseView.Canvas)
         {
             SetMode(PanelMode.Wall);
             await RefreshCanvasAsync();
         }
         else
         {
+            if (IsPhoneBrowseOnly && _browseView == BrowseView.Canvas)
+                _browseView = BrowseView.Card;
             SetMode(PanelMode.Sources);
         }
     }
@@ -707,11 +724,13 @@ public sealed class VideoWallPanel : ContentView
         var browsing = _mode is PanelMode.Sources or PanelMode.Wall;
         _viewCardBtn.IsEnabled = browsing;
         _viewListBtn.IsEnabled = browsing;
-        _viewCanvasBtn.IsEnabled = browsing;
+        _viewCanvasBtn.IsEnabled = browsing && !IsPhoneBrowseOnly;
+        _viewCanvasBtn.IsVisible = !IsPhoneBrowseOnly;
         VideoWallMauiIcons.SetSegmentActive(_viewCardBtn, _viewCardIcon, browsing && _browseView == BrowseView.Card, _blue, _muted, _card, _line);
         VideoWallMauiIcons.SetSegmentActive(_viewListBtn, _viewListIcon, browsing && _browseView == BrowseView.List, _blue, _muted, _card, _line);
-        VideoWallMauiIcons.SetSegmentActive(_viewCanvasBtn, _viewCanvasIcon, browsing && _browseView == BrowseView.Canvas, _blue, _muted, _card, _line);
-        var canvasChrome = browsing && _browseView == BrowseView.Canvas;
+        if (!IsPhoneBrowseOnly)
+            VideoWallMauiIcons.SetSegmentActive(_viewCanvasBtn, _viewCanvasIcon, browsing && _browseView == BrowseView.Canvas, _blue, _muted, _card, _line);
+        var canvasChrome = !IsPhoneBrowseOnly && browsing && _browseView == BrowseView.Canvas;
         _layoutDrop.IsVisible = canvasChrome;
         _carouselPanel.IsVisible = canvasChrome;
         _suppressCarouselToggle = true;
