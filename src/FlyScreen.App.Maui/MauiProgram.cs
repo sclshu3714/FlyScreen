@@ -16,7 +16,8 @@ public static class MauiProgram
 
         var builder = MauiApp.CreateBuilder();
         builder.UseMauiApp<App>();
-        // 不在此注册 LibVLCSharp：视频墙 .flytool 旁路绑定；Android 原生 .so 由 VideoLAN.LibVLC.Android 打进 APK
+        // Android：LibVLCSharp + VideoLAN.LibVLC.Android 由工程引用进 APK，ALC 与宿主共享绑定；
+        // 桌面仍用 .flytool 旁路 LibVLCSharp（热拔插）。
 
 #if ANDROID
         // 日志/程序/收件箱 → Android/data/com.xuanniao.flyscreen/files（无需所有文件访问）

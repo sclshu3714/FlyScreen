@@ -48,10 +48,12 @@ internal static class VlcNativeBootstrap
             {
                 if (OperatingSystem.IsAndroid())
                 {
-                    // 宿主 APK 已打包 libvlc.so；ALC 内 LibVLCSharp 通过 loadLibrary 解析
+                    // 须用宿主 net*-android 的 LibVLCSharp（ALC 已对 Android 共享该程序集）
+                    // + APK 内 VideoLAN.LibVLC.Android 的 libvlc.so；勿传 win-x64 路径
                     Core.Initialize();
                     _available = true;
                     LastResolvedDirectory = "(android-apk)";
+                    AppLog.Info("视频墙：LibVLC 已用 Android 宿主原生库初始化");
                     return _available;
                 }
 

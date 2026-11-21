@@ -69,7 +69,14 @@ public sealed class ToolInstaller
             && existing != null
             && IsInstallComplete(existing)
             && string.Equals(existing.Version, pack.PackageVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            // 已安装但 Bundled 清单可能尚未含此工具（如手机首次导入后未重扫）
+            try { MaybePersistExternalPack(flytoolPath, toolId, pack.PackageVersion); }
+            catch { /* ignore */ }
+            try { _catalog.ReloadBuiltinFromBundled(); }
+            catch (Exception ex) { AppLog.Warn($"重载 Bundled 清单失败：{ex.Message}"); }
             return ToolInstallResult.Ok("已安装");
+        }
 
         // 残缺安装、版本升级或用户确认覆盖：先卸再装（调用方应已 Host.Unload；此处只清目录/记录）
         if (existing != null)
@@ -136,6 +143,10 @@ public sealed class ToolInstaller
                 TrustLevel = trustHint.ToString(),
                 InstalledAt = DateTimeOffset.UtcNow
             });
+
+            // 工具卡只来自 Bundled 清单；外部导入落包后须重扫，否则同会话看不到新卡（如手机导入 video-wall）
+            try { _catalog.ReloadBuiltinFromBundled(); }
+            catch (Exception ex) { AppLog.Warn($"重载 Bundled 清单失败：{ex.Message}"); }
 
             await StepAsync(toolId, 100, ct).ConfigureAwait(false);
             AppLog.Info($"工具已安装：{toolId} {version} ← {flytoolPath}");

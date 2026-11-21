@@ -1,16 +1,19 @@
-#if WINDOWS
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
 /// <summary>
-/// Win32 文件选择。MAUI <see cref="FilePicker"/> 在 unpackaged / 管理员下常 COMException。
+/// Win32 文件选择（各 TFM 均可编译；仅在 Windows 运行时调用）。
+/// MAUI <see cref="FilePicker"/> 在 unpackaged / 管理员下常 COMException；
+/// 打进 flytool 的 net10.0 程序集无 <c>WINDOWS</c> 宏，不能依赖 <c>#if WINDOWS</c>。
 /// </summary>
 internal static class VideoWallWin32PathPicker
 {
     public static string? PickSingleFile(string? title = null, string? filter = null)
     {
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("Win32 文件选择仅支持 Windows");
+
         const int nMax = 260;
         var buffer = Marshal.AllocHGlobal(nMax * sizeof(char));
         try
@@ -89,4 +92,3 @@ internal static class VideoWallWin32PathPicker
     [DllImport("user32.dll")]
     private static extern IntPtr GetActiveWindow();
 }
-#endif
