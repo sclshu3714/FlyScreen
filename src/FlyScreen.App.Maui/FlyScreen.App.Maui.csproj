@@ -62,6 +62,8 @@
       关闭后改走传统 JNI 符号，和生成的 Java 包装一致。
     -->
     <AndroidEnableMarshalMethods Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">false</AndroidEnableMarshalMethods>
+    <!-- VideoLAN.LibVLC.Android：强制打入 libc++_shared.so -->
+    <CopyLibcppShared Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">true</CopyLibcppShared>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
     <!-- Debug|ios：RID 与 Mac CPU 对齐（默认 x64；Apple Silicon 见 Directory.Build.props） -->
     <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(RuntimeIdentifier)' == ''">$(FlyScreenIosSimulatorRid)</RuntimeIdentifier>

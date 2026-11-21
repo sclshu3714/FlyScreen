@@ -45,7 +45,7 @@ internal static class VlcMrlHelper
         var address = (endpoint.Address ?? "").Trim();
         if (address.Length == 0) return false;
 
-        if (protocol == "file" || LooksLikeWindowsPath(address))
+        if (protocol == "file" || LooksLikeWindowsPath(address) || LooksLikeUnixAbsolutePath(address))
         {
             if (address.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
             {
@@ -69,6 +69,9 @@ internal static class VlcMrlHelper
            && s[1] == ':'
            && (s[2] == '\\' || s[2] == '/');
 
+    private static bool LooksLikeUnixAbsolutePath(string s)
+        => s.Length >= 2 && s[0] == '/' && s[1] != '/';
+
     private static void ApplyOptions(
         Media media,
         VideoEndpoint endpoint,
@@ -86,12 +89,20 @@ internal static class VlcMrlHelper
 
         var decode = (options.DecodePreference ?? "auto").Trim().ToLowerInvariant();
 
-        media.AddOption(decode switch
+        // Android 无 d3d11va；软帧回调路径强制 CPU 解码更稳
+        if (OperatingSystem.IsAndroid())
         {
-            "hardware" => ":avcodec-hw=d3d11va",
-            "software" => ":avcodec-hw=none",
-            _ => ":avcodec-hw=any"
-        });
+            media.AddOption(":avcodec-hw=none");
+        }
+        else
+        {
+            media.AddOption(decode switch
+            {
+                "hardware" => ":avcodec-hw=d3d11va",
+                "software" => ":avcodec-hw=none",
+                _ => ":avcodec-hw=any"
+            });
+        }
 
         var bufferMs = options.BufferMs ?? endpoint.BufferMs;
         if (bufferMs is > 0)

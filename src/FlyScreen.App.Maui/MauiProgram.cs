@@ -20,6 +20,9 @@ public static class MauiProgram
         // 桌面仍用 .flytool 旁路 LibVLCSharp（热拔插）。
 
 #if ANDROID
+        // LibVLC：须在任何工具 ALC 加载前完成绝对路径装库与 DllImportResolver
+        Platforms.Android.LibVlcAndroidBootstrap.Ensure();
+
         // 日志/程序/收件箱 → Android/data/com.xuanniao.flyscreen/files（无需所有文件访问）
         Platforms.Android.AndroidPublicDataRoot.TryBootstrap();
 

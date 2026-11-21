@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 using FlyScreen.Services;
 using LibVLCSharp.Shared;
@@ -10,12 +9,11 @@ namespace FlyScreen.Tool.VideoWall.Backend.Vlc;
 /// 工具经 ALC <c>LoadFromStream</c> 加载时 <see cref="Assembly.Location"/> 为空，
 /// MUST 依赖宿主写入的安装目录或 <see cref="FlyScreenDataPaths.ToolsInstalledDirectory"/>。
 /// <para>
-/// Windows：原生库优先落在 <c>Tools/_native/libvlc/win-x64</c> 再 Initialize，
-/// 避免 LoadLibrary 锁死 <c>Tools/Installed/video-wall/&lt;ver&gt;</c> 导致无法卸载/重装。
-/// Android：宿主 APK 已含 <c>VideoLAN.LibVLC.Android</c> 的 <c>.so</c>，直接 <see cref="Core.Initialize()"/>。
+/// Windows：原生库优先落在 <c>Tools/_native/libvlc/win-x64</c> 再 Initialize。
+/// Android：见 <c>VlcNativeBootstrap.Android.cs</c> —— 绝对路径 System.load，短名 LoadLibrary 不可靠。
 /// </para>
 /// </summary>
-internal static class VlcNativeBootstrap
+internal static partial class VlcNativeBootstrap
 {
     private const string InstallDirDataKey = "FlyScreen.Tool.InstallDir.video-wall";
 
@@ -30,7 +28,6 @@ internal static class VlcNativeBootstrap
         lock (Gate)
         {
             _nativeRootOverride = string.IsNullOrWhiteSpace(installDir) ? null : installDir.Trim();
-            // 允许此前因找不到原生库而失败后，在安装目录就绪后再试
             if (!_available)
                 _initialized = false;
         }
@@ -48,12 +45,7 @@ internal static class VlcNativeBootstrap
             {
                 if (OperatingSystem.IsAndroid())
                 {
-                    // 须用宿主 net*-android 的 LibVLCSharp（ALC 已对 Android 共享该程序集）
-                    // + APK 内 VideoLAN.LibVLC.Android 的 libvlc.so；勿传 win-x64 路径
-                    Core.Initialize();
-                    _available = true;
-                    LastResolvedDirectory = "(android-apk)";
-                    AppLog.Info("视频墙：LibVLC 已用 Android 宿主原生库初始化");
+                    _available = TryInitializeAndroid();
                     return _available;
                 }
 

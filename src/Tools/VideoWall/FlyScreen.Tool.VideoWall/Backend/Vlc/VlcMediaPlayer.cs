@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using FlyScreen.Tool.VideoWall.Contracts;
@@ -12,6 +13,27 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     private static readonly TimeSpan StallThreshold = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan StatsInterval = TimeSpan.FromSeconds(2);
     private static readonly byte[] Rv32Chroma = Encoding.ASCII.GetBytes("RV32");
+
+    /// <summary>
+    /// Android 版 LibVLCSharp 无 <c>MediaPlayer.Hwnd</c>；工具按 net10.0 桌面 API 编译，
+    /// 直接赋值会在运行时 MissingMethodException。反射按宿主程序集是否存在该属性调用。
+    /// </summary>
+    private static readonly Action<MediaPlayer, IntPtr>? SetHwnd = CreateHwndSetter();
+
+    private static Action<MediaPlayer, IntPtr>? CreateHwndSetter()
+    {
+        var prop = typeof(MediaPlayer).GetProperty("Hwnd", BindingFlags.Instance | BindingFlags.Public);
+        if (prop?.SetMethod is null) return null;
+        return (player, hwnd) => prop.SetValue(player, hwnd);
+    }
+
+    private static void TrySetPlayerHwnd(MediaPlayer player, IntPtr hwnd)
+    {
+        // Android LibVLC 走 ANativeWindow / 软件帧，无 HWND；即使反射找到桌面属性也不要调用
+        if (OperatingSystem.IsAndroid() || SetHwnd is null)
+            return;
+        SetHwnd(player, hwnd);
+    }
 
     private readonly LibVLC _libVlc;
     private readonly VideoEndpoint _endpoint;
@@ -84,7 +106,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _watchTimer.Elapsed += (_, _) => OnWatchTick();
 
         if (options.RenderTarget is IntPtr hwnd && hwnd != IntPtr.Zero)
-            _player.Hwnd = hwnd;
+            TrySetPlayerHwnd(_player, hwnd);
 
         if (options.Mute)
             _player.Mute = true;
@@ -183,9 +205,9 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         // 软件帧模式下忽略 HWND，避免与回调出画冲突
         if (_frameSink is not null)
             return;
-        // VideoView 绑定时由其托管 HWND；仅在显式传入有效句柄时覆盖
+        // VideoView 绑定时由其托管 HWND；仅在显式传入有效句柄时覆盖（Android 无 Hwnd API）
         if (target != IntPtr.Zero)
-            _player.Hwnd = target;
+            TrySetPlayerHwnd(_player, target);
     }
 
     public void AttachFrameSink(IVideoFrameSink? sink)
@@ -195,8 +217,8 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         if (sink is null)
             return;
 
-        // 与 HWND 互斥：清窗口句柄，改走内存回调
-        _player.Hwnd = IntPtr.Zero;
+        // 与 HWND 互斥：清窗口句柄，改走内存回调（Android 无 Hwnd，跳过）
+        TrySetPlayerHwnd(_player, IntPtr.Zero);
         _formatCb = OnVideoFormat;
         _cleanupCb = OnVideoCleanup;
         _lockCb = OnVideoLock;
@@ -218,10 +240,52 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player.Media = _media;
 
         SetState(TilePlayState.Connecting);
-        _player.Play();
+        var ok = _player.Play();
+        FlyScreen.Services.AppLog.Info(
+            $"视频墙：Play({DescribeEndpoint()}) → {(ok ? "OK" : "false")} sink={_frameSink is not null}");
         _watchTimer.Start();
+        // 无帧/无 Playing 时超时失败，避免手机一直转圈
+        _ = WatchFirstFrameOrFailAsync();
 
         return Task.CompletedTask;
+    }
+
+    private string DescribeEndpoint()
+    {
+        var addr = _endpoint.Address ?? "";
+        if (addr.Length > 96) addr = addr[..96] + "…";
+        return $"{_endpoint.Protocol}:{addr}";
+    }
+
+    private async Task WatchFirstFrameOrFailAsync()
+    {
+        try
+        {
+            await Task.Delay(12_000).ConfigureAwait(false);
+            if (_disposed) return;
+            TilePlayState cur;
+            lock (_gate) cur = _state;
+            if (cur is TilePlayState.Playing or TilePlayState.Paused
+                or TilePlayState.Stopped or TilePlayState.Stopping or TilePlayState.Failed)
+                return;
+
+            // 有时长或 IsPlaying 仍卡住 → 升 Playing 清遮罩；否则判失败
+            if (_player.IsPlaying || _player.Length > 0)
+            {
+                FlyScreen.Services.AppLog.Warn(
+                    $"视频墙：12s 无帧但内核在播，强制 Playing（len={_player.Length}）");
+                SetState(TilePlayState.Playing);
+                return;
+            }
+
+            FlyScreen.Services.AppLog.Warn($"视频墙：12s 无首帧，判定失败 state={cur}");
+            _error = VideoErrorCode.NetTimeout;
+            SetState(TilePlayState.Failed);
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
 
     public void Pause()
@@ -474,12 +538,22 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     {
         Marshal.Copy(Rv32Chroma, 0, chroma, 4);
 
+        // Android 软件帧走 CPU 拷贝+Bitmap：全高清每帧 ~8MB，UI 跟不上就只剩偶发一帧。
+        // 在 format 回调里缩小输出，让 LibVLC 负责缩放。
+        if (OperatingSystem.IsAndroid() && width > 960)
+        {
+            var scaledH = (uint)Math.Max(2, Math.Round(height * (960.0 / width)));
+            width = 960;
+            height = scaledH;
+        }
+
         // 对齐到偶数，避免部分转换器踩奇宽高
         if ((width & 1) != 0) width++;
         if ((height & 1) != 0) height++;
 
-        pitches = width * 4;
-        lines = height;
+        // LibVLC 要求 pitch/lines 为 32 对齐，否则 Android 上回调常不出帧
+        pitches = Align32(width * 4);
+        lines = Align32(height);
         _frameWidth = width;
         _frameHeight = height;
         _framePitch = pitches;
@@ -534,6 +608,9 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         SetState(TilePlayState.Playing);
         _lastProgressUtc = DateTime.UtcNow;
     }
+
+    private static uint Align32(uint value)
+        => value == 0 ? 0 : (value + 31u) & ~31u;
 
     private void EnsureFrameBuffer(int size)
     {

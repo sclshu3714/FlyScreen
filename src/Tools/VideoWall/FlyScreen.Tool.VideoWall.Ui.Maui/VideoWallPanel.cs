@@ -52,6 +52,9 @@ public sealed class VideoWallPanel : ContentView
     private readonly VideoWallDropDown _groupDrop;
     private readonly Entry _search;
     private readonly Border _deleteBtn;
+    private readonly Border? _searchToggleBtn;
+    private readonly View? _filterPanel;
+    private bool _filterExpanded;
     private readonly IDispatcherTimer _carouselTimer;
 
     private readonly Grid _contentHost;
@@ -129,6 +132,8 @@ public sealed class VideoWallPanel : ContentView
             if (_mode == PanelMode.Wall)
                 _ = RefreshCanvasAsync();
         };
+        // 键盘「搜索/完成」后收起；分组下拉交互时不要因失焦误收
+        _search.Completed += (_, _) => CollapseFilterPanel();
 
         _carouselTimer = (Application.Current?.Dispatcher ?? throw new InvalidOperationException("No dispatcher"))
             .CreateTimer();
@@ -239,11 +244,29 @@ public sealed class VideoWallPanel : ContentView
             Spacing = 0,
             Children = { _viewCardBtn, _viewListBtn, _viewCanvasBtn }
         };
-        // 手机窄屏：工具条换行，且无画布/布局/轮播
+        // 手机窄屏：工具条换行；分组+搜索收成一键，点开再展开
         View toolbarContent;
         if (IsPhoneBrowseOnly)
         {
-            toolbarContent = new FlexLayout
+            var searchPair = VideoWallMauiIcons.CreateIconButton(
+                VideoWallMauiIcons.Geo.Search, _blue, Loc.T("Tool.VideoWall.Search"),
+                VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn,
+                margin: new Thickness(0, 0, 0, 0));
+            _searchToggleBtn = searchPair.Host;
+            VideoWallMauiIcons.WireClicked(_searchToggleBtn, (_, _) => ToggleFilterPanel());
+
+            _groupDrop.MinimumWidthRequest = 0;
+            _search.MinimumWidthRequest = 0;
+            _search.HorizontalOptions = LayoutOptions.Fill;
+            _filterPanel = new VerticalStackLayout
+            {
+                Spacing = 6,
+                IsVisible = false,
+                Margin = new Thickness(0, 6, 0, 0),
+                Children = { _groupDrop, _search }
+            };
+
+            var iconRow = new FlexLayout
             {
                 Direction = FlexDirection.Row,
                 Wrap = FlexWrap.Wrap,
@@ -256,12 +279,14 @@ public sealed class VideoWallPanel : ContentView
                     scanPair.Host,
                     _deleteBtn,
                     viewToggle,
-                    _groupDrop,
-                    _search
+                    _searchToggleBtn
                 }
             };
-            _search.MinimumWidthRequest = 140;
-            _search.WidthRequest = 180;
+            toolbarContent = new VerticalStackLayout
+            {
+                Spacing = 0,
+                Children = { iconRow, _filterPanel }
+            };
             _layoutDrop.IsVisible = false;
             _carouselPanel.IsVisible = false;
             if (_browseView == BrowseView.Canvas)
@@ -269,6 +294,8 @@ public sealed class VideoWallPanel : ContentView
         }
         else
         {
+            _searchToggleBtn = null;
+            _filterPanel = null;
             toolbarContent = new Grid
             {
                 ColumnDefinitions =
@@ -301,7 +328,7 @@ public sealed class VideoWallPanel : ContentView
         {
             Stroke = _line,
             BackgroundColor = _card,
-            Padding = new Thickness(10, 8),
+            Padding = new Thickness(IsPhoneBrowseOnly ? 8 : 10, IsPhoneBrowseOnly ? 6 : 8),
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
             Content = toolbarContent
         };
@@ -1505,33 +1532,77 @@ public sealed class VideoWallPanel : ContentView
 
     private bool _suppressHeaderSelect;
 
+    private void ToggleFilterPanel()
+    {
+        if (_filterPanel is null) return;
+        if (_filterExpanded) CollapseFilterPanel();
+        else ExpandFilterPanel();
+    }
+
+    private void ExpandFilterPanel()
+    {
+        if (_filterPanel is null || _filterExpanded) return;
+        _filterExpanded = true;
+        _filterPanel.IsVisible = true;
+        Dispatcher.Dispatch(() => _search.Focus());
+    }
+
+    private void CollapseFilterPanel()
+    {
+        if (_filterPanel is null || !_filterExpanded) return;
+        _filterExpanded = false;
+        _filterPanel.IsVisible = false;
+    }
+
+    private static void ApplyListColumns(Grid grid, bool phone)
+    {
+        grid.ColumnDefinitions.Clear();
+        if (phone)
+        {
+            // 勾选 | 名称* | 状态 | 播放+更多
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(40)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(44)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(72)));
+            return;
+        }
+
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(36)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(88)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(72)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(108)));
+    }
+
     private View BuildListHeader()
     {
         ToolTipProperties.SetText(_headerSelectAll, Loc.T("Tool.VideoWall.SelectAllTip"));
+        var phone = IsPhoneBrowseOnly;
+        if (phone)
+            _headerSelectAll.Scale = 0.9;
         var hdr = new Grid
         {
-            Padding = new Thickness(12, 10),
+            Padding = new Thickness(phone ? 6 : 12, phone ? 8 : 10),
             BackgroundColor = Color.FromArgb(Application.Current?.RequestedTheme == AppTheme.Dark ? "#0F172A" : "#F3F4F6"),
-            ColumnDefinitions =
-            [
-                new ColumnDefinition(new GridLength(36)),
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(new GridLength(88)),
-                new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
-                new ColumnDefinition(new GridLength(72)),
-                new ColumnDefinition(new GridLength(108))
-            ],
-            ColumnSpacing = 8,
-            Children =
-            {
-                _headerSelectAll,
-                Header(Loc.T("Tool.VideoWall.ColName")).Also(v => Grid.SetColumn(v, 1)),
-                Header(Loc.T("Tool.VideoWall.ColKind")).Also(v => Grid.SetColumn(v, 2)),
-                Header(Loc.T("Tool.VideoWall.Field.Address")).Also(v => Grid.SetColumn(v, 3)),
-                Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 4)),
-                Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 5))
-            }
+            ColumnSpacing = phone ? 4 : 8
         };
+        ApplyListColumns(hdr, phone);
+        hdr.Children.Add(_headerSelectAll);
+        hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColName")).Also(v => Grid.SetColumn(v, 1)));
+        if (phone)
+        {
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 2)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 3)));
+        }
+        else
+        {
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColKind")).Also(v => Grid.SetColumn(v, 2)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.Field.Address")).Also(v => Grid.SetColumn(v, 3)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 4)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 5)));
+        }
+
         return hdr;
 
         Label Header(string t) => new()
@@ -1597,10 +1668,13 @@ public sealed class VideoWallPanel : ContentView
             l.VerticalTextAlignment = TextAlignment.Center;
         }
 
+        var phone = IsPhoneBrowseOnly;
         var check = new CheckBox
         {
             VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center
+            HorizontalOptions = LayoutOptions.Center,
+            Margin = phone ? new Thickness(0) : default,
+            Scale = phone ? 0.9 : 1
         };
         check.SetBinding(CheckBox.IsCheckedProperty, nameof(SourceRowVm.IsSelected));
         check.CheckedChanged += (_, _) =>
@@ -1627,6 +1701,7 @@ public sealed class VideoWallPanel : ContentView
         var play = VideoWallMauiIcons.CreateRowIconButton(
             VideoWallMauiIcons.Geo.Play, playGreen, Loc.T("Tool.VideoWall.Play"), _card, _line).Host;
         play.SetBinding(VisualElement.ClassIdProperty, nameof(SourceRowVm.Id));
+        if (phone) play.Margin = new Thickness(0, 0, 2, 0);
         VideoWallMauiIcons.WireClicked(play, (s, _) =>
         {
             if (s is Border { ClassId: { Length: > 0 } id })
@@ -1652,38 +1727,62 @@ public sealed class VideoWallPanel : ContentView
                 await DeleteOneAsync(id);
         });
 
+        View actions;
+        if (phone)
+        {
+            var more = VideoWallMauiIcons.CreateRowIconButton(
+                VideoWallMauiIcons.Geo.More, _muted, Loc.T("Tool.VideoWall.More"), _card, _line).Host;
+            more.Margin = 0;
+            more.SetBinding(VisualElement.ClassIdProperty, nameof(SourceRowVm.Id));
+            VideoWallMauiIcons.WireClicked(more, (s, _) =>
+            {
+                if (s is not Border { ClassId: { Length: > 0 } id } anchor)
+                    return;
+                ShowRowMoreMenu(anchor, id);
+            });
+            actions = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                VerticalOptions = LayoutOptions.Center,
+                Children = { play, more }
+            };
+        }
+        else
+        {
+            actions = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                VerticalOptions = LayoutOptions.Center,
+                Children = { play, edit, del }
+            };
+        }
+
+        var grid = new Grid
+        {
+            MinimumHeightRequest = 44,
+            ColumnSpacing = phone ? 4 : 8
+        };
+        ApplyListColumns(grid, phone);
+        grid.Children.Add(check);
+        grid.Children.Add(name.Also(v => Grid.SetColumn(v, 1)));
+        if (phone)
+        {
+            grid.Children.Add(status.Also(v => Grid.SetColumn(v, 2)));
+            grid.Children.Add(actions.Also(v => Grid.SetColumn(v, 3)));
+        }
+        else
+        {
+            grid.Children.Add(kind.Also(v => Grid.SetColumn(v, 2)));
+            grid.Children.Add(addr.Also(v => Grid.SetColumn(v, 3)));
+            grid.Children.Add(status.Also(v => Grid.SetColumn(v, 4)));
+            grid.Children.Add(actions.Also(v => Grid.SetColumn(v, 5)));
+        }
+
         var row = new Border
         {
-            Padding = new Thickness(12, 10),
+            Padding = new Thickness(phone ? 6 : 12, phone ? 8 : 10),
             StrokeThickness = 0,
-            Content = new Grid
-            {
-                MinimumHeightRequest = 44,
-                ColumnDefinitions =
-                [
-                    new ColumnDefinition(new GridLength(36)),
-                    new ColumnDefinition(GridLength.Star),
-                    new ColumnDefinition(new GridLength(88)),
-                    new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(72)),
-                    new ColumnDefinition(new GridLength(108))
-                ],
-                ColumnSpacing = 8,
-                Children =
-                {
-                    check,
-                    name.Also(v => Grid.SetColumn(v, 1)),
-                    kind.Also(v => Grid.SetColumn(v, 2)),
-                    addr.Also(v => Grid.SetColumn(v, 3)),
-                    status.Also(v => Grid.SetColumn(v, 4)),
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 0,
-                        VerticalOptions = LayoutOptions.Center,
-                        Children = { play, edit, del }
-                    }.Also(v => Grid.SetColumn(v, 5))
-                }
-            }
+            Content = grid
         };
 
         var dbl = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
@@ -1694,6 +1793,56 @@ public sealed class VideoWallPanel : ContentView
         };
         row.GestureRecognizers.Add(dbl);
         return row;
+    }
+
+    private void ShowRowMoreMenu(View anchor, string sourceId)
+    {
+        var menu = new VerticalStackLayout
+        {
+            Spacing = 0,
+            BackgroundColor = _card,
+            Padding = new Thickness(0, 4)
+        };
+        menu.Shadow = new Shadow
+        {
+            Brush = Colors.Black,
+            Offset = new Point(0, 2),
+            Radius = 8,
+            Opacity = 0.18f
+        };
+
+        View Item(string text, Color color, Action action)
+        {
+            var label = new Label
+            {
+                Text = text,
+                TextColor = color,
+                FontSize = 14,
+                Padding = new Thickness(14, 12)
+            };
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += (_, _) =>
+            {
+                _flyout.Close();
+                action();
+            };
+            label.GestureRecognizers.Add(tap);
+            return label;
+        }
+
+        menu.Children.Add(Item(Loc.T("Tool.VideoWall.Editing"), _blue, () => OpenDialog(sourceId)));
+        menu.Children.Add(Item(Loc.T("Tool.VideoWall.Delete"), _warn, () => _ = DeleteOneAsync(sourceId)));
+
+        var border = new Border
+        {
+            Stroke = _line,
+            StrokeThickness = 1,
+            BackgroundColor = _card,
+            Padding = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 8 },
+            Content = menu
+        };
+        _flyout.ShowAt(anchor, border, 148);
     }
 
     // prefer 步长：默认窗内容区约 3 列；缩放仍按宽算列数（非强制 3）

@@ -215,10 +215,14 @@
               </Button>
               <Popup x:Name="PlaybackVolumePopup" Placement="Top"
                      PlacementTarget="PlaybackVolumeHost" IsLightDismissEnabled="False">
-                <Border Background="#E6111827" CornerRadius="10" Padding="10,12"
-                        BorderBrush="#33FFFFFF" BorderThickness="1"
+                <Border x:Name="PlaybackVolumePopupPanel" Background="#E6111827" CornerRadius="10" Padding="10,12"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" Opacity="0"
+                        RenderTransformOrigin="0.5,1"
                         PointerEntered="PlaybackVolumePopup_PointerEntered"
                         PointerExited="PlaybackVolumePopup_PointerExited">
+                  <Border.RenderTransform>
+                    <TranslateTransform Y="18"/>
+                  </Border.RenderTransform>
                   <StackPanel Spacing="8" HorizontalAlignment="Center">
                     <TextBlock x:Name="PlaybackVolumePct" Text="100%" Foreground="White"
                                FontSize="11" HorizontalAlignment="Center"/>

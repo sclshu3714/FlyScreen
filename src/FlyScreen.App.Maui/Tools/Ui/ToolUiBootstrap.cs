@@ -1,3 +1,4 @@
+using FlyScreen.Services;
 using FlyScreen.Services.Tools;
 using FlyScreen.ToolSdk;
 
@@ -11,7 +12,8 @@ public static class ToolUiBootstrap
         var ctx = new ToolUiContext
         {
             Owner = null,
-            ReportStatus = reportStatus,
+            // 与 Win 对齐：插件 ReportStatus → 日志页；此前 Maui 未接线导致播放日志全丢
+            ReportStatus = reportStatus ?? (s => AppLog.RecordStatus(s)),
             GetNavigation = () => navigation()
         };
         tools.BindUi(ctx);

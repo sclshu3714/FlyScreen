@@ -35,6 +35,8 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         s_current = this;
+        // 视频墙 LibVLC：宿主 JNI 装库 + DllImportResolver（工具 ALC 反射 Load 会炸 ClassLoader）
+        LibVlcAndroidBootstrap.Ensure();
         _treeLauncher = RegisterForActivityResult(
             new ActivityResultContracts.OpenDocumentTree(),
             new TreeUriCallback());

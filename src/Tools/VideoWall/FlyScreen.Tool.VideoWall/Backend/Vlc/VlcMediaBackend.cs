@@ -90,10 +90,26 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
             if (_libVlc is not null)
                 return _libVlc;
 
-            _libVlc = new LibVLC(
-                "--no-video-title-show",
-                "--no-stats",
-                "--verbose=0");
+            // Android：软帧出画；禁视频标题；略提高日志便于排查卡住
+            _libVlc = OperatingSystem.IsAndroid()
+                ? new LibVLC(
+                    "--no-video-title-show",
+                    "--no-stats",
+                    "--aout=opensles",
+                    "--verbose=1")
+                : new LibVLC(
+                    "--no-video-title-show",
+                    "--no-stats",
+                    "--verbose=0");
+            if (OperatingSystem.IsAndroid())
+            {
+                _libVlc.Log += (_, e) =>
+                {
+                    if (e.Level is LibVLCSharp.Shared.LogLevel.Error or LibVLCSharp.Shared.LogLevel.Warning)
+                        FlyScreen.Services.AppLog.Warn($"LibVLC: {e.Message}");
+                };
+            }
+
             return _libVlc;
         }
     }

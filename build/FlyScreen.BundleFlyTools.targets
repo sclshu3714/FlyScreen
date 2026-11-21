@@ -42,8 +42,9 @@
           IgnoreStandardErrorWarningFormat="true" />
   </Target>
 
+  <!-- FlyScreenSkipFlyToolsPack=true：跳过打包脚本，仍嵌入已有 artifacts/flytools（调试用） -->
   <Target Name="FlyScreen_EnsureFlyToolsPacked"
-          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true'">
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipFlyTools)' != 'true' And '$(FlyScreenSkipFlyToolsPack)' != 'true'">
     <PropertyGroup>
       <_FsForcePackSwitch Condition="'$(FlyScreenForceFlyTools)' == 'true'"> -Force</_FsForcePackSwitch>
     </PropertyGroup>

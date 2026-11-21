@@ -59,7 +59,7 @@
 | `net10.0-maccatalyst26.0` | **默认**（同上） |
 | `net10.0-windows10.0.19041.0` | Windows 主机上自动追加 |
 
-`.NET SDK` 用仓库根 `global.json` 钉 **10.0.402**。
+`.NET SDK` 用仓库根 `global.json` 钉 **10.0.404**。
 
 若要切到 ios **26.2.x**（NuGet 最新为 **26.2.10233**，无 `26.2.10274`；官方要求 Xcode **26.2**）：
 
