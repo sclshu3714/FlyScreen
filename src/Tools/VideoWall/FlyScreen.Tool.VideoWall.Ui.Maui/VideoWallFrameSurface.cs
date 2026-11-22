@@ -17,25 +17,31 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
 {
     private readonly Image _image;
     private readonly object _gate = new();
-    private byte[] _copy = [];
+    private byte[] _pending = [];
     private int[] _argbScratch = [];
     private int _width;
     private int _height;
     private int _stride;
-    private int _posted;
+    private int _dirty;
+    private int _scheduled;
+    private readonly int _minFrameIntervalMs;
+    private long _lastAcceptTick;
     private int _androidOkLogged;
     private int _androidFailLogged;
 
 #if WINDOWS
     private Microsoft.UI.Xaml.Controls.Image? _nativeImage;
     private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _bitmap;
+    private int _winHooked;
 #endif
 
     private object? _androidBitmap;
     private object? _androidImageView;
 
-    public VideoWallFrameSurface()
+    /// <param name="maxFps">出画上限；0 表示不限（单路）。宫格建议 12–20。</param>
+    public VideoWallFrameSurface(int maxFps = 0)
     {
+        _minFrameIntervalMs = maxFps > 0 ? Math.Max(1, 1000 / maxFps) : 0;
         BackgroundColor = Colors.Black;
         _image = new Image
         {
@@ -61,10 +67,14 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         lock (_gate)
         {
             _width = _height = _stride = 0;
-            _copy = [];
+            _pending = [];
         }
 
-        Interlocked.Exchange(ref _posted, 0);
+        Interlocked.Exchange(ref _dirty, 0);
+        Interlocked.Exchange(ref _scheduled, 0);
+#if WINDOWS
+        UnhookWinRendering();
+#endif
         MainThread.BeginInvokeOnMainThread(() =>
         {
 #if WINDOWS
@@ -94,8 +104,8 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
             _height = height;
             _stride = strideBytes;
             var need = Math.Max(0, strideBytes * height);
-            if (_copy.Length < need)
-                _copy = new byte[need];
+            if (_pending.Length < need)
+                _pending = new byte[need];
         }
     }
 
@@ -104,24 +114,49 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         if (scan0 == IntPtr.Zero || width <= 0 || height <= 0 || strideBytes <= 0)
             return;
 
+        if (_minFrameIntervalMs > 0)
+        {
+            var now = Environment.TickCount64;
+            if (now - _lastAcceptTick < _minFrameIntervalMs)
+                return;
+            _lastAcceptTick = now;
+        }
+
         var bytes = checked(strideBytes * height);
         lock (_gate)
         {
-            if (_copy.Length < bytes)
-                _copy = new byte[bytes];
-            Marshal.Copy(scan0, _copy, 0, bytes);
+            if (_pending.Length < bytes)
+                _pending = new byte[bytes];
+            Marshal.Copy(scan0, _pending, 0, bytes);
             _width = width;
             _height = height;
             _stride = strideBytes;
         }
 
-        if (Interlocked.Exchange(ref _posted, 1) == 0)
-            MainThread.BeginInvokeOnMainThread(PresentOnUi);
+        Interlocked.Exchange(ref _dirty, 1);
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            EnsureWinRenderingHooked();
+            return;
+        }
+#endif
+        SchedulePresent();
+    }
+
+    private void SchedulePresent()
+    {
+        if (Interlocked.CompareExchange(ref _scheduled, 1, 0) != 0)
+            return;
+        MainThread.BeginInvokeOnMainThread(PresentOnUi);
     }
 
     private void PresentOnUi()
     {
-        Interlocked.Exchange(ref _posted, 0);
+        Interlocked.Exchange(ref _scheduled, 0);
+        if (Interlocked.Exchange(ref _dirty, 0) == 0)
+            return;
+
         byte[] pixels;
         int width, height, stride;
         lock (_gate)
@@ -129,26 +164,73 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
             width = _width;
             height = _height;
             stride = _stride;
-            if (width <= 0 || height <= 0 || stride <= 0 || _copy.Length < stride * height)
+            if (width <= 0 || height <= 0 || stride <= 0 || _pending.Length < stride * height)
                 return;
-            pixels = _copy;
+            pixels = _pending;
         }
 
 #if WINDOWS
         if (OperatingSystem.IsWindows())
         {
             PresentWindows(pixels, width, height, stride);
+            if (Volatile.Read(ref _dirty) != 0)
+                SchedulePresent();
             return;
         }
 #endif
         if (OperatingSystem.IsAndroid())
         {
             PresentAndroid(pixels, width, height, stride);
+            if (Volatile.Read(ref _dirty) != 0)
+                SchedulePresent();
             return;
         }
 
         PresentPortableBmp(pixels, width, height, stride);
+        if (Volatile.Read(ref _dirty) != 0)
+            SchedulePresent();
     }
+
+#if WINDOWS
+    private void EnsureWinRenderingHooked()
+    {
+        if (Interlocked.CompareExchange(ref _winHooked, 1, 0) != 0)
+            return;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_winHooked == 1)
+                Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += OnWinCompositionRendering;
+        });
+    }
+
+    private void UnhookWinRendering()
+    {
+        if (Interlocked.Exchange(ref _winHooked, 0) == 0)
+            return;
+        MainThread.BeginInvokeOnMainThread(() =>
+            Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= OnWinCompositionRendering);
+    }
+
+    private void OnWinCompositionRendering(object? sender, object e)
+    {
+        if (Interlocked.Exchange(ref _dirty, 0) == 0)
+            return;
+
+        byte[] pixels;
+        int width, height, stride;
+        lock (_gate)
+        {
+            width = _width;
+            height = _height;
+            stride = _stride;
+            if (width <= 0 || height <= 0 || stride <= 0 || _pending.Length < stride * height)
+                return;
+            pixels = _pending;
+        }
+
+        PresentWindows(pixels, width, height, stride);
+    }
+#endif
 
 #if WINDOWS
     private void PresentWindows(byte[] pixels, int width, int height, int stride)

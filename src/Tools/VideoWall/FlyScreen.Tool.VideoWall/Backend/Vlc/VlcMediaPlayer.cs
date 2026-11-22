@@ -270,8 +270,14 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         if (_disposed)
             return;
 
+        // 软件帧回调与硬解互斥：D3D11VA→RV32 拷回易拖死 GPU/整机（需重启）。
+        // Android 已在 CreateMedia 强制 soft；桌面有 frameSink 时同样强制 soft。
+        var playOptions = _frameSink is not null
+            ? _options with { DecodePreference = "software" }
+            : _options;
+
         _media?.Dispose();
-        _media = VlcMrlHelper.CreateMedia(_libVlc, _activeEndpoint, _options, _credentials);
+        _media = VlcMrlHelper.CreateMedia(_libVlc, _activeEndpoint, playOptions, _credentials);
         _player.Media = _media;
 
         SetState(TilePlayState.Connecting);
@@ -574,12 +580,16 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     {
         Marshal.Copy(Rv32Chroma, 0, chroma, 4);
 
-        // Android 软件帧走 CPU 拷贝+Bitmap：全高清每帧 ~8MB，UI 跟不上就只剩偶发一帧。
+        // 软件帧走 CPU 拷贝 + UI WritePixels：软解 4K 易掉帧；宫格进一步压分辨率。
         // 在 format 回调里缩小输出，让 LibVLC 负责缩放。
-        if (OperatingSystem.IsAndroid() && width > 960)
+        var configured = _options.SoftFrameMaxWidth;
+        var maxW = configured is > 0
+            ? (uint)configured.Value
+            : OperatingSystem.IsAndroid() ? 960u : 1280u;
+        if (width > maxW)
         {
-            var scaledH = (uint)Math.Max(2, Math.Round(height * (960.0 / width)));
-            width = 960;
+            var scaledH = (uint)Math.Max(2, Math.Round(height * (maxW / (double)width)));
+            width = maxW;
             height = scaledH;
         }
 

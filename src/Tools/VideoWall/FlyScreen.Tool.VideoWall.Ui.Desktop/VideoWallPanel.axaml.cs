@@ -93,6 +93,8 @@ public partial class VideoWallPanel : UserControl
         AddBtn.Content = Loc.T("Tool.VideoWall.Add");
         ScanBtn.Content = Loc.T("Tool.VideoWall.Scan");
         ToolTip.SetTip(ScanBtn, Loc.T("Tool.VideoWall.Scan"));
+        DlnaBtn.Content = Loc.T("Tool.VideoWall.Dlna");
+        ToolTip.SetTip(DlnaBtn, Loc.T("Tool.VideoWall.Dlna"));
         DeleteBtn.Content = Loc.T("Tool.VideoWall.Delete");
         SearchBox.Watermark = Loc.T("Tool.VideoWall.Search");
         CarouselToggle.Content = Loc.T("Tool.VideoWall.Carousel");
@@ -117,11 +119,13 @@ public partial class VideoWallPanel : UserControl
         RefreshAll();
     }
 
-    private void OnUnloaded(object? sender, RoutedEventArgs e)
+    private async void OnUnloaded(object? sender, RoutedEventArgs e)
     {
         _carouselTimer.Stop();
+        // 先停播再解绑：AttachService(null) 后 StopAsync 不会停 SinglePlayback，会留下幽灵声音
+        try { await Player.StopAsync(); }
+        catch { /* 卸载中忽略 */ }
         Player.AttachService(null);
-        _ = Player.StopAsync();
         if (_service is null) return;
         _service.CatalogChanged -= OnChanged;
         _service.SessionChanged -= OnChanged;
@@ -146,7 +150,8 @@ public partial class VideoWallPanel : UserControl
         if (_service is null) return;
         var q = (SearchBox.Text ?? "").Trim();
         _rows.Clear();
-        foreach (var s in _service.Catalog.Sources)
+        // 快照：批量 AddSource / CatalogChanged 可能并发改底层 List
+        foreach (var s in _service.Catalog.Sources.ToArray())
         {
             if (q.Length > 0 &&
                 !s.Name.Contains(q, StringComparison.OrdinalIgnoreCase) &&
@@ -263,6 +268,7 @@ public partial class VideoWallPanel : UserControl
                 tile.AttachFrameSink(surface);
             try { await _service.StartTileAsync(i); }
             catch (Exception ex) { StatusReporter?.Invoke($"视频墙格{i}开播失败: {ex.Message}"); }
+            await Task.Delay(100).ConfigureAwait(true);
         }
     }
 
@@ -437,6 +443,18 @@ public partial class VideoWallPanel : UserControl
     {
         if (_service is null) return;
         var win = new ScanDevicesWindow(_service);
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is not null)
+            await win.ShowDialog(owner);
+        else
+            win.Show();
+        RefreshAll();
+    }
+
+    private async void DlnaBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_service is null) return;
+        var win = new DlnaBrowseWindow(_service);
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (owner is not null)
             await win.ShowDialog(owner);
@@ -650,7 +668,8 @@ public partial class VideoWallPanel : UserControl
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
                 };
                 cell.Children.Add(image);
-                var surface = new VideoWallFrameSurface(image);
+                var maxFps = SoftFrameBudget.MaxFpsForWall(_service?.Layout.TileCount ?? 4);
+                var surface = new VideoWallFrameSurface(image, maxFps);
                 _tileSurfaces[i] = surface;
                 if (tile.HasPlayer)
                     tile.AttachFrameSink(surface);

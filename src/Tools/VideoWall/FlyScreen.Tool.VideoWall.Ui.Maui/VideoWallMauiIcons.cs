@@ -13,6 +13,7 @@ public static class VideoWallMauiIcons
     {
         public static string Add => IconCatalog.GetPath(IconCodes.Add);
         public static string Scan => IconCatalog.GetPath(IconCodes.Scan);
+        public static string Network => IconCatalog.GetPath(IconCodes.NavNetwork);
         public static string Search => IconCatalog.GetPath(IconCodes.Search);
         public static string Delete => IconCatalog.GetPath(IconCodes.Delete);
         public static string Play => IconCatalog.GetPath(IconCodes.Play);

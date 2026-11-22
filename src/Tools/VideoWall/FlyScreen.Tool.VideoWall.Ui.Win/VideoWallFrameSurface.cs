@@ -9,29 +9,34 @@ namespace FlyScreen.Tool.VideoWall.Ui.Win;
 
 /// <summary>
 /// WPF 单路软件帧面：LibVLC RV32 → WriteableBitmap。
-/// 画面与 chrome 同属 WPF 树，无 VideoView ForegroundWindow。
+/// 解码线程写后缓冲；由 <see cref="VideoWallFramePresentPump"/> 按刷新率出画。
 /// </summary>
 public sealed class VideoWallFrameSurface : IVideoFrameSink
 {
     private readonly System.Windows.Controls.Image _image;
     private readonly object _gate = new();
     private readonly Dispatcher _dispatcher;
-    private byte[] _copy = [];
+    private readonly int _minFrameIntervalMs;
+    private byte[] _pending = [];
     private int _width;
     private int _height;
     private int _stride;
-    private int _posted;
+    private int _dirty;
+    private long _lastAcceptTick;
     private WriteableBitmap? _bitmap;
     private int _frameSignal;
+    private int _registered;
 
     /// <summary>首帧已画到 Image 后触发（Clear 后可再触发）。</summary>
     public event Action? FramePresented;
 
-    public VideoWallFrameSurface(System.Windows.Controls.Image image)
+    /// <param name="maxFps">出画上限；0 表示不限（单路）。宫格建议 12–20。</param>
+    public VideoWallFrameSurface(System.Windows.Controls.Image image, int maxFps = 0)
     {
         _image = image;
         _dispatcher = image.Dispatcher;
         _image.Stretch = Stretch.Uniform;
+        _minFrameIntervalMs = maxFps > 0 ? Math.Max(1, 1000 / maxFps) : 0;
     }
 
     public void Clear()
@@ -39,11 +44,12 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
         lock (_gate)
         {
             _width = _height = _stride = 0;
-            _copy = [];
+            _pending = [];
         }
 
-        Interlocked.Exchange(ref _posted, 0);
+        Interlocked.Exchange(ref _dirty, 0);
         Interlocked.Exchange(ref _frameSignal, 0);
+        UnregisterPump();
         _ = _dispatcher.BeginInvoke(() =>
         {
             _bitmap = null;
@@ -59,8 +65,8 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
             _height = height;
             _stride = strideBytes;
             var need = Math.Max(0, strideBytes * height);
-            if (_copy.Length < need)
-                _copy = new byte[need];
+            if (_pending.Length < need)
+                _pending = new byte[need];
         }
     }
 
@@ -69,24 +75,34 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
         if (scan0 == IntPtr.Zero || width <= 0 || height <= 0 || strideBytes <= 0)
             return;
 
+        if (_minFrameIntervalMs > 0)
+        {
+            var now = Environment.TickCount64;
+            if (now - _lastAcceptTick < _minFrameIntervalMs)
+                return;
+            _lastAcceptTick = now;
+        }
+
         var bytes = checked(strideBytes * height);
         lock (_gate)
         {
-            if (_copy.Length < bytes)
-                _copy = new byte[bytes];
-            Marshal.Copy(scan0, _copy, 0, bytes);
+            if (_pending.Length < bytes)
+                _pending = new byte[bytes];
+            Marshal.Copy(scan0, _pending, 0, bytes);
             _width = width;
             _height = height;
             _stride = strideBytes;
         }
 
-        if (Interlocked.Exchange(ref _posted, 1) == 0)
-            _ = _dispatcher.BeginInvoke(PresentOnUi, DispatcherPriority.Render);
+        Interlocked.Exchange(ref _dirty, 1);
+        EnsureRegistered();
     }
 
-    private void PresentOnUi()
+    internal void PresentIfDirty()
     {
-        Interlocked.Exchange(ref _posted, 0);
+        if (Interlocked.Exchange(ref _dirty, 0) == 0)
+            return;
+
         byte[] pixels;
         int width, height, stride;
         lock (_gate)
@@ -94,9 +110,9 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
             width = _width;
             height = _height;
             stride = _stride;
-            if (width <= 0 || height <= 0 || stride <= 0 || _copy.Length < stride * height)
+            if (width <= 0 || height <= 0 || stride <= 0 || _pending.Length < stride * height)
                 return;
-            pixels = _copy;
+            pixels = _pending;
         }
 
         try
@@ -116,5 +132,27 @@ public sealed class VideoWallFrameSurface : IVideoFrameSink
         {
             /* 卸载过程中忽略 */
         }
+    }
+
+    private void EnsureRegistered()
+    {
+        if (Interlocked.CompareExchange(ref _registered, 1, 0) != 0)
+            return;
+
+        if (_dispatcher.CheckAccess())
+            VideoWallFramePresentPump.Request(this);
+        else
+            _ = _dispatcher.BeginInvoke(() => VideoWallFramePresentPump.Request(this), DispatcherPriority.Render);
+    }
+
+    private void UnregisterPump()
+    {
+        if (Interlocked.Exchange(ref _registered, 0) == 0)
+            return;
+
+        if (_dispatcher.CheckAccess())
+            VideoWallFramePresentPump.Unregister(this);
+        else
+            _ = _dispatcher.BeginInvoke(() => VideoWallFramePresentPump.Unregister(this), DispatcherPriority.Render);
     }
 }

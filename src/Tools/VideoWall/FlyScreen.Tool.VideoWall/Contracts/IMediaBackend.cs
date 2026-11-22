@@ -34,6 +34,12 @@ public sealed record MediaPlayerOptions
 
     /// <summary>渲染目标标识：平台 UI 卫星提供的原生面句柄（HWND / SurfaceView），由后端解释。</summary>
     public IntPtr? RenderTarget { get; init; }
+
+    /// <summary>软件帧回调输出最大宽；null 用平台默认。</summary>
+    public int? SoftFrameMaxWidth { get; init; }
+
+    /// <summary>宫格/多路模式：启用更快解码与更短缓存，降低整机负载。</summary>
+    public bool WallMode { get; init; }
 }
 
 /// <summary>单路播放器。所有状态回调 MUST 在非 UI 线程触发，由上层调度到 UI 线程。</summary>

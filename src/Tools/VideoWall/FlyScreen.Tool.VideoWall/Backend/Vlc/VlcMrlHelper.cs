@@ -122,24 +122,38 @@ internal static class VlcMrlHelper
 
         var decode = (options.DecodePreference ?? "auto").Trim().ToLowerInvariant();
 
-        // Android 无 d3d11va；软帧回调路径强制 CPU 解码更稳
-        if (OperatingSystem.IsAndroid())
+        // Android 无 d3d11va；软件帧路径（DecodePreference=software）强制 CPU 解码更稳
+        var soft = OperatingSystem.IsAndroid() || decode is "software" or "sw" or "soft";
+        if (soft)
         {
             media.AddOption(":avcodec-hw=none");
+            // 软解跟不上时丢弃过时帧，减轻不规则追帧造成的顿挫感
+            media.AddOption(":drop-late-frames");
+            media.AddOption(":skip-frames");
         }
         else
         {
             media.AddOption(decode switch
             {
                 "hardware" => ":avcodec-hw=d3d11va",
-                "software" => ":avcodec-hw=none",
                 _ => ":avcodec-hw=any"
             });
         }
 
+        if (options.WallMode)
+        {
+            media.AddOption(":avcodec-fast");
+            media.AddOption(":avcodec-skiploopfilter=4");
+            media.AddOption(":drop-late-frames");
+            media.AddOption(":skip-frames");
+        }
+
+        // HTTP 默认 ~1.2s；宫格更短，避免多路同时长缓冲打满内存
         var bufferMs = options.BufferMs ?? endpoint.BufferMs;
         if (bufferMs is > 0)
             media.AddOption($":network-caching={bufferMs.Value}");
+        else if (protocol is "http" or "https")
+            media.AddOption(options.WallMode ? ":network-caching=800" : ":network-caching=1200");
 
         if (!string.IsNullOrWhiteSpace(endpoint.CredentialRef) && credentials is not null)
         {

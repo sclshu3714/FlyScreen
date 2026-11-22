@@ -29,6 +29,8 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private readonly FlyBreadcrumbBar _networkBreadcrumb = new();
     private readonly FlyBreadcrumbBar _toolsBreadcrumb = new();
     private bool _toolsBreadcrumbWired;
+    /// <summary>当前 ToolsWorkspaceHost.Content 对应的工具 Id（目录切换时用于保留画中画等浮窗）。</summary>
+    private string? _toolsWorkspaceContentToolId;
     private bool _networkBreadcrumbWired;
     private readonly ObservableCollection<MachineSlot> _slots = [];
     private int _pageIndex;
@@ -2902,7 +2904,16 @@ public partial class MainPage : ContentPage, IWallpaperHost
         {
             ToolsScroll.IsVisible = true;
             ToolsWorkspaceHost.IsVisible = false;
-            ToolsWorkspaceHost.Content = null;
+            // 有打开页签时保留 Content：视频墙画中画等浮窗依赖工具页未卸载。
+            // 全部关闭或 Content 对应工具已关时再清空。
+            if (!hasTabs
+                || (!string.IsNullOrEmpty(_toolsWorkspaceContentToolId)
+                    && !ws.OpenTabs.Any(t =>
+                        string.Equals(t.ToolId, _toolsWorkspaceContentToolId, StringComparison.OrdinalIgnoreCase))))
+            {
+                ToolsWorkspaceHost.Content = null;
+                _toolsWorkspaceContentToolId = null;
+            }
         }
         else
         {
@@ -2913,7 +2924,15 @@ public partial class MainPage : ContentPage, IWallpaperHost
                 && ToolService.Instance.CreateWorkspaceContent(activeId) is View content
                 && (ToolsWorkspaceHost.Content == null
                     || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+            {
                 ToolsWorkspaceHost.Content = content;
+                _toolsWorkspaceContentToolId = activeId;
+            }
+            else if (!string.IsNullOrEmpty(activeId)
+                     && ToolsWorkspaceHost.Content != null)
+            {
+                _toolsWorkspaceContentToolId = activeId;
+            }
         }
     }
 

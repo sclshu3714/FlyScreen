@@ -436,15 +436,20 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         var source = Catalog.Sources.FirstOrDefault(s => s.Id == sourceId)
                      ?? throw new InvalidOperationException($"源不存在：{sourceId}");
 
+        var tiles = Layout.TileCount;
         await tile.BindAsync(
             source.Endpoint,
             sourceId,
             null,
             new MediaPlayerOptions
             {
-                DecodePreference = source.DecodePreference,
-                BufferMs = source.Endpoint.BufferMs,
-                Mute = true
+                // 宫格：HWND 路径用 auto 硬解；软件帧路径在 Start 时仍强制 soft + SoftFrameMaxWidth
+                DecodePreference = "auto",
+                BufferMs = Math.Min(source.Endpoint.BufferMs ?? SoftFrameBudget.NetworkCacheMsForWall,
+                    SoftFrameBudget.NetworkCacheMsForWall),
+                Mute = true,
+                WallMode = true,
+                SoftFrameMaxWidth = SoftFrameBudget.MaxWidthForWall(tiles)
             },
             ct,
             autoStart).ConfigureAwait(false);
@@ -489,6 +494,32 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         }
 
         return result;
+    }
+
+    public async Task<IReadOnlyList<AddSourceResult>> AddSourcesAsync(
+        IEnumerable<VideoSourceDescriptor> sources,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        var results = new List<AddSourceResult>();
+        var anyAdded = false;
+        foreach (var raw in sources)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = ResolveGroupName(raw);
+            var result = Catalog.Add(source);
+            results.Add(result);
+            if (result.Added)
+                anyAdded = true;
+        }
+
+        if (anyAdded)
+        {
+            await Catalog.SaveAsync(ct).ConfigureAwait(false);
+            CatalogChanged?.Invoke();
+        }
+
+        return results;
     }
 
     public async Task<AddSourceResult> UpdateSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default)

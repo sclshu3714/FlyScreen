@@ -101,6 +101,7 @@
 | 字段 | 名称、类型、地址、协议、认证（无/Basic/Digest/自定义 Header/Token 查询参数）、分组、备注、默认解码偏好（自动/硬解/软解）、重连策略 |
 | NVR 批量 | 支持「基地址 + 通道模板」，如 `rtsp://{host}:554/Streaming/Channels/{ch}01`，一次生成 `ch=1..N`；支持主/子码流两套模板 |
 | 局域网扫描 | 用户点「扫描」→ 见 §3.1.2；结果可「添加到源」 |
+| DLNA 媒体库 | 用户点「DLNA」→ SSDP 发现 MediaServer → Browse 目录 → 多选视频「添加到源」；条目落成 HTTP NetworkUrl（默认软解 + 网络缓存）；MUST NOT 后台常驻 M-SEARCH；不做 Renderer；不在浏览窗内挂墙开播 |
 | ONVIF 发现 | 用户点「发现设备」→ WS-Discovery（组播 239.255.255.250:3702）→ 列设备 → 选 Profile → 自动取 `GetStreamUri` 填入地址；MUST NOT 后台常驻扫描 |
 | GB28181 接入 | 二期：SIP 注册 + 目录查询 + INVITE 拉流（详见 [video-wall-sources.md](video-wall-sources.md)） |
 | 凭据存储 | 密码/Token MUST 用系统凭据保护（Windows DPAPI，macOS Keychain，Linux Secret Service）；MUST NOT 明文写进 scenes/日志 |
@@ -132,7 +133,7 @@
 |----|------|
 | 入口 | 源管理工具条「扫描」；弹窗/浮层：网段、厂商模板、可选用户名/密码、结果表、「添加到源」 |
 | 网段 | `LanDeviceScanService.ListLocalCidrs()` 枚举本机各活动网卡 IPv4 网段（去重）；UI 为可编辑 Combo / Picker，默认首项；允许手改 CIDR |
-| 探测 | 仅对用户选定网段做 **TCP connect** 常见端口（如 554/8554/80/8080/8000/37777/34567）；超时短、有主机数上限；**不**爆破口令、**不**后台常驻 |
+| 探测 | 仅对用户选定网段做 **TCP connect** 常见端口（如 554/8554/80/8080/8000/8200/37777/34567）；超时短、有主机数上限；**不**爆破口令、**不**后台常驻 |
 | 结果 | 主机 / 类型提示 / 开放端口；「添加到源」按厂商模板生成摄像头源并走现有 `AddSource` |
 | 主题 | Win：`WpfTheme` + `InheritHostBrushes`；结果区 `ListBg`；弹窗 **不** `AllowsTransparency`（内容铺满 `WinBg`）。Desktop / Maui 同步主题色 |
 | 多端 | Win `ScanDevicesDialog`、Desktop `ScanDevicesWindow`、Maui `VideoWallScanOverlay` 行为一致 |
@@ -490,7 +491,7 @@ MUST：无论进程内还是外置，业务与 UI 只经 `IMediaBackend`，切�
 - [ ] 场景保存/加载/删除、启动自动加载某场景。
 - [ ] 导出 JSON 不含凭据；勾选含凭据时二次确认。
 - [ ] 日志 URL 已脱敏；凭据文件非明文（十六进制/DPAPI 头可见）。
-- [ ] 无后台常驻扫网、无爆破口令（代码审查）；仅用户点「扫描」时对选定网段 TCP 探测（抓包可确认）。
+- [ ] 无后台常驻扫网、无爆破口令（代码审查）；仅用户点「扫描」时对选定网段 TCP 探测，或点「DLNA」时做短时 SSDP（抓包可确认）。
 
 ---
 

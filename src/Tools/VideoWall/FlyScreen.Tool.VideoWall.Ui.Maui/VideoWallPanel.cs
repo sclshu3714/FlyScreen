@@ -150,6 +150,11 @@ public sealed class VideoWallPanel : ContentView
             VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn);
         VideoWallMauiIcons.WireClicked(scanPair.Host, (_, _) => OpenScanDialog());
 
+        var dlnaPair = VideoWallMauiIcons.CreateIconButton(
+            VideoWallMauiIcons.Geo.Network, _blue, Loc.T("Tool.VideoWall.Dlna"),
+            VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn);
+        VideoWallMauiIcons.WireClicked(dlnaPair.Host, (_, _) => OpenDlnaDialog());
+
         var deletePair = VideoWallMauiIcons.CreateIconButton(
             VideoWallMauiIcons.Geo.Delete, _warn, Loc.T("Tool.VideoWall.Delete"),
             VideoWallMauiIcons.ToolbarKind.Danger, _text, _card, _line, _blue, _warn,
@@ -277,6 +282,7 @@ public sealed class VideoWallPanel : ContentView
                 {
                     addPair.Host,
                     scanPair.Host,
+                    dlnaPair.Host,
                     _deleteBtn,
                     viewToggle,
                     _searchToggleBtn
@@ -307,6 +313,7 @@ public sealed class VideoWallPanel : ContentView
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Star)
                 ],
                 ColumnSpacing = 6,
@@ -314,12 +321,13 @@ public sealed class VideoWallPanel : ContentView
                 {
                     addPair.Host,
                     scanPair.Host.Also(v => Grid.SetColumn(v, 1)),
-                    _deleteBtn.Also(v => Grid.SetColumn(v, 2)),
-                    viewToggle.Also(v => Grid.SetColumn(v, 3)),
-                    _layoutDrop.Also(v => Grid.SetColumn(v, 4)),
-                    _carouselPanel.Also(v => Grid.SetColumn(v, 5)),
-                    _groupDrop.Also(v => Grid.SetColumn(v, 6)),
-                    _search.Also(v => Grid.SetColumn(v, 7))
+                    dlnaPair.Host.Also(v => Grid.SetColumn(v, 2)),
+                    _deleteBtn.Also(v => Grid.SetColumn(v, 3)),
+                    viewToggle.Also(v => Grid.SetColumn(v, 4)),
+                    _layoutDrop.Also(v => Grid.SetColumn(v, 5)),
+                    _carouselPanel.Also(v => Grid.SetColumn(v, 6)),
+                    _groupDrop.Also(v => Grid.SetColumn(v, 7)),
+                    _search.Also(v => Grid.SetColumn(v, 8))
                 }
             };
         }
@@ -572,14 +580,16 @@ public sealed class VideoWallPanel : ContentView
         RefreshAll();
     }
 
-    private void OnUnloaded(object? sender, EventArgs e)
+    private async void OnUnloaded(object? sender, EventArgs e)
     {
         _carouselTimer.Stop();
-        _player.AttachService(null);
-        _ = _player.StopAsync();
 #if WINDOWS
         DetachAllTileSurfaces();
 #endif
+        // 先停播再解绑：AttachService(null) 后 StopAsync 不会停 SinglePlayback，会留下幽灵声音
+        try { await _player.StopAsync(); }
+        catch { /* 卸载中忽略 */ }
+        _player.AttachService(null);
         if (_service is null) return;
         _service.CatalogChanged -= OnCatalogChanged;
         _service.SessionChanged -= OnSessionChanged;
@@ -611,7 +621,7 @@ public sealed class VideoWallPanel : ContentView
     {
         if (_service is null) return;
         var options = new List<string> { Loc.T("Tool.VideoWall.GroupAll") };
-        options.AddRange(_service.Catalog.Groups.Select(g => g.Name));
+        options.AddRange(_service.Catalog.Groups.ToArray().Select(g => g.Name));
         _groupDrop.SetOptions(options.ToArray());
         if (_groupDrop.SelectedIndex < 0)
             _groupDrop.SelectedIndex = 0;
@@ -643,7 +653,8 @@ public sealed class VideoWallPanel : ContentView
         if (_service is null) return;
         var q = (_search.Text ?? "").Trim();
         _rows.Clear();
-        foreach (var s in _service.Catalog.Sources)
+        // 快照：批量 AddSource / CatalogChanged 可能并发改底层 List
+        foreach (var s in _service.Catalog.Sources.ToArray())
         {
             if (!string.IsNullOrEmpty(_groupFilter) && !MatchesGroup(s, _groupFilter))
                 continue;
@@ -872,6 +883,7 @@ public sealed class VideoWallPanel : ContentView
 
             try { await _service.StartTileAsync(i); }
             catch (Exception ex) { ReportLog($"视频墙格{i}开播失败: {ex.Message}"); }
+            await Task.Delay(100).ConfigureAwait(true);
         }
     }
 
@@ -1262,7 +1274,7 @@ public sealed class VideoWallPanel : ContentView
             body.Children.Add(surface);
             _tileSurfaces[index] = surface;
 #else
-            var frame = new VideoWallFrameSurface
+            var frame = new VideoWallFrameSurface(SoftFrameBudget.MaxFpsForWall(_service?.Layout.TileCount ?? 4))
             {
                 HorizontalOptions = LayoutOptions.Fill,
                 VerticalOptions = LayoutOptions.Fill
@@ -1273,7 +1285,7 @@ public sealed class VideoWallPanel : ContentView
         }
         else
         {
-            var frame = new VideoWallFrameSurface
+            var frame = new VideoWallFrameSurface(SoftFrameBudget.MaxFpsForWall(_service?.Layout.TileCount ?? 4))
             {
                 HorizontalOptions = LayoutOptions.Fill,
                 VerticalOptions = LayoutOptions.Fill
@@ -1504,6 +1516,20 @@ public sealed class VideoWallPanel : ContentView
         }
 
         _ = VideoWallScanPage.ShowAsync(_service, onSourcesChanged: () =>
+        {
+            MainThread.BeginInvokeOnMainThread(RefreshAll);
+        });
+    }
+
+    private void OpenDlnaDialog()
+    {
+        if (_service is null)
+        {
+            ReportLog(Loc.T("Tool.VideoWall.BackendUnavailable"));
+            return;
+        }
+
+        _ = VideoWallDlnaPage.ShowAsync(_service, onSourcesChanged: () =>
         {
             MainThread.BeginInvokeOnMainThread(RefreshAll);
         });

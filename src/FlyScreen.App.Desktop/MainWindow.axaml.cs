@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     private readonly FlyBreadcrumbBar _networkBreadcrumb = new();
     private readonly FlyBreadcrumbBar _toolsBreadcrumb = new();
     private bool _toolsBreadcrumbWired;
+    /// <summary>当前 ToolsWorkspaceHost.Content 对应的工具 Id（目录切换时用于保留画中画等浮窗）。</summary>
+    private string? _toolsWorkspaceContentToolId;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -1715,7 +1717,15 @@ public partial class MainWindow : Window
         {
             ToolsCatalogHost.IsVisible = true;
             ToolsWorkspaceHost.IsVisible = false;
-            ToolsWorkspaceHost.Content = null;
+            // 有打开页签时保留 Content：视频墙画中画等浮窗依赖工具页未卸载。
+            if (!hasTabs
+                || (!string.IsNullOrEmpty(_toolsWorkspaceContentToolId)
+                    && !ws.OpenTabs.Any(t =>
+                        string.Equals(t.ToolId, _toolsWorkspaceContentToolId, StringComparison.OrdinalIgnoreCase))))
+            {
+                ToolsWorkspaceHost.Content = null;
+                _toolsWorkspaceContentToolId = null;
+            }
         }
         else
         {
@@ -1728,7 +1738,14 @@ public partial class MainWindow : Window
                 if (content != null
                     && (ToolsWorkspaceHost.Content == null
                         || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+                {
                     ToolsWorkspaceHost.Content = content;
+                    _toolsWorkspaceContentToolId = activeId;
+                }
+                else if (content != null)
+                {
+                    _toolsWorkspaceContentToolId = activeId;
+                }
             }
         }
     }
