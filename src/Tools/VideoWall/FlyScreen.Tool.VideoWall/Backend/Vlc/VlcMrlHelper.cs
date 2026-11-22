@@ -12,11 +12,44 @@ internal static class VlcMrlHelper
         Media media;
         if (TryGetLocalFilePath(endpoint, out var localPath))
             media = new Media(libVlc, localPath, FromType.FromPath);
+        else if (NeedsOwnedHttp(endpoint))
+        {
+            // LibVLC 3 的 HTTPS 模块发不出自定义头，带 Cookie / UG-Agent 的地址改由自有客户端拉流
+            var input = new RangeHttpMediaInput(new Uri(BuildMrl(endpoint)), endpoint.Headers);
+            try
+            {
+                media = new Media(libVlc, input);
+            }
+            catch
+            {
+                input.Dispose();
+                throw;
+            }
+        }
         else
             media = new Media(libVlc, BuildMrl(endpoint), FromType.FromLocation);
 
         ApplyOptions(media, endpoint, options, credentials);
         return media;
+    }
+
+    private static bool NeedsOwnedHttp(VideoEndpoint endpoint)
+    {
+        var protocol = (endpoint.Protocol ?? "").Trim().ToLowerInvariant();
+        if (protocol is not ("http" or "https"))
+            return false;
+
+        // 只有 LibVLC 3 发不出去的头才改走自有客户端；Referer / User-Agent 仍交给 :http-referrer / :http-user-agent
+        foreach (var (key, value) in endpoint.Headers)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                continue;
+            if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase)
+                || key.Equals("UG-Agent", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public static string BuildMrl(VideoEndpoint endpoint)
@@ -132,7 +165,13 @@ internal static class VlcMrlHelper
         foreach (var (key, value) in endpoint.Headers)
         {
             if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value)) continue;
-            media.AddOption($":http-header={key}: {value}");
+            if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase)
+                || key.Equals("Referrer", StringComparison.OrdinalIgnoreCase))
+                media.AddOption($":http-referrer={value}");
+            else if (key.Equals("User-Agent", StringComparison.OrdinalIgnoreCase))
+                media.AddOption($":http-user-agent={value}");
+            else
+                media.AddOption($":http-header={key}: {value}");
         }
     }
 }

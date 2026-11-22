@@ -37,6 +37,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
 
     private readonly LibVLC _libVlc;
     private readonly VideoEndpoint _endpoint;
+    private VideoEndpoint _activeEndpoint;
     private readonly MediaPlayerOptions _options;
     private readonly Sources.CredentialStore? _credentials;
     private readonly MediaPlayer _player;
@@ -89,6 +90,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
     {
         _libVlc = libVlc;
         _endpoint = endpoint;
+        _activeEndpoint = endpoint;
         _options = options;
         _credentials = credentials;
         _player = new MediaPlayer(libVlc);
@@ -227,7 +229,7 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _player.SetVideoCallbacks(_lockCb, null, _displayCb);
     }
 
-    public Task StartAsync(CancellationToken ct = default)
+    public async Task StartAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ct.ThrowIfCancellationRequested();
@@ -235,8 +237,41 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         SetState(TilePlayState.Resolving);
         _playStartUtc = DateTime.UtcNow;
 
+        try
+        {
+            _activeEndpoint = await Sources.UgreenShareResolver.PrepareAsync(_endpoint, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            FlyScreen.Services.AppLog.Warn("视频墙：绿联分享解析超时");
+            _error = VideoErrorCode.NetTimeout;
+            SetState(TilePlayState.Failed);
+            return;
+        }
+        catch (Sources.UgreenShareException ex)
+        {
+            FlyScreen.Services.AppLog.Warn($"视频墙：{ex.Message}");
+            _error = ex.Code;
+            SetState(TilePlayState.Failed);
+            return;
+        }
+        catch (Exception ex)
+        {
+            FlyScreen.Services.AppLog.Warn($"视频墙：绿联分享解析失败 {ex.Message}");
+            _error = VideoErrorCode.NetReset;
+            SetState(TilePlayState.Failed);
+            return;
+        }
+
+        if (_disposed)
+            return;
+
         _media?.Dispose();
-        _media = VlcMrlHelper.CreateMedia(_libVlc, _endpoint, _options, _credentials);
+        _media = VlcMrlHelper.CreateMedia(_libVlc, _activeEndpoint, _options, _credentials);
         _player.Media = _media;
 
         SetState(TilePlayState.Connecting);
@@ -246,15 +281,16 @@ public sealed class VlcMediaPlayer : IMediaPlayer, IDisposable
         _watchTimer.Start();
         // 无帧/无 Playing 时超时失败，避免手机一直转圈
         _ = WatchFirstFrameOrFailAsync();
-
-        return Task.CompletedTask;
     }
 
     private string DescribeEndpoint()
     {
-        var addr = _endpoint.Address ?? "";
+        var addr = _activeEndpoint.Address ?? "";
+        if (addr.Contains("shareMediaPlayer", StringComparison.OrdinalIgnoreCase)
+            && Uri.TryCreate(addr, UriKind.Absolute, out var uri))
+            addr = uri.GetLeftPart(UriPartial.Path);
         if (addr.Length > 96) addr = addr[..96] + "…";
-        return $"{_endpoint.Protocol}:{addr}";
+        return $"{_activeEndpoint.Protocol}:{addr}";
     }
 
     private async Task WatchFirstFrameOrFailAsync()

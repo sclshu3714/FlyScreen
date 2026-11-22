@@ -51,7 +51,42 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(ProbeTimeout);
+        var budget = Sources.UgreenShareLinkParser.IsSharePage(endpoint.Address)
+            ? TimeSpan.FromSeconds(25)
+            : ProbeTimeout;
+        timeout.CancelAfter(budget);
+
+        try
+        {
+            endpoint = await Sources.UgreenShareResolver.PrepareAsync(endpoint, timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return new MediaProbeResult
+            {
+                Ok = false,
+                Error = VideoErrorCode.NetTimeout,
+                Message = "探测超时"
+            };
+        }
+        catch (Sources.UgreenShareException ex)
+        {
+            return new MediaProbeResult
+            {
+                Ok = false,
+                Error = ex.Code,
+                Message = ex.Message
+            };
+        }
+        catch (Exception ex)
+        {
+            return new MediaProbeResult
+            {
+                Ok = false,
+                Error = VideoErrorCode.NetReset,
+                Message = ex.Message
+            };
+        }
 
         return await Task.Run(() => ProbeCore(endpoint, timeout.Token), timeout.Token).ConfigureAwait(false);
     }
@@ -69,7 +104,42 @@ public sealed class VlcMediaBackend : IMediaBackend, IDisposable
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(CoverTimeout);
+        var budget = Sources.UgreenShareLinkParser.IsSharePage(endpoint.Address)
+            ? TimeSpan.FromSeconds(25)
+            : CoverTimeout;
+        timeout.CancelAfter(budget);
+
+        try
+        {
+            endpoint = await Sources.UgreenShareResolver.PrepareAsync(endpoint, timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return new CoverCaptureResult
+            {
+                Ok = false,
+                Error = VideoErrorCode.NetTimeout,
+                Message = "抓帧超时"
+            };
+        }
+        catch (Sources.UgreenShareException ex)
+        {
+            return new CoverCaptureResult
+            {
+                Ok = false,
+                Error = ex.Code,
+                Message = ex.Message
+            };
+        }
+        catch (Exception ex)
+        {
+            return new CoverCaptureResult
+            {
+                Ok = false,
+                Error = VideoErrorCode.NetReset,
+                Message = ex.Message
+            };
+        }
 
         return await Task.Run(() => CaptureCore(endpoint, timeout.Token), timeout.Token).ConfigureAwait(false);
     }
