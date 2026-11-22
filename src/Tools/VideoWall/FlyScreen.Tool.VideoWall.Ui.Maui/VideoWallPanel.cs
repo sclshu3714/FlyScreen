@@ -92,6 +92,8 @@ public sealed class VideoWallPanel : ContentView
     private bool _suppressCarouselToggle;
     private bool _carouselPointerOver;
     private int _carouselHoverDepth;
+    /// <summary>批量刷墙期间抑制 SessionChanged→RefreshWallOverlays，避免与 Rebuild 交错。</summary>
+    private int _wallBulkRefresh;
 
     public Action<string>? StatusReporter
     {
@@ -607,9 +609,17 @@ public sealed class VideoWallPanel : ContentView
     private void OnSessionChanged()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            if (_mode == PanelMode.Wall)
-                RefreshWallOverlays();
+            if (_mode != PanelMode.Wall || _wallBulkRefresh > 0) return;
+            RefreshWallOverlays();
         });
+
+    /// <summary>Maui 无 WPF 式同步上下文；服务层 ConfigureAwait(false) 后必须显式回主线程再改可视树。</summary>
+    private static async ValueTask EnsureMainAsync()
+    {
+        if (MainThread.IsMainThread)
+            return;
+        await MainThread.InvokeOnMainThreadAsync(static () => { }).ConfigureAwait(false);
+    }
 
     private void ReportLog(string message)
     {
@@ -721,33 +731,46 @@ public sealed class VideoWallPanel : ContentView
 
     private async void ApplyBrowseView(BrowseView view)
     {
-        if (IsPhoneBrowseOnly && view == BrowseView.Canvas)
-            view = BrowseView.Card;
-
-        var leavingCanvas = _browseView == BrowseView.Canvas && view != BrowseView.Canvas;
-        _browseView = view;
-        if (leavingCanvas)
+        try
         {
-            _carouselTimer.Stop();
-            await RecycleWallPlaybackAsync();
-        }
+            if (IsPhoneBrowseOnly && view == BrowseView.Canvas)
+                view = BrowseView.Card;
 
-        if (view == BrowseView.Canvas)
-        {
-            SetMode(PanelMode.Wall);
-            await RefreshCanvasAsync();
+            var leavingCanvas = _browseView == BrowseView.Canvas && view != BrowseView.Canvas;
+            _browseView = view;
+            if (leavingCanvas)
+            {
+                _carouselTimer.Stop();
+                await RecycleWallPlaybackAsync().ConfigureAwait(false);
+                await EnsureMainAsync().ConfigureAwait(false);
+            }
+
+            if (view == BrowseView.Canvas)
+            {
+                await EnsureMainAsync().ConfigureAwait(false);
+                SetMode(PanelMode.Wall);
+                await RefreshCanvasAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                await EnsureMainAsync().ConfigureAwait(false);
+                SetMode(PanelMode.Sources);
+            }
         }
-        else
-            SetMode(PanelMode.Sources);
+        catch (Exception ex)
+        {
+            ReportLog($"视频墙切换视图失败: {ex.Message}");
+        }
     }
 
     /// <summary>单路返回：画布模式回到墙并按轮播页重建；手机/列表卡片回到源浏览。</summary>
     private async Task OnPlayerClosedAsync()
     {
+        await EnsureMainAsync().ConfigureAwait(false);
         if (!IsPhoneBrowseOnly && _browseView == BrowseView.Canvas)
         {
             SetMode(PanelMode.Wall);
-            await RefreshCanvasAsync();
+            await RefreshCanvasAsync().ConfigureAwait(false);
         }
         else
         {
@@ -789,26 +812,29 @@ public sealed class VideoWallPanel : ContentView
 #if WINDOWS
         DetachAllTileSurfaces();
 #endif
-        await _service.SetLayoutAsync(layout);
+        await _service.SetLayoutAsync(layout).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (_mode != PanelMode.Wall)
             SetMode(PanelMode.Wall);
         else
             RebuildWallGrid();
-        await RefreshCanvasAsync();
+        await RefreshCanvasAsync().ConfigureAwait(false);
     }
 
     private async Task RecycleWallPlaybackAsync()
     {
+        await EnsureMainAsync().ConfigureAwait(false);
         _carouselTimer.Stop();
 #if WINDOWS
         DetachAllTileSurfaces();
 #endif
         if (_service is not null)
         {
-            try { await _service.StopAllTilesAsync(); }
+            try { await _service.StopAllTilesAsync().ConfigureAwait(false); }
             catch { /* ignore */ }
         }
 
+        await EnsureMainAsync().ConfigureAwait(false);
         _wallGrid.Children.Clear();
         _wallGrid.RowDefinitions.Clear();
         _wallGrid.ColumnDefinitions.Clear();
@@ -828,16 +854,25 @@ public sealed class VideoWallPanel : ContentView
     private async void OnCarouselTimerTick(object? sender, EventArgs e)
     {
         if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled) return;
-        await _service.AdvanceCarouselAsync();
-        await PresentCarouselPageAsync();
-        UpdateCarouselChrome();
+        try
+        {
+            await _service.AdvanceCarouselAsync().ConfigureAwait(false);
+            await PresentCarouselPageAsync().ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
+            UpdateCarouselChrome();
+        }
+        catch (Exception ex)
+        {
+            ReportLog($"视频墙轮播失败: {ex.Message}");
+        }
     }
 
     private async Task OnCarouselToggleChangedAsync()
     {
         if (_suppressCarouselToggle || _service is null || _mode != PanelMode.Wall) return;
-        await _service.SetCarouselEnabledAsync(_carouselToggle.IsChecked == true);
-        await PresentCarouselPageAsync();
+        await _service.SetCarouselEnabledAsync(_carouselToggle.IsChecked == true).ConfigureAwait(false);
+        await PresentCarouselPageAsync().ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         UpdateCarouselChrome();
         SyncCarouselTimer();
     }
@@ -846,12 +881,27 @@ public sealed class VideoWallPanel : ContentView
     private async Task RefreshCanvasAsync()
     {
         if (_service is null || _mode != PanelMode.Wall) return;
-        _service.SetCarouselSources(_rows.Select(r => r.Id).ToList());
-        await _service.ApplyCarouselPageAsync(autoStart: false);
-        RebuildWallGrid();
-        await PresentCarouselPageAsync();
-        UpdateCarouselChrome();
-        SyncCarouselTimer();
+        _wallBulkRefresh++;
+        try
+        {
+            _service.SetCarouselSources(_rows.Select(r => r.Id).ToList());
+            await _service.ApplyCarouselPageAsync(autoStart: false).ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
+            RebuildWallGrid();
+            await PresentCarouselPageAsync().ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
+            UpdateCarouselChrome();
+            SyncCarouselTimer();
+        }
+        finally
+        {
+            _wallBulkRefresh = Math.Max(0, _wallBulkRefresh - 1);
+            if (_wallBulkRefresh == 0 && _mode == PanelMode.Wall)
+            {
+                await EnsureMainAsync().ConfigureAwait(false);
+                RefreshWallOverlays();
+            }
+        }
     }
 
     private async Task PresentCarouselPageAsync()
@@ -859,13 +909,15 @@ public sealed class VideoWallPanel : ContentView
         if (_service is null) return;
         for (var i = 0; i < _service.Layout.TileCount; i++)
         {
+            await EnsureMainAsync().ConfigureAwait(false);
             PopulateTileCell(i, preserveOtherPlayers: true);
             var tile = i < _service.Tiles.Count ? _service.Tiles[i] : null;
             if (tile?.SourceId is null || !tile.HasPlayer) continue;
 #if WINDOWS
             if (OperatingSystem.IsWindows() && _tileSurfaces.TryGetValue(i, out var surface))
             {
-                var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+                var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(false);
+                await EnsureMainAsync().ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
                     ReportLog($"视频墙格{i}: HWND 未就绪，跳过开播以免弹出独立窗口");
@@ -881,9 +933,9 @@ public sealed class VideoWallPanel : ContentView
                 tile.AttachFrameSink(frame);
             }
 
-            try { await _service.StartTileAsync(i); }
+            try { await _service.StartTileAsync(i).ConfigureAwait(false); }
             catch (Exception ex) { ReportLog($"视频墙格{i}开播失败: {ex.Message}"); }
-            await Task.Delay(100).ConfigureAwait(true);
+            await Task.Delay(100).ConfigureAwait(false);
         }
     }
 
@@ -970,9 +1022,10 @@ public sealed class VideoWallPanel : ContentView
     private async Task StepCarouselAsync(bool next)
     {
         if (_service is null || !CarouselNavAvailable) return;
-        if (next) await _service.AdvanceCarouselAsync();
-        else await _service.RetreatCarouselAsync();
-        await PresentCarouselPageAsync();
+        if (next) await _service.AdvanceCarouselAsync().ConfigureAwait(false);
+        else await _service.RetreatCarouselAsync().ConfigureAwait(false);
+        await PresentCarouselPageAsync().ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         UpdateCarouselChrome();
         SyncCarouselTimer();
     }
@@ -981,8 +1034,9 @@ public sealed class VideoWallPanel : ContentView
     {
         if (_service is null || !CarouselNavAvailable) return;
         if (page == _service.CarouselPage) return;
-        await _service.GoToCarouselPageAsync(page);
-        await PresentCarouselPageAsync();
+        await _service.GoToCarouselPageAsync(page).ConfigureAwait(false);
+        await PresentCarouselPageAsync().ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         UpdateCarouselChrome();
         SyncCarouselTimer();
     }
@@ -1044,6 +1098,9 @@ public sealed class VideoWallPanel : ContentView
 #if WINDOWS
         _tileSurfaces.Clear();
 #endif
+        foreach (var s in _tileFrameSurfaces.Values)
+            s.Clear();
+        _tileFrameSurfaces.Clear();
 
         var layout = _service.Layout;
         for (var r = 0; r < layout.Rows; r++)
@@ -1108,8 +1165,9 @@ public sealed class VideoWallPanel : ContentView
         {
 #if WINDOWS
             // 单画面播放让位给墙格（同一源不要双播）
-            await _player.StopAsync();
+            await _player.StopAsync().ConfigureAwait(false);
 #endif
+            await EnsureMainAsync().ConfigureAwait(false);
             _browseView = BrowseView.Canvas;
             SetMode(PanelMode.Wall);
 
@@ -1177,6 +1235,11 @@ public sealed class VideoWallPanel : ContentView
             _tileSurfaces.Remove(index);
         }
 #endif
+        if (_tileFrameSurfaces.TryGetValue(index, out var oldFrame))
+        {
+            oldFrame.Clear();
+            _tileFrameSurfaces.Remove(index);
+        }
 
         _tileTitleBlocks.Remove(index);
         _tileStatusBlocks.Remove(index);
@@ -1224,7 +1287,9 @@ public sealed class VideoWallPanel : ContentView
         };
         restoreBtn.Clicked += async (_, _) =>
         {
-            await _service.FocusTileAsync(null);
+            if (_service is null) return;
+            await _service.FocusTileAsync(null).ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
             ApplyWallFocus();
         };
         _tileRestoreButtons[index] = restoreBtn;
@@ -1377,7 +1442,7 @@ public sealed class VideoWallPanel : ContentView
                 var waitMs = (int)Math.Min(50, deadline - Environment.TickCount64);
                 if (waitMs <= 0)
                     break;
-                var completed = await Task.WhenAny(ready.Task, Task.Delay(waitMs)).ConfigureAwait(true);
+                var completed = await Task.WhenAny(ready.Task, Task.Delay(waitMs)).ConfigureAwait(false);
                 if (completed == ready.Task || surface.Hwnd != IntPtr.Zero)
                     break;
             }
@@ -1403,7 +1468,8 @@ public sealed class VideoWallPanel : ContentView
     private async Task RebindTileSurfaceAsync(int index, VideoWallHwndSurface surface)
     {
         if (_service is null) return;
-        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (hwnd == IntPtr.Zero)
         {
             ReportLog($"视频墙格{index}: HWND 未就绪，跳过绑定以免弹出独立窗口");
@@ -1419,12 +1485,14 @@ public sealed class VideoWallPanel : ContentView
     private async Task BindTileInPlaceAsync(int index, string sourceId)
     {
         if (_service is null) return;
-        await _service.BindTileAsync(index, sourceId, autoStart: false);
+        await _service.BindTileAsync(index, sourceId, autoStart: false).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         PopulateTileCell(index, preserveOtherPlayers: true);
 #if WINDOWS
         if (!_tileSurfaces.TryGetValue(index, out var surface))
             return;
-        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (hwnd == IntPtr.Zero)
         {
             ReportLog($"视频墙格{index}: HWND 未就绪，跳过开播以免弹出独立窗口");
@@ -1434,7 +1502,8 @@ public sealed class VideoWallPanel : ContentView
         if (index < _service.Tiles.Count)
             _service.Tiles[index].SetRenderTarget(hwnd);
 #endif
-        await _service.StartTileAsync(index);
+        await _service.StartTileAsync(index).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (_tileTitleBlocks.TryGetValue(index, out var title))
             title.Text = ResolveTileTitle(index < _service.Tiles.Count ? _service.Tiles[index] : null);
         if (_tileStatusBlocks.TryGetValue(index, out var status))
@@ -1462,12 +1531,14 @@ public sealed class VideoWallPanel : ContentView
     {
         // 画布进单路：停墙与轮播，避免同路双开；返回时按轮播页重建
         if (_browseView == BrowseView.Canvas && _mode == PanelMode.Wall)
-            await RecycleWallPlaybackAsync();
+            await RecycleWallPlaybackAsync().ConfigureAwait(false);
 
+        await EnsureMainAsync().ConfigureAwait(false);
         SetMode(PanelMode.Playback);
         // 软件帧出画不依赖 HWND 布局；仍让出一帧以便播放页可见
         await Task.Yield();
-        await _player.PlayAsync(sourceId, ResolvePlaybackTitle(sourceId)).ConfigureAwait(true);
+        await EnsureMainAsync().ConfigureAwait(false);
+        await _player.PlayAsync(sourceId, ResolvePlaybackTitle(sourceId)).ConfigureAwait(false);
     }
 
     private string ResolvePlaybackTitle(string sourceId)

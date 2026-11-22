@@ -5,13 +5,15 @@ using System.Runtime.InteropServices.WindowsRuntime;
 #endif
 using FlyScreen.Services;
 using FlyScreen.Tool.VideoWall.Contracts;
+using Microsoft.Maui.Graphics;
+using Microsoft.Maui.Graphics.Platform;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
 /// <summary>
 /// Maui 软件帧播放面：LibVLC RV32 → 画面。
-/// Windows：WriteableBitmap；Android：直接写 MAUI Image 的平台 ImageView（SetPixels），
-/// 避免 Image.Source 闪黑，也避免往 ContentView 上 AddView（MAUI 不给额外子视图布局 → 0×0）。
+/// Windows：WriteableBitmap；Android：直接写 MAUI Image 的平台 ImageView（SetPixels）；
+/// 其它端：GraphicsView 画 BMP，禁止每帧 ImageSource.FromStream（会取消上一帧 → TaskCanceledException 刷屏）。
 /// </summary>
 public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
 {
@@ -29,10 +31,14 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
     private int _androidOkLogged;
     private int _androidFailLogged;
 
+    private GraphicsView? _portableGfx;
+    private readonly PortableFrameDrawable _portableDrawable = new();
+
 #if WINDOWS
     private Microsoft.UI.Xaml.Controls.Image? _nativeImage;
     private Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap? _bitmap;
     private int _winHooked;
+    private int _winNativeWaitLogged;
 #endif
 
     private object? _androidBitmap;
@@ -90,6 +96,9 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
                 AndroidImagePresenter.Clear(_androidImageView);
                 AndroidImagePresenter.Recycle(ref _androidBitmap);
             }
+
+            _portableDrawable.Clear();
+            _portableGfx?.Invalidate();
 
             // 停播时清掉 Source；播放中勿设 Source，以免 MapSource 清掉我们的 Bitmap
             _image.Source = null;
@@ -238,7 +247,13 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         BindNativeImage();
         if (_nativeImage is null)
         {
-            PresentPortableBmp(pixels, width, height, stride);
+            // 勿回退 FromStream：每帧换 Source 会取消上一任务，刷 StreamImageSource TaskCanceledException
+            if (Interlocked.Exchange(ref _winNativeWaitLogged, 1) == 0)
+            {
+                AppLog.Warn(
+                    $"视频墙：Win Image 平台视图未就绪（handler={_image.Handler is not null}, view={_image.Handler?.PlatformView?.GetType().FullName ?? "null"}），暂丢软帧");
+            }
+
             return;
         }
 
@@ -348,6 +363,7 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
     {
         try
         {
+            EnsurePortableGfx();
             var row = width * 4;
             var need = row * height;
             var packed = new byte[need];
@@ -360,12 +376,27 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
             }
 
             var bmp = EncodeBgraBmp(packed, width, height, row);
-            _image.Source = ImageSource.FromStream(() => new MemoryStream(bmp));
+            _portableDrawable.SetFrame(bmp, width, height);
+            _portableGfx?.Invalidate();
         }
         catch
         {
             /* 忽略单帧失败 */
         }
+    }
+
+    private void EnsurePortableGfx()
+    {
+        if (_portableGfx is not null)
+            return;
+        _portableGfx = new GraphicsView
+        {
+            Drawable = _portableDrawable,
+            BackgroundColor = Colors.Black,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill
+        };
+        Content = _portableGfx;
     }
 
     private static byte[] EncodeBgraBmp(byte[] pixels, int width, int height, int stride)
@@ -392,6 +423,73 @@ public sealed class VideoWallFrameSurface : ContentView, IVideoFrameSink
         }
 
         return buf;
+    }
+
+    /// <summary>便携端软帧：用 GraphicsView 画 BMP，避免 Image.Source 每帧取消加载。</summary>
+    private sealed class PortableFrameDrawable : IDrawable
+    {
+        private readonly object _gate = new();
+        private int _width;
+        private int _height;
+        private Microsoft.Maui.Graphics.IImage? _image;
+
+        public void SetFrame(byte[] bmp, int width, int height)
+        {
+            Microsoft.Maui.Graphics.IImage? doomed = null;
+            lock (_gate)
+            {
+                _width = width;
+                _height = height;
+                try
+                {
+                    using var ms = new MemoryStream(bmp);
+                    var next = PlatformImage.FromStream(ms);
+                    doomed = _image;
+                    _image = next;
+                }
+                catch
+                {
+                    /* 单帧解码失败则保留上一帧 */
+                }
+            }
+
+            doomed?.Dispose();
+        }
+
+        public void Clear()
+        {
+            Microsoft.Maui.Graphics.IImage? doomed;
+            lock (_gate)
+            {
+                _width = _height = 0;
+                doomed = _image;
+                _image = null;
+            }
+
+            doomed?.Dispose();
+        }
+
+        public void Draw(ICanvas canvas, RectF dirtyRect)
+        {
+            Microsoft.Maui.Graphics.IImage? img;
+            int w, h;
+            lock (_gate)
+            {
+                img = _image;
+                w = _width;
+                h = _height;
+            }
+
+            if (img is null || w <= 0 || h <= 0 || dirtyRect.Width <= 0 || dirtyRect.Height <= 0)
+                return;
+
+            var scale = Math.Min(dirtyRect.Width / w, dirtyRect.Height / h);
+            var dw = w * scale;
+            var dh = h * scale;
+            var dx = dirtyRect.X + (dirtyRect.Width - dw) * 0.5f;
+            var dy = dirtyRect.Y + (dirtyRect.Height - dh) * 0.5f;
+            canvas.DrawImage(img, dx, dy, dw, dh);
+        }
     }
 
     /// <summary>写到 MAUI Image 已布局好的 Android.Widget.ImageView。</summary>
