@@ -1,0 +1,17 @@
+﻿{
+  "id": "7de0427eeb47",
+  "name": "计算器",
+  "language": 1,
+  "namespace": "com.xuanniao.jisuanqi",
+  "fileName": "main.cs",
+  "createdUtc": "2026-11-19T13:33:30.245284Z",
+  "updatedUtc": "2026-11-19T23:29:40.1343611Z",
+  "breakpoints": [],
+  "extraFiles": [
+    "lib/UiHost.cs"
+  ],
+  "localDlls": [],
+  "packages": [],
+  "isBuiltin": false,
+  "builtinSourceVersion": 0
+}
