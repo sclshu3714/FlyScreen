@@ -256,6 +256,9 @@ public static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr GlobalFree(IntPtr hMem);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern UIntPtr GlobalSize(IntPtr hMem);
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);

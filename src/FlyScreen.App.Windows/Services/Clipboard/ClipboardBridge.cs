@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FlyScreen.Models;
 using FlyScreen.Native;
+using FlyScreen.Win32Clipboard;
 using WinForms = System.Windows.Forms;
 
 namespace FlyScreen.Services.Clipboard;
@@ -474,25 +475,31 @@ public static class ClipboardBridge
     public static void ClearLastAppliedFilesKey()
         => _lastAppliedFilesKey = null;
 
-    /// <summary>读取剪贴板位图并编码为 PNG（截图 Win+Shift+S 等）。</summary>
+    /// <summary>读取剪贴板位图并编码为 PNG（截图 Win+Shift+S、浏览器「复制图片」等）。</summary>
     public static byte[]? TryGetPngBytes()
     {
         try
         {
-            if (!System.Windows.Clipboard.ContainsImage()) return null;
-            var image = System.Windows.Clipboard.GetImage();
-            if (image == null) return null;
-
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(image));
-            using var ms = new MemoryStream();
-            encoder.Save(ms);
-            return ms.ToArray();
+            if (System.Windows.Clipboard.ContainsImage())
+            {
+                var image = System.Windows.Clipboard.GetImage();
+                if (image != null)
+                {
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(image));
+                    using var ms = new MemoryStream();
+                    encoder.Save(ms);
+                    return ms.ToArray();
+                }
+            }
         }
         catch
         {
-            return null;
+            // fall through：WPF 认不到仅有 PNG 私有格式的剪贴板
         }
+
+        // 浏览器/部分应用只放 PNG 私有格式，ContainsImage=false
+        return Win32InlineClipboard.TryCapturePng();
     }
 
     public static string BuildImageKey(byte[] png)
@@ -637,11 +644,20 @@ public static class ClipboardBridge
     }
 
     /// <summary>将多格式内联内容写入本机剪贴板（应用会自动选最合适的格式）。</summary>
-    public static void ApplyInlineSuppressing(ClipboardInlineData data)
+    /// <returns>是否已写入至少一种可粘贴格式。</returns>
+    public static bool ApplyInlineSuppressing(ClipboardInlineData data)
     {
-        if (data.IsEmpty) return;
-        MarkAppliedInline(data);
-        Suppress(2500);
+        if (data.IsEmpty) return false;
+
+        // 优先 Win32：被控/后台时 WPF OLE 常失败；且保证写出 CF_DIB 便于画图/Office 粘贴
+        if (Win32InlineClipboard.TryApply(data))
+        {
+            MarkAppliedInline(data);
+            Suppress(2500);
+            RematchAppliedInlineKey();
+            return true;
+        }
+
         try
         {
             var obj = new System.Windows.DataObject();
@@ -654,8 +670,6 @@ public static class ClipboardBridge
                     ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
                 var frame = decoder.Frames[0];
                 frame.Freeze();
-                // 以实际写入的位图为准记指纹，后续回读重编码仍能认出来
-                _lastAppliedImageFingerprint = FingerprintBitmapSource(frame);
                 obj.SetImage(frame);
                 any = true;
             }
@@ -684,28 +698,32 @@ public static class ClipboardBridge
                 any = true;
             }
 
-            if (!any) return;
+            if (!any) return false;
             System.Windows.Clipboard.SetDataObject(obj, copy: true);
-
-            // 回读一次：把 _lastAppliedInlineKey 对齐到「剪贴板上真实内容」的 key
-            try
-            {
-                var roundtrip = TryCaptureInline();
-                if (roundtrip != null && !roundtrip.IsEmpty)
-                {
-                    _lastAppliedInlineKey = roundtrip.BuildKey();
-                    if (roundtrip.Png is { Length: > 0 })
-                        _lastAppliedImageKey = BuildImageKey(roundtrip.Png);
-                }
-            }
-            catch
-            {
-                // ignore
-            }
+            MarkAppliedInline(data);
+            Suppress(2500);
+            RematchAppliedInlineKey();
+            return true;
         }
         catch
         {
-            // ignore clipboard contention
+            return false;
+        }
+    }
+
+    private static void RematchAppliedInlineKey()
+    {
+        try
+        {
+            var roundtrip = TryCaptureInline();
+            if (roundtrip == null || roundtrip.IsEmpty) return;
+            _lastAppliedInlineKey = roundtrip.BuildKey();
+            if (roundtrip.Png is { Length: > 0 })
+                _lastAppliedImageKey = BuildImageKey(roundtrip.Png);
+        }
+        catch
+        {
+            // ignore
         }
     }
 

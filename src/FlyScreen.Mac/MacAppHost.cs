@@ -45,14 +45,46 @@ public sealed class MacAppHost : IAsyncDisposable
     public FlyScreen.Mac.ScreenExtend.MacProjectionHost Projection { get; }
     private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
-    public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS && AccessibilityPermission.IsTrusted();
+    /// <summary>macOS 上始终可跟手读指针；未授辅助功能时引导设置，仍尝试跟手放下。</summary>
+    public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS;
 
     private FlyScreen.ToolSdk.ISharedDevicesRuntime? _sharedDevices;
 
     public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
-        => EdgeDrag.OfferFromEdge(paths, exitSide, CanFollowEdgeFileDrag ? new MacEdgeDragPointer(Injector) : null);
+    {
+        IEdgeDragPointer? follow = AccessibilityPermission.IsMacOS
+            ? new MacEdgeDragPointer(Injector)
+            : null;
+        if (AccessibilityPermission.IsMacOS && !AccessibilityPermission.IsTrusted())
+        {
+            try { AccessibilityPermission.OpenSystemSettings(); } catch { /* ignore */ }
+        }
 
-    public string EdgeDropLabel => "桌面";
+        EdgeDrag.OfferFromEdge(paths, exitSide, follow);
+    }
+
+    public string EdgeDropLabel
+    {
+        get
+        {
+            try
+            {
+                var dir = MacDropFolder.Resolve();
+                var desk = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                if (!string.IsNullOrWhiteSpace(desk)
+                    && string.Equals(Path.GetFullPath(dir), Path.GetFullPath(desk), StringComparison.OrdinalIgnoreCase))
+                    return "桌面";
+                return Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                       is { Length: > 0 } name
+                    ? name
+                    : dir;
+            }
+            catch
+            {
+                return "桌面";
+            }
+        }
+    }
 
     public bool TryGetPointerPixels(out int x, out int y)
     {
@@ -106,7 +138,7 @@ public sealed class MacAppHost : IAsyncDisposable
         FlyScreen.Services.Tools.ToolService.Instance.Host.ModulesChanged += TryWireSharedDevices;
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
-        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, DesktopDirectory);
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, Input.MacDropFolder.Resolve);
         EdgeDrag.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += PublishStatus;

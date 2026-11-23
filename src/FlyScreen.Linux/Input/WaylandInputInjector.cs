@@ -3,8 +3,8 @@ using FlyScreen.Services.Network;
 namespace FlyScreen.Linux.Input;
 
 /// <summary>
-/// Wayland 注入占位：全局注入受合成器限制，W2 不承诺 EdgeMouse。
-/// 后续可接 ydotool / 门户协议；当前保持连接并记录不可用。
+/// 纯 Wayland、且无 XWayland（无可用 DISPLAY/X11）时的占位注入。
+/// 正常 Wayland 桌面由 <see cref="LinuxInputFactory"/> 优先挂 X11/XWayland，本类仅作回退。
 /// </summary>
 public sealed class WaylandInputInjector : ILinuxInputInjector
 {

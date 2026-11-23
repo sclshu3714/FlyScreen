@@ -6,6 +6,7 @@ using FlyScreen.Models;
 using FlyScreen.Native;
 using FlyScreen.Services.Input;
 using FlyScreen.Services.Network;
+using FlyScreen.Win32Clipboard;
 
 namespace FlyScreen.Services.Clipboard;
 
@@ -103,10 +104,18 @@ public sealed class ClipboardMonitor : IDisposable
 
     /// <summary>
     /// 鼠标已进入本机：文件挂占位；内联若尚未写入则拉取。
+    /// 纯图片文件：提前拉取并同时挂 CF_HDROP + CF_DIB（对齐本机复制图片文件）。
     /// </summary>
     public void ArmRemoteClipboardForPaste()
     {
         if (!_settings.ShareClipboard) return;
+
+        if (_settings.TransferFile && _transfers.HasRemotePendingFiles
+            && _transfers.RemotePendingFilesAreImagesOnly)
+        {
+            _ = ArmImageFilesAsync();
+            return;
+        }
 
         if (_settings.TransferFile && _transfers.HasRemotePendingFiles)
             ArmFilesForLazyPaste();
@@ -118,6 +127,15 @@ public sealed class ClipboardMonitor : IDisposable
     public void PrefetchRemoteInline()
     {
         if (!_settings.ShareClipboard) return;
+
+        // 纯图片文件宣告：与文件一并处理（位图+路径），避免只写内联后被虚拟文件覆盖
+        if (_settings.TransferFile && _transfers.HasRemotePendingFiles
+            && _transfers.RemotePendingFilesAreImagesOnly)
+        {
+            _ = ArmImageFilesAsync();
+            return;
+        }
+
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
     }
@@ -271,16 +289,28 @@ public sealed class ClipboardMonitor : IDisposable
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher == null) return;
 
+            var readyPaths = _transfers.GetLastPasteReadyPaths();
+            var mergeImageFiles = data.Png is { Length: > 0 }
+                && readyPaths is { Count: > 0 }
+                && ClipboardImagePaths.AreAllImageFilePaths(readyPaths);
+
             var ok = false;
             await dispatcher.InvokeAsync(() =>
             {
                 try
                 {
-                    ClipboardBridge.ApplyInlineSuppressing(data);
+                    if (mergeImageFiles)
+                    {
+                        ClipboardBridge.Suppress(2500);
+                        ok = Win32InlineClipboard.TryOfferPathsWithOptionalImage(readyPaths!, data.Png);
+                    }
+
+                    if (!ok)
+                        ok = ClipboardBridge.ApplyInlineSuppressing(data);
+                    if (!ok) return;
                     // 对齐回读后的 key + 当前剪贴板序号，避免抑制结束后重编码再宣告
                     _lastInlineKey = ClipboardBridge.LastAppliedInlineKey ?? data.BuildKey();
                     _lastClipboardSeq = ClipboardBridge.GetClipboardSequenceNumber();
-                    ok = true;
                 }
                 catch
                 {
@@ -297,6 +327,93 @@ public sealed class ClipboardMonitor : IDisposable
         }
         finally
         {
+            Interlocked.Exchange(ref _inlineArming, 0);
+        }
+    }
+
+    /// <summary>
+    /// 纯图片文件：拉取后同时写 CF_HDROP + CF_DIB/PNG，使资源管理器与对话框/文档均可粘贴。
+    /// </summary>
+    private async Task ArmImageFilesAsync()
+    {
+        if (Interlocked.CompareExchange(ref _inlineArming, 1, 0) != 0) return;
+        if (Interlocked.CompareExchange(ref _arming, 1, 0) != 0)
+        {
+            Interlocked.Exchange(ref _inlineArming, 0);
+            return;
+        }
+
+        try
+        {
+            if (!_settings.ShareClipboard || !_settings.TransferFile) return;
+            if (!_transfers.HasRemotePendingFiles || !_transfers.RemotePendingFilesAreImagesOnly)
+                return;
+
+            var fileSeq = _transfers.GetRemotePendingSequence();
+            var inlineSeq = _transfers.GetRemotePendingInlineSequence();
+
+            ClipboardInlineData? inline = null;
+            if (_transfers.HasRemotePendingInline)
+                inline = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
+
+            var files = await _transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(false);
+            if (files is not { Count: > 0 }) return;
+
+            var png = inline?.Png;
+            if (png is not { Length: > 0 })
+            {
+                foreach (var path in files)
+                {
+                    png = Win32InlineClipboard.TryEncodePngFromImageFile(path);
+                    if (png is { Length: > 0 }) break;
+                }
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+
+            var ok = false;
+            await dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    ClipboardBridge.Suppress(2500);
+                    ok = Win32InlineClipboard.TryOfferPathsWithOptionalImage(files, png);
+                    if (!ok && png is { Length: > 0 })
+                        ok = ClipboardBridge.ApplyInlineSuppressing(ClipboardInlineData.FromPngOnly(png));
+                    if (!ok) return;
+
+                    if (png is { Length: > 0 })
+                    {
+                        ClipboardBridge.MarkAppliedInline(ClipboardInlineData.FromPngOnly(png));
+                        _lastInlineKey = ClipboardBridge.LastAppliedInlineKey
+                            ?? ClipboardInlineData.FromPngOnly(png).BuildKey();
+                    }
+
+                    ClipboardBridge.MarkAppliedFiles(files);
+                    _lastFilesKey = ClipboardBridge.BuildFilesKey(files);
+                    _lastClipboardSeq = ClipboardBridge.GetClipboardSequenceNumber();
+                    _armedFileSequence = fileSeq;
+                    Interlocked.Exchange(ref _materialized, 1);
+                    _transfers.MarkDelayedClipboardOwned(true);
+                }
+                catch
+                {
+                    ok = false;
+                }
+            });
+
+            if (!ok) return;
+            if (inlineSeq != 0)
+                _transfers.MarkRemoteInlineConsumed(inlineSeq);
+        }
+        catch
+        {
+            // ignore
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _arming, 0);
             Interlocked.Exchange(ref _inlineArming, 0);
         }
     }
@@ -422,42 +539,65 @@ public sealed class ClipboardMonitor : IDisposable
             {
                 if (ClipboardBridge.IsSuppressed || ClipboardBridge.IsOfferingPending) return;
 
-                if (_settings.TransferFile)
+                var rawFiles = ClipboardBridge.TryGetFiles();
+                if (rawFiles is { Length: > 0 })
                 {
-                    files = ClipboardBridge.TryGetFiles();
-                    if (files is { Length: > 0 })
+                    if (rawFiles.All(_transfers.IsInboxPath))
                     {
-                        if (!files.All(_transfers.IsInboxPath))
+                        files = null; // 占位路径，不宣告
+                    }
+                    else
+                    {
+                        // 本机真实复制：清掉远程占位状态，允许宣告
+                        if (_transfers.OwnsDelayedClipboard)
                         {
-                            // 本机真实复制：清掉远程占位状态，允许宣告
-                            if (_transfers.OwnsDelayedClipboard)
-                            {
-                                _transfers.NotifyLocalClipboardOverride();
-                                ClipboardBridge.ClearPendingDataObject();
-                                ClipboardBridge.ClearLastAppliedFilesKey();
-                                _armedFileSequence = 0;
-                                _armedPlaceholders = [];
-                                Interlocked.Exchange(ref _materialized, 0);
-                            }
-
-                            return;
+                            _transfers.NotifyLocalClipboardOverride();
+                            ClipboardBridge.ClearPendingDataObject();
+                            ClipboardBridge.ClearLastAppliedFilesKey();
+                            _armedFileSequence = 0;
+                            _armedPlaceholders = [];
+                            Interlocked.Exchange(ref _materialized, 0);
                         }
 
-                        files = null; // 占位路径，不宣告
+                        files = rawFiles;
                     }
                 }
 
+                // 文件与内联可并存：预览「复制图片」常为 HDROP(jpg)，需补位图才能粘到对话框/文档
                 inline = ClipboardBridge.TryCaptureInline();
+                if ((inline?.Png is not { Length: > 0 })
+                    && files is { Length: > 0 }
+                    && ClipboardImagePaths.AreAllImageFilePaths(files))
+                {
+                    foreach (var path in files)
+                    {
+                        var png = Win32InlineClipboard.TryEncodePngFromImageFile(path);
+                        if (png is not { Length: > 0 }) continue;
+                        inline = new ClipboardInlineData
+                        {
+                            Text = inline?.Text,
+                            Html = inline?.Html,
+                            Rtf = inline?.Rtf,
+                            Csv = inline?.Csv,
+                            Png = png
+                        };
+                        break;
+                    }
+                }
             }).Task.ConfigureAwait(false);
 
             if (ClipboardBridge.IsSuppressed) return;
 
-            if (files is { Length: > 0 })
+            if (files is { Length: > 0 } && _settings.TransferFile)
             {
                 var key = ClipboardBridge.BuildFilesKey(files);
                 // 同一剪贴板序号且同 key 才跳过；用户再次「复制」会换序号
-                if (!force && key == _lastFilesKey) return;
-                if (force && key == _lastFilesKey && seqNow == _lastClipboardSeq) return;
+                if (!force && key == _lastFilesKey && (inline == null || inline.IsEmpty
+                    || inline.BuildKey() == _lastInlineKey))
+                    return;
+                if (force && key == _lastFilesKey && seqNow == _lastClipboardSeq
+                    && (inline == null || inline.IsEmpty || inline.BuildKey() == _lastInlineKey))
+                    return;
 
                 ClipboardBridge.ClearLastAppliedFilesKey();
                 if (await _transfers.AnnounceLocalFilesAsync(files).ConfigureAwait(false))
@@ -465,13 +605,11 @@ public sealed class ClipboardMonitor : IDisposable
                     _lastFilesKey = key;
                     _lastClipboardSeq = seqNow;
                 }
-
-                return;
             }
 
             if (inline == null || inline.IsEmpty)
             {
-                if (seqNow != 0)
+                if (seqNow != 0 && files is not { Length: > 0 })
                     _lastClipboardSeq = seqNow;
                 return;
             }

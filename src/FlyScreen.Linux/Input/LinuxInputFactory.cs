@@ -13,15 +13,27 @@ public static class LinuxInputFactory
         => kind switch
         {
             LinuxSessionKind.X11 => CreateX11(),
-            LinuxSessionKind.Wayland => new WaylandInputInjector(),
+            // Wayland 会话多数仍有 XWayland（DISPLAY=）：优先 X11 注入/跟手，穿边拖与键鼠完整可用
+            LinuxSessionKind.Wayland => CreateX11OrWaylandStub(),
             _ => new NullInputInjector()
         };
 
+    private static ILinuxInputInjector CreateX11OrWaylandStub()
+    {
+        var x11 = CreateX11();
+        if (x11.IsAvailable)
+            return x11;
+        return new WaylandInputInjector();
+    }
+
     public static string[] CapsFor(LinuxSessionKind kind, ILinuxInputInjector injector)
     {
+        // Wayland + XWayland(X11 注入可用) → 与 X11 桌面同等能力（含 EdgeMouse / 穿边拖跟手）
         var caps = kind switch
         {
             LinuxSessionKind.X11 => PeerCaps.LinuxDesktopX11.ToList(),
+            LinuxSessionKind.Wayland when injector is X11InputInjector { IsAvailable: true }
+                => PeerCaps.LinuxDesktopX11.ToList(),
             LinuxSessionKind.Wayland => PeerCaps.LinuxDesktopWayland.ToList(),
             _ => PeerCaps.LinuxHeadless.ToList()
         };

@@ -24,6 +24,7 @@ using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services;
+using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
@@ -4276,9 +4277,36 @@ public partial class MainWindow : Window
         try
         {
             var files = await _host.Transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(true);
-            StatusText.Text = files is { Count: > 0 }
+            if (files is not { Count: > 0 })
+            {
+                StatusText.Text = Loc.T("Xfer.ReceiveClipboardFail");
+                return;
+            }
+
+            // 写入系统剪贴板 Files，便于 Finder/文件管理器 Ctrl+V（不仅落盘）
+            byte[]? png = null;
+            if (ClipboardImagePaths.AreAllImageFilePaths(files))
+            {
+                foreach (var path in files)
+                {
+                    try
+                    {
+                        if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) continue;
+                        var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+                        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50)
+                        {
+                            png = bytes;
+                            break;
+                        }
+                    }
+                    catch { /* next */ }
+                }
+            }
+
+            var ok = await _host.ClipboardApply.ApplyFilesAsync(files, png).ConfigureAwait(true);
+            StatusText.Text = ok
                 ? string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count)
-                : Loc.T("Xfer.ReceiveClipboardFail");
+                : string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count) + "（已落盘，挂剪贴板失败）";
         }
         catch (Exception ex)
         {

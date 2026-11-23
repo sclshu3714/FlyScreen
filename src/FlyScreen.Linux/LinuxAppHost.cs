@@ -46,13 +46,35 @@ public sealed class LinuxAppHost : IAsyncDisposable
 
     public void OfferEdgeFileDrag(IReadOnlyList<string> paths, int exitSide)
     {
+        // Wayland 已在工厂层优先挂 XWayland(X11)；有 X11 即可完整跟手
         IEdgeDragPointer? follow = Injector is X11InputInjector x11 && x11.IsAvailable
             ? new X11EdgeDragPointer(x11)
             : null;
         EdgeDrag.OfferFromEdge(paths, exitSide, follow);
     }
 
-    public string EdgeDropLabel => "桌面";
+    public string EdgeDropLabel
+    {
+        get
+        {
+            try
+            {
+                var dir = LinuxDropFolder.Resolve();
+                var desk = System.Environment.GetFolderPath(System.Environment.SpecialFolder.DesktopDirectory);
+                if (!string.IsNullOrWhiteSpace(desk)
+                    && string.Equals(Path.GetFullPath(dir), Path.GetFullPath(desk), StringComparison.OrdinalIgnoreCase))
+                    return "桌面";
+                return Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                       is { Length: > 0 } name
+                    ? name
+                    : dir;
+            }
+            catch
+            {
+                return "桌面";
+            }
+        }
+    }
 
     public bool TryGetPointerPixels(out int x, out int y)
     {
@@ -101,7 +123,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         // GUI 启动后可 SetClipboardSink；CLI 默认空实现（直传仍落 Inbox）
         Transfers = new FileTransferService(Settings, Connections, NullClipboardApplySink.Instance);
         Transfers.StatusMessage += PublishStatus;
-        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, DesktopDirectory);
+        EdgeDrag = new EdgeFileDragService(Settings, Connections, Transfers, LinuxDropFolder.Resolve);
         EdgeDrag.StatusMessage += PublishStatus;
         LayoutSync = new LayoutSyncHelper(Settings, Connections);
         LayoutSync.StatusMessage += PublishStatus;

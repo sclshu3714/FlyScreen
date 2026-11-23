@@ -57,6 +57,14 @@ public sealed class MauiTextClipboardMonitor : IDisposable
     public void ArmRemoteClipboardForPaste()
     {
         if (!_settings.ShareClipboard) return;
+
+        if (_settings.TransferFile && _transfers.HasRemotePendingFiles
+            && _transfers.RemotePendingFilesAreImagesOnly)
+        {
+            _ = ArmImageFilesAsync();
+            return;
+        }
+
         PrefetchRemoteInline();
         if (_settings.TransferFile && _transfers.HasRemotePendingFiles)
             ArmVirtualPaste();
@@ -66,6 +74,14 @@ public sealed class MauiTextClipboardMonitor : IDisposable
     public void PrefetchRemoteInline()
     {
         if (!_settings.ShareClipboard) return;
+
+        if (_settings.TransferFile && _transfers.HasRemotePendingFiles
+            && _transfers.RemotePendingFilesAreImagesOnly)
+        {
+            _ = ArmImageFilesAsync();
+            return;
+        }
+
         if (_transfers.HasRemotePendingInline)
             _ = ArmInlineAsync();
     }
@@ -144,30 +160,22 @@ public sealed class MauiTextClipboardMonitor : IDisposable
                     await Task.Delay(200, ct).ConfigureAwait(false);
                     if (_sink.IsSuppressed) continue;
 
-                    if (_settings.TransferFile)
+                    IReadOnlyList<string>? realFiles = null;
+                    var files = await TryGetLocalFilePathsAsync().ConfigureAwait(false);
+                    if (files is { Count: > 0 })
                     {
-                        var files = await TryGetLocalFilePathsAsync().ConfigureAwait(false);
-                        if (files is { Count: > 0 })
-                        {
-                            var real = files.Where(p => !_transfers.IsInboxPath(p)).ToList();
-                            if (real.Count > 0)
-                            {
-                                var key = string.Join("|", real);
-                                if (key != _lastFilesKey || seq != _lastClipboardSeq)
-                                {
-                                    if (await _transfers.AnnounceLocalFilesAsync(real).ConfigureAwait(false))
-                                    {
-                                        _lastFilesKey = key;
-                                        _lastClipboardSeq = seq;
-                                    }
-                                }
-                                else
-                                {
-                                    _lastClipboardSeq = seq;
-                                }
+                        var real = files.Where(p => !_transfers.IsInboxPath(p)).ToList();
+                        if (real.Count > 0)
+                            realFiles = real;
+                    }
 
-                                continue;
-                            }
+                    if (realFiles is { Count: > 0 } && _settings.TransferFile)
+                    {
+                        var key = string.Join("|", realFiles);
+                        if (key != _lastFilesKey || seq != _lastClipboardSeq)
+                        {
+                            if (await _transfers.AnnounceLocalFilesAsync(realFiles).ConfigureAwait(false))
+                                _lastFilesKey = key;
                         }
                     }
 
@@ -175,6 +183,25 @@ public sealed class MauiTextClipboardMonitor : IDisposable
 #if WINDOWS
                     inline = await MainThread.InvokeOnMainThreadAsync(MauiWinClipboardInline.TryCaptureAsync)
                         .ConfigureAwait(false);
+                    if ((inline?.Png is not { Length: > 0 })
+                        && realFiles is { Count: > 0 }
+                        && ClipboardImagePaths.AreAllImageFilePaths(realFiles))
+                    {
+                        foreach (var path in realFiles)
+                        {
+                            var png = Win32InlineClipboard.TryEncodePngFromImageFile(path);
+                            if (png is not { Length: > 0 }) continue;
+                            inline = new ClipboardInlineData
+                            {
+                                Text = inline?.Text,
+                                Html = inline?.Html,
+                                Rtf = inline?.Rtf,
+                                Csv = inline?.Csv,
+                                Png = png
+                            };
+                            break;
+                        }
+                    }
 #else
                     var textOnly = await _sink.TryGetTextAsync().ConfigureAwait(false);
                     inline = string.IsNullOrEmpty(textOnly)
@@ -256,7 +283,25 @@ public sealed class MauiTextClipboardMonitor : IDisposable
             var seq = _transfers.GetRemotePendingInlineSequence();
             var data = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
             if (data == null || data.IsEmpty) return;
-            var ok = await _sink.ApplyInlineAsync(data).ConfigureAwait(false);
+
+            var readyPaths = _transfers.GetLastPasteReadyPaths();
+            var mergeImageFiles = data.Png is { Length: > 0 }
+                && readyPaths is { Count: > 0 }
+                && ClipboardImagePaths.AreAllImageFilePaths(readyPaths);
+
+            var ok = false;
+            if (mergeImageFiles)
+            {
+                ok = await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    _sink.Suppress(2500);
+                    return Win32InlineClipboard.TryOfferPathsWithOptionalImage(readyPaths!, data.Png);
+                }).ConfigureAwait(false);
+            }
+
+            if (!ok)
+                ok = await _sink.ApplyInlineAsync(data).ConfigureAwait(false);
+
             if (ok)
             {
                 _lastInlineKey = _sink.LastAppliedKey ?? data.BuildKey();
@@ -267,5 +312,70 @@ public sealed class MauiTextClipboardMonitor : IDisposable
         }
         catch { /* ignore */ }
         finally { Interlocked.Exchange(ref _armingInline, 0); }
+    }
+
+    /// <summary>纯图片文件：拉取后挂 CF_HDROP + CF_DIB，文件夹与对话框均可粘贴。</summary>
+    private async Task ArmImageFilesAsync()
+    {
+        if (Interlocked.CompareExchange(ref _armingInline, 1, 0) != 0) return;
+        if (Interlocked.CompareExchange(ref _armingFiles, 1, 0) != 0)
+        {
+            Interlocked.Exchange(ref _armingInline, 0);
+            return;
+        }
+
+        try
+        {
+            if (!_settings.ShareClipboard || !_settings.TransferFile) return;
+            if (!_transfers.HasRemotePendingFiles || !_transfers.RemotePendingFilesAreImagesOnly)
+                return;
+
+            var fileSeq = _transfers.GetRemotePendingSequence();
+            var inlineSeq = _transfers.GetRemotePendingInlineSequence();
+
+            ClipboardInlineData? inline = null;
+            if (_transfers.HasRemotePendingInline)
+                inline = await _transfers.PullRemoteInlineForPasteAsync().ConfigureAwait(false);
+
+            var files = await _transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(false);
+            if (files is not { Count: > 0 }) return;
+
+            var png = inline?.Png;
+            if (png is not { Length: > 0 })
+            {
+                foreach (var path in files)
+                {
+                    png = Win32InlineClipboard.TryEncodePngFromImageFile(path);
+                    if (png is { Length: > 0 }) break;
+                }
+            }
+
+            var ok = await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                _sink.Suppress(2500);
+                return Win32InlineClipboard.TryOfferPathsWithOptionalImage(files, png);
+            }).ConfigureAwait(false);
+
+            if (!ok && png is { Length: > 0 })
+                ok = await _sink.ApplyInlineAsync(ClipboardInlineData.FromPngOnly(png)).ConfigureAwait(false);
+
+            if (!ok) return;
+
+            _lastInlineKey = _sink.LastAppliedKey
+                ?? (png is { Length: > 0 } ? ClipboardInlineData.FromPngOnly(png).BuildKey() : _lastInlineKey);
+            _lastFilesKey = string.Join("|", files);
+            _lastClipboardSeq = Win32FileClipboard.GetSequenceNumber();
+            _armedFileSequence = fileSeq;
+            Interlocked.Exchange(ref _materialized, 1);
+            _transfers.MarkDelayedClipboardOwned(true);
+            if (inlineSeq != 0)
+                _transfers.MarkRemoteInlineConsumed(inlineSeq);
+        }
+        catch { /* ignore */ }
+        finally
+        {
+            Interlocked.Exchange(ref _armingFiles, 0);
+            Interlocked.Exchange(ref _armingInline, 0);
+        }
     }
 }

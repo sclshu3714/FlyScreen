@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using FlyScreen.DesktopUi.Services;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
@@ -70,6 +71,9 @@ public interface IDesktopShellHost
     void SetAutoStartEnabled(bool enabled);
 
     ObservableCollection<TransferItem> TransferItems { get; }
+
+    /// <summary>Mac/Linux 系统剪贴板写入（Files / 内联）。</summary>
+    AvaloniaClipboardApplySink ClipboardApply { get; }
 
     /// <summary>能在拖住文件时继续读本机指针，从而按布局穿到再下一台。</summary>
     bool CanFollowEdgeFileDrag => false;

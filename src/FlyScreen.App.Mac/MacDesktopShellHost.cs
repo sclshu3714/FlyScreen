@@ -33,6 +33,7 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public ConnectionManager Connections => _host.Connections;
     public FileTransferService Transfers => _host.Transfers;
     public ObservableCollection<TransferItem> TransferItems => _host.Transfers.Items;
+    public AvaloniaClipboardApplySink ClipboardApply => _clipSink;
 
     public event Action<string>? StatusMessage
     {
