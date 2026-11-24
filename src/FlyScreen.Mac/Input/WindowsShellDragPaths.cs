@@ -31,11 +31,16 @@ internal static class WindowsShellDragPaths
     {
         Interlocked.Increment(ref _generation);
         Interlocked.Exchange(ref _prefetchQueued, 0);
+        // 松开后必须再按下；避免吞掉 LBUTTONUP 后 GetAsyncKeyState 粘滞导致二次穿边复制
+        Volatile.Write(ref _buttonDownTick, 0);
         lock (Gate) _snapshot = [];
     }
 
     public static void PrefetchIfNeeded()
     {
+        var downTick = Volatile.Read(ref _buttonDownTick);
+        if (downTick == 0) return;
+
         lock (Gate)
         {
             if (_snapshot.Length > 0) return;
@@ -46,9 +51,6 @@ internal static class WindowsShellDragPaths
 
         var generation = Volatile.Read(ref _generation);
         var foreground = GetForegroundWindow();
-        var downTick = Volatile.Read(ref _buttonDownTick);
-        if (downTick == 0)
-            downTick = Environment.TickCount64;
 
         PostSta(() =>
         {
@@ -59,10 +61,13 @@ internal static class WindowsShellDragPaths
                     Thread.Sleep(wait);
                 if (generation != Volatile.Read(ref _generation))
                     return;
+                if (Volatile.Read(ref _buttonDownTick) == 0)
+                    return;
                 if (!IsShellFolder(foreground))
                     return;
                 if (TryReadShell(foreground, out var paths)
                     && generation == Volatile.Read(ref _generation)
+                    && Volatile.Read(ref _buttonDownTick) != 0
                     && paths.Length > 0)
                 {
                     lock (Gate) _snapshot = paths;
@@ -81,6 +86,12 @@ internal static class WindowsShellDragPaths
 
     public static bool TryGet(out string[] paths)
     {
+        if (Volatile.Read(ref _buttonDownTick) == 0)
+        {
+            paths = [];
+            return false;
+        }
+
         lock (Gate)
         {
             if (_snapshot.Length > 0)
@@ -91,13 +102,14 @@ internal static class WindowsShellDragPaths
         }
 
         var downTick = Volatile.Read(ref _buttonDownTick);
-        if (downTick != 0 && Environment.TickCount64 - downTick < ShellReadDelayMs)
+        if (Environment.TickCount64 - downTick < ShellReadDelayMs)
         {
             paths = [];
             return false;
         }
 
-        if (OnSta(TryReadAnyShellSelection, out paths) && paths.Length > 0)
+        if (OnSta(TryReadAnyShellSelection, out paths) && paths.Length > 0
+            && Volatile.Read(ref _buttonDownTick) != 0)
         {
             lock (Gate) _snapshot = paths;
             return true;

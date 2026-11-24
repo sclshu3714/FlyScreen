@@ -68,6 +68,8 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
             _values["bufferMs"] = buf.ToString();
         if (!string.IsNullOrWhiteSpace(src.Endpoint.Transport))
             _values["transport"] = src.Endpoint.Transport;
+        if (src.Endpoint.Headers.Count > 0)
+            _values["headers"] = SourceHeaderText.Format(src.Endpoint.Headers);
         if (credentials is not null && !string.IsNullOrWhiteSpace(src.Endpoint.CredentialRef))
         {
             var cred = credentials.Get(src.Endpoint.CredentialRef);
@@ -171,6 +173,7 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
                 SourceFieldKind.Select or SourceFieldKind.Radio => MakeSelect(field),
                 SourceFieldKind.Checkbox => MakeCheck(field),
                 SourceFieldKind.File => MakeFile(field),
+                SourceFieldKind.KeyValueList => MakeKeyValueList(field),
                 _ => MakeText(field, Keyboard.Default)
             };
             _fieldsHost.Children.Add(editor);
@@ -192,6 +195,21 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
         if (string.Equals(field.Key, "name", StringComparison.OrdinalIgnoreCase))
             _nameEntry = entry;
         return entry;
+    }
+
+    private Editor MakeKeyValueList(SourceFieldSpec field)
+    {
+        var editor = new Editor
+        {
+            FontSize = 13,
+            TextColor = _text,
+            BackgroundColor = _card,
+            AutoSize = EditorAutoSizeOption.TextChanges,
+            MinimumHeightRequest = 72,
+            Text = _values.GetValueOrDefault(field.Key) ?? ""
+        };
+        editor.TextChanged += (_, _) => _values[field.Key] = editor.Text;
+        return editor;
     }
 
     private View MakePassword(SourceFieldSpec field)

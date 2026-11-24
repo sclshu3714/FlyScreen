@@ -42,6 +42,8 @@ public partial class AddSourceDialog : Window
                 _values["bufferMs"] = buf.ToString();
             if (!string.IsNullOrWhiteSpace(edit.Endpoint.Transport))
                 _values["transport"] = edit.Endpoint.Transport;
+            if (edit.Endpoint.Headers.Count > 0)
+                _values["headers"] = SourceHeaderText.Format(edit.Endpoint.Headers);
             LoadCredentialFields(edit);
         }
 
@@ -150,6 +152,7 @@ public partial class AddSourceDialog : Window
                 SourceFieldKind.Select or SourceFieldKind.Radio => CreateSelect(field),
                 SourceFieldKind.Checkbox => CreateCheck(field),
                 SourceFieldKind.File => CreateFile(field),
+                SourceFieldKind.KeyValueList => CreateKeyValueList(field),
                 _ => CreateText(field)
             };
             FieldsPanel.Children.Add(editor);
@@ -161,6 +164,22 @@ public partial class AddSourceDialog : Window
         var tb = new TextBox { Tag = field.Key };
         if (field.Placeholder is not null)
             tb.ToolTip = Loc.T(field.Placeholder);
+        if (_values.TryGetValue(field.Key, out var v))
+            tb.Text = v ?? "";
+        tb.TextChanged += (_, _) => _values[field.Key] = tb.Text;
+        return tb;
+    }
+
+    private TextBox CreateKeyValueList(SourceFieldSpec field)
+    {
+        var tb = new TextBox
+        {
+            Tag = field.Key,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 72,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
         if (_values.TryGetValue(field.Key, out var v))
             tb.Text = v ?? "";
         tb.TextChanged += (_, _) => _values[field.Key] = tb.Text;

@@ -45,6 +45,8 @@ public sealed class MauiInputRouter : IDisposable
     private const int SwitchCooldownMs = 900;
     private long _edgeFileWaitStart;
     private bool _edgeDragSwallowLeftUp;
+    /// <summary>由本机钩子消息维护的左键状态（勿用 GetAsyncKeyState：吞掉 UP 后会粘滞）。</summary>
+    private bool _hookLeftDown;
 
     /// <summary>按住文件拖过屏幕边缘时，把路径交给布局里的下一台。</summary>
     public EdgeFileDragService? EdgeFileDrag { get; set; }
@@ -461,6 +463,11 @@ public sealed class MauiInputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
+        if (msg == NativeMethods.WM_LBUTTONDOWN)
+            _hookLeftDown = true;
+        else if (msg == NativeMethods.WM_LBUTTONUP)
+            _hookLeftDown = false;
+
         if (msg == NativeMethods.WM_LBUTTONUP)
         {
             WindowsDragPaths.NoteButtonUp();
@@ -523,7 +530,7 @@ public sealed class MauiInputRouter : IDisposable
             UpdateEdgeStick(info.pt.X, info.pt.Y, screenL, screenT, rightObs, bottomObs);
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
-            var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            var leftDown = _hookLeftDown;
             // 仅靠近屏幕外缘才挂接收条 / 预读选中项（低频路径）
             var nearEdge = NearVirtualEdge(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
             if (_settings.TransferFile && leftDown && nearEdge)

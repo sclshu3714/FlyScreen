@@ -55,6 +55,7 @@ public partial class AddSourceWindow : Window
             NameBox.Text = edit.Name;
             AddressBox.Text = edit.Endpoint.Address;
             GroupCombo.Text = edit.GroupId ?? "";
+            HeadersBox.Text = SourceHeaderText.Format(edit.Endpoint.Headers);
             if (!string.IsNullOrWhiteSpace(edit.Endpoint.CredentialRef))
             {
                 var cred = service.Credentials.Get(edit.Endpoint.CredentialRef);
@@ -100,6 +101,8 @@ public partial class AddSourceWindow : Window
         PassBox.Placeholder = Loc.T("Tool.VideoWall.Field.Password");
         PassBox.ShowPasswordTip = Loc.T("Tool.VideoWall.ShowPassword");
         PassBox.HidePasswordTip = Loc.T("Tool.VideoWall.HidePassword");
+        HeadersLabel.Text = Loc.T("Tool.VideoWall.Field.Headers");
+        HeadersHint.Text = Loc.T("Tool.VideoWall.Hint.Headers");
         BrowseBtn.Content = "…";
         CancelBtn.Content = Loc.T("Tool.VideoWall.Cancel");
         SaveBtn.Content = Loc.T("Tool.VideoWall.Save");
@@ -118,6 +121,7 @@ public partial class AddSourceWindow : Window
     {
         var local = SelectedKind() == VideoSourceKind.LocalFile;
         FileBrowseRow.IsVisible = local;
+        HeadersRow.IsVisible = !local;
         AddressLabel.Text = local
             ? Loc.T("Tool.VideoWall.Field.FilePath")
             : Loc.T("Tool.VideoWall.Field.Address");
@@ -170,6 +174,7 @@ public partial class AddSourceWindow : Window
             ["username"] = UserBox.Text,
             ["password"] = PassBox.Password,
             ["credentialRef"] = _editingCredentialRef,
+            ["headers"] = kind == VideoSourceKind.LocalFile ? null : HeadersBox.Text,
             ["decode"] = "auto",
             ["bufferMs"] = "800",
             ["transport"] = "tcp",
