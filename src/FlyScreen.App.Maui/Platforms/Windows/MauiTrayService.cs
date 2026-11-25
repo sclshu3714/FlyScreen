@@ -34,6 +34,8 @@ public sealed class MauiTrayService : IDisposable
     private Func<IReadOnlyList<(string Label, Action Action)>>? _switchMachines;
     private Func<(string Label, Action Toggle)>? _switchDisable;
     private Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? _toolShortcuts;
+    private Func<IReadOnlyList<(string Label, Action Action)>>? _lockMachines;
+    private Func<Action>? _lockAll;
     private bool _added;
 
     public void Ensure(
@@ -45,7 +47,9 @@ public sealed class MauiTrayService : IDisposable
         Func<ProjectionUiPhase>? projectPhase = null,
         Func<IReadOnlyList<(string Label, Action Action)>>? switchMachines = null,
         Func<(string Label, Action Toggle)>? switchDisable = null,
-        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null)
+        Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null,
+        Func<IReadOnlyList<(string Label, Action Action)>>? lockMachines = null,
+        Func<Action>? lockAll = null)
     {
         _show = show;
         _reconnect = reconnect;
@@ -56,6 +60,8 @@ public sealed class MauiTrayService : IDisposable
         _switchMachines = switchMachines;
         _switchDisable = switchDisable;
         _toolShortcuts = toolShortcuts;
+        _lockMachines = lockMachines;
+        _lockAll = lockAll;
         if (_hwnd != IntPtr.Zero) return;
 
         _proc = WndProcImpl;
@@ -159,6 +165,11 @@ public sealed class MauiTrayService : IDisposable
         IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? tools = null;
         try { tools = _toolShortcuts?.Invoke(); } catch { /* ignore */ }
 
+        IReadOnlyList<(string Label, Action Action)>? locks = null;
+        try { locks = _lockMachines?.Invoke(); } catch { /* ignore */ }
+        Action? onLockAll = null;
+        try { onLockAll = _lockAll?.Invoke(); } catch { /* ignore */ }
+
         MauiTrayPopup.ShowNearCursor(
             onOpen: () => _show?.Invoke(),
             onReconnect: () => _reconnect?.Invoke(),
@@ -169,7 +180,9 @@ public sealed class MauiTrayService : IDisposable
             switchMachines: machines,
             disableLabel: disableLabel,
             onToggleDisable: onToggle,
-            toolShortcuts: tools);
+            toolShortcuts: tools,
+            lockMachines: locks,
+            onLockAll: onLockAll);
     }
 
     private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

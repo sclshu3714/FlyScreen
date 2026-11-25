@@ -3,6 +3,7 @@ using FlyScreen.DesktopUi;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Mac;
+using FlyScreen.Mac.Helpers;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Mac.ScreenExtend;
 using FlyScreen.Models;
@@ -88,6 +89,8 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
 
     public bool TrySwitchToMachine(string machineName)
         => _host.WindowsEdge?.TrySwitchToMachine(machineName) == true;
+
+    public void LockLocalScreen() => MacScreenLock.TryLock();
 
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();

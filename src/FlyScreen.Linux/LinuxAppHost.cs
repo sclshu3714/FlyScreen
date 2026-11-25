@@ -1,5 +1,6 @@
 using FlyScreen.Linux.Audio;
 using FlyScreen.Linux.Environment;
+using FlyScreen.Linux.Helpers;
 using FlyScreen.Linux.Input;
 using FlyScreen.Models;
 using FlyScreen.Services;
@@ -378,6 +379,9 @@ public sealed class LinuxAppHost : IAsyncDisposable
                 }
                 break;
             }
+            case MessageType.LockScreen:
+                LinuxScreenLock.TryLock();
+                break;
         }
     }
 

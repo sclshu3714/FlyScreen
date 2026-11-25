@@ -65,12 +65,13 @@ internal sealed class MauiTrayPopup : IDisposable
         public bool IsHeader { get; init; }
         public bool IsProject { get; init; }
         public bool IsSubmenu { get; init; }
+        public string? Mdl2Glyph { get; init; }
         public bool Clickable => (Action != null || IsSubmenu) && !IsHeader;
     }
 
     private sealed class SubmenuSpec
     {
-        public required IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> Items { get; init; }
+        public required IReadOnlyList<MauiTraySubItem> Items { get; init; }
         public bool SepBeforeLast { get; init; }
     }
 
@@ -84,44 +85,78 @@ internal sealed class MauiTrayPopup : IDisposable
         IReadOnlyList<(string Label, Action Action)>? switchMachines,
         string disableLabel,
         Action onToggleDisable,
-        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts)
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts,
+        IReadOnlyList<(string Label, Action Action)>? lockMachines,
+        Action onLockAll)
     {
         _projectPhase = projectPhase;
         _rows = [];
         _sepAfterClickIndex = [];
 
-        void AddClick(string label, Action action, bool isProject = false)
-            => _rows.Add(new TrayRow { Label = label, Action = action, IsProject = isProject });
+        void AddClick(string label, Action action, string? mdl2 = null, bool isProject = false)
+            => _rows.Add(new TrayRow
+            {
+                Label = label,
+                Action = action,
+                IsProject = isProject,
+                Mdl2Glyph = mdl2
+            });
 
-        AddClick(Loc.T("Tray.Open"), onOpen);
-        AddClick(Loc.T("Tray.Reconnect"), onReconnect);
+        AddClick(Loc.T("Tray.Open"), onOpen, TrayMenuIcons.Mdl2Open);
+        AddClick(Loc.T("Tray.Reconnect"), onReconnect, TrayMenuIcons.Mdl2Reconnect);
         AddClick(ProjectionUi.Tray(projectPhase).Label, onProject, isProject: true);
-        AddClick(Loc.T("Tray.About"), onAbout);
         _sepAfterClickIndex.Add(CountClickable() - 1);
 
         var switchClickIndex = CountClickable();
-        _rows.Add(new TrayRow { Label = Loc.T("Tray.Switch"), IsSubmenu = true });
-        var switchItems = new List<(string Label, Action Action, byte[]? IconPng)>();
+        _rows.Add(new TrayRow
+        {
+            Label = Loc.T("Tray.Switch"),
+            IsSubmenu = true,
+            Mdl2Glyph = TrayMenuIcons.Mdl2Switch
+        });
+        var switchItems = new List<MauiTraySubItem>();
         if (switchMachines != null)
         {
             foreach (var (label, action) in switchMachines)
-                switchItems.Add((label, action, null));
+                switchItems.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
         }
 
-        switchItems.Add((disableLabel, onToggleDisable, null));
+        switchItems.Add(MauiTraySubItem.Click(disableLabel, onToggleDisable));
         _submenus[switchClickIndex] = new SubmenuSpec { Items = switchItems, SepBeforeLast = true };
 
         var toolsClickIndex = CountClickable();
-        _rows.Add(new TrayRow { Label = Loc.T("Tray.Tools"), IsSubmenu = true });
-        var toolItems = new List<(string Label, Action Action, byte[]? IconPng)>();
-        if (toolShortcuts == null || toolShortcuts.Count == 0)
-            toolItems.Add((Loc.T("Tray.ToolsEmpty"), () => { }, null));
-        else
-            toolItems.AddRange(toolShortcuts);
-        _submenus[toolsClickIndex] = new SubmenuSpec { Items = toolItems, SepBeforeLast = false };
+        _rows.Add(new TrayRow
+        {
+            Label = Loc.T("Tray.Tools"),
+            IsSubmenu = true,
+            Mdl2Glyph = TrayMenuIcons.Mdl2Tools
+        });
+        var toolItems = new List<MauiTraySubItem>();
+        if (toolShortcuts is { Count: > 0 })
+        {
+            foreach (var (label, action, icon) in toolShortcuts)
+                toolItems.Add(MauiTraySubItem.Click(label, action, icon));
+        }
+
+        var lockNested = new List<MauiTraySubItem>();
+        if (lockMachines != null)
+        {
+            foreach (var (label, action) in lockMachines)
+                lockNested.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
+        }
+
+        lockNested.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
+        toolItems.Add(MauiTraySubItem.Submenu(TrayLockMenu.LockLabel, lockNested, TrayMenuIcons.Mdl2Lock));
+        // 有工具快捷时，锁屏前加分隔（SepBeforeLast 把最后一项「锁屏」前画线）
+        _submenus[toolsClickIndex] = new SubmenuSpec
+        {
+            Items = toolItems,
+            SepBeforeLast = toolItems.Count > 1
+        };
 
         _sepAfterClickIndex.Add(CountClickable() - 1);
-        AddClick(Loc.T("Tray.Exit"), onExit);
+        AddClick(Loc.T("Tray.About"), onAbout, TrayMenuIcons.Mdl2About);
+        AddClick(Loc.T("Tray.Exit"), onExit, TrayMenuIcons.Mdl2Exit);
 
         _itemRects = new Rectangle[CountClickable()];
         MeasureAndBuildHwnd();
@@ -145,7 +180,9 @@ internal sealed class MauiTrayPopup : IDisposable
         IReadOnlyList<(string Label, Action Action)>? switchMachines = null,
         string? disableLabel = null,
         Action? onToggleDisable = null,
-        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts = null)
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts = null,
+        IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
+        Action? onLockAll = null)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
         var popup = new MauiTrayPopup(
@@ -153,7 +190,9 @@ internal sealed class MauiTrayPopup : IDisposable
             switchMachines,
             disableLabel ?? Loc.T("Hot.Off"),
             onToggleDisable ?? (() => { }),
-            toolShortcuts);
+            toolShortcuts,
+            lockMachines,
+            onLockAll ?? (() => { }));
         _open = popup;
         popup.ShowAtCursor();
     }
@@ -173,7 +212,12 @@ internal sealed class MauiTrayPopup : IDisposable
             foreach (var row in _rows)
             {
                 var sz = g.MeasureString(row.Label, font);
-                textW = Math.Max(textW, (int)Math.Ceiling(sz.Width));
+                var rowW = (int)Math.Ceiling(sz.Width);
+                if (!string.IsNullOrEmpty(row.Mdl2Glyph) || row.IsProject)
+                    rowW += projectIconGap;
+                if (row.IsSubmenu)
+                    rowW += 18;
+                textW = Math.Max(textW, rowW);
             }
 
             // 投影：图标 + 文案（含悬停 / 各阶段最长）
@@ -370,8 +414,16 @@ internal sealed class MauiTrayPopup : IDisposable
                 }
                 else if (row.IsSubmenu)
                 {
-                    var textRect = new RectangleF(rect.X + ItemHPad, rect.Y,
-                        Math.Max(8, rect.Width - ItemHPad * 2 - 18), rect.Height);
+                    var labelX = rect.X + ItemHPad;
+                    if (!string.IsNullOrEmpty(row.Mdl2Glyph))
+                    {
+                        var iconRect = new RectangleF(labelX, rect.Y, 18, rect.Height);
+                        g.DrawString(row.Mdl2Glyph, iconFont, textBrush, iconRect, sf);
+                        labelX += 22;
+                    }
+
+                    var textRect = new RectangleF(labelX, rect.Y,
+                        Math.Max(8, rect.Right - ItemHPad - labelX - 18), rect.Height);
                     var chevronRect = new RectangleF(rect.X + ItemHPad, rect.Y,
                         Math.Max(8, rect.Width - ItemHPad * 2), rect.Height);
                     g.DrawString(row.Label, font, textBrush, textRect, sf);
@@ -379,7 +431,16 @@ internal sealed class MauiTrayPopup : IDisposable
                 }
                 else
                 {
-                    var textRect = new RectangleF(rect.X + ItemHPad, rect.Y, rect.Width - ItemHPad * 2, rect.Height);
+                    var labelX = rect.X + ItemHPad;
+                    if (!string.IsNullOrEmpty(row.Mdl2Glyph))
+                    {
+                        var iconRect = new RectangleF(labelX, rect.Y, 18, rect.Height);
+                        g.DrawString(row.Mdl2Glyph, iconFont, textBrush, iconRect, sf);
+                        labelX += 22;
+                    }
+
+                    var textRect = new RectangleF(labelX, rect.Y,
+                        Math.Max(8, rect.Right - ItemHPad - labelX), rect.Height);
                     g.DrawString(row.Label, font, textBrush, textRect, sf);
                 }
 
@@ -591,12 +652,8 @@ internal sealed class MauiTrayPopup : IDisposable
             if (PtInRect(ref main, pt)) return true;
         }
 
-        var sub = _subPopup?.Hwnd ?? IntPtr.Zero;
-        if (sub != IntPtr.Zero)
-        {
-            GetWindowRect(sub, out var subRc);
-            if (PtInRect(ref subRc, pt)) return true;
-        }
+        if (_subPopup?.ContainsPointer() == true)
+            return true;
 
         return false;
     }

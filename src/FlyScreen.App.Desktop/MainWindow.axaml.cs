@@ -686,23 +686,20 @@ public partial class MainWindow : Window
     private NativeMenu BuildTrayMenu()
     {
         var menu = new NativeMenu();
-        menu.Add(TrayItem(Loc.T("Tray.Open"), ShowFromTray));
-        menu.Add(TrayItem(Loc.T("Tray.Reconnect"), () => _ = _host.Connections.ReconnectNowAsync()));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniOpen}  {Loc.T("Tray.Open")}", ShowFromTray));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniReconnect}  {Loc.T("Tray.Reconnect")}",
+            () => _ = _host.Connections.ReconnectNowAsync()));
         var projectChrome = ProjectionUi.Tray(ProjectionUi.Resolve(_host.ScreenExtend));
         menu.Add(TrayItem(ProjectionUi.FormatLine(projectChrome), () => _ = OpenProjectionFromUiAsync()));
-        menu.Add(TrayItem(Loc.T("Tray.About"), () =>
-        {
-            ShowFromTray();
-            ShowPage(5);
-        }));
         menu.Add(new NativeMenuItemSeparator());
 
-        var switchRoot = new NativeMenuItem(Loc.T("Tray.Switch"));
+        var switchRoot = new NativeMenuItem($"{TrayMenuIcons.UniSwitch}  {Loc.T("Tray.Switch")}");
         var switchSub = new NativeMenu();
         foreach (var item in TraySwitchMenu.BuildItems(_host.Settings))
         {
             var machine = item.MachineName;
-            switchSub.Add(TrayItem(item.Label, () => TraySwitchToMachine(machine)));
+            switchSub.Add(TrayItem($"{TrayMenuIcons.UniComputer}  {item.Label}",
+                () => TraySwitchToMachine(machine)));
         }
 
         if (switchSub.Items.Count > 0)
@@ -712,12 +709,10 @@ public partial class MainWindow : Window
         switchRoot.Menu = switchSub;
         menu.Add(switchRoot);
 
-        var toolsRoot = new NativeMenuItem(Loc.T("Tray.Tools"));
+        var toolsRoot = new NativeMenuItem($"{TrayMenuIcons.UniTools}  {Loc.T("Tray.Tools")}");
         var toolsSub = new NativeMenu();
         var shortcuts = TrayToolsMenu.BuildItems();
-        if (shortcuts.Count == 0)
-            toolsSub.Add(TrayItem(TrayToolsMenu.EmptyLabel, () => { }));
-        else
+        if (shortcuts.Count > 0)
         {
             foreach (var item in shortcuts)
             {
@@ -725,15 +720,43 @@ public partial class MainWindow : Window
                 toolsSub.Add(TrayItem(item.Label, () => LaunchTrayToolShortcut(toolId),
                     TrayToolsMenu.TryGetIconPng(item.IconKey)));
             }
+
+            toolsSub.Add(new NativeMenuItemSeparator());
         }
 
+        var lockRoot = new NativeMenuItem($"{TrayMenuIcons.UniLock}  {TrayLockMenu.LockLabel}");
+        var lockSub = new NativeMenu();
+        foreach (var item in TrayLockMenu.BuildItems(_host.Settings, _host.Connections))
+        {
+            var machine = item.MachineName;
+            lockSub.Add(TrayItem($"{TrayMenuIcons.UniComputer}  {item.Label}",
+                () => TrayLockMachine(machine)));
+        }
+
+        if (lockSub.Items.Count > 0)
+            lockSub.Add(new NativeMenuItemSeparator());
+        lockSub.Add(TrayItem($"{TrayMenuIcons.UniLockAll}  {TrayLockMenu.AllLabel}", TrayLockAll));
+        lockRoot.Menu = lockSub;
+        toolsSub.Add(lockRoot);
         toolsRoot.Menu = toolsSub;
         menu.Add(toolsRoot);
 
         menu.Add(new NativeMenuItemSeparator());
-        menu.Add(TrayItem(Loc.T("Tray.Exit"), () => Exit_Click(null, new RoutedEventArgs())));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniAbout}  {Loc.T("Tray.About")}", () =>
+        {
+            ShowFromTray();
+            ShowPage(5);
+        }));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniExit}  {Loc.T("Tray.Exit")}",
+            () => Exit_Click(null, new RoutedEventArgs())));
         return menu;
     }
+
+    private void TrayLockMachine(string machineName)
+        => TrayLockMenu.LockMachine(_host.Connections, machineName, () => _host.LockLocalScreen());
+
+    private void TrayLockAll()
+        => TrayLockMenu.LockAll(_host.Settings, _host.Connections, () => _host.LockLocalScreen());
 
     private void LaunchTrayToolShortcut(string toolId)
     {

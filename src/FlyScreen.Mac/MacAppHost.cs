@@ -1,4 +1,5 @@
 using FlyScreen.Mac.Audio;
+using FlyScreen.Mac.Helpers;
 using FlyScreen.Mac.Input;
 using FlyScreen.Mac.Native;
 using FlyScreen.Mac.Permissions;
@@ -393,6 +394,9 @@ public sealed class MacAppHost : IAsyncDisposable
                     _receivingRemote = IsLocalTarget(p.OwnerMachine);
                 break;
             }
+            case MessageType.LockScreen:
+                MacScreenLock.TryLock();
+                break;
         }
     }
 

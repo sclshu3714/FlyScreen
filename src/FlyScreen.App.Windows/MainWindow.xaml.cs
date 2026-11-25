@@ -445,6 +445,14 @@ public partial class MainWindow : Window
                     ToolIconImageFactory.TryGet(x.IconKey));
             })
             .ToList();
+        var lockMachines = TrayLockMenu.BuildItems(s, _host.Connections)
+            .Select(x =>
+            {
+                var name = x.MachineName;
+                return (x.Label, (Action)(() =>
+                    TrayLockMenu.LockMachine(_host.Connections, name, WindowsScreenLock.TryLock)));
+            })
+            .ToList();
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
@@ -459,7 +467,9 @@ public partial class MainWindow : Window
             switchMachines: machines,
             disableLabel: TraySwitchMenu.DisableLabel(s.SwitchHotkeyMode == 2),
             onToggleDisable: ToggleTraySwitchHotkeyDisable,
-            toolShortcuts: tools);
+            toolShortcuts: tools,
+            lockMachines: lockMachines,
+            onLockAll: () => TrayLockMenu.LockAll(s, _host.Connections, WindowsScreenLock.TryLock));
     }
 
     private void LaunchTrayToolShortcut(string toolId)
