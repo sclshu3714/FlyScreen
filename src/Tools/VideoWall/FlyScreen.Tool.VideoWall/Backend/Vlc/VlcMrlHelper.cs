@@ -12,11 +12,44 @@ internal static class VlcMrlHelper
         Media media;
         if (TryGetLocalFilePath(endpoint, out var localPath))
             media = new Media(libVlc, localPath, FromType.FromPath);
+        else if (NeedsOwnedHttp(endpoint))
+        {
+            // LibVLC 3 的 HTTPS 模块发不出自定义头，带 Cookie / UG-Agent 的地址改由自有客户端拉流
+            var input = new RangeHttpMediaInput(new Uri(BuildMrl(endpoint)), endpoint.Headers);
+            try
+            {
+                media = new Media(libVlc, input);
+            }
+            catch
+            {
+                input.Dispose();
+                throw;
+            }
+        }
         else
             media = new Media(libVlc, BuildMrl(endpoint), FromType.FromLocation);
 
         ApplyOptions(media, endpoint, options, credentials);
         return media;
+    }
+
+    private static bool NeedsOwnedHttp(VideoEndpoint endpoint)
+    {
+        var protocol = (endpoint.Protocol ?? "").Trim().ToLowerInvariant();
+        if (protocol is not ("http" or "https"))
+            return false;
+
+        // 只有 LibVLC 3 发不出去的头才改走自有客户端；Referer / User-Agent 仍交给 :http-referrer / :http-user-agent
+        foreach (var (key, value) in endpoint.Headers)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                continue;
+            if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase)
+                || key.Equals("UG-Agent", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public static string BuildMrl(VideoEndpoint endpoint)
@@ -45,7 +78,7 @@ internal static class VlcMrlHelper
         var address = (endpoint.Address ?? "").Trim();
         if (address.Length == 0) return false;
 
-        if (protocol == "file" || LooksLikeWindowsPath(address))
+        if (protocol == "file" || LooksLikeWindowsPath(address) || LooksLikeUnixAbsolutePath(address))
         {
             if (address.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
             {
@@ -69,6 +102,9 @@ internal static class VlcMrlHelper
            && s[1] == ':'
            && (s[2] == '\\' || s[2] == '/');
 
+    private static bool LooksLikeUnixAbsolutePath(string s)
+        => s.Length >= 2 && s[0] == '/' && s[1] != '/';
+
     private static void ApplyOptions(
         Media media,
         VideoEndpoint endpoint,
@@ -86,16 +122,38 @@ internal static class VlcMrlHelper
 
         var decode = (options.DecodePreference ?? "auto").Trim().ToLowerInvariant();
 
-        media.AddOption(decode switch
+        // Android 无 d3d11va；软件帧路径（DecodePreference=software）强制 CPU 解码更稳
+        var soft = OperatingSystem.IsAndroid() || decode is "software" or "sw" or "soft";
+        if (soft)
         {
-            "hardware" => ":avcodec-hw=d3d11va",
-            "software" => ":avcodec-hw=none",
-            _ => ":avcodec-hw=any"
-        });
+            media.AddOption(":avcodec-hw=none");
+            // 软解跟不上时丢弃过时帧，减轻不规则追帧造成的顿挫感
+            media.AddOption(":drop-late-frames");
+            media.AddOption(":skip-frames");
+        }
+        else
+        {
+            media.AddOption(decode switch
+            {
+                "hardware" => ":avcodec-hw=d3d11va",
+                _ => ":avcodec-hw=any"
+            });
+        }
 
+        if (options.WallMode)
+        {
+            media.AddOption(":avcodec-fast");
+            media.AddOption(":avcodec-skiploopfilter=4");
+            media.AddOption(":drop-late-frames");
+            media.AddOption(":skip-frames");
+        }
+
+        // HTTP 默认 ~1.2s；宫格更短，避免多路同时长缓冲打满内存
         var bufferMs = options.BufferMs ?? endpoint.BufferMs;
         if (bufferMs is > 0)
             media.AddOption($":network-caching={bufferMs.Value}");
+        else if (protocol is "http" or "https")
+            media.AddOption(options.WallMode ? ":network-caching=800" : ":network-caching=1200");
 
         if (!string.IsNullOrWhiteSpace(endpoint.CredentialRef) && credentials is not null)
         {
@@ -121,7 +179,13 @@ internal static class VlcMrlHelper
         foreach (var (key, value) in endpoint.Headers)
         {
             if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value)) continue;
-            media.AddOption($":http-header={key}: {value}");
+            if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase)
+                || key.Equals("Referrer", StringComparison.OrdinalIgnoreCase))
+                media.AddOption($":http-referrer={value}");
+            else if (key.Equals("User-Agent", StringComparison.OrdinalIgnoreCase))
+                media.AddOption($":http-user-agent={value}");
+            else
+                media.AddOption($":http-header={key}: {value}");
         }
     }
 }

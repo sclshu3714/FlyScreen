@@ -26,7 +26,7 @@ public sealed record ScannedLanDevice(
 public sealed class LanDeviceScanService
 {
     /// <summary>RTSP / 常见 NVR Web / 厂商私有端口。</summary>
-    public static readonly int[] ProbePorts = [554, 8554, 80, 8080, 8000, 37777, 34567];
+    public static readonly int[] ProbePorts = [554, 8554, 80, 8080, 8000, 8200, 37777, 34567];
 
     private const int ConnectTimeoutMs = 220;
     private const int MaxHosts = 1024;
@@ -259,7 +259,7 @@ public sealed class LanDeviceScanService
                 return;
 
             var hasRtsp = open.Contains(554) || open.Contains(8554);
-            if (!hasRtsp && !open.Exists(p => p is 80 or 8080 or 8000 or 37777 or 34567))
+            if (!hasRtsp && !open.Exists(p => p is 80 or 8080 or 8000 or 8200 or 37777 or 34567))
                 return;
 
             var rtspPort = open.Contains(554) ? 554 : open.Contains(8554) ? 8554 : 554;
@@ -349,6 +349,8 @@ public sealed class LanDeviceScanService
             return "NVR";
         if (ports.Contains(554) || ports.Contains(8554))
             return ports.Any(p => p is 80 or 8000 or 8080) ? "摄像机/NVR" : "摄像机";
+        if (ports.Contains(8200) && !ports.Contains(554) && !ports.Contains(8554))
+            return "DLNA";
         return "设备";
     }
 

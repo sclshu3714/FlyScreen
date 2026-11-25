@@ -219,7 +219,8 @@ foreach ($t in $tools) {
         dotnet build $uiProj -c $Configuration --nologo -v q
         if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
         $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiProj)
-        $preferWin = $uiAsm -like "*.Ui.Maui"
+        # Ui.Maui：打 net10.0（软帧，供 Android 手机）；勿 PreferWindows（会带 WinUI/HWND 依赖）
+        $preferWin = $false
         $uiOut = Resolve-ProjectOutputDir $uiProj $Configuration $uiAsm -PreferWindows:$preferWin
         if ($uiOut) {
             $uiDll = Join-Path $uiOut "$uiAsm.dll"

@@ -4,6 +4,7 @@ using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Linux;
+using FlyScreen.Linux.Helpers;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
@@ -34,6 +35,7 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
     public ConnectionManager Connections => _host.Connections;
     public FileTransferService Transfers => _host.Transfers;
     public ObservableCollection<TransferItem> TransferItems => _host.Transfers.Items;
+    public AvaloniaClipboardApplySink ClipboardApply => _clipSink;
 
     public event Action<string>? StatusMessage
     {
@@ -80,6 +82,8 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
 
     public bool SupportsTray => true;
     public bool SupportsAutoStart => false;
+
+    public void LockLocalScreen() => LinuxScreenLock.TryLock();
 
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();

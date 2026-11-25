@@ -12,6 +12,7 @@ public sealed class TileSession : IDisposable
 
     private IMediaPlayer? _player;
     private VideoEndpoint? _endpoint;
+    private MediaPlayerOptions _bindOptions = new();
     private TilePlayState _state = TilePlayState.Idle;
     private bool _muted = true;
     private IntPtr _renderTarget;
@@ -50,9 +51,14 @@ public sealed class TileSession : IDisposable
 
     public event Action<TileSession>? Changed;
 
+    private IVideoFrameSink? _frameSink;
+
     /// <summary>绑定软件帧接收面（与 HWND 互斥）。须在 <see cref="StartBoundPlaybackAsync"/> 之前调用。</summary>
     public void AttachFrameSink(IVideoFrameSink? sink)
-        => _player?.AttachFrameSink(sink);
+    {
+        _frameSink = sink;
+        _player?.AttachFrameSink(sink);
+    }
 
     public async Task BindAsync(
         VideoEndpoint endpoint,
@@ -67,6 +73,7 @@ public sealed class TileSession : IDisposable
         SourceId = sourceId;
         TemporaryAddress = temporaryAddress;
         _endpoint = endpoint;
+        _bindOptions = options;
         _muted = options.Mute;
         _renderTarget = options.RenderTarget ?? IntPtr.Zero;
 
@@ -130,6 +137,7 @@ public sealed class TileSession : IDisposable
         SourceId = null;
         TemporaryAddress = null;
         _endpoint = null;
+        _frameSink = null;
         SetSessionState(TilePlayState.Stopped);
     }
 
@@ -226,11 +234,16 @@ public sealed class TileSession : IDisposable
                 disposable.Dispose();
         }
 
-        _player = _backend.CreatePlayer(_endpoint, new MediaPlayerOptions
+        // 有软件帧面时勿绑 HWND，并在开播前重新 Attach（CreatePlayer 会丢旧回调）
+        var opts = _bindOptions with
         {
             Mute = _muted,
-            RenderTarget = _renderTarget
-        });
+            DecodePreference = _frameSink is not null ? "software" : _bindOptions.DecodePreference,
+            RenderTarget = _frameSink is null ? _renderTarget : null
+        };
+        _player = _backend.CreatePlayer(_endpoint, opts);
+        if (_frameSink is not null)
+            _player.AttachFrameSink(_frameSink);
         WirePlayer(_player);
         SetSessionState(TilePlayState.Connecting);
         await _player.StartAsync(ct).ConfigureAwait(false);

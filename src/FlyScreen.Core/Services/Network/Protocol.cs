@@ -64,6 +64,8 @@ public enum MessageType : byte
     DisplayInfoReply = 67,
     /// <summary>远程连接配置 + 绑定池同步（布局内电脑；旧端忽略）。</summary>
     RemoteBindingSync = 68,
+    /// <summary>请对端锁屏（旧端忽略未知类型）。</summary>
+    LockScreen = 69,
     /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
     CompositionUpdate = 70,
     /// <summary>电脑→手机：取消组字浮层。</summary>

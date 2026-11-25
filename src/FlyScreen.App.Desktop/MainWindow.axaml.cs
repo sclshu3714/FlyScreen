@@ -24,6 +24,7 @@ using FlyScreen.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services;
+using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
 using FlyScreen.Services.Programs;
 using FlyScreen.Services.ScreenExtend;
@@ -83,6 +84,8 @@ public partial class MainWindow : Window
     private readonly FlyBreadcrumbBar _networkBreadcrumb = new();
     private readonly FlyBreadcrumbBar _toolsBreadcrumb = new();
     private bool _toolsBreadcrumbWired;
+    /// <summary>当前 ToolsWorkspaceHost.Content 对应的工具 Id（目录切换时用于保留画中画等浮窗）。</summary>
+    private string? _toolsWorkspaceContentToolId;
 
     // 标题栏拖动：Wayland→BeginMoveDrag；X11→屏幕绝对坐标 - 抓取偏移
     private bool _titleMoving;
@@ -683,23 +686,20 @@ public partial class MainWindow : Window
     private NativeMenu BuildTrayMenu()
     {
         var menu = new NativeMenu();
-        menu.Add(TrayItem(Loc.T("Tray.Open"), ShowFromTray));
-        menu.Add(TrayItem(Loc.T("Tray.Reconnect"), () => _ = _host.Connections.ReconnectNowAsync()));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniOpen}  {Loc.T("Tray.Open")}", ShowFromTray));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniReconnect}  {Loc.T("Tray.Reconnect")}",
+            () => _ = _host.Connections.ReconnectNowAsync()));
         var projectChrome = ProjectionUi.Tray(ProjectionUi.Resolve(_host.ScreenExtend));
         menu.Add(TrayItem(ProjectionUi.FormatLine(projectChrome), () => _ = OpenProjectionFromUiAsync()));
-        menu.Add(TrayItem(Loc.T("Tray.About"), () =>
-        {
-            ShowFromTray();
-            ShowPage(5);
-        }));
         menu.Add(new NativeMenuItemSeparator());
 
-        var switchRoot = new NativeMenuItem(Loc.T("Tray.Switch"));
+        var switchRoot = new NativeMenuItem($"{TrayMenuIcons.UniSwitch}  {Loc.T("Tray.Switch")}");
         var switchSub = new NativeMenu();
         foreach (var item in TraySwitchMenu.BuildItems(_host.Settings))
         {
             var machine = item.MachineName;
-            switchSub.Add(TrayItem(item.Label, () => TraySwitchToMachine(machine)));
+            switchSub.Add(TrayItem($"{TrayMenuIcons.UniComputer}  {item.Label}",
+                () => TraySwitchToMachine(machine)));
         }
 
         if (switchSub.Items.Count > 0)
@@ -709,12 +709,10 @@ public partial class MainWindow : Window
         switchRoot.Menu = switchSub;
         menu.Add(switchRoot);
 
-        var toolsRoot = new NativeMenuItem(Loc.T("Tray.Tools"));
+        var toolsRoot = new NativeMenuItem($"{TrayMenuIcons.UniTools}  {Loc.T("Tray.Tools")}");
         var toolsSub = new NativeMenu();
         var shortcuts = TrayToolsMenu.BuildItems();
-        if (shortcuts.Count == 0)
-            toolsSub.Add(TrayItem(TrayToolsMenu.EmptyLabel, () => { }));
-        else
+        if (shortcuts.Count > 0)
         {
             foreach (var item in shortcuts)
             {
@@ -723,14 +721,45 @@ public partial class MainWindow : Window
                     TrayToolsMenu.TryGetIconPng(item.IconKey)));
             }
         }
+        else
+        {
+            toolsSub.Add(new NativeMenuItem(TrayToolsMenu.EmptyLabel) { IsEnabled = false });
+        }
 
         toolsRoot.Menu = toolsSub;
         menu.Add(toolsRoot);
 
+        var lockRoot = new NativeMenuItem($"{TrayMenuIcons.UniLock}  {TrayLockMenu.LockLabel}");
+        var lockSub = new NativeMenu();
+        foreach (var item in TrayLockMenu.BuildItems(_host.Settings, _host.Connections))
+        {
+            var machine = item.MachineName;
+            lockSub.Add(TrayItem($"{TrayMenuIcons.UniComputer}  {item.Label}",
+                () => TrayLockMachine(machine)));
+        }
+
+        if (lockSub.Items.Count > 0)
+            lockSub.Add(new NativeMenuItemSeparator());
+        lockSub.Add(TrayItem($"{TrayMenuIcons.UniLockAll}  {TrayLockMenu.AllLabel}", TrayLockAll));
+        lockRoot.Menu = lockSub;
+        menu.Add(lockRoot);
+
         menu.Add(new NativeMenuItemSeparator());
-        menu.Add(TrayItem(Loc.T("Tray.Exit"), () => Exit_Click(null, new RoutedEventArgs())));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniAbout}  {Loc.T("Tray.About")}", () =>
+        {
+            ShowFromTray();
+            ShowPage(5);
+        }));
+        menu.Add(TrayItem($"{TrayMenuIcons.UniExit}  {Loc.T("Tray.Exit")}",
+            () => Exit_Click(null, new RoutedEventArgs())));
         return menu;
     }
+
+    private void TrayLockMachine(string machineName)
+        => TrayLockMenu.LockMachine(_host.Connections, machineName, () => _host.LockLocalScreen());
+
+    private void TrayLockAll()
+        => TrayLockMenu.LockAll(_host.Settings, _host.Connections, () => _host.LockLocalScreen());
 
     private void LaunchTrayToolShortcut(string toolId)
     {
@@ -1715,7 +1744,15 @@ public partial class MainWindow : Window
         {
             ToolsCatalogHost.IsVisible = true;
             ToolsWorkspaceHost.IsVisible = false;
-            ToolsWorkspaceHost.Content = null;
+            // 有打开页签时保留 Content：视频墙画中画等浮窗依赖工具页未卸载。
+            if (!hasTabs
+                || (!string.IsNullOrEmpty(_toolsWorkspaceContentToolId)
+                    && !ws.OpenTabs.Any(t =>
+                        string.Equals(t.ToolId, _toolsWorkspaceContentToolId, StringComparison.OrdinalIgnoreCase))))
+            {
+                ToolsWorkspaceHost.Content = null;
+                _toolsWorkspaceContentToolId = null;
+            }
         }
         else
         {
@@ -1728,7 +1765,14 @@ public partial class MainWindow : Window
                 if (content != null
                     && (ToolsWorkspaceHost.Content == null
                         || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+                {
                     ToolsWorkspaceHost.Content = content;
+                    _toolsWorkspaceContentToolId = activeId;
+                }
+                else if (content != null)
+                {
+                    _toolsWorkspaceContentToolId = activeId;
+                }
             }
         }
     }
@@ -4259,9 +4303,36 @@ public partial class MainWindow : Window
         try
         {
             var files = await _host.Transfers.PullRemoteFilesForPasteAsync().ConfigureAwait(true);
-            StatusText.Text = files is { Count: > 0 }
+            if (files is not { Count: > 0 })
+            {
+                StatusText.Text = Loc.T("Xfer.ReceiveClipboardFail");
+                return;
+            }
+
+            // 写入系统剪贴板 Files，便于 Finder/文件管理器 Ctrl+V（不仅落盘）
+            byte[]? png = null;
+            if (ClipboardImagePaths.AreAllImageFilePaths(files))
+            {
+                foreach (var path in files)
+                {
+                    try
+                    {
+                        if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) continue;
+                        var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+                        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50)
+                        {
+                            png = bytes;
+                            break;
+                        }
+                    }
+                    catch { /* next */ }
+                }
+            }
+
+            var ok = await _host.ClipboardApply.ApplyFilesAsync(files, png).ConfigureAwait(true);
+            StatusText.Text = ok
                 ? string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count)
-                : Loc.T("Xfer.ReceiveClipboardFail");
+                : string.Format(Loc.T("Xfer.ReceivedClipboard"), files.Count) + "（已落盘，挂剪贴板失败）";
         }
         catch (Exception ex)
         {

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <RootNamespace>FlyScreen.ProgramDevHost</RootNamespace>
+    <AssemblyName>program</AssemblyName>
+    <StartupObject>Program</StartupObject>
+    <UseWPF>true</UseWPF>
+    <FlyScreenHostDir Condition="'$(FlyScreenHostDir)' == '' and '$(FLYSCREEN_HOST_DIR)' != ''">$(FLYSCREEN_HOST_DIR)</FlyScreenHostDir>
+    <FlyScreenCoreDll Condition="'$(FlyScreenCoreDll)' == '' and '$(FlyScreenHostDir)' != ''">$(FlyScreenHostDir)\FlyScreen.Core.dll</FlyScreenCoreDll>
+    <FlyScreenCoreDll Condition="'$(FlyScreenCoreDll)' == '' and '$(FLYSCREEN_CORE_DLL)' != ''">$(FLYSCREEN_CORE_DLL)</FlyScreenCoreDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- xaml 必须是 Page 才会生成 InitializeComponent；不能只挂在 None 上 -->
+    <None Remove="**/*.xaml" />
+    <Page Include="MainWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Compile Include="MainWindow.xaml.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="CalculatorSession.cs" />
+    <Compile Include="DevHost.cs" />
+    <None Include="main.cs" />
+    <None Include="lib\**\*.cs" />
+    <None Include="fly-settings.json" Condition="Exists('fly-settings.json')" />
+    <None Include="program.json" Condition="Exists('program.json')" />
+    <None Include="settings.json" Condition="Exists('settings.json')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(FlyScreenCoreDll)' != '' and Exists('$(FlyScreenCoreDll)')">
+    <Reference Include="FlyScreen.Core">
+      <HintPath>$(FlyScreenCoreDll)</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="FlyScreen_CopyHostDeps" AfterTargets="Build" Condition="'$(FlyScreenHostDir)' != '' and Exists('$(FlyScreenHostDir)')">
+    <ItemGroup>
+      <_FlyHostDll Include="$(FlyScreenHostDir)\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_FlyHostDll)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="'@(_FlyHostDll)' != ''" />
+  </Target>
+</Project>

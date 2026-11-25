@@ -57,6 +57,8 @@ public sealed class InputRouter : IDisposable
     private RemoteCompositionHost? _composition;
     private long _edgeFileWaitStart;
     private bool _edgeDragSwallowLeftUp;
+    /// <summary>由本机钩子消息维护的左键状态（勿用 GetAsyncKeyState：吞掉 UP 后会粘滞）。</summary>
+    private bool _hookLeftDown;
     private int _edgeStickSide;
     private long _edgeStickTick;
     private const int EdgeStickAdmitMs = 80;
@@ -363,6 +365,11 @@ public sealed class InputRouter : IDisposable
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
+        if (msg == NativeMethods.WM_LBUTTONDOWN)
+            _hookLeftDown = true;
+        else if (msg == NativeMethods.WM_LBUTTONUP)
+            _hookLeftDown = false;
+
         if (msg == NativeMethods.WM_LBUTTONUP)
         {
             WindowsDragPaths.NoteButtonUp();
@@ -432,7 +439,7 @@ public sealed class InputRouter : IDisposable
             UpdateEdgeStick(info.pt.X, info.pt.Y, screenL, screenT, right, bottom);
             _edgeGate.Observe(nx, ny, onEdge, Environment.TickCount64);
 
-            var leftDown = (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            var leftDown = _hookLeftDown;
             // 仅靠近屏幕外缘才挂接收条 / 预读选中项（低频路径）
             var nearEdge = NearVirtualEdge(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
             if (_settings.TransferFile && leftDown && nearEdge)

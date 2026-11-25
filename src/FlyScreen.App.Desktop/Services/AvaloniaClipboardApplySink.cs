@@ -1,13 +1,18 @@
+using System.Text;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using FlyScreen.Services.Clipboard;
 
 namespace FlyScreen.DesktopUi.Services;
 
-/// <summary>Avalonia 剪贴板读写（Mac/Linux 桌面）：尽量对齐 Text/Html/Rtf/Csv/Png/Files。</summary>
+/// <summary>
+/// Avalonia 剪贴板读写（Mac/Linux）：对齐 Win 多格式并存——
+/// Text/Html/Rtf/Csv/Png/Files 一次写入，采集覆盖常见 MIME / UTI。
+/// </summary>
 public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
 {
     private static readonly string[] HtmlFormats =
@@ -22,12 +27,22 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
 
     private static readonly string[] CsvFormats =
     [
-        "text/csv", "Csv", "CommaSeparatedValue"
+        "text/csv", "Csv", "CommaSeparatedValue", "public.comma-separated-values-text"
     ];
 
     private static readonly string[] PngFormats =
     [
         "image/png", "PNG", "public.png"
+    ];
+
+    private static readonly string[] RasterFormats =
+    [
+        "image/png", "PNG", "public.png",
+        "image/jpeg", "image/jpg", "public.jpeg", "public.jpg",
+        "image/bmp", "image/x-bmp", "public.bmp",
+        "image/gif", "public.gif",
+        "image/tiff", "public.tiff",
+        "image/webp"
     ];
 
     private long _suppressUntilMs;
@@ -56,12 +71,17 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
         _ = ApplyInlineAndRematchAsync(data);
     }
 
+    /// <summary>
+    /// 将本地路径挂到系统剪贴板 Files（可选附带 PNG），供 Finder/文件管理器与文档粘贴。
+    /// </summary>
+    public Task<bool> ApplyFilesAsync(IReadOnlyList<string> paths, byte[]? png = null)
+        => ApplyFilesInternalAsync(paths, png);
+
     private async Task ApplyInlineAndRematchAsync(ClipboardInlineData data)
     {
         await ApplyInlineAsync(data).ConfigureAwait(true);
         try
         {
-            // 回读对齐 key，避免平台转换后再次宣告
             var roundtrip = await TryCaptureInlineAsync().ConfigureAwait(true);
             if (roundtrip != null && !roundtrip.IsEmpty)
                 _lastAppliedKey = roundtrip.BuildKey();
@@ -69,6 +89,39 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
         catch
         {
             // ignore
+        }
+    }
+
+    private async Task<bool> ApplyFilesInternalAsync(IReadOnlyList<string> paths, byte[]? png)
+    {
+        if (paths.Count == 0) return false;
+        Suppress(2500);
+        try
+        {
+            var clip = GetClipboard();
+            if (clip == null) return false;
+
+            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desk
+                || desk.MainWindow?.StorageProvider is not { } storage)
+                return false;
+
+            var items = await BuildStorageItemsAsync(storage, paths).ConfigureAwait(true);
+            if (items.Count == 0) return false;
+
+            var dataObject = new DataObject();
+            dataObject.Set(DataFormats.Files, items.ToArray());
+            if (png is { Length: > 0 })
+                SetImageFormats(dataObject, png);
+
+            if (png is { Length: > 0 })
+                _lastAppliedKey = ClipboardInlineData.FromPngOnly(png).BuildKey();
+
+            await clip.SetDataObjectAsync(dataObject).ConfigureAwait(true);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -104,6 +157,9 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
             if (string.IsNullOrEmpty(text)) text = null;
 
             var html = await TryGetStringAsync(clip, formats, HtmlFormats).ConfigureAwait(true);
+            if (!string.IsNullOrEmpty(html))
+                html = StripCfHtmlEnvelope(html);
+
             var rtf = await TryGetStringAsync(clip, formats, RtfFormats).ConfigureAwait(true);
             var csv = await TryGetStringAsync(clip, formats, CsvFormats).ConfigureAwait(true);
             var png = await TryGetPngAsync(clip, formats).ConfigureAwait(true);
@@ -167,12 +223,6 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
             var clip = GetClipboard();
             if (clip == null) return;
 
-            if (data.Png is { Length: > 0 })
-            {
-                await ApplyPngAsync(clip, data).ConfigureAwait(true);
-                return;
-            }
-
             var dataObject = new DataObject();
             var any = false;
 
@@ -184,8 +234,10 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
 
             if (!string.IsNullOrEmpty(data.Html))
             {
+                var html = EnsureCfHtml(data.Html);
                 dataObject.Set("text/html", data.Html);
                 dataObject.Set("public.html", data.Html);
+                dataObject.Set("HTML Format", html);
                 any = true;
             }
 
@@ -193,12 +245,24 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
             {
                 dataObject.Set("text/rtf", data.Rtf);
                 dataObject.Set("public.rtf", data.Rtf);
+                dataObject.Set("Rich Text Format", data.Rtf);
                 any = true;
             }
 
             if (!string.IsNullOrEmpty(data.Csv))
             {
                 dataObject.Set("text/csv", data.Csv);
+                dataObject.Set("Csv", data.Csv);
+                any = true;
+            }
+
+            if (data.Png is { Length: > 0 })
+            {
+                SetImageFormats(dataObject, data.Png);
+                // 同时挂临时 PNG 文件，对齐本机「复制图片」可粘到文件夹
+                var fileItem = await TryCreateTempPngStorageItemAsync(data.Png).ConfigureAwait(true);
+                if (fileItem != null)
+                    dataObject.Set(DataFormats.Files, new IStorageItem[] { fileItem });
                 any = true;
             }
 
@@ -218,6 +282,63 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
             if (!string.IsNullOrEmpty(fallback))
                 await SetTextAsync(fallback).ConfigureAwait(true);
         }
+    }
+
+    private static void SetImageFormats(DataObject dataObject, byte[] png)
+    {
+        dataObject.Set("image/png", png);
+        dataObject.Set("PNG", png);
+        dataObject.Set("public.png", png);
+    }
+
+    private static async Task<IStorageFile?> TryCreateTempPngStorageItemAsync(byte[] png)
+    {
+        try
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "flyscreen-clip");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"clip-{Guid.NewGuid():N}.png");
+            await File.WriteAllBytesAsync(path, png).ConfigureAwait(true);
+
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk
+                && desk.MainWindow?.StorageProvider is { } storage)
+                return await storage.TryGetFileFromPathAsync(path).ConfigureAwait(true);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    private static async Task<List<IStorageItem>> BuildStorageItemsAsync(
+        IStorageProvider storage, IReadOnlyList<string> paths)
+    {
+        var items = new List<IStorageItem>();
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var file = await storage.TryGetFileFromPathAsync(path).ConfigureAwait(true);
+                    if (file != null) items.Add(file);
+                }
+                else if (Directory.Exists(path))
+                {
+                    var folder = await storage.TryGetFolderFromPathAsync(path).ConfigureAwait(true);
+                    if (folder != null) items.Add(folder);
+                }
+            }
+            catch
+            {
+                // skip one
+            }
+        }
+
+        return items;
     }
 
     private static string? PreferText(ClipboardInlineData data)
@@ -240,56 +361,12 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
         }
     }
 
-    private static async Task ApplyPngAsync(IClipboard clip, ClipboardInlineData data)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "flyscreen-clip");
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, $"clip-{Guid.NewGuid():N}.png");
-        await File.WriteAllBytesAsync(path, data.Png!).ConfigureAwait(true);
-
-        // 优先：原生 PNG 字节（Linux/Mac 多数应用可识别）
-        try
-        {
-            var dataObject = new DataObject();
-            dataObject.Set("image/png", data.Png!);
-            dataObject.Set("PNG", data.Png!);
-            dataObject.Set("public.png", data.Png!);
-            if (!string.IsNullOrEmpty(data.Text))
-                dataObject.Set(DataFormats.Text, data.Text);
-            await clip.SetDataObjectAsync(dataObject).ConfigureAwait(true);
-            return;
-        }
-        catch
-        {
-            // fall through to Files
-        }
-
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk
-            && desk.MainWindow?.StorageProvider is { } storage)
-        {
-            var file = await storage.TryGetFileFromPathAsync(path).ConfigureAwait(true);
-            if (file != null)
-            {
-                var dataObject = new DataObject();
-                dataObject.Set(DataFormats.Files, new IStorageItem[] { file });
-                if (!string.IsNullOrEmpty(data.Text))
-                    dataObject.Set(DataFormats.Text, data.Text);
-                await clip.SetDataObjectAsync(dataObject).ConfigureAwait(true);
-                return;
-            }
-        }
-
-        if (!string.IsNullOrEmpty(data.Text))
-            await SetTextAsync(data.Text).ConfigureAwait(true);
-        else
-            await SetTextAsync(path).ConfigureAwait(true);
-    }
-
     private static async Task<string?> TryGetStringAsync(
         IClipboard clip, string[] available, string[] candidates)
     {
         foreach (var format in candidates)
         {
+            // available 为空时仍逐个尝试：部分桌面 GetFormats 不完整
             if (available.Length > 0
                 && !available.Any(f => string.Equals(f, format, StringComparison.OrdinalIgnoreCase)))
                 continue;
@@ -302,9 +379,9 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
                     case string s when !string.IsNullOrEmpty(s):
                         return s;
                     case byte[] bytes when bytes.Length > 0:
-                        return System.Text.Encoding.UTF8.GetString(bytes);
+                        return Encoding.UTF8.GetString(bytes);
                     case MemoryStream ms:
-                        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                        return Encoding.UTF8.GetString(ms.ToArray());
                 }
             }
             catch
@@ -318,7 +395,7 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
 
     private static async Task<byte[]?> TryGetPngAsync(IClipboard clip, string[] available)
     {
-        foreach (var format in PngFormats)
+        foreach (var format in RasterFormats)
         {
             if (available.Length > 0
                 && !available.Any(f => string.Equals(f, format, StringComparison.OrdinalIgnoreCase)))
@@ -326,20 +403,15 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
 
             try
             {
-                var obj = await clip.GetDataAsync(format).ConfigureAwait(true);
-                switch (obj)
-                {
-                    case byte[] bytes when bytes.Length > 0:
-                        return bytes;
-                    case MemoryStream ms:
-                        return ms.ToArray();
-                    case Stream stream:
-                    {
-                        using var ms = new MemoryStream();
-                        await stream.CopyToAsync(ms).ConfigureAwait(true);
-                        return ms.ToArray();
-                    }
-                }
+                var raw = await TryReadBytesAsync(clip, format).ConfigureAwait(true);
+                if (raw is not { Length: > 0 }) continue;
+
+                if (IsPng(raw))
+                    return raw;
+
+                var png = TryTranscodeRasterToPng(raw);
+                if (png is { Length: > 0 })
+                    return png;
             }
             catch
             {
@@ -347,7 +419,101 @@ public sealed class AvaloniaClipboardApplySink : IClipboardApplySink
             }
         }
 
+        // 格式列表不准时再盲试 PNG
+        if (available.Length > 0)
+        {
+            foreach (var format in PngFormats)
+            {
+                try
+                {
+                    var raw = await TryReadBytesAsync(clip, format).ConfigureAwait(true);
+                    if (raw is { Length: > 0 } && IsPng(raw))
+                        return raw;
+                }
+                catch { /* next */ }
+            }
+        }
+
         return null;
+    }
+
+    private static async Task<byte[]?> TryReadBytesAsync(IClipboard clip, string format)
+    {
+        var obj = await clip.GetDataAsync(format).ConfigureAwait(true);
+        return obj switch
+        {
+            byte[] bytes when bytes.Length > 0 => bytes,
+            MemoryStream ms => ms.ToArray(),
+            Stream stream => await ReadStreamAsync(stream).ConfigureAwait(true),
+            _ => null
+        };
+    }
+
+    private static async Task<byte[]> ReadStreamAsync(Stream stream)
+    {
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms).ConfigureAwait(true);
+        return ms.ToArray();
+    }
+
+    private static bool IsPng(byte[] raw)
+        => raw.Length >= 8
+           && raw[0] == 0x89 && raw[1] == 0x50 && raw[2] == 0x4E && raw[3] == 0x47;
+
+    private static byte[]? TryTranscodeRasterToPng(byte[] raw)
+    {
+        try
+        {
+            using var inMs = new MemoryStream(raw, writable: false);
+            using var bmp = new Bitmap(inMs);
+            using var outMs = new MemoryStream();
+            bmp.Save(outMs);
+            return outMs.ToArray();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>CF_HTML 信封；已有则原样。</summary>
+    private static string EnsureCfHtml(string html)
+    {
+        if (html.Contains("Version:", StringComparison.OrdinalIgnoreCase)
+            && html.Contains("StartHTML:", StringComparison.OrdinalIgnoreCase))
+            return html;
+
+        const string prefix =
+            "Version:0.9\r\nStartHTML:<<<<<<<1\r\nEndHTML:<<<<<<<2\r\nStartFragment:<<<<<<<3\r\nEndFragment:<<<<<<<4\r\n";
+        const string startFrag = "<!--StartFragment-->";
+        const string endFrag = "<!--EndFragment-->";
+        var body = startFrag + html + endFrag;
+        var startHtml = prefix.Length;
+        var startFragment = startHtml + startFrag.Length;
+        var endFragment = startHtml + body.Length - endFrag.Length;
+        var endHtml = startHtml + body.Length;
+
+        return prefix
+            .Replace("<<<<<<<1", startHtml.ToString("D8"))
+            .Replace("<<<<<<<2", endHtml.ToString("D8"))
+            .Replace("<<<<<<<3", startFragment.ToString("D8"))
+            .Replace("<<<<<<<4", endFragment.ToString("D8"))
+            + body;
+    }
+
+    private static string StripCfHtmlEnvelope(string html)
+    {
+        if (!html.Contains("StartFragment:", StringComparison.OrdinalIgnoreCase))
+            return html;
+
+        var startTag = "<!--StartFragment-->";
+        var endTag = "<!--EndFragment-->";
+        var i = html.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+        var j = html.IndexOf(endTag, StringComparison.OrdinalIgnoreCase);
+        if (i >= 0 && j > i)
+            return html[(i + startTag.Length)..j];
+
+        return html;
     }
 
     private static IClipboard? GetClipboard()

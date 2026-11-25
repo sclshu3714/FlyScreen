@@ -584,6 +584,8 @@ internal static partial class LocCatalogs
             ("Tray.Tip", "玄鳥"),
             ("Tray.Tools", "工具"),
             ("Tray.ToolsEmpty", "暫無快捷工具"),
+            ("Tray.Lock", "鎖屏"),
+            ("Tray.LockAll", "全部"),
             ("Xfer.Cancelled", "已取消"),
             ("Xfer.ClearDone", "清除已完成"),
             ("Xfer.Col.Dir", "方向"),

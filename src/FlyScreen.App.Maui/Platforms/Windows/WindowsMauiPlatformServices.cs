@@ -241,7 +241,21 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                     TraySwitchMenu.ToggleSwitchHotkeyDisabled(_settings);
                     AfterSwitchHotkeyModeChanged?.Invoke();
                 })),
-            toolShortcuts: toolShortcuts);
+            toolShortcuts: toolShortcuts,
+            lockMachines: () =>
+            {
+                var list = new List<(string Label, Action Action)>();
+                foreach (var item in TrayLockMenu.BuildItems(_settings, _connections))
+                {
+                    var machine = item.MachineName;
+                    list.Add((item.Label, () =>
+                        TrayLockMenu.LockMachine(_connections, machine, WindowsScreenLock.TryLock)));
+                }
+
+                return list;
+            },
+            lockAll: () => () =>
+                TrayLockMenu.LockAll(_settings, _connections, WindowsScreenLock.TryLock));
     }
 
     public void HideToBackground(

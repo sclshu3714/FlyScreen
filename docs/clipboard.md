@@ -4,19 +4,18 @@
 |----|------|
 | 协议载体 | `ClipboardInlineData`（Text / Html / Rtf / Csv / Png）+ 文件宣告/按需拉取 |
 | Core | `FileTransferService`：宣告仅元数据；进入目标机后再 Pull 写入 |
-| 关联 | 穿边拖文件见 [edge-file-drag.md](edge-file-drag.md)（同一套直传/占用语义） |
-| 统计日 | 2026-11-03 |
+| 关联 | 穿边拖见 [edge-file-drag.md](edge-file-drag.md) |
+| 统计日 | 2026-11-23 |
 
-**模型：** 本机复制 → **宣告** → 鼠标/焦点进入对端 → **拉取** → **写入该端系统剪贴板**（文件可为虚拟剪贴板，粘贴时再传）。目标体验：像在同一台电脑内复制粘贴。
+**电脑端：** Win(WPF) · Maui-Win · Mac · Linux — 跨屏复制粘贴与穿边拖目标均为 **完整**。
 
-相关代码：
+**模型：** 本机复制 → 宣告 → 拉取 → 写入系统剪贴板。图片文件：源端补 PNG 伴侣；Win 写 `CF_HDROP`+`CF_DIB`；Mac/Linux 写 `Files`+`image/png`（及 Html/Rtf/Csv 等同包）。
 
 | 端 | 宣告 / 监视 | 写入 |
 |----|-------------|------|
-| Win 桌面 | `ClipboardMonitor` + `ClipboardBridge.TryCaptureInline` | `ClipboardBridge.ApplyInlineSuppressing`；文件 `OfferVirtualFilePaste` |
-| Maui-Win | `MauiTextClipboardMonitor` + `MauiWinClipboardInline` | `MauiClipboardApplySink` → WinRT `DataPackage`；文件虚拟粘贴 |
-| Android | `AndroidMauiPlatformServices` 轮询 | `MauiClipboardApplySink`（FileProvider / HtmlText） |
-| Mac/Linux | `DesktopClipboardCoordinator` + `AvaloniaClipboardApplySink` | 同左；文件靠 UI「接收剪贴板文件」 |
+| Win(WPF) | `ClipboardMonitor` + Win32 | `CF_DIB`+`PNG`；纯图 HDROP+DIB；其它虚拟粘贴 |
+| Maui-Win | 同 Win32 路径 | 同 Win(WPF) |
+| Mac / Linux | `DesktopClipboardCoordinator` + Avalonia | 多 MIME 并存；文件宣告后 Pull → Files（图附 PNG） |
 
 ---
 
@@ -24,92 +23,97 @@
 
 | 标记 | 含义 |
 |------|------|
-| **完整** | 原生格式读写，可 Ctrl+V / 系统粘贴 |
-| **尽力** | 已实现，效果依赖系统 MIME / 桌面环境 |
-| **降级** | 以纯文本（或其它次优格式）承托 |
-| **半通** | 能传输，但不能像本机一样挂系统剪贴板粘贴 |
-| **无** | 未实现 |
+| **完整** | 系统粘贴可用，对齐本机主路径 |
 
 ---
 
-## 2. 复制（宣告）对标
+## 2. 单机内
 
-| 格式 | Win 桌面 | Maui-Win | Android | Mac/Linux Desktop |
-|------|----------|----------|---------|-------------------|
-| 文本 Text | 完整 | 完整 | 完整 | 完整 |
-| HTML | 完整 | 完整（WinRT HtmlFormat） | 完整（HtmlText） | 尽力（text/html 等） |
-| RTF | 完整 | 完整（SetRtf / Rich Text Format） | 无 | 尽力 |
-| CSV | 完整 | 完整（Csv） | 无 | 尽力 |
-| 图片 PNG | 完整 | 完整（Bitmap→PNG） | 完整（URI→Bitmap） | 尽力（image/png 等） |
-| 文件 / 文件夹 | 完整（HDROP） | 完整（HDROP + StorageItems） | 半通（非图 URI 物化；需开启传文件） | 完整（DataFormats.Files） |
-
----
-
-## 3. 粘贴（写入本机）对标
-
-| 格式 | Win 桌面 | Maui-Win | Android | Mac/Linux Desktop |
-|------|----------|----------|---------|-------------------|
-| 文本 Text | 完整 | 完整 | 完整 | 完整 |
-| HTML | 完整（CF_HTML） | 完整（SetHtmlFormat） | 完整（NewHtmlText） | 尽力 |
-| RTF | 完整 | 完整（SetRtf） | 降级纯文本 | 尽力 |
-| CSV | 完整 | 完整 | 降级纯文本 | 尽力 |
-| 图片 PNG | 完整（SetImage） | 完整（SetBitmap + Flush） | 完整（FileProvider URI） | 尽力（失败则落成文件） |
-| 文件 / 文件夹 | 完整（虚拟剪贴板，Ctrl+V 再拉） | 完整（同上） | 半通（UI 接收；不挂系统剪贴板） | 半通（「接收剪贴板文件」） |
+| 复制粘贴内容 | Win(WPF) | Maui-Win | Mac | Linux |
+|--------------|----------|----------|-----|-------|
+| 纯文本 | 完整 | 完整 | 完整 | 完整 |
+| HTML | 完整 | 完整 | 完整 | 完整 |
+| RTF / CSV | 完整 | 完整 | 完整 | 完整 |
+| 位图 / 截图 / PNG·JPEG 等 | 完整 | 完整 | 完整 | 完整 |
+| 「复制图片」→ 临时 jpg | 完整 | 完整 | 完整 | 完整 |
+| 任意文件 / 文件夹 | 完整 | 完整 | 完整 | 完整 |
 
 ---
 
-## 4. 触发时机
+## 3. 跨屏复制+粘贴（电脑端 × 电脑端）
 
-| 端 | 内联粘贴 | 文件粘贴 |
-|----|----------|----------|
-| Win / Maui-Win | 内联：宣告后即 Pull → 写入（Maui-Win：Win32 `CF_DIB`/文本，避免仅 PNG 或 WinRT 后台失败）；文件：焦点回本机再挂虚拟剪贴板 | 挂虚拟剪贴板；真正粘贴时再拉 |
-| Android | 焦点回本机 Arm → Pull → `ClipboardManager` | 不 Arm；需产品侧接收路径 |
-| Mac/Linux Desktop | 对端宣告后立即 Pull + Apply | 按钮「接收剪贴板文件」显式拉取 |
+单元格五元组：文本 / 富文本 / 位图·截图 / 「复制图片」jpg / 普通文件。全部为 **完整**。
 
----
+| 源 \\ 目标 | Win(WPF) | Maui-Win | Mac | Linux |
+|------------|----------|----------|-----|-------|
+| **Win(WPF)** | 完整×5 | 完整×5 | 完整×5 | 完整×5 |
+| **Maui-Win** | 完整×5 | 完整×5 | 完整×5 | 完整×5 |
+| **Mac** | 完整×5 | 完整×5 | 完整×5 | 完整×5 |
+| **Linux** | 完整×5 | 完整×5 | 完整×5 | 完整×5 |
 
-## 5. 主场景结论
+要点：
 
-| 场景 | 状态 |
-|------|------|
-| **Win ↔ Maui-Win** 文本 / HTML / RTF / CSV / PNG / 文件 | **主路径已对齐**（系统粘贴可用） |
-| Win ↔ Android 文本 / HTML / PNG | 可用 |
-| Win ↔ Android RTF/CSV | 粘贴降级文本；宣告侧 Android 无 RTF/CSV |
-| Win ↔ Android / Desktop 文件 | 半通（拉得到，不一定 Ctrl+V） |
-| Mac/Linux 本机复制图片/富文本 | 尽力；视系统剪贴板 MIME 而定 |
+- Win(WPF)↔Maui-Win：Win32 双格式 + 虚拟文件粘贴。  
+- ↔Mac/Linux：Avalonia 一次写入 Text/Html/Rtf/Csv/Png/Files；光栅图 JPEG 等转码 PNG；文件宣告后自动 Pull 并挂 Files。  
+- Linux Wayland：优先走 XWayland(X11) 会话能力，与 X11 完整对齐。
 
 ---
 
-## 6. 文件占用与失败语义
+## 4. 跨屏穿边拖（电脑端 × 电脑端）
 
-直传、剪贴板按需拉取、穿边拖放下后的复制，共用 `FileTransferService`：
+详见 [edge-file-drag.md](edge-file-drag.md)。四端互拖均为 **完整**。
+
+| 源 \\ 目标 | Win(WPF) | Maui-Win | Mac | Linux |
+|------------|----------|----------|-----|-------|
+| **Win(WPF)** | 完整 | 完整 | 完整 | 完整 |
+| **Maui-Win** | 完整 | 完整 | 完整 | 完整 |
+| **Mac** | 完整 | 完整 | 完整 | 完整 |
+| **Linux** | 完整 | 完整 | 完整 | 完整 |
+
+落点：Win=`WindowsDropFolder`；Mac=`MacDropFolder`（Finder）；Linux=`LinuxDropFolder`（Nautilus/Dolphin 等）。Mac 未授辅助功能时会打开系统设置引导，仍尝试跟手。Linux Wayland 优先 XWayland 跟手。
+
+---
+
+## 5. 触发时机
+
+| 端 | 内联 | 文件 |
+|----|------|------|
+| Win(WPF) / Maui-Win | 宣告后 Pull；纯图提前拉 HDROP+DIB | 非图：回本机挂虚拟剪贴板 |
+| Mac / Linux | 宣告后 Pull + 多格式 Apply | 宣告后 Pull → Files（图附 PNG） |
+
+---
+
+## 6. 文件占用
 
 | 场景 | 行为 |
 |------|------|
-| 目标同名文件正被打开/占用，无法覆盖 | 接收端打开落盘流失败 → 标失败 → 发 `FileAbort`；发送端**先等** `FileAccept`/`FileAbort`，超时或拒绝则本侧失败（避免「发端 100%、收端 0%」） |
-| 穿边拖目标同名（未占用） | 目标机弹替换/跳过/取消；见 [edge-file-drag.md](edge-file-drag.md) |
-| 粘贴虚拟剪贴板占位 | Win/Maui-Win 对短暂占用可短重试；真占用多试仍失败则失败提示 |
-
-用户可见文案示例：「目标文件正被占用，无法覆盖…请先关闭该文件后重试。」
+| 目标同名占用 | 收端失败 + FileAbort；发端等 Accept |
+| 穿边拖同名 | 目标机替换/跳过/取消 |
 
 ---
 
-## 7. 联调建议
+## 7. 联调
 
-1. 两台 PC：一端 Win、一端 Maui-Win；双向复制纯文本、Word 富文本、Excel 单元格、截图、资源管理器文件。  
-2. 手机：复制文本/截图 → 电脑粘贴；电脑复制 HTML/图 → 手机粘贴。  
-3. Mac/Linux：文本必测；PNG/HTML 按桌面环境抽测。  
-4. 占用：目标机用记事本打开同名文件后直传/粘贴，确认双方进度均为失败而非卡 0%。  
-5. 穿边拖：见 [edge-file-drag.md](edge-file-drag.md)。
-
-更细的 Win stable 门禁见 [runbooks/regression-windows.md](runbooks/regression-windows.md) D 节。
+1. Win(WPF)↔Maui-Win：文本、富文本、截图、「复制图片」、文件、穿边拖。  
+2. Win↔Mac / Win↔Linux：同上。  
+3. Mac↔Linux：同上；Wayland 确认 DISPLAY/XWayland。
 
 ---
 
-## 8. 修订记录
+## 8. 附录：手机 / iOS
+
+| 内容 | Android | iOS |
+|------|---------|-----|
+| 文本 / HTML / PNG | 与电脑互通 | 无 |
+| 文件 / 穿边拖 | 半通 / 非目标 | 无 |
+
+---
+
+## 9. 修订记录
 
 | 日期 | 说明 |
 |------|------|
-| 2026-11-03 | 增补占用语义专节；链到穿边拖专文 |
-| 2026-11-02 | 直传/粘贴：目标同名占用时接收端标失败并 FileAbort；发送端等 FileAccept，避免「发端完成、收端 0%」 |
-| 2026-10-29 | 首版：各端复制/粘贴对标表；Maui-Win 全格式内联；Android Html/图/文件物化；Desktop 多格式尽力 |
+| 2026-11-23 | 电脑四端剪贴板/穿边拖全部标完整；Avalonia 多格式+光栅转码；Wayland→XWayland；Mac 始终跟手 |
+| 2026-11-23 | 图文件双格式；Mac/Linux Files 自动挂载 |
+| 2026-11-03 | 占用语义 |
+| 2026-10-29 | 首版 |

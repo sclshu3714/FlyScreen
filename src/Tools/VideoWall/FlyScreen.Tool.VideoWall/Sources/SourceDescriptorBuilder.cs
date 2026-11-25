@@ -66,12 +66,17 @@ public static class SourceDescriptorBuilder
 
         int? bufferMs = int.TryParse(values.GetValueOrDefault("bufferMs"), out var buf) ? buf : null;
         var transport = values.GetValueOrDefault("transport");
+        // 仅当表单含 headers 字段时覆盖（网络源）；摄像头等无该字段时保留解析结果
+        var headers = values.ContainsKey("headers")
+            ? SourceHeaderText.Parse(values.GetValueOrDefault("headers"))
+            : parse.Endpoint.Headers;
 
         var endpoint = parse.Endpoint with
         {
             Transport = string.IsNullOrWhiteSpace(transport) ? parse.Endpoint.Transport : transport,
             BufferMs = bufferMs ?? parse.Endpoint.BufferMs,
-            CredentialRef = credRef ?? parse.Endpoint.CredentialRef
+            CredentialRef = credRef ?? parse.Endpoint.CredentialRef,
+            Headers = headers
         };
 
         var name = values.GetValueOrDefault("name")?.Trim();

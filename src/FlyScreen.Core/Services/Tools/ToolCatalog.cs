@@ -311,9 +311,17 @@ public sealed class ToolCatalog
     {
         FlyScreenDataPaths.EnsureToolsLayout();
         var fromBundled = LoadFromBundledDirectory();
-        if (fromBundled.Count > 0)
-            return fromBundled;
-        return BuildFallbackBuiltin();
+        var fallback = BuildFallbackBuiltin();
+        if (fromBundled.Count == 0)
+            return fallback;
+
+        // Bundled 优先；缺包的 Id 用 fallback 补卡（如大包 video-wall 未随 APK 种子时仍显示可导入/安装）
+        var byId = new Dictionary<string, ToolManifest>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in fallback)
+            byId[m.Id] = m;
+        foreach (var m in fromBundled)
+            byId[m.Id] = m;
+        return byId.Values.OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static IReadOnlyList<ToolManifest> LoadFromBundledDirectory()
@@ -436,7 +444,7 @@ public sealed class ToolCatalog
                 FeaturesByDeviceClass = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["Desktop"] = ["fixed-sources", "temp-sources", "grid", "composite"],
-                    ["Phone"] = ["fixed-sources", "temp-sources", "grid"],
+                    ["Phone"] = ["fixed-sources", "temp-sources"],
                     ["Tablet"] = ["fixed-sources", "temp-sources", "grid", "composite"]
                 },
                 Roles = ["local"],
@@ -445,7 +453,7 @@ public sealed class ToolCatalog
                 HasWorkspace = true,
                 Icon = ToolIconKeys.VideoWall,
                 Permissions = ["networkStream", "localFile.open", "speaker"],
-                PackageVersion = "0.1.1",
+                PackageVersion = "0.1.2",
                 EntryAssembly = "FlyScreen.Tool.VideoWall.dll",
                 EntryType = "FlyScreen.Tool.VideoWall.Module"
             },

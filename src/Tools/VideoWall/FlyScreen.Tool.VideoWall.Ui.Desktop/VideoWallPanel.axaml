@@ -8,6 +8,7 @@
     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
       <Button x:Name="AddBtn" Click="AddBtn_Click"/>
       <Button x:Name="ScanBtn" Click="ScanBtn_Click"/>
+      <Button x:Name="DlnaBtn" Click="DlnaBtn_Click"/>
       <Button x:Name="DeleteBtn" Click="DeleteBtn_Click"/>
       <Border BorderBrush="{DynamicResource ControlBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
         <StackPanel Orientation="Horizontal" Spacing="0">

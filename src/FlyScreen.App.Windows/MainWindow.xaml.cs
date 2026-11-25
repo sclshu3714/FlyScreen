@@ -39,6 +39,8 @@ public partial class MainWindow : Window
     private readonly Controls.FlyBreadcrumbBar _networkBreadcrumb = new();
     private readonly Controls.FlyBreadcrumbBar _toolsBreadcrumb = new();
     private bool _toolsBreadcrumbWired;
+    /// <summary>当前 ToolsWorkspaceHost.Content 对应的工具 Id（目录切换时用于保留画中画等浮窗）。</summary>
+    private string? _toolsWorkspaceContentToolId;
     private int _discoveryRefreshQueued;
     private bool _refreshDiscoveryRunning;
     private bool _refreshDiscoveryPending;
@@ -443,6 +445,14 @@ public partial class MainWindow : Window
                     ToolIconImageFactory.TryGet(x.IconKey));
             })
             .ToList();
+        var lockMachines = TrayLockMenu.BuildItems(s, _host.Connections)
+            .Select(x =>
+            {
+                var name = x.MachineName;
+                return (x.Label, (Action)(() =>
+                    TrayLockMenu.LockMachine(_host.Connections, name, WindowsScreenLock.TryLock)));
+            })
+            .ToList();
         TrayContextMenuWindow.ShowNearCursor(
             onOpen: ShowFromTray,
             onReconnect: () => _ = _host.Connections.ReconnectNowAsync(),
@@ -457,7 +467,9 @@ public partial class MainWindow : Window
             switchMachines: machines,
             disableLabel: TraySwitchMenu.DisableLabel(s.SwitchHotkeyMode == 2),
             onToggleDisable: ToggleTraySwitchHotkeyDisable,
-            toolShortcuts: tools);
+            toolShortcuts: tools,
+            lockMachines: lockMachines,
+            onLockAll: () => TrayLockMenu.LockAll(s, _host.Connections, WindowsScreenLock.TryLock));
     }
 
     private void LaunchTrayToolShortcut(string toolId)
@@ -3912,7 +3924,15 @@ public partial class MainWindow : Window
         {
             ToolsCatalogHost.Visibility = Visibility.Visible;
             ToolsWorkspaceHost.Visibility = Visibility.Collapsed;
-            ToolsWorkspaceHost.Content = null;
+            // 有打开页签时保留 Content：视频墙画中画等浮窗依赖工具页未卸载。
+            if (!hasTabs
+                || (!string.IsNullOrEmpty(_toolsWorkspaceContentToolId)
+                    && !ws.OpenTabs.Any(t =>
+                        string.Equals(t.ToolId, _toolsWorkspaceContentToolId, StringComparison.OrdinalIgnoreCase))))
+            {
+                ToolsWorkspaceHost.Content = null;
+                _toolsWorkspaceContentToolId = null;
+            }
         }
         else
         {
@@ -3952,7 +3972,14 @@ public partial class MainWindow : Window
 
                 if (ToolsWorkspaceHost.Content == null
                     || ToolsWorkspaceHost.Content.GetType() != content.GetType())
+                {
                     ToolsWorkspaceHost.Content = content;
+                    _toolsWorkspaceContentToolId = activeId;
+                }
+                else
+                {
+                    _toolsWorkspaceContentToolId = activeId;
+                }
 
                 // 工具控件常自带一份 WpfTheme；打开后再同步色板，避免滚动条仍用浅色令牌
                 if (ToolsWorkspaceHost.Content is FrameworkElement toolRoot)

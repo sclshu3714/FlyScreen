@@ -112,11 +112,14 @@ public sealed class SinglePlaybackController : IDisposable
 
         if (!_backend.IsAvailable)
         {
+            FlyScreen.Services.AppLog.Warn("视频墙：后端不可用，无法开播");
             StateChanged?.Invoke(TilePlayState.Failed);
             await UpdateValidationAsync(sourceId, false).ConfigureAwait(false);
             return;
         }
 
+        FlyScreen.Services.AppLog.Info(
+            $"视频墙：开播 source={sourceId ?? "(temp)"} proto={endpoint.Protocol} sink={(frameSink is null ? "hwnd/none" : "frame")}");
         _player = _backend.CreatePlayer(endpoint, options);
         if (frameSink is not null)
             _player.AttachFrameSink(frameSink);

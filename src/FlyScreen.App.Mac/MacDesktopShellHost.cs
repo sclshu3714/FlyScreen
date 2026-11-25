@@ -3,6 +3,7 @@ using FlyScreen.DesktopUi;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Mac;
+using FlyScreen.Mac.Helpers;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Mac.ScreenExtend;
 using FlyScreen.Models;
@@ -33,6 +34,7 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public ConnectionManager Connections => _host.Connections;
     public FileTransferService Transfers => _host.Transfers;
     public ObservableCollection<TransferItem> TransferItems => _host.Transfers.Items;
+    public AvaloniaClipboardApplySink ClipboardApply => _clipSink;
 
     public event Action<string>? StatusMessage
     {
@@ -87,6 +89,8 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
 
     public bool TrySwitchToMachine(string machineName)
         => _host.WindowsEdge?.TrySwitchToMachine(machineName) == true;
+
+    public void LockLocalScreen() => MacScreenLock.TryLock();
 
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();

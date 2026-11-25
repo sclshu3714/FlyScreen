@@ -69,6 +69,10 @@ internal static class MauiWinClipboardInline
             if (content.Contains(WinStandardDataFormats.Bitmap))
                 png = await TryReadBitmapAsPngAsync(content).ConfigureAwait(true);
 
+            // 浏览器「复制图片」等常只有 PNG 私有格式，WinRT Bitmap=false
+            if (png is not { Length: > 0 })
+                png = Win32InlineClipboard.TryCapturePng();
+
             var data = new ClipboardInlineData
             {
                 Text = text,
@@ -81,7 +85,18 @@ internal static class MauiWinClipboardInline
         }
         catch
         {
-            return null;
+            // WinRT GetContent 失败时仍尝试 Win32 采图
+            try
+            {
+                var pngOnly = Win32InlineClipboard.TryCapturePng();
+                return pngOnly is { Length: > 0 }
+                    ? new ClipboardInlineData { Png = pngOnly }
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 

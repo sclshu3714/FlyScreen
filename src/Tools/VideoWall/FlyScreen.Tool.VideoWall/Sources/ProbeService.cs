@@ -88,8 +88,30 @@ public sealed class ProbeService
         if (string.IsNullOrWhiteSpace(endpoint.Address))
             return Fail(VideoErrorCode.SourceUnsupported, "地址为空");
 
+        if (!Uri.TryCreate(endpoint.Address, UriKind.Absolute, out _))
+            return Fail(VideoErrorCode.SourceUnsupported, "HTTP(S) 地址格式无效");
+
+        try
+        {
+            endpoint = await UgreenShareResolver.PrepareAsync(endpoint, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Fail(VideoErrorCode.NetTimeout, "绿联分享解析超时");
+        }
+        catch (UgreenShareException ex)
+        {
+            return Fail(ex.Code, ex.Message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Fail(VideoErrorCode.NetReset, ex.Message);
+        }
+
         if (!Uri.TryCreate(endpoint.Address, UriKind.Absolute, out var uri))
             return Fail(VideoErrorCode.SourceUnsupported, "HTTP(S) 地址格式无效");
+
+        var timeoutMs = endpoint.Headers.Count > 0 ? 15000 : HttpTimeoutMs;
 
         using var handler = new SocketsHttpHandler
         {
@@ -99,7 +121,7 @@ public sealed class ProbeService
 
         using var client = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromMilliseconds(HttpTimeoutMs)
+            Timeout = TimeSpan.FromMilliseconds(timeoutMs)
         };
 
         foreach (var (key, value) in endpoint.Headers)
@@ -107,6 +129,15 @@ public sealed class ProbeService
 
         try
         {
+            if (endpoint.Headers.ContainsKey("Cookie") || endpoint.Headers.ContainsKey("UG-Agent"))
+            {
+                using var ranged = new HttpRequestMessage(HttpMethod.Get, uri);
+                ranged.Headers.Range = new RangeHeaderValue(0, 31);
+                using var rangedResponse = await client.SendAsync(ranged, HttpCompletionOption.ResponseHeadersRead, ct)
+                    .ConfigureAwait(false);
+                return MapHttpResponse(rangedResponse, endpoint.Protocol);
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Head, uri);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
                 .ConfigureAwait(false);
@@ -147,6 +178,13 @@ public sealed class ProbeService
             return Fail(VideoErrorCode.SourceUnsupported, $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
 
         var contentType = response.Content.Headers.ContentType?.MediaType;
+        if (contentType is not null
+            && (contentType.Contains("html", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("json", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Fail(VideoErrorCode.SourceUnsupported, "地址返回的是网页或接口数据，不是视频");
+        }
+
         return new MediaProbeResult
         {
             Ok = true,

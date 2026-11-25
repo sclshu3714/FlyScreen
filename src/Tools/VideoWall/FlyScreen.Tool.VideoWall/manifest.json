@@ -11,7 +11,7 @@
   "platforms": ["Windows", "Android"],
   "featuresByDeviceClass": {
     "Desktop": ["fixed-sources", "temp-sources", "grid", "composite"],
-    "Phone": ["fixed-sources", "temp-sources", "grid"],
+    "Phone": ["fixed-sources", "temp-sources"],
     "Tablet": ["fixed-sources", "temp-sources", "grid", "composite"]
   },
   "roles": ["local"],
@@ -22,7 +22,7 @@
   "icon": "tool-video-wall",
   "permissions": ["networkStream", "localFile.open", "speaker"],
   "package": {
-    "version": "0.1.1",
+    "version": "0.1.16",
     "format": "flytool",
     "formatVersion": 1
   },

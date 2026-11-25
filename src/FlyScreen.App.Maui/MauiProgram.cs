@@ -16,9 +16,13 @@ public static class MauiProgram
 
         var builder = MauiApp.CreateBuilder();
         builder.UseMauiApp<App>();
-        // 不在此注册 LibVLC：视频墙等插件自带依赖，ALC 热加载（Maui-Win 走 HWND）
+        // Android：LibVLCSharp + VideoLAN.LibVLC.Android 由工程引用进 APK，ALC 与宿主共享绑定；
+        // 桌面仍用 .flytool 旁路 LibVLCSharp（热拔插）。
 
 #if ANDROID
+        // LibVLC：须在任何工具 ALC 加载前完成绝对路径装库与 DllImportResolver
+        Platforms.Android.LibVlcAndroidBootstrap.Ensure();
+
         // 日志/程序/收件箱 → Android/data/com.xuanniao.flyscreen/files（无需所有文件访问）
         Platforms.Android.AndroidPublicDataRoot.TryBootstrap();
 

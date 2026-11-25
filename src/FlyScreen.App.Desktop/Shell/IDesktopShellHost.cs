@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using FlyScreen.DesktopUi.Services;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
@@ -32,6 +33,9 @@ public interface IDesktopShellHost
 
     /// <summary>托盘「切换机器」：跳到布局中的本机/对端；无穿边路由时返回 false。</summary>
     bool TrySwitchToMachine(string machineName) => false;
+
+    /// <summary>本机锁屏（托盘主菜单「工具」下的「锁屏」/ 对端 LockScreen）。</summary>
+    void LockLocalScreen() { }
 
     Task StartAsync();
     Task RestartNetworkingAsync();
@@ -70,6 +74,9 @@ public interface IDesktopShellHost
     void SetAutoStartEnabled(bool enabled);
 
     ObservableCollection<TransferItem> TransferItems { get; }
+
+    /// <summary>Mac/Linux 系统剪贴板写入（Files / 内联）。</summary>
+    AvaloniaClipboardApplySink ClipboardApply { get; }
 
     /// <summary>能在拖住文件时继续读本机指针，从而按布局穿到再下一台。</summary>
     bool CanFollowEdgeFileDrag => false;

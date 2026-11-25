@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Content;
 using Android.Content.PM;
+using Android.Content.Res;
 using Android.Media.Projection;
 using Android.OS;
 using AndroidX.Activity.Result;
@@ -8,6 +9,7 @@ using AndroidX.Activity.Result.Contract;
 using FlyScreen.AppMaui.Platforms.Android;
 using FlyScreen.AppMaui.Services;
 using FlyScreen.Services.Programs;
+using FlyScreen.Ui.Maui;
 using Object = Java.Lang.Object;
 
 namespace FlyScreen.AppMaui;
@@ -19,6 +21,9 @@ namespace FlyScreen.AppMaui;
     LaunchMode = LaunchMode.SingleTask,
     Icon = "@mipmap/appicon",
     RoundIcon = "@mipmap/appicon_round",
+    // 视频墙等：系统级画中画（浮到桌面/其它应用之上）
+    SupportsPictureInPicture = true,
+    ResizeableActivity = true,
     ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode |
                            ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 public class MainActivity : MauiAppCompatActivity
@@ -35,6 +40,8 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         s_current = this;
+        // 视频墙 LibVLC：宿主 JNI 装库 + DllImportResolver（工具 ALC 反射 Load 会炸 ClassLoader）
+        LibVlcAndroidBootstrap.Ensure();
         _treeLauncher = RegisterForActivityResult(
             new ActivityResultContracts.OpenDocumentTree(),
             new TreeUriCallback());
@@ -76,6 +83,12 @@ public class MainActivity : MauiAppCompatActivity
         if (ReferenceEquals(s_current, this))
             s_current = null;
         base.OnDestroy();
+    }
+
+    public override void OnPictureInPictureModeChanged(bool isInPictureInPictureMode, Configuration newConfig)
+    {
+        base.OnPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        OsPictureInPictureBridge.NotifyModeChanged(isInPictureInPictureMode);
     }
 
     /// <summary>弹出系统「选择文件夹」；取消返回 null。</summary>

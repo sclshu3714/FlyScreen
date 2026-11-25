@@ -44,6 +44,8 @@ public sealed class WindowsEdgeInputRouter : IDisposable
     private long _lastCursorOwnerBroadcastTick;
     private long _edgeFileWaitStart;
     private bool _edgeDragSwallowLeftUp;
+    /// <summary>由本机钩子消息维护的左键状态（勿用 GetAsyncKeyState：吞掉 UP 后会粘滞）。</summary>
+    private bool _hookLeftDown;
 
     public EdgeFileDragService? EdgeFileDrag { get; set; }
     public bool EasyMouseEnabled { get; set; } = true;
@@ -294,6 +296,11 @@ public sealed class WindowsEdgeInputRouter : IDisposable
             return Win32.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 
         var msg = wParam.ToInt32();
+        if (msg == Win32.WmLButtonDown)
+            _hookLeftDown = true;
+        else if (msg == Win32.WmLButtonUp)
+            _hookLeftDown = false;
+
         if (msg == Win32.WmLButtonUp)
         {
             WindowsShellDragPaths.NoteButtonUp();
@@ -351,7 +358,7 @@ public sealed class WindowsEdgeInputRouter : IDisposable
                          || info.pt.Y <= screenT || info.pt.Y >= bottomObs;
             _edgeGate.Observe(nxObs, nyObs, onEdge, Environment.TickCount64);
 
-            var leftDown = (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            var leftDown = _hookLeftDown;
             var nearEdge = NearVirtualEdge(info.pt.X, info.pt.Y, screenL, screenT, screenW, screenH);
             if (_settings.TransferFile && leftDown && nearEdge)
                 WindowsShellDragPaths.PrefetchIfNeeded();

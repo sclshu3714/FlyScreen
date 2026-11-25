@@ -33,6 +33,7 @@ libVLC 一期能覆盖绝大多数 ①②③ 的组合，但**国标 GB28181、O
 | WebRTC / WHEP | `https://host/whep/…` | ❌ | P2 评估 | 需自建 ICE/DTLS/SRTP 栈（`SIPSorcery` 可做），成本高 |
 | GB28181（SIP + RTP/PS） | 设备 ID / 平台地址（非 URL 形态） | ❌ | ✅ P1 | 见 §4；**不是**一个「地址」，而是一套会话 |
 | ONVIF（发现 + 取流） | `http://host/onvif/device_service` | ❌ | ✅ P1 | 见 §5；最终仍落到 RTSP 地址 |
+| DLNA MediaServer | SSDP 发现 → ContentDirectory Browse → HTTP `res` | ✅ | — | 用户点「DLNA」才 M-SEARCH；条目落成 NetworkUrl；不写库、不做 Renderer |
 | 私有 SDK 协议 | 海康/大华 SDK 直连、私有 8000 端口协议 | ❌ | ❌ | 需要厂商 SDK（闭源、平台绑定），**不做**；引导用户用 RTSP/GB28181 |
 
 ---

@@ -441,7 +441,13 @@ public sealed class ToolHost
                 || name.StartsWith("AndroidX.", StringComparison.Ordinal)
                 || name.StartsWith("Android.", StringComparison.Ordinal))
                 return true;
-            // LibVLCSharp* 不与宿主共享：插件自带旁路 DLL，保证热拔插、宿主零媒体依赖
+            // Android：必须用宿主 net*-android 的 LibVLCSharp（Java LoadLibrary）；
+            // 插件旁路的是桌面 net10.0 版，会去找 libvlc/win-x64 与 .dylib。
+            if (OperatingSystem.IsAndroid()
+                && (name.Equals("LibVLCSharp", StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith("LibVLCSharp.", StringComparison.OrdinalIgnoreCase)))
+                return true;
+            // 桌面：LibVLCSharp* 不与宿主共享，插件自带旁路 DLL，保证热拔插、宿主零媒体依赖
             return false;
         }
     }

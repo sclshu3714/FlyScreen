@@ -3,7 +3,9 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
@@ -23,7 +25,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private long _seekHoldNearSinceTick = -1;
     private const double CueHitSize = 14;
     private const double CueDotSize = 6;
-    private const double CompactChromeThreshold = 500;
+    private const double CompactChromeThreshold = 300;
     private const double TitleChromeHeight = 56;
     private const double TransportChromeHeight = 128;
     private static readonly float[] SpeedSteps = [0.75f, 1f, 1.25f, 1.5f, 2f];
@@ -41,20 +43,23 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private long _seekHoldMs = -1;
     private long _seekHoldUntilTick;
     private bool _volumeDragging;
-    private bool _fullscreen;
     private bool _chromeTitleVisible;
     private bool _chromeTransportVisible;
     private bool _volumePopupPinned;
+    private bool _volumePopupAnimating;
     private int _speedIndex = 1;
-    private Window? _fullscreenWindow;
-    private bool _pip;
-    private Window? _pipWindow;
+    private FloatMode _floatMode;
+    private Window? _floatWindow;
+    private Rect _pipRestoreBounds;
+    private Storyboard? _volumeFlyStory;
     private readonly DispatcherTimer _volumePopupHideTimer;
     private Popup? _lastClosedMenuPopup;
     private DateTime _lastMenuClosedUtc;
     private bool _suppressEpisodeSelection;
     private long _cueLengthMs = -1;
     private VideoWallFrameSurface? _frameSurface;
+
+    private enum FloatMode { None, Pip, Maximized, Fullscreen }
 
     public Action<string>? StatusReporter { get; set; }
     public event Action? Closed;
@@ -74,7 +79,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         {
             _volumePopupHideTimer.Stop();
             if (!_volumeDragging && !_volumePopupPinned)
-                PlaybackVolumePopup.IsOpen = false;
+                HideVolumePopupAnimated();
         };
         Loaded += OnControlLoaded;
         Unloaded += OnControlUnloaded;
@@ -141,8 +146,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         try
         {
             CloseMenuPopups();
-            ExitPip(restoreUi: false);
-            ExitFullscreen(restoreUi: false);
+            CloseFloatWindow(restoreUi: false);
             ForceHidePlaybackChrome();
         }
         catch { /* 关闭过程中可视树可能已半拆 */ }
@@ -192,8 +196,7 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _chromeHideTimer.Stop();
         _progressTimer.Stop();
         CloseMenuPopups();
-        ExitPip(restoreUi: false);
-        ExitFullscreen(restoreUi: false);
+        CloseFloatWindow(restoreUi: false);
         if (_service is not null)
             await _service.SinglePlayback.StopAsync();
         if (_frameSurface is not null)
@@ -212,7 +215,14 @@ public sealed partial class VideoWallPlayerControl : UserControl
         _chromeHideTimer.Stop();
         _chromeTitleVisible = false;
         _chromeTransportVisible = false;
-        try { PlaybackVolumePopup.IsOpen = false; } catch { /* 可能已脱离树 */ }
+        try
+        {
+            _volumeFlyStory?.Stop();
+            PlaybackVolumePopup.IsOpen = false;
+            PlaybackVolumePopupPanel.Opacity = 0;
+            PlaybackVolumeFlyTransform.Y = 18;
+        }
+        catch { /* 可能已脱离树 */ }
         try
         {
             PlaybackTitleBarHost.Visibility = Visibility.Collapsed;
@@ -611,93 +621,244 @@ public sealed partial class VideoWallPlayerControl : UserControl
             $"{decode} · {stats.BufferMs} ms · {StatusTextFor(state)}";
     }
 
-    // ───────── 画中画 / 应用内最大化 ─────────
+    // ───────── 画中画 / 最大化 / 全屏（同一自定义浮窗） ─────────
 
     private void PlaybackMaximize_Click(object sender, RoutedEventArgs e)
     {
         CloseMenuPopups();
-        if (_fullscreen) ExitFullscreen();
-        if (_pip) ExitPip();
-        RequestInAppMaximize?.Invoke();
+        if (_floatMode == FloatMode.Maximized)
+            ApplyFloatMode(FloatMode.Pip);
+        else
+            ApplyFloatMode(FloatMode.Maximized);
+        BumpPlaybackChrome();
     }
 
     private void PlaybackPip_Click(object sender, RoutedEventArgs e)
     {
-        if (_pip) ExitPip();
-        else EnterPip();
+        if (_floatMode != FloatMode.None)
+            CloseFloatWindow();
+        else
+            ApplyFloatMode(FloatMode.Pip);
         BumpPlaybackChrome();
     }
 
-    private void EnterPip()
+    private void PlaybackFullscreen_Click(object sender, RoutedEventArgs e)
     {
-        if (_pip || _pipWindow != null) return;
-        if (_fullscreen) ExitFullscreen();
+        CloseMenuPopups();
+        if (_floatMode == FloatMode.Fullscreen)
+            ApplyFloatMode(FloatMode.Pip);
+        else
+            ApplyFloatMode(FloatMode.Fullscreen);
+        BumpPlaybackChrome();
+    }
+
+    private void ApplyFloatMode(FloatMode mode)
+    {
+        if (mode == FloatMode.None)
+        {
+            CloseFloatWindow();
+            return;
+        }
+
+        EnsureFloatWindow();
+        if (_floatWindow is null) return;
+
+        if (mode == FloatMode.Pip)
+        {
+            if (_floatMode is FloatMode.Maximized or FloatMode.Fullscreen
+                && _pipRestoreBounds.Width > 0 && _pipRestoreBounds.Height > 0)
+            {
+                _floatWindow.WindowState = WindowState.Normal;
+                _floatWindow.Left = _pipRestoreBounds.Left;
+                _floatWindow.Top = _pipRestoreBounds.Top;
+                _floatWindow.Width = _pipRestoreBounds.Width;
+                _floatWindow.Height = _pipRestoreBounds.Height;
+            }
+            else if (_floatMode == FloatMode.None || _floatWindow.WindowState != WindowState.Normal)
+            {
+                PlacePipWindow(_floatWindow);
+            }
+
+            _floatWindow.WindowState = WindowState.Normal;
+            _floatWindow.ResizeMode = ResizeMode.CanResize;
+            _floatWindow.Topmost = true;
+        }
+        else if (mode == FloatMode.Maximized)
+        {
+            RememberPipBounds();
+            _floatWindow.ResizeMode = ResizeMode.CanResize;
+            _floatWindow.Topmost = true;
+            // 先 Normal 再 Maximized，避免从 PiP 尺寸直接 Maximize 被系统忽略
+            _floatWindow.WindowState = WindowState.Normal;
+            _floatWindow.WindowState = WindowState.Maximized;
+        }
+        else // Fullscreen：无边框铺满当前屏（含任务栏区域）
+        {
+            RememberPipBounds();
+            _floatWindow.ResizeMode = ResizeMode.NoResize;
+            _floatWindow.Topmost = true;
+            _floatWindow.WindowState = WindowState.Normal;
+            try
+            {
+                _floatWindow.Left = SystemParameters.VirtualScreenLeft;
+                _floatWindow.Top = SystemParameters.VirtualScreenTop;
+                _floatWindow.Width = SystemParameters.PrimaryScreenWidth;
+                _floatWindow.Height = SystemParameters.PrimaryScreenHeight;
+                _floatWindow.WindowState = WindowState.Maximized;
+            }
+            catch
+            {
+                _floatWindow.WindowState = WindowState.Maximized;
+            }
+        }
+
+        _floatMode = mode;
+        UpdateFloatChrome();
+        ShowPlaybackChrome();
+        _floatWindow.Activate();
+        // Show 后下一帧再强制一次，避免首开只停在 PiP 尺寸
+        if (mode is FloatMode.Maximized or FloatMode.Fullscreen)
+        {
+            _floatWindow.Dispatcher.BeginInvoke(() =>
+            {
+                if (_floatWindow is null || _floatMode != mode) return;
+                _floatWindow.WindowState = WindowState.Maximized;
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    private void EnsureFloatWindow()
+    {
+        if (_floatWindow is not null) return;
         CloseMenuPopups();
 
-        const double width = 340, height = 220;
-        var area = SystemParameters.WorkArea;
+        var title = string.IsNullOrWhiteSpace(PlaybackTitle.Text)
+            ? Loc.T("Tool.VideoWall.Name")
+            : PlaybackTitle.Text;
+        // 不设 Owner：画中画作为桌面级独立窗，可拖出主程序、压在其它应用上
         var win = new Window
         {
-            WindowStyle = WindowStyle.ToolWindow,
-            ResizeMode = ResizeMode.CanResizeWithGrip,
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.CanResize,
             Background = Brushes.Black,
             Topmost = true,
             ShowInTaskbar = false,
-            Width = width,
-            Height = height,
-            Left = area.Right - width - 16,
-            Top = area.Top + 16,
-            Title = $"{(string.IsNullOrWhiteSpace(PlaybackTitle.Text) ? Loc.T("Tool.VideoWall.Name") : PlaybackTitle.Text)} · {Loc.T("Tool.VideoWall.PictureInPicture")}"
+            AllowsTransparency = false,
+            Title = $"{title} · {Loc.T("Tool.VideoWall.PictureInPicture")}"
         };
+        WindowChrome.SetWindowChrome(win, new WindowChrome
+        {
+            CaptionHeight = 0,
+            ResizeBorderThickness = new Thickness(6),
+            GlassFrameThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(0),
+            UseAeroCaptionButtons = false
+        });
+        PlacePipWindow(win);
 
-        var root = new Grid();
+        var root = new Grid { Background = Brushes.Black };
         PlaybackVideoSlot.Child = null;
         PlaybackVideoHost.Margin = new Thickness(0);
         root.Children.Add(PlaybackVideoHost);
         win.Content = root;
-        win.PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key != Key.Escape) return;
-            ExitPip();
-            e.Handled = true;
-        };
+
+        win.PreviewKeyDown += FloatWindow_PreviewKeyDown;
+        win.MouseMove += FloatWindow_MouseMove;
         win.Closed += (_, _) =>
         {
-            if (_pipWindow == win)
-                ExitPip();
+            if (ReferenceEquals(_floatWindow, win))
+                CloseFloatWindow(restoreUi: true);
         };
 
-        _pipWindow = win;
-        _pip = true;
-        UpdatePipChrome();
+        _floatWindow = win;
         win.Show();
-        ShowPlaybackChrome();
+        HookTitleBarDrag(true);
     }
 
-    private void ExitPip(bool restoreUi = true)
+    private void PlacePipWindow(Window win)
     {
-        var win = _pipWindow;
-        _pipWindow = null;
-        _pip = false;
+        var (w, h) = VideoWallDisplayPlacement.DefaultPipSize;
+        var pos = VideoWallDisplayPlacement.DefaultPipTopLeft(this);
+        win.WindowStartupLocation = WindowStartupLocation.Manual;
+        win.Width = w;
+        win.Height = h;
+        win.Left = pos.X;
+        win.Top = pos.Y;
+        _pipRestoreBounds = new Rect(pos.X, pos.Y, w, h);
+    }
+
+    private void RememberPipBounds()
+    {
+        if (_floatWindow is null || _floatMode != FloatMode.Pip) return;
+        if (_floatWindow.WindowState != WindowState.Normal) return;
+        _pipRestoreBounds = new Rect(
+            _floatWindow.Left, _floatWindow.Top, _floatWindow.Width, _floatWindow.Height);
+    }
+
+    private void CloseFloatWindow(bool restoreUi = true)
+    {
+        HookTitleBarDrag(false);
+        _chromeHideTimer.Stop();
+        var win = _floatWindow;
+        _floatWindow = null;
+        var had = _floatMode != FloatMode.None;
+        _floatMode = FloatMode.None;
 
         if (win != null)
         {
+            win.PreviewKeyDown -= FloatWindow_PreviewKeyDown;
+            win.MouseMove -= FloatWindow_MouseMove;
             if (win.Content is Grid g)
                 g.Children.Clear();
             try { win.Close(); } catch { /* ignore */ }
             PlaybackVideoSlot.Child = PlaybackVideoHost;
         }
 
-        if (restoreUi && win != null)
+        if (restoreUi && had)
             ShowPlaybackChrome();
 
-        UpdatePipChrome();
+        UpdateFloatChrome();
     }
 
-    private void UpdatePipChrome()
+    private void HookTitleBarDrag(bool on)
+    {
+        PlaybackTitleBar.MouseLeftButtonDown -= PlaybackTitleBar_MouseLeftButtonDown;
+        if (on)
+            PlaybackTitleBar.MouseLeftButtonDown += PlaybackTitleBar_MouseLeftButtonDown;
+    }
+
+    private void PlaybackTitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_floatMode != FloatMode.Pip || _floatWindow is null) return;
+        if (e.ChangedButton != MouseButton.Left || e.ButtonState != MouseButtonState.Pressed) return;
+        if (IsChromeInteractive(e.OriginalSource as DependencyObject)) return;
+        try { _floatWindow.DragMove(); } catch { /* ignore */ }
+        RememberPipBounds();
+    }
+
+    private void FloatWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            if (_floatMode is FloatMode.Maximized or FloatMode.Fullscreen)
+                ApplyFloatMode(FloatMode.Pip);
+            else
+                CloseFloatWindow();
+            e.Handled = true;
+        }
+        else
+            BumpPlaybackChrome();
+    }
+
+    private void FloatWindow_MouseMove(object sender, MouseEventArgs e) => BumpPlaybackChrome();
+
+    private void UpdateFloatChrome()
     {
         PlaybackPipBtn.ToolTip = Loc.T(
-            _pip ? "Tool.VideoWall.PictureInPictureExit" : "Tool.VideoWall.PictureInPicture");
+            _floatMode != FloatMode.None ? "Tool.VideoWall.PictureInPictureExit" : "Tool.VideoWall.PictureInPicture");
+        PlaybackMaximizeBtn.ToolTip = Loc.T(
+            _floatMode == FloatMode.Maximized ? "Tool.VideoWall.MaximizeExit" : "Tool.VideoWall.Maximize");
+        UpdateFullscreenChrome();
     }
 
     private void PlaybackVolumeHost_MouseEnter(object sender, MouseEventArgs e)
@@ -729,13 +890,73 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private void ShowVolumePopup()
     {
         _volumePopupHideTimer.Stop();
-        PlaybackVolumePopup.IsOpen = true;
         SyncVolumeUiFromService();
+        // 每次打开重绑，避免 Collapsed/浮动窗后 PlacementTarget 丢失漂到画面中央
+        PlaybackVolumePopup.PlacementTarget = PlaybackVolumeHost;
+        PlaybackVolumePopup.Placement = PlacementMode.Top;
+        if (PlaybackVolumePopup.IsOpen && !_volumePopupAnimating
+            && PlaybackVolumePopupPanel.Opacity >= 0.99)
+            return;
+
+        _volumeFlyStory?.Stop();
+        PlaybackVolumePopup.IsOpen = true;
+        _volumePopupAnimating = true;
+
+        var sb = new Storyboard();
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+        var slide = new DoubleAnimation(18, 0, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(fade, PlaybackVolumePopupPanel);
+        Storyboard.SetTargetProperty(fade, new PropertyPath(OpacityProperty));
+        Storyboard.SetTarget(slide, PlaybackVolumeFlyTransform);
+        Storyboard.SetTargetProperty(slide, new PropertyPath(TranslateTransform.YProperty));
+        sb.Children.Add(fade);
+        sb.Children.Add(slide);
+        sb.Completed += (_, _) => _volumePopupAnimating = false;
+        _volumeFlyStory = sb;
+        sb.Begin();
+    }
+
+    private void HideVolumePopupAnimated()
+    {
+        if (!PlaybackVolumePopup.IsOpen) return;
+        _volumeFlyStory?.Stop();
+        _volumePopupAnimating = true;
+        var fromOpacity = PlaybackVolumePopupPanel.Opacity;
+        var fromY = PlaybackVolumeFlyTransform.Y;
+        var sb = new Storyboard();
+        var fade = new DoubleAnimation(fromOpacity, 0, TimeSpan.FromMilliseconds(150))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+        };
+        var slide = new DoubleAnimation(fromY, 18, TimeSpan.FromMilliseconds(150))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+        };
+        Storyboard.SetTarget(fade, PlaybackVolumePopupPanel);
+        Storyboard.SetTargetProperty(fade, new PropertyPath(OpacityProperty));
+        Storyboard.SetTarget(slide, PlaybackVolumeFlyTransform);
+        Storyboard.SetTargetProperty(slide, new PropertyPath(TranslateTransform.YProperty));
+        sb.Children.Add(fade);
+        sb.Children.Add(slide);
+        sb.Completed += (_, _) =>
+        {
+            _volumePopupAnimating = false;
+            if (_volumePopupPinned || _volumeDragging) return;
+            PlaybackVolumePopup.IsOpen = false;
+        };
+        _volumeFlyStory = sb;
+        sb.Begin();
     }
 
     private void ScheduleHideVolumePopup()
     {
-        if (_volumeDragging) return;
+        if (_volumeDragging || _volumePopupPinned) return;
         _volumePopupHideTimer.Stop();
         _volumePopupHideTimer.Start();
     }
@@ -776,12 +997,6 @@ public sealed partial class VideoWallPlayerControl : UserControl
         PlaybackSpeedBtn.Content = Math.Abs(rate - 1f) < 0.01f
             ? Loc.T("Tool.VideoWall.Speed")
             : $"{rate:0.##}x";
-    }
-
-    private void PlaybackFullscreen_Click(object sender, RoutedEventArgs e)
-    {
-        if (_fullscreen) ExitFullscreen();
-        else EnterFullscreen();
     }
 
     private void PlaybackSeekBar_PreviewMouseDown(object sender, MouseButtonEventArgs e)
@@ -1101,92 +1316,12 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void UpdateFullscreenChrome()
     {
-        PlaybackFullscreenIcon.Data = _fullscreen
+        PlaybackFullscreenIcon.Data = _floatMode == FloatMode.Fullscreen
             ? (Geometry)FindResource("GeoFullscreenExit")
             : (Geometry)FindResource("GeoFullscreen");
         PlaybackFullscreenBtn.ToolTip = Loc.T(
-            _fullscreen ? "Tool.VideoWall.FullscreenExit" : "Tool.VideoWall.Fullscreen");
+            _floatMode == FloatMode.Fullscreen ? "Tool.VideoWall.FullscreenExit" : "Tool.VideoWall.Fullscreen");
     }
-
-    private void EnterFullscreen()
-    {
-        if (_fullscreen || _fullscreenWindow != null) return;
-        if (_pip) ExitPip();
-        CloseMenuPopups();
-
-        var owner = Window.GetWindow(this);
-        var win = new Window
-        {
-            Owner = owner,
-            WindowStyle = WindowStyle.None,
-            ResizeMode = ResizeMode.NoResize,
-            WindowState = WindowState.Maximized,
-            Background = Brushes.Black,
-            Topmost = true,
-            ShowInTaskbar = false,
-            Title = string.IsNullOrWhiteSpace(PlaybackTitle.Text)
-                ? Loc.T("Tool.VideoWall.Name")
-                : PlaybackTitle.Text
-        };
-
-        // 软件帧：画面与 chrome 同在 PlaybackVideoHost，整棵迁入全屏窗即可
-        var root = new Grid();
-        PlaybackVideoSlot.Child = null;
-        root.Children.Add(PlaybackVideoHost);
-        win.Content = root;
-
-        win.PreviewKeyDown += FullscreenWindow_PreviewKeyDown;
-        win.MouseMove += FullscreenWindow_MouseMove;
-        win.Closed += (_, _) =>
-        {
-            if (_fullscreenWindow == win)
-                ExitFullscreen();
-        };
-
-        _fullscreenWindow = win;
-        _fullscreen = true;
-        UpdateFullscreenChrome();
-        win.Show();
-        win.Activate();
-        BumpPlaybackChrome();
-    }
-
-    private void ExitFullscreen(bool restoreUi = true)
-    {
-        _chromeHideTimer.Stop();
-        var win = _fullscreenWindow;
-        _fullscreenWindow = null;
-        _fullscreen = false;
-
-        if (win != null)
-        {
-            win.PreviewKeyDown -= FullscreenWindow_PreviewKeyDown;
-            win.MouseMove -= FullscreenWindow_MouseMove;
-            if (win.Content is Grid g)
-                g.Children.Clear();
-            try { win.Close(); } catch { /* ignore */ }
-
-            PlaybackVideoSlot.Child = PlaybackVideoHost;
-        }
-
-        if (restoreUi)
-            ShowPlaybackChrome();
-
-        UpdateFullscreenChrome();
-    }
-
-    private void FullscreenWindow_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            ExitFullscreen();
-            e.Handled = true;
-        }
-        else
-            BumpPlaybackChrome();
-    }
-
-    private void FullscreenWindow_MouseMove(object sender, MouseEventArgs e) => BumpPlaybackChrome();
 
     private void Root_MouseMove(object sender, MouseEventArgs e) => BumpPlaybackChrome();
 
@@ -1223,27 +1358,31 @@ public sealed partial class VideoWallPlayerControl : UserControl
 
     private void BumpPlaybackChrome()
     {
-        if (Visibility != Visibility.Visible) return;
+        if (Visibility != Visibility.Visible && _floatMode == FloatMode.None) return;
         ShowPlaybackChrome();
-        if (_fullscreen && _fullscreenWindow != null)
-            _fullscreenWindow.Cursor = Cursors.Arrow;
+        if (_floatMode != FloatMode.None && _floatWindow != null)
+            _floatWindow.Cursor = Cursors.Arrow;
         else
             Cursor = Cursors.Arrow;
 
         _chromeHideTimer.Stop();
+        // 最大化：标题栏常驻，仍用定时器收起操作栏
         _chromeHideTimer.Start();
     }
 
     private void ShowPlaybackChrome()
     {
-        var showTransport = _fullscreen || !IsCompactChrome();
-        _chromeTitleVisible = !_fullscreen;
+        var showTitle = _floatMode != FloatMode.Fullscreen;
+        // 全屏 bump 时强制露出操作栏；其余看紧凑阈值
+        var showTransport = _floatMode == FloatMode.Fullscreen || !IsCompactChrome();
+        _chromeTitleVisible = showTitle;
         _chromeTransportVisible = showTransport;
 
-        if (_fullscreen)
+        if (_floatMode == FloatMode.Fullscreen)
         {
             PlaybackTitleBarHost.Visibility = Visibility.Collapsed;
             PlaybackTransportBar.Visibility = showTransport ? Visibility.Visible : Visibility.Collapsed;
+            PlaybackTransportSlot.Visibility = PlaybackTransportBar.Visibility;
             ApplyVideoChromeInset(title: false, transport: showTransport);
             return;
         }
@@ -1257,18 +1396,32 @@ public sealed partial class VideoWallPlayerControl : UserControl
     private void HidePlaybackChrome()
     {
         _chromeHideTimer.Stop();
-        if (Visibility != Visibility.Visible) return;
+        if (Visibility != Visibility.Visible && _floatMode == FloatMode.None) return;
         if (_seekDragging || _volumeDragging || AnyMenuPopupOpen()) return;
+
+        HideVolumePopupAnimated();
+
+        // 最大化：不隐藏标题栏；全屏：标题已隐藏，只收操作栏；画中画/内嵌：标题+操作栏都收
+        if (_floatMode == FloatMode.Maximized)
+        {
+            _chromeTitleVisible = true;
+            _chromeTransportVisible = false;
+            PlaybackTitleBarHost.Visibility = Visibility.Visible;
+            PlaybackTransportSlot.Visibility = Visibility.Collapsed;
+            PlaybackTransportBar.Visibility = Visibility.Collapsed;
+            ApplyVideoChromeInset(title: true, transport: false);
+            return;
+        }
 
         _chromeTitleVisible = false;
         _chromeTransportVisible = false;
-        PlaybackVolumePopup.IsOpen = false;
 
-        if (_fullscreen && _fullscreenWindow != null)
+        if (_floatMode == FloatMode.Fullscreen && _floatWindow != null)
         {
             PlaybackTransportBar.Visibility = Visibility.Collapsed;
+            PlaybackTransportSlot.Visibility = Visibility.Collapsed;
             ApplyVideoChromeInset(title: false, transport: false);
-            _fullscreenWindow.Cursor = Cursors.None;
+            _floatWindow.Cursor = Cursors.None;
             return;
         }
 
@@ -1282,10 +1435,10 @@ public sealed partial class VideoWallPlayerControl : UserControl
     {
         var w = ActualWidth;
         var h = ActualHeight;
-        if (_fullscreen && _fullscreenWindow != null)
+        if (_floatMode != FloatMode.None && _floatWindow != null)
         {
-            w = _fullscreenWindow.ActualWidth;
-            h = _fullscreenWindow.ActualHeight;
+            w = _floatWindow.ActualWidth;
+            h = _floatWindow.ActualHeight;
         }
 
         return w > 0 && h > 0 && (w < CompactChromeThreshold || h < CompactChromeThreshold);

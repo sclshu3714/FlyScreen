@@ -1010,7 +1010,18 @@ public sealed class MauiAppHost : IAsyncDisposable
                 _platform.OnCursorOwnerChanged(p.OwnerMachine);
                 break;
             }
+            case MessageType.LockScreen:
+                LockLocalScreen();
+                break;
         }
+    }
+
+    /// <summary>本机锁屏（托盘 / 对端 LockScreen）。非桌面端空操作。</summary>
+    public void LockLocalScreen()
+    {
+#if WINDOWS
+        FlyScreen.Helpers.WindowsScreenLock.TryLock();
+#endif
     }
 
     /// <summary>

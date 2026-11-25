@@ -74,6 +74,12 @@ public interface IVideoWallService
     Task ApplyCarouselPageAsync(bool autoStart = false, CancellationToken ct = default);
 
     Task<AddSourceResult> AddSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);
+
+    /// <summary>批量入库：一次落盘、一次 <see cref="CatalogChanged"/>，避免枚举竞态与 thrashing。</summary>
+    Task<IReadOnlyList<AddSourceResult>> AddSourcesAsync(
+        IEnumerable<VideoSourceDescriptor> sources,
+        CancellationToken ct = default);
+
     Task<AddSourceResult> UpdateSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);
     Task<bool> RemoveSourceAsync(string sourceId, CancellationToken ct = default);
     Task<MediaProbeResult> TestSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default);

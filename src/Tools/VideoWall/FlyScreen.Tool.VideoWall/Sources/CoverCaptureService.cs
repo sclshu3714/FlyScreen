@@ -21,7 +21,6 @@ public sealed record CoverCaptureOutcome(
 /// </summary>
 public sealed class CoverCaptureService
 {
-    private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(8);
     private readonly IMediaBackend _backend;
     private readonly CoverCache _coverCache;
     private readonly CredentialStore? _credentials;
@@ -57,10 +56,11 @@ public sealed class CoverCaptureService
         }
 
         await _gate.WaitAsync(ct).ConfigureAwait(false);
+        var seconds = UgreenShareLinkParser.IsSharePage(endpoint.Address) ? 25 : 8;
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(CaptureTimeout);
+            timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
 
             var resolved = ResolveEndpoint(endpoint);
             var result = await _backend.CaptureCoverAsync(resolved, timeout.Token).ConfigureAwait(false);
@@ -108,7 +108,7 @@ public sealed class CoverCaptureService
                 null,
                 null,
                 VideoErrorCode.NetTimeout,
-                "抓帧超时（8 秒）",
+                $"抓帧超时（{seconds} 秒）",
                 0,
                 0,
                 null,

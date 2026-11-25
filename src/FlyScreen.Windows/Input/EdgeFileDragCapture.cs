@@ -48,6 +48,8 @@ public static class EdgeFileDragCapture
 
     public static void Disarm()
     {
+        // 同步清路径：WmDisarm 经 PostMessage 异步，松手后再穿边前若仍读到旧路径会误开新拖拽
+        lock (Gate) _paths = [];
         if (Interlocked.Exchange(ref _wantShown, 0) == 0)
             return;
         if (_signal != IntPtr.Zero)

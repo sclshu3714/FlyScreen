@@ -241,6 +241,8 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
 
     public void Start()
     {
+        // 关标签会 Stop 并 Dispose LibVLC；再次进入必须重建后端，否则第二次开播打到已释放实例
+        EnsureMediaStack();
         lock (_gate)
             _running = true;
         RaiseSession();
@@ -256,12 +258,58 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
             _tiles.Clear();
         }
 
-        SinglePlayback.Dispose();
+        try { SinglePlayback.Dispose(); }
+        catch { /* ignore */ }
 
         if (Backend is IDisposable d)
-            d.Dispose();
+        {
+            try { d.Dispose(); }
+            catch { /* ignore */ }
+        }
+
+        // 占位：避免 UI 继续引用已 Dispose 的 VlcMediaBackend；真正重建在 Start/EnsureMediaStack
+        Backend = new NullMediaBackend();
+        SinglePlayback = new SinglePlaybackController(Backend, Catalog, SaveCatalogAsync);
+        CoverCapture = new CoverCaptureService(Backend, Covers, Credentials);
 
         RaiseSession();
+    }
+
+    /// <summary>保证 Backend / SinglePlayback / 墙格可用（Stop 后或首次 Start）。</summary>
+    private void EnsureMediaStack()
+    {
+        if (Backend is VlcMediaBackend vlc && vlc.IsAvailable && !vlc.IsDisposed)
+        {
+            lock (_gate)
+            {
+                if (_tiles.Count == 0)
+                    EnsureTiles(_layout);
+            }
+
+            return;
+        }
+
+        if (Backend is IDisposable old && Backend is not NullMediaBackend)
+        {
+            try { old.Dispose(); }
+            catch { /* ignore */ }
+        }
+
+        var created = new VlcMediaBackend(Credentials);
+        Backend = created.IsAvailable ? created : new NullMediaBackend();
+        if (!created.IsAvailable)
+            AppLog.Warn(OperatingSystem.IsAndroid()
+                ? "视频墙：重新初始化后 LibVLC 仍不可用"
+                : "视频墙：重新初始化后 LibVLC 原生库未就绪");
+
+        try { SinglePlayback.Dispose(); }
+        catch { /* ignore */ }
+
+        SinglePlayback = new SinglePlaybackController(Backend, Catalog, SaveCatalogAsync);
+        CoverCapture = new CoverCaptureService(Backend, Covers, Credentials);
+
+        lock (_gate)
+            EnsureTiles(_layout);
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)
@@ -288,7 +336,9 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         var vlc = new VlcMediaBackend(Credentials);
         Backend = vlc.IsAvailable ? vlc : new NullMediaBackend();
         if (!vlc.IsAvailable)
-            AppLog.Warn("视频墙：LibVLC 原生库未就绪（检查 Tools/_native/libvlc 或 Installed/video-wall/*/libvlc）");
+            AppLog.Warn(OperatingSystem.IsAndroid()
+                ? "视频墙：LibVLC 不可用（检查宿主 APK 是否含 VideoLAN.LibVLC.Android）"
+                : "视频墙：LibVLC 原生库未就绪（检查 Tools/_native/libvlc 或 Installed/video-wall/*/libvlc）");
         else if (!string.IsNullOrEmpty(VlcNativeBootstrap.LastResolvedDirectory))
             AppLog.Info($"视频墙：LibVLC ← {VlcNativeBootstrap.LastResolvedDirectory}");
 
@@ -386,15 +436,20 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         var source = Catalog.Sources.FirstOrDefault(s => s.Id == sourceId)
                      ?? throw new InvalidOperationException($"源不存在：{sourceId}");
 
+        var tiles = Layout.TileCount;
         await tile.BindAsync(
             source.Endpoint,
             sourceId,
             null,
             new MediaPlayerOptions
             {
-                DecodePreference = source.DecodePreference,
-                BufferMs = source.Endpoint.BufferMs,
-                Mute = true
+                // 宫格：HWND 路径用 auto 硬解；软件帧路径在 Start 时仍强制 soft + SoftFrameMaxWidth
+                DecodePreference = "auto",
+                BufferMs = Math.Min(source.Endpoint.BufferMs ?? SoftFrameBudget.NetworkCacheMsForWall,
+                    SoftFrameBudget.NetworkCacheMsForWall),
+                Mute = true,
+                WallMode = true,
+                SoftFrameMaxWidth = SoftFrameBudget.MaxWidthForWall(tiles)
             },
             ct,
             autoStart).ConfigureAwait(false);
@@ -439,6 +494,32 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
         }
 
         return result;
+    }
+
+    public async Task<IReadOnlyList<AddSourceResult>> AddSourcesAsync(
+        IEnumerable<VideoSourceDescriptor> sources,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        var results = new List<AddSourceResult>();
+        var anyAdded = false;
+        foreach (var raw in sources)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = ResolveGroupName(raw);
+            var result = Catalog.Add(source);
+            results.Add(result);
+            if (result.Added)
+                anyAdded = true;
+        }
+
+        if (anyAdded)
+        {
+            await Catalog.SaveAsync(ct).ConfigureAwait(false);
+            CatalogChanged?.Invoke();
+        }
+
+        return results;
     }
 
     public async Task<AddSourceResult> UpdateSourceAsync(VideoSourceDescriptor source, CancellationToken ct = default)
@@ -554,8 +635,10 @@ public sealed class VideoWallService : IVideoWallService, IDisposable
             foreach (var ver in Directory.EnumerateDirectories(root)
                          .OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase))
             {
+                // Windows 安装包带 libvlc；Android 原生库在宿主 APK，安装目录仅作 SetNativeRoot 提示
                 if (File.Exists(Path.Combine(ver, "libvlc", "win-x64", "libvlc.dll"))
-                    || File.Exists(Path.Combine(ver, "runtimes", "win-x64", "native", "libvlc.dll")))
+                    || File.Exists(Path.Combine(ver, "runtimes", "win-x64", "native", "libvlc.dll"))
+                    || OperatingSystem.IsAndroid())
                     return ver;
             }
         }

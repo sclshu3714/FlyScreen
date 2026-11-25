@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using FlyScreen.Helpers;
 using FlyScreen.Input;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
@@ -690,6 +691,9 @@ public sealed class AppHost : IAsyncDisposable
                 Input.HandleCompositionCancel(peer);
                 break;
             }
+            case MessageType.LockScreen:
+                WindowsScreenLock.TryLock();
+                break;
             // LayoutSync 由 LayoutSyncHelper 处理
         }
     }

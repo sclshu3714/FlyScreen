@@ -21,15 +21,26 @@ public static class BundledFlyToolsSeeder
         {
             ct.ThrowIfCancellationRequested();
             var dest = Path.Combine(destDir, name);
-            if (File.Exists(dest))
-                continue;
-
             var logical = $"Tools/Bundled/{name}";
             try
             {
                 await using var src = await FileSystem.OpenAppPackageFileAsync(logical).ConfigureAwait(false);
-                await using var fs = File.Create(dest);
-                await src.CopyToAsync(fs, ct).ConfigureAwait(false);
+                // 包内为权威源：仅「缺失」时跳过会让 Android 私有目录永久卡在旧 .flytool
+                // （表现为改了工具代码但日志仍是旧文案）。按长度判断是否需要覆盖。
+                if (File.Exists(dest)
+                    && src.CanSeek
+                    && src.Length > 0
+                    && new FileInfo(dest).Length == src.Length)
+                    continue;
+
+                if (src.CanSeek)
+                    src.Position = 0;
+                var staging = dest + ".staging";
+                await using (var fs = File.Create(staging))
+                    await src.CopyToAsync(fs, ct).ConfigureAwait(false);
+                File.Copy(staging, dest, overwrite: true);
+                try { File.Delete(staging); } catch { /* ignore */ }
+                AppLog.Info($"已从包内刷新 Bundled：{name}");
             }
             catch
             {

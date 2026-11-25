@@ -87,6 +87,24 @@ public sealed class FileTransferService
         get { lock (_gate) return _remoteInlinePending != null; }
     }
 
+    /// <summary>
+    /// 对端宣告是否为「纯图片文件」（无文件夹）。此类应同时提供位图粘贴（对话框/文档）与路径粘贴（资源管理器）。
+    /// </summary>
+    public bool RemotePendingFilesAreImagesOnly
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_remotePending == null) return false;
+                return ClipboardImagePaths.AreAllImageFiles(
+                    _remotePending.Files.Select(f => (
+                        string.IsNullOrWhiteSpace(f.FileName) ? "file.bin" : f.FileName,
+                        f.IsDirectory)));
+            }
+        }
+    }
+
     public bool OwnsDelayedClipboard => Volatile.Read(ref _ownsDelayedClipboard) != 0;
 
     /// <summary>对端宣告的文件名列表（用于剪贴板占位，启用“粘贴”菜单）。</summary>
@@ -427,12 +445,14 @@ public sealed class FileTransferService
 
         var summary = data.BuildSummary();
         var seq = NextSequence();
+        var keepFiles = data.Png is { Length: > 0 }; // 图片可与文件宣告并存（对齐本机 HDROP+位图）
         lock (_gate)
         {
             _localPendingInlineBlob = blob;
             _localPendingInlineSeq = seq;
             _localPendingInlineSummary = summary;
-            _localPending = null; // 内联优先于未粘贴的文件宣告
+            if (!keepFiles)
+                _localPending = null; // 纯文本/富文本覆盖未粘贴的文件宣告
         }
 
         var peers = _connections.ConfiguredPeers().Where(_connections.IsPeerReachable).ToList();
@@ -1331,10 +1351,16 @@ public sealed class FileTransferService
 
         // 拉取必须走会话名 peer；SourceMachine 仅展示（旧端/改名覆盖可能不一致）
         var display = string.IsNullOrWhiteSpace(announce.SourceMachine) ? peer : announce.SourceMachine.Trim();
+        var imageOnly = ClipboardImagePaths.AreAllImageFiles(
+            list.Select(f => (
+                string.IsNullOrWhiteSpace(f.FileName) ? "file.bin" : f.FileName,
+                f.IsDirectory)));
         lock (_gate)
         {
             _remotePending = new RemotePendingOffer(announce.Sequence, peer, list.ToList());
-            _remoteInlinePending = null; // 文件宣告覆盖未粘贴的内联内容
+            // 纯图片文件可与位图内联并存；其它文件宣告仍覆盖未粘贴内联
+            if (!imageOnly)
+                _remoteInlinePending = null;
         }
 
         var dirs = list.Count(f => f.IsDirectory);
@@ -1368,18 +1394,21 @@ public sealed class FileTransferService
             ? Loc.T("Clip.Summary.Clipboard")
             : announce.Summary;
         // 拉取目标用会话 peer，避免 SourceMachine 与握手机名不一致导致「宣告了但粘贴空」
+        // 带图的内联可与文件宣告并存（预览「复制图片」→ jpg 文件 + 位图）
+        var keepFiles = announce.HasImage;
         RegisterRemoteInline(new RemoteInlinePending(
-            announce.Sequence, peer, announce.TotalBytes, summary, legacyPngOnly));
+            announce.Sequence, peer, announce.TotalBytes, summary, legacyPngOnly), keepFiles);
         NotifyStatus(Loc.T("Status.PeerCopiedInlineKb", display, summary, announce.TotalBytes / 1024.0));
         try { RemoteInlineAnnounced?.Invoke(); } catch { /* ignore */ }
     }
 
-    private void RegisterRemoteInline(RemoteInlinePending pending)
+    private void RegisterRemoteInline(RemoteInlinePending pending, bool keepFiles = false)
     {
         lock (_gate)
         {
             _remoteInlinePending = pending;
-            _remotePending = null; // 内联宣告覆盖未粘贴的文件
+            if (!keepFiles)
+                _remotePending = null; // 无图内联覆盖未粘贴的文件
         }
     }
 

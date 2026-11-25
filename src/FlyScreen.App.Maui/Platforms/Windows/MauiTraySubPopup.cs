@@ -35,7 +35,7 @@ internal sealed class MauiTraySubPopup : IDisposable
     private static readonly Color Accent = Color.FromArgb(255, 0x25, 0x63, 0xEB);
     private static readonly Color Shadow = Color.FromArgb(70, 0x14, 0x23, 0x3A);
 
-    private readonly IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> _items;
+    private readonly IReadOnlyList<MauiTraySubItem> _items;
     private readonly Action _onItemInvoked;
     private readonly Action? _onDismissRequested;
     private readonly Rectangle[] _itemRects;
@@ -45,17 +45,32 @@ internal sealed class MauiTraySubPopup : IDisposable
     private IntPtr _hwnd;
     private WndProc? _proc;
     private int _hoverIndex = -1;
+    private int _activeNestedIndex = -1;
     private bool _invoking;
     private int _width;
     private int _height;
     private int _cardW;
     private int _cardH;
+    private MauiTraySubPopup? _nestedPopup;
 
     public bool IsVisible => _hwnd != IntPtr.Zero;
     public IntPtr Hwnd => _hwnd;
 
+    /// <summary>指针是否在本级或嵌套子菜单上（供主菜单 dismiss 判定）。</summary>
+    public bool ContainsPointer()
+    {
+        if (!GetCursorPos(out var pt)) return false;
+        if (_hwnd != IntPtr.Zero)
+        {
+            GetWindowRect(_hwnd, out var rc);
+            if (PtInRect(ref rc, pt)) return true;
+        }
+
+        return _nestedPopup?.ContainsPointer() == true;
+    }
+
     private MauiTraySubPopup(
-        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
+        IReadOnlyList<MauiTraySubItem> items,
         Action onItemInvoked,
         Action? onDismissRequested,
         bool sepBeforeLast)
@@ -64,7 +79,7 @@ internal sealed class MauiTraySubPopup : IDisposable
         _onItemInvoked = onItemInvoked;
         _onDismissRequested = onDismissRequested;
         _sepBeforeLast = sepBeforeLast && items.Count > 1;
-        _showIcons = items.Any(x => x.IconPng is { Length: > 0 });
+        _showIcons = items.Any(x => x.IconPng is { Length: > 0 } || !string.IsNullOrEmpty(x.Mdl2Glyph) || x.IsSubmenu);
         _itemRects = new Rectangle[items.Count];
         Measure();
     }
@@ -72,7 +87,7 @@ internal sealed class MauiTraySubPopup : IDisposable
     public static MauiTraySubPopup Show(
         int screenX,
         int screenY,
-        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
+        IReadOnlyList<MauiTraySubItem> items,
         Action onItemInvoked,
         Action? onDismissRequested = null,
         bool sepBeforeLast = true)
@@ -82,16 +97,34 @@ internal sealed class MauiTraySubPopup : IDisposable
         return popup;
     }
 
+    /// <summary>兼容旧调用：无 MDL2 / 嵌套。</summary>
+    public static MauiTraySubPopup Show(
+        int screenX,
+        int screenY,
+        IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
+        Action onItemInvoked,
+        Action? onDismissRequested = null,
+        bool sepBeforeLast = true)
+    {
+        var mapped = items.Select(x => MauiTraySubItem.Click(x.Label, x.Action, x.IconPng)).ToList();
+        return Show(screenX, screenY, mapped, onItemInvoked, onDismissRequested, sepBeforeLast);
+    }
+
     private void Measure()
     {
         using var font = new Font("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var iconFont = new Font("Segoe MDL2 Assets", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
         var iconSlot = _showIcons ? IconSize + IconGap : 0;
         var textW = CardMinWidth - PanelPadX * 2 - ItemMargin * 2 - ItemHPad * 2 - iconSlot;
         using (var tmp = new Bitmap(8, 8))
         using (var g = Graphics.FromImage(tmp))
         {
-            foreach (var (label, _, _) in _items)
-                textW = Math.Max(textW, (int)Math.Ceiling(g.MeasureString(label, font).Width));
+            foreach (var item in _items)
+            {
+                textW = Math.Max(textW, (int)Math.Ceiling(g.MeasureString(item.Label, font).Width));
+                if (item.IsSubmenu)
+                    textW = Math.Max(textW, (int)Math.Ceiling(g.MeasureString(item.Label, font).Width) + 18);
+            }
         }
 
         _cardW = Math.Max(CardMinWidth, textW + iconSlot + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
@@ -173,10 +206,18 @@ internal sealed class MauiTraySubPopup : IDisposable
             }
 
             using var font = new Font("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var iconFont = new Font("Segoe MDL2 Assets", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
             using var textBrush = new SolidBrush(TextColor);
+            using var mutedBrush = new SolidBrush(Color.FromArgb(255, 0x6B, 0x7C, 0x8F));
             var sf = new StringFormat
             {
                 Alignment = StringAlignment.Near,
+                LineAlignment = StringAlignment.Center,
+                FormatFlags = StringFormatFlags.NoWrap
+            };
+            var sfRight = new StringFormat
+            {
+                Alignment = StringAlignment.Far,
                 LineAlignment = StringAlignment.Center,
                 FormatFlags = StringFormatFlags.NoWrap
             };
@@ -190,8 +231,9 @@ internal sealed class MauiTraySubPopup : IDisposable
 
             for (var i = 0; i < _items.Count; i++)
             {
+                var item = _items[i];
                 var rect = _itemRects[i];
-                if (i == _hoverIndex)
+                if (i == _hoverIndex && !item.IsPlaceholder)
                 {
                     using var hoverPath = RoundedRect(rect.X, rect.Y, rect.Width, rect.Height, ItemCorner);
                     using var hb = new SolidBrush(HoverBg);
@@ -205,12 +247,16 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var x = rect.X + ItemHPad;
                 if (_showIcons)
                 {
-                    var iconPng = _items[i].IconPng;
-                    if (iconPng is { Length: > 0 })
+                    if (!string.IsNullOrEmpty(item.Mdl2Glyph))
+                    {
+                        var glyphRect = new RectangleF(x, rect.Y, IconSize + 2, rect.Height);
+                        g.DrawString(item.Mdl2Glyph, iconFont, textBrush, glyphRect, sf);
+                    }
+                    else if (item.IconPng is { Length: > 0 })
                     {
                         try
                         {
-                            using var ms = new MemoryStream(iconPng);
+                            using var ms = new MemoryStream(item.IconPng);
                             using var icon = System.Drawing.Image.FromStream(ms);
                             var iy = rect.Y + (rect.Height - IconSize) / 2;
                             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -225,8 +271,16 @@ internal sealed class MauiTraySubPopup : IDisposable
                     x += IconSize + IconGap;
                 }
 
-                var textRect = new RectangleF(x, rect.Y, Math.Max(8, rect.Right - ItemHPad - x), rect.Height);
-                g.DrawString(_items[i].Label, font, textBrush, textRect, sf);
+                var rightReserve = item.IsSubmenu ? 18 : 0;
+                var textRect = new RectangleF(x, rect.Y,
+                    Math.Max(8, rect.Right - ItemHPad - x - rightReserve), rect.Height);
+                g.DrawString(item.Label, font, item.IsPlaceholder ? mutedBrush : textBrush, textRect, sf);
+                if (item.IsSubmenu)
+                {
+                    var chevronRect = new RectangleF(rect.X + ItemHPad, rect.Y,
+                        Math.Max(8, rect.Width - ItemHPad * 2), rect.Height);
+                    g.DrawString("\uE76C", iconFont, mutedBrush, chevronRect, sfRight);
+                }
             }
         }
 
@@ -276,16 +330,26 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                 var scale = GetDpiScale();
                 var idx = HitTest((int)(x / scale), (int)(y / scale));
+                if (idx >= 0 && idx < _items.Count && _items[idx].IsPlaceholder)
+                    idx = -1;
                 if (idx != _hoverIndex)
                 {
                     _hoverIndex = idx;
                     Render(scale);
                 }
 
+                if (idx >= 0 && idx < _items.Count && _items[idx].IsSubmenu)
+                    OpenNested(idx, scale);
+                else if (idx >= 0)
+                    CloseNested();
+
                 TrackMouseLeave(hWnd);
                 return IntPtr.Zero;
             }
             case WmMouseLeave:
+                // 移入嵌套子菜单时保留悬停
+                if (_nestedPopup is { IsVisible: true })
+                    return IntPtr.Zero;
                 if (_hoverIndex >= 0)
                 {
                     _hoverIndex = -1;
@@ -301,7 +365,14 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var idx = HitTest((int)(x / scale), (int)(y / scale));
                 if (idx >= 0 && idx < _items.Count)
                 {
+                    if (_items[idx].IsSubmenu)
+                    {
+                        OpenNested(idx, scale);
+                        return IntPtr.Zero;
+                    }
+
                     var act = _items[idx].Action;
+                    if (act == null) return IntPtr.Zero;
                     _invoking = true;
                     // 先执行切换，再关菜单；避免先 Destroy 导致动作被吃掉
                     try { act(); }
@@ -313,9 +384,13 @@ internal sealed class MauiTraySubPopup : IDisposable
                 return IntPtr.Zero;
             }
             case WmActivate:
-                // 点到桌面/其它窗时收起；点本菜单项时由 LButtonUp 处理
+                // 点到桌面/其它窗时收起；点嵌套子菜单时勿立刻关
                 if ((wParam.ToInt64() & 0xFFFF) == 0 && !_invoking)
+                {
+                    if (_nestedPopup is { IsVisible: true })
+                        return IntPtr.Zero;
                     _onDismissRequested?.Invoke();
+                }
                 return IntPtr.Zero;
             case WmNcDestroy:
             {
@@ -345,8 +420,39 @@ internal sealed class MauiTraySubPopup : IDisposable
         return -1;
     }
 
+    private void OpenNested(int index, double scale)
+    {
+        if (index < 0 || index >= _items.Count) return;
+        var nested = _items[index].Nested;
+        if (nested == null || nested.Count == 0) return;
+        if (_nestedPopup is { IsVisible: true } && _activeNestedIndex == index)
+            return;
+
+        GetWindowRect(_hwnd, out var wnd);
+        var item = _itemRects[index];
+        var anchorX = wnd.Left + (int)Math.Round((item.Right + 2) * scale);
+        var anchorY = wnd.Top + (int)Math.Round((item.Top - PanelPadY) * scale);
+        CloseNested();
+        _activeNestedIndex = index;
+        _nestedPopup = Show(
+            anchorX,
+            anchorY,
+            nested,
+            onItemInvoked: _onItemInvoked,
+            onDismissRequested: _onDismissRequested,
+            sepBeforeLast: nested.Count > 1);
+    }
+
+    private void CloseNested()
+    {
+        try { _nestedPopup?.Dispose(); } catch { /* ignore */ }
+        _nestedPopup = null;
+        _activeNestedIndex = -1;
+    }
+
     public void Dispose()
     {
+        CloseNested();
         if (_hwnd == IntPtr.Zero) return;
         var h = _hwnd;
         _hwnd = IntPtr.Zero;
@@ -518,6 +624,8 @@ internal sealed class MauiTraySubPopup : IDisposable
 
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] private static extern bool PtInRect(ref RECT lprc, POINT pt);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);

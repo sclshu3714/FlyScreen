@@ -14,13 +14,19 @@ using Path = Microsoft.Maui.Controls.Shapes.Path;
 
 namespace FlyScreen.Tool.VideoWall.Ui.Maui;
 
-/// <summary>Maui 视频墙：对齐 Win 结构（源浏览 / 画布 / 单路回放）；Maui-Win 用 Win32 子 HWND 嵌入 LibVLC。</summary>
+/// <summary>
+/// Maui 视频墙：对齐 Win 结构（源浏览 / 画布 / 单路回放）；Maui-Win 用 Win32 子 HWND 嵌入 LibVLC。
+/// 手机（Phone）仅卡片/列表 + 单路播放，不提供画布宫格。
+/// </summary>
 public sealed class VideoWallPanel : ContentView
 {
     private static readonly int[] LayoutEdges = [1, 2, 3, 4];
 
     private enum PanelMode { Sources, Wall, Playback }
     private enum BrowseView { Card, List, Canvas }
+
+    /// <summary>手机：只浏览源并单路播放，隐藏画布/布局/轮播。</summary>
+    private static bool IsPhoneBrowseOnly => DeviceInfo.Idiom == DeviceIdiom.Phone;
 
     private readonly IVideoWallService? _service;
     private readonly ObservableCollection<SourceRowVm> _rows = new();
@@ -46,6 +52,9 @@ public sealed class VideoWallPanel : ContentView
     private readonly VideoWallDropDown _groupDrop;
     private readonly Entry _search;
     private readonly Border _deleteBtn;
+    private readonly Border? _searchToggleBtn;
+    private readonly View? _filterPanel;
+    private bool _filterExpanded;
     private readonly IDispatcherTimer _carouselTimer;
 
     private readonly Grid _contentHost;
@@ -83,6 +92,8 @@ public sealed class VideoWallPanel : ContentView
     private bool _suppressCarouselToggle;
     private bool _carouselPointerOver;
     private int _carouselHoverDepth;
+    /// <summary>批量刷墙期间抑制 SessionChanged→RefreshWallOverlays，避免与 Rebuild 交错。</summary>
+    private int _wallBulkRefresh;
 
     public Action<string>? StatusReporter
     {
@@ -123,6 +134,8 @@ public sealed class VideoWallPanel : ContentView
             if (_mode == PanelMode.Wall)
                 _ = RefreshCanvasAsync();
         };
+        // 键盘「搜索/完成」后收起；分组下拉交互时不要因失焦误收
+        _search.Completed += (_, _) => CollapseFilterPanel();
 
         _carouselTimer = (Application.Current?.Dispatcher ?? throw new InvalidOperationException("No dispatcher"))
             .CreateTimer();
@@ -139,6 +152,11 @@ public sealed class VideoWallPanel : ContentView
             VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn);
         VideoWallMauiIcons.WireClicked(scanPair.Host, (_, _) => OpenScanDialog());
 
+        var dlnaPair = VideoWallMauiIcons.CreateIconButton(
+            VideoWallMauiIcons.Geo.Network, _blue, Loc.T("Tool.VideoWall.Dlna"),
+            VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn);
+        VideoWallMauiIcons.WireClicked(dlnaPair.Host, (_, _) => OpenDlnaDialog());
+
         var deletePair = VideoWallMauiIcons.CreateIconButton(
             VideoWallMauiIcons.Geo.Delete, _warn, Loc.T("Tool.VideoWall.Delete"),
             VideoWallMauiIcons.ToolbarKind.Danger, _text, _card, _line, _blue, _warn,
@@ -154,9 +172,12 @@ public sealed class VideoWallPanel : ContentView
         _viewCardIcon = cardPair.Icon;
         VideoWallMauiIcons.WireClicked(_viewCardBtn, (_, _) => ApplyBrowseView(BrowseView.Card));
 
+        var listCorner = IsPhoneBrowseOnly
+            ? VideoWallMauiIcons.SegmentCorner.Right
+            : VideoWallMauiIcons.SegmentCorner.Middle;
         var listPair = VideoWallMauiIcons.CreateSegmentIconButton(
             VideoWallMauiIcons.Geo.ViewList, Loc.T("Tool.VideoWall.ViewList"),
-            VideoWallMauiIcons.SegmentCorner.Middle, _text, _card, _line);
+            listCorner, _text, _card, _line);
         _viewListBtn = listPair.Host;
         _viewListIcon = listPair.Icon;
         VideoWallMauiIcons.WireClicked(_viewListBtn, (_, _) => ApplyBrowseView(BrowseView.List));
@@ -166,6 +187,7 @@ public sealed class VideoWallPanel : ContentView
             VideoWallMauiIcons.SegmentCorner.Right, _text, _card, _line);
         _viewCanvasBtn = canvasPair.Host;
         _viewCanvasIcon = canvasPair.Icon;
+        _viewCanvasBtn.IsVisible = !IsPhoneBrowseOnly;
         VideoWallMauiIcons.WireClicked(_viewCanvasBtn, (_, _) => ApplyBrowseView(BrowseView.Canvas));
 
         _layoutDrop = new VideoWallDropDown(_text, _muted, _line, _card);
@@ -229,11 +251,29 @@ public sealed class VideoWallPanel : ContentView
             Spacing = 0,
             Children = { _viewCardBtn, _viewListBtn, _viewCanvasBtn }
         };
-        // 手机窄屏：工具条换行；桌面仍单行
+        // 手机窄屏：工具条换行；分组+搜索收成一键，点开再展开
         View toolbarContent;
-        if (DeviceInfo.Idiom == DeviceIdiom.Phone)
+        if (IsPhoneBrowseOnly)
         {
-            toolbarContent = new FlexLayout
+            var searchPair = VideoWallMauiIcons.CreateIconButton(
+                VideoWallMauiIcons.Geo.Search, _blue, Loc.T("Tool.VideoWall.Search"),
+                VideoWallMauiIcons.ToolbarKind.Normal, _text, _card, _line, _blue, _warn,
+                margin: new Thickness(0, 0, 0, 0));
+            _searchToggleBtn = searchPair.Host;
+            VideoWallMauiIcons.WireClicked(_searchToggleBtn, (_, _) => ToggleFilterPanel());
+
+            _groupDrop.MinimumWidthRequest = 0;
+            _search.MinimumWidthRequest = 0;
+            _search.HorizontalOptions = LayoutOptions.Fill;
+            _filterPanel = new VerticalStackLayout
+            {
+                Spacing = 6,
+                IsVisible = false,
+                Margin = new Thickness(0, 6, 0, 0),
+                Children = { _groupDrop, _search }
+            };
+
+            var iconRow = new FlexLayout
             {
                 Direction = FlexDirection.Row,
                 Wrap = FlexWrap.Wrap,
@@ -244,23 +284,31 @@ public sealed class VideoWallPanel : ContentView
                 {
                     addPair.Host,
                     scanPair.Host,
+                    dlnaPair.Host,
                     _deleteBtn,
                     viewToggle,
-                    _layoutDrop,
-                    _carouselPanel,
-                    _groupDrop,
-                    _search
+                    _searchToggleBtn
                 }
             };
-            _search.MinimumWidthRequest = 140;
-            _search.WidthRequest = 180;
+            toolbarContent = new VerticalStackLayout
+            {
+                Spacing = 0,
+                Children = { iconRow, _filterPanel }
+            };
+            _layoutDrop.IsVisible = false;
+            _carouselPanel.IsVisible = false;
+            if (_browseView == BrowseView.Canvas)
+                _browseView = BrowseView.Card;
         }
         else
         {
+            _searchToggleBtn = null;
+            _filterPanel = null;
             toolbarContent = new Grid
             {
                 ColumnDefinitions =
                 [
+                    new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
@@ -275,12 +323,13 @@ public sealed class VideoWallPanel : ContentView
                 {
                     addPair.Host,
                     scanPair.Host.Also(v => Grid.SetColumn(v, 1)),
-                    _deleteBtn.Also(v => Grid.SetColumn(v, 2)),
-                    viewToggle.Also(v => Grid.SetColumn(v, 3)),
-                    _layoutDrop.Also(v => Grid.SetColumn(v, 4)),
-                    _carouselPanel.Also(v => Grid.SetColumn(v, 5)),
-                    _groupDrop.Also(v => Grid.SetColumn(v, 6)),
-                    _search.Also(v => Grid.SetColumn(v, 7))
+                    dlnaPair.Host.Also(v => Grid.SetColumn(v, 2)),
+                    _deleteBtn.Also(v => Grid.SetColumn(v, 3)),
+                    viewToggle.Also(v => Grid.SetColumn(v, 4)),
+                    _layoutDrop.Also(v => Grid.SetColumn(v, 5)),
+                    _carouselPanel.Also(v => Grid.SetColumn(v, 6)),
+                    _groupDrop.Also(v => Grid.SetColumn(v, 7)),
+                    _search.Also(v => Grid.SetColumn(v, 8))
                 }
             };
         }
@@ -289,7 +338,7 @@ public sealed class VideoWallPanel : ContentView
         {
             Stroke = _line,
             BackgroundColor = _card,
-            Padding = new Thickness(10, 8),
+            Padding = new Thickness(IsPhoneBrowseOnly ? 8 : 10, IsPhoneBrowseOnly ? 6 : 8),
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
             Content = toolbarContent
         };
@@ -533,14 +582,16 @@ public sealed class VideoWallPanel : ContentView
         RefreshAll();
     }
 
-    private void OnUnloaded(object? sender, EventArgs e)
+    private async void OnUnloaded(object? sender, EventArgs e)
     {
         _carouselTimer.Stop();
-        _player.AttachService(null);
-        _ = _player.StopAsync();
 #if WINDOWS
         DetachAllTileSurfaces();
 #endif
+        // 先停播再解绑：AttachService(null) 后 StopAsync 不会停 SinglePlayback，会留下幽灵声音
+        try { await _player.StopAsync(); }
+        catch { /* 卸载中忽略 */ }
+        _player.AttachService(null);
         if (_service is null) return;
         _service.CatalogChanged -= OnCatalogChanged;
         _service.SessionChanged -= OnSessionChanged;
@@ -558,9 +609,17 @@ public sealed class VideoWallPanel : ContentView
     private void OnSessionChanged()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            if (_mode == PanelMode.Wall)
-                RefreshWallOverlays();
+            if (_mode != PanelMode.Wall || _wallBulkRefresh > 0) return;
+            RefreshWallOverlays();
         });
+
+    /// <summary>Maui 无 WPF 式同步上下文；服务层 ConfigureAwait(false) 后必须显式回主线程再改可视树。</summary>
+    private static async ValueTask EnsureMainAsync()
+    {
+        if (MainThread.IsMainThread)
+            return;
+        await MainThread.InvokeOnMainThreadAsync(static () => { }).ConfigureAwait(false);
+    }
 
     private void ReportLog(string message)
     {
@@ -572,7 +631,7 @@ public sealed class VideoWallPanel : ContentView
     {
         if (_service is null) return;
         var options = new List<string> { Loc.T("Tool.VideoWall.GroupAll") };
-        options.AddRange(_service.Catalog.Groups.Select(g => g.Name));
+        options.AddRange(_service.Catalog.Groups.ToArray().Select(g => g.Name));
         _groupDrop.SetOptions(options.ToArray());
         if (_groupDrop.SelectedIndex < 0)
             _groupDrop.SelectedIndex = 0;
@@ -604,7 +663,8 @@ public sealed class VideoWallPanel : ContentView
         if (_service is null) return;
         var q = (_search.Text ?? "").Trim();
         _rows.Clear();
-        foreach (var s in _service.Catalog.Sources)
+        // 快照：批量 AddSource / CatalogChanged 可能并发改底层 List
+        foreach (var s in _service.Catalog.Sources.ToArray())
         {
             if (!string.IsNullOrEmpty(_groupFilter) && !MatchesGroup(s, _groupFilter))
                 continue;
@@ -671,33 +731,51 @@ public sealed class VideoWallPanel : ContentView
 
     private async void ApplyBrowseView(BrowseView view)
     {
-        var leavingCanvas = _browseView == BrowseView.Canvas && view != BrowseView.Canvas;
-        _browseView = view;
-        if (leavingCanvas)
+        try
         {
-            _carouselTimer.Stop();
-            await RecycleWallPlaybackAsync();
-        }
+            if (IsPhoneBrowseOnly && view == BrowseView.Canvas)
+                view = BrowseView.Card;
 
-        if (view == BrowseView.Canvas)
-        {
-            SetMode(PanelMode.Wall);
-            await RefreshCanvasAsync();
+            var leavingCanvas = _browseView == BrowseView.Canvas && view != BrowseView.Canvas;
+            _browseView = view;
+            if (leavingCanvas)
+            {
+                _carouselTimer.Stop();
+                await RecycleWallPlaybackAsync().ConfigureAwait(false);
+                await EnsureMainAsync().ConfigureAwait(false);
+            }
+
+            if (view == BrowseView.Canvas)
+            {
+                await EnsureMainAsync().ConfigureAwait(false);
+                SetMode(PanelMode.Wall);
+                await RefreshCanvasAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                await EnsureMainAsync().ConfigureAwait(false);
+                SetMode(PanelMode.Sources);
+            }
         }
-        else
-            SetMode(PanelMode.Sources);
+        catch (Exception ex)
+        {
+            ReportLog($"视频墙切换视图失败: {ex.Message}");
+        }
     }
 
-    /// <summary>单路返回：画布模式回到墙并按轮播页重建；否则回到列表/卡片。</summary>
+    /// <summary>单路返回：画布模式回到墙并按轮播页重建；手机/列表卡片回到源浏览。</summary>
     private async Task OnPlayerClosedAsync()
     {
-        if (_browseView == BrowseView.Canvas)
+        await EnsureMainAsync().ConfigureAwait(false);
+        if (!IsPhoneBrowseOnly && _browseView == BrowseView.Canvas)
         {
             SetMode(PanelMode.Wall);
-            await RefreshCanvasAsync();
+            await RefreshCanvasAsync().ConfigureAwait(false);
         }
         else
         {
+            if (IsPhoneBrowseOnly && _browseView == BrowseView.Canvas)
+                _browseView = BrowseView.Card;
             SetMode(PanelMode.Sources);
         }
     }
@@ -707,11 +785,13 @@ public sealed class VideoWallPanel : ContentView
         var browsing = _mode is PanelMode.Sources or PanelMode.Wall;
         _viewCardBtn.IsEnabled = browsing;
         _viewListBtn.IsEnabled = browsing;
-        _viewCanvasBtn.IsEnabled = browsing;
+        _viewCanvasBtn.IsEnabled = browsing && !IsPhoneBrowseOnly;
+        _viewCanvasBtn.IsVisible = !IsPhoneBrowseOnly;
         VideoWallMauiIcons.SetSegmentActive(_viewCardBtn, _viewCardIcon, browsing && _browseView == BrowseView.Card, _blue, _muted, _card, _line);
         VideoWallMauiIcons.SetSegmentActive(_viewListBtn, _viewListIcon, browsing && _browseView == BrowseView.List, _blue, _muted, _card, _line);
-        VideoWallMauiIcons.SetSegmentActive(_viewCanvasBtn, _viewCanvasIcon, browsing && _browseView == BrowseView.Canvas, _blue, _muted, _card, _line);
-        var canvasChrome = browsing && _browseView == BrowseView.Canvas;
+        if (!IsPhoneBrowseOnly)
+            VideoWallMauiIcons.SetSegmentActive(_viewCanvasBtn, _viewCanvasIcon, browsing && _browseView == BrowseView.Canvas, _blue, _muted, _card, _line);
+        var canvasChrome = !IsPhoneBrowseOnly && browsing && _browseView == BrowseView.Canvas;
         _layoutDrop.IsVisible = canvasChrome;
         _carouselPanel.IsVisible = canvasChrome;
         _suppressCarouselToggle = true;
@@ -732,26 +812,29 @@ public sealed class VideoWallPanel : ContentView
 #if WINDOWS
         DetachAllTileSurfaces();
 #endif
-        await _service.SetLayoutAsync(layout);
+        await _service.SetLayoutAsync(layout).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (_mode != PanelMode.Wall)
             SetMode(PanelMode.Wall);
         else
             RebuildWallGrid();
-        await RefreshCanvasAsync();
+        await RefreshCanvasAsync().ConfigureAwait(false);
     }
 
     private async Task RecycleWallPlaybackAsync()
     {
+        await EnsureMainAsync().ConfigureAwait(false);
         _carouselTimer.Stop();
 #if WINDOWS
         DetachAllTileSurfaces();
 #endif
         if (_service is not null)
         {
-            try { await _service.StopAllTilesAsync(); }
+            try { await _service.StopAllTilesAsync().ConfigureAwait(false); }
             catch { /* ignore */ }
         }
 
+        await EnsureMainAsync().ConfigureAwait(false);
         _wallGrid.Children.Clear();
         _wallGrid.RowDefinitions.Clear();
         _wallGrid.ColumnDefinitions.Clear();
@@ -771,16 +854,25 @@ public sealed class VideoWallPanel : ContentView
     private async void OnCarouselTimerTick(object? sender, EventArgs e)
     {
         if (_service is null || _mode != PanelMode.Wall || !_service.CarouselEnabled) return;
-        await _service.AdvanceCarouselAsync();
-        await PresentCarouselPageAsync();
-        UpdateCarouselChrome();
+        try
+        {
+            await _service.AdvanceCarouselAsync().ConfigureAwait(false);
+            await PresentCarouselPageAsync().ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
+            UpdateCarouselChrome();
+        }
+        catch (Exception ex)
+        {
+            ReportLog($"视频墙轮播失败: {ex.Message}");
+        }
     }
 
     private async Task OnCarouselToggleChangedAsync()
     {
         if (_suppressCarouselToggle || _service is null || _mode != PanelMode.Wall) return;
-        await _service.SetCarouselEnabledAsync(_carouselToggle.IsChecked == true);
-        await PresentCarouselPageAsync();
+        await _service.SetCarouselEnabledAsync(_carouselToggle.IsChecked == true).ConfigureAwait(false);
+        await PresentCarouselPageAsync().ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         UpdateCarouselChrome();
         SyncCarouselTimer();
     }
@@ -789,12 +881,27 @@ public sealed class VideoWallPanel : ContentView
     private async Task RefreshCanvasAsync()
     {
         if (_service is null || _mode != PanelMode.Wall) return;
-        _service.SetCarouselSources(_rows.Select(r => r.Id).ToList());
-        await _service.ApplyCarouselPageAsync(autoStart: false);
-        RebuildWallGrid();
-        await PresentCarouselPageAsync();
-        UpdateCarouselChrome();
-        SyncCarouselTimer();
+        _wallBulkRefresh++;
+        try
+        {
+            _service.SetCarouselSources(_rows.Select(r => r.Id).ToList());
+            await _service.ApplyCarouselPageAsync(autoStart: false).ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
+            RebuildWallGrid();
+            await PresentCarouselPageAsync().ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
+            UpdateCarouselChrome();
+            SyncCarouselTimer();
+        }
+        finally
+        {
+            _wallBulkRefresh = Math.Max(0, _wallBulkRefresh - 1);
+            if (_wallBulkRefresh == 0 && _mode == PanelMode.Wall)
+            {
+                await EnsureMainAsync().ConfigureAwait(false);
+                RefreshWallOverlays();
+            }
+        }
     }
 
     private async Task PresentCarouselPageAsync()
@@ -802,13 +909,15 @@ public sealed class VideoWallPanel : ContentView
         if (_service is null) return;
         for (var i = 0; i < _service.Layout.TileCount; i++)
         {
+            await EnsureMainAsync().ConfigureAwait(false);
             PopulateTileCell(i, preserveOtherPlayers: true);
             var tile = i < _service.Tiles.Count ? _service.Tiles[i] : null;
             if (tile?.SourceId is null || !tile.HasPlayer) continue;
 #if WINDOWS
             if (OperatingSystem.IsWindows() && _tileSurfaces.TryGetValue(i, out var surface))
             {
-                var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+                var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(false);
+                await EnsureMainAsync().ConfigureAwait(false);
                 if (hwnd == IntPtr.Zero)
                 {
                     ReportLog($"视频墙格{i}: HWND 未就绪，跳过开播以免弹出独立窗口");
@@ -824,8 +933,9 @@ public sealed class VideoWallPanel : ContentView
                 tile.AttachFrameSink(frame);
             }
 
-            try { await _service.StartTileAsync(i); }
+            try { await _service.StartTileAsync(i).ConfigureAwait(false); }
             catch (Exception ex) { ReportLog($"视频墙格{i}开播失败: {ex.Message}"); }
+            await Task.Delay(100).ConfigureAwait(false);
         }
     }
 
@@ -912,9 +1022,10 @@ public sealed class VideoWallPanel : ContentView
     private async Task StepCarouselAsync(bool next)
     {
         if (_service is null || !CarouselNavAvailable) return;
-        if (next) await _service.AdvanceCarouselAsync();
-        else await _service.RetreatCarouselAsync();
-        await PresentCarouselPageAsync();
+        if (next) await _service.AdvanceCarouselAsync().ConfigureAwait(false);
+        else await _service.RetreatCarouselAsync().ConfigureAwait(false);
+        await PresentCarouselPageAsync().ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         UpdateCarouselChrome();
         SyncCarouselTimer();
     }
@@ -923,8 +1034,9 @@ public sealed class VideoWallPanel : ContentView
     {
         if (_service is null || !CarouselNavAvailable) return;
         if (page == _service.CarouselPage) return;
-        await _service.GoToCarouselPageAsync(page);
-        await PresentCarouselPageAsync();
+        await _service.GoToCarouselPageAsync(page).ConfigureAwait(false);
+        await PresentCarouselPageAsync().ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         UpdateCarouselChrome();
         SyncCarouselTimer();
     }
@@ -986,6 +1098,9 @@ public sealed class VideoWallPanel : ContentView
 #if WINDOWS
         _tileSurfaces.Clear();
 #endif
+        foreach (var s in _tileFrameSurfaces.Values)
+            s.Clear();
+        _tileFrameSurfaces.Clear();
 
         var layout = _service.Layout;
         for (var r = 0; r < layout.Rows; r++)
@@ -1050,8 +1165,9 @@ public sealed class VideoWallPanel : ContentView
         {
 #if WINDOWS
             // 单画面播放让位给墙格（同一源不要双播）
-            await _player.StopAsync();
+            await _player.StopAsync().ConfigureAwait(false);
 #endif
+            await EnsureMainAsync().ConfigureAwait(false);
             _browseView = BrowseView.Canvas;
             SetMode(PanelMode.Wall);
 
@@ -1119,6 +1235,11 @@ public sealed class VideoWallPanel : ContentView
             _tileSurfaces.Remove(index);
         }
 #endif
+        if (_tileFrameSurfaces.TryGetValue(index, out var oldFrame))
+        {
+            oldFrame.Clear();
+            _tileFrameSurfaces.Remove(index);
+        }
 
         _tileTitleBlocks.Remove(index);
         _tileStatusBlocks.Remove(index);
@@ -1166,7 +1287,9 @@ public sealed class VideoWallPanel : ContentView
         };
         restoreBtn.Clicked += async (_, _) =>
         {
-            await _service.FocusTileAsync(null);
+            if (_service is null) return;
+            await _service.FocusTileAsync(null).ConfigureAwait(false);
+            await EnsureMainAsync().ConfigureAwait(false);
             ApplyWallFocus();
         };
         _tileRestoreButtons[index] = restoreBtn;
@@ -1216,7 +1339,7 @@ public sealed class VideoWallPanel : ContentView
             body.Children.Add(surface);
             _tileSurfaces[index] = surface;
 #else
-            var frame = new VideoWallFrameSurface
+            var frame = new VideoWallFrameSurface(SoftFrameBudget.MaxFpsForWall(_service?.Layout.TileCount ?? 4))
             {
                 HorizontalOptions = LayoutOptions.Fill,
                 VerticalOptions = LayoutOptions.Fill
@@ -1227,7 +1350,7 @@ public sealed class VideoWallPanel : ContentView
         }
         else
         {
-            var frame = new VideoWallFrameSurface
+            var frame = new VideoWallFrameSurface(SoftFrameBudget.MaxFpsForWall(_service?.Layout.TileCount ?? 4))
             {
                 HorizontalOptions = LayoutOptions.Fill,
                 VerticalOptions = LayoutOptions.Fill
@@ -1319,7 +1442,7 @@ public sealed class VideoWallPanel : ContentView
                 var waitMs = (int)Math.Min(50, deadline - Environment.TickCount64);
                 if (waitMs <= 0)
                     break;
-                var completed = await Task.WhenAny(ready.Task, Task.Delay(waitMs)).ConfigureAwait(true);
+                var completed = await Task.WhenAny(ready.Task, Task.Delay(waitMs)).ConfigureAwait(false);
                 if (completed == ready.Task || surface.Hwnd != IntPtr.Zero)
                     break;
             }
@@ -1345,7 +1468,8 @@ public sealed class VideoWallPanel : ContentView
     private async Task RebindTileSurfaceAsync(int index, VideoWallHwndSurface surface)
     {
         if (_service is null) return;
-        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (hwnd == IntPtr.Zero)
         {
             ReportLog($"视频墙格{index}: HWND 未就绪，跳过绑定以免弹出独立窗口");
@@ -1361,12 +1485,14 @@ public sealed class VideoWallPanel : ContentView
     private async Task BindTileInPlaceAsync(int index, string sourceId)
     {
         if (_service is null) return;
-        await _service.BindTileAsync(index, sourceId, autoStart: false);
+        await _service.BindTileAsync(index, sourceId, autoStart: false).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         PopulateTileCell(index, preserveOtherPlayers: true);
 #if WINDOWS
         if (!_tileSurfaces.TryGetValue(index, out var surface))
             return;
-        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(true);
+        var hwnd = await WaitForSurfaceHwndAsync(surface).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (hwnd == IntPtr.Zero)
         {
             ReportLog($"视频墙格{index}: HWND 未就绪，跳过开播以免弹出独立窗口");
@@ -1376,7 +1502,8 @@ public sealed class VideoWallPanel : ContentView
         if (index < _service.Tiles.Count)
             _service.Tiles[index].SetRenderTarget(hwnd);
 #endif
-        await _service.StartTileAsync(index);
+        await _service.StartTileAsync(index).ConfigureAwait(false);
+        await EnsureMainAsync().ConfigureAwait(false);
         if (_tileTitleBlocks.TryGetValue(index, out var title))
             title.Text = ResolveTileTitle(index < _service.Tiles.Count ? _service.Tiles[index] : null);
         if (_tileStatusBlocks.TryGetValue(index, out var status))
@@ -1404,12 +1531,14 @@ public sealed class VideoWallPanel : ContentView
     {
         // 画布进单路：停墙与轮播，避免同路双开；返回时按轮播页重建
         if (_browseView == BrowseView.Canvas && _mode == PanelMode.Wall)
-            await RecycleWallPlaybackAsync();
+            await RecycleWallPlaybackAsync().ConfigureAwait(false);
 
+        await EnsureMainAsync().ConfigureAwait(false);
         SetMode(PanelMode.Playback);
         // 软件帧出画不依赖 HWND 布局；仍让出一帧以便播放页可见
         await Task.Yield();
-        await _player.PlayAsync(sourceId, ResolvePlaybackTitle(sourceId)).ConfigureAwait(true);
+        await EnsureMainAsync().ConfigureAwait(false);
+        await _player.PlayAsync(sourceId, ResolvePlaybackTitle(sourceId)).ConfigureAwait(false);
     }
 
     private string ResolvePlaybackTitle(string sourceId)
@@ -1463,6 +1592,20 @@ public sealed class VideoWallPanel : ContentView
         });
     }
 
+    private void OpenDlnaDialog()
+    {
+        if (_service is null)
+        {
+            ReportLog(Loc.T("Tool.VideoWall.BackendUnavailable"));
+            return;
+        }
+
+        _ = VideoWallDlnaPage.ShowAsync(_service, onSourcesChanged: () =>
+        {
+            MainThread.BeginInvokeOnMainThread(RefreshAll);
+        });
+    }
+
     private void OpenDialog(string? edit)
     {
         if (_service is null)
@@ -1486,33 +1629,77 @@ public sealed class VideoWallPanel : ContentView
 
     private bool _suppressHeaderSelect;
 
+    private void ToggleFilterPanel()
+    {
+        if (_filterPanel is null) return;
+        if (_filterExpanded) CollapseFilterPanel();
+        else ExpandFilterPanel();
+    }
+
+    private void ExpandFilterPanel()
+    {
+        if (_filterPanel is null || _filterExpanded) return;
+        _filterExpanded = true;
+        _filterPanel.IsVisible = true;
+        Dispatcher.Dispatch(() => _search.Focus());
+    }
+
+    private void CollapseFilterPanel()
+    {
+        if (_filterPanel is null || !_filterExpanded) return;
+        _filterExpanded = false;
+        _filterPanel.IsVisible = false;
+    }
+
+    private static void ApplyListColumns(Grid grid, bool phone)
+    {
+        grid.ColumnDefinitions.Clear();
+        if (phone)
+        {
+            // 勾选 | 名称* | 状态 | 播放+更多
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(40)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(44)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(72)));
+            return;
+        }
+
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(36)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(88)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(72)));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(108)));
+    }
+
     private View BuildListHeader()
     {
         ToolTipProperties.SetText(_headerSelectAll, Loc.T("Tool.VideoWall.SelectAllTip"));
+        var phone = IsPhoneBrowseOnly;
+        if (phone)
+            _headerSelectAll.Scale = 0.9;
         var hdr = new Grid
         {
-            Padding = new Thickness(12, 10),
+            Padding = new Thickness(phone ? 6 : 12, phone ? 8 : 10),
             BackgroundColor = Color.FromArgb(Application.Current?.RequestedTheme == AppTheme.Dark ? "#0F172A" : "#F3F4F6"),
-            ColumnDefinitions =
-            [
-                new ColumnDefinition(new GridLength(36)),
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(new GridLength(88)),
-                new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
-                new ColumnDefinition(new GridLength(72)),
-                new ColumnDefinition(new GridLength(108))
-            ],
-            ColumnSpacing = 8,
-            Children =
-            {
-                _headerSelectAll,
-                Header(Loc.T("Tool.VideoWall.ColName")).Also(v => Grid.SetColumn(v, 1)),
-                Header(Loc.T("Tool.VideoWall.ColKind")).Also(v => Grid.SetColumn(v, 2)),
-                Header(Loc.T("Tool.VideoWall.Field.Address")).Also(v => Grid.SetColumn(v, 3)),
-                Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 4)),
-                Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 5))
-            }
+            ColumnSpacing = phone ? 4 : 8
         };
+        ApplyListColumns(hdr, phone);
+        hdr.Children.Add(_headerSelectAll);
+        hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColName")).Also(v => Grid.SetColumn(v, 1)));
+        if (phone)
+        {
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 2)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 3)));
+        }
+        else
+        {
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColKind")).Also(v => Grid.SetColumn(v, 2)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.Field.Address")).Also(v => Grid.SetColumn(v, 3)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColStatus")).Also(v => Grid.SetColumn(v, 4)));
+            hdr.Children.Add(Header(Loc.T("Tool.VideoWall.ColActions")).Also(v => Grid.SetColumn(v, 5)));
+        }
+
         return hdr;
 
         Label Header(string t) => new()
@@ -1578,10 +1765,13 @@ public sealed class VideoWallPanel : ContentView
             l.VerticalTextAlignment = TextAlignment.Center;
         }
 
+        var phone = IsPhoneBrowseOnly;
         var check = new CheckBox
         {
             VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center
+            HorizontalOptions = LayoutOptions.Center,
+            Margin = phone ? new Thickness(0) : default,
+            Scale = phone ? 0.9 : 1
         };
         check.SetBinding(CheckBox.IsCheckedProperty, nameof(SourceRowVm.IsSelected));
         check.CheckedChanged += (_, _) =>
@@ -1608,6 +1798,7 @@ public sealed class VideoWallPanel : ContentView
         var play = VideoWallMauiIcons.CreateRowIconButton(
             VideoWallMauiIcons.Geo.Play, playGreen, Loc.T("Tool.VideoWall.Play"), _card, _line).Host;
         play.SetBinding(VisualElement.ClassIdProperty, nameof(SourceRowVm.Id));
+        if (phone) play.Margin = new Thickness(0, 0, 2, 0);
         VideoWallMauiIcons.WireClicked(play, (s, _) =>
         {
             if (s is Border { ClassId: { Length: > 0 } id })
@@ -1633,38 +1824,62 @@ public sealed class VideoWallPanel : ContentView
                 await DeleteOneAsync(id);
         });
 
+        View actions;
+        if (phone)
+        {
+            var more = VideoWallMauiIcons.CreateRowIconButton(
+                VideoWallMauiIcons.Geo.More, _muted, Loc.T("Tool.VideoWall.More"), _card, _line).Host;
+            more.Margin = 0;
+            more.SetBinding(VisualElement.ClassIdProperty, nameof(SourceRowVm.Id));
+            VideoWallMauiIcons.WireClicked(more, (s, _) =>
+            {
+                if (s is not Border { ClassId: { Length: > 0 } id } anchor)
+                    return;
+                ShowRowMoreMenu(anchor, id);
+            });
+            actions = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                VerticalOptions = LayoutOptions.Center,
+                Children = { play, more }
+            };
+        }
+        else
+        {
+            actions = new HorizontalStackLayout
+            {
+                Spacing = 0,
+                VerticalOptions = LayoutOptions.Center,
+                Children = { play, edit, del }
+            };
+        }
+
+        var grid = new Grid
+        {
+            MinimumHeightRequest = 44,
+            ColumnSpacing = phone ? 4 : 8
+        };
+        ApplyListColumns(grid, phone);
+        grid.Children.Add(check);
+        grid.Children.Add(name.Also(v => Grid.SetColumn(v, 1)));
+        if (phone)
+        {
+            grid.Children.Add(status.Also(v => Grid.SetColumn(v, 2)));
+            grid.Children.Add(actions.Also(v => Grid.SetColumn(v, 3)));
+        }
+        else
+        {
+            grid.Children.Add(kind.Also(v => Grid.SetColumn(v, 2)));
+            grid.Children.Add(addr.Also(v => Grid.SetColumn(v, 3)));
+            grid.Children.Add(status.Also(v => Grid.SetColumn(v, 4)));
+            grid.Children.Add(actions.Also(v => Grid.SetColumn(v, 5)));
+        }
+
         var row = new Border
         {
-            Padding = new Thickness(12, 10),
+            Padding = new Thickness(phone ? 6 : 12, phone ? 8 : 10),
             StrokeThickness = 0,
-            Content = new Grid
-            {
-                MinimumHeightRequest = 44,
-                ColumnDefinitions =
-                [
-                    new ColumnDefinition(new GridLength(36)),
-                    new ColumnDefinition(GridLength.Star),
-                    new ColumnDefinition(new GridLength(88)),
-                    new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(72)),
-                    new ColumnDefinition(new GridLength(108))
-                ],
-                ColumnSpacing = 8,
-                Children =
-                {
-                    check,
-                    name.Also(v => Grid.SetColumn(v, 1)),
-                    kind.Also(v => Grid.SetColumn(v, 2)),
-                    addr.Also(v => Grid.SetColumn(v, 3)),
-                    status.Also(v => Grid.SetColumn(v, 4)),
-                    new HorizontalStackLayout
-                    {
-                        Spacing = 0,
-                        VerticalOptions = LayoutOptions.Center,
-                        Children = { play, edit, del }
-                    }.Also(v => Grid.SetColumn(v, 5))
-                }
-            }
+            Content = grid
         };
 
         var dbl = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
@@ -1675,6 +1890,56 @@ public sealed class VideoWallPanel : ContentView
         };
         row.GestureRecognizers.Add(dbl);
         return row;
+    }
+
+    private void ShowRowMoreMenu(View anchor, string sourceId)
+    {
+        var menu = new VerticalStackLayout
+        {
+            Spacing = 0,
+            BackgroundColor = _card,
+            Padding = new Thickness(0, 4)
+        };
+        menu.Shadow = new Shadow
+        {
+            Brush = Colors.Black,
+            Offset = new Point(0, 2),
+            Radius = 8,
+            Opacity = 0.18f
+        };
+
+        View Item(string text, Color color, Action action)
+        {
+            var label = new Label
+            {
+                Text = text,
+                TextColor = color,
+                FontSize = 14,
+                Padding = new Thickness(14, 12)
+            };
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += (_, _) =>
+            {
+                _flyout.Close();
+                action();
+            };
+            label.GestureRecognizers.Add(tap);
+            return label;
+        }
+
+        menu.Children.Add(Item(Loc.T("Tool.VideoWall.Editing"), _blue, () => OpenDialog(sourceId)));
+        menu.Children.Add(Item(Loc.T("Tool.VideoWall.Delete"), _warn, () => _ = DeleteOneAsync(sourceId)));
+
+        var border = new Border
+        {
+            Stroke = _line,
+            StrokeThickness = 1,
+            BackgroundColor = _card,
+            Padding = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 8 },
+            Content = menu
+        };
+        _flyout.ShowAt(anchor, border, 148);
     }
 
     // prefer 步长：默认窗内容区约 3 列；缩放仍按宽算列数（非强制 3）

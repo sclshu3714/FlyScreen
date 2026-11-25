@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Tool.VideoWall.Contracts;
 using FlyScreen.Tool.VideoWall.Sources;
@@ -67,6 +68,8 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
             _values["bufferMs"] = buf.ToString();
         if (!string.IsNullOrWhiteSpace(src.Endpoint.Transport))
             _values["transport"] = src.Endpoint.Transport;
+        if (src.Endpoint.Headers.Count > 0)
+            _values["headers"] = SourceHeaderText.Format(src.Endpoint.Headers);
         if (credentials is not null && !string.IsNullOrWhiteSpace(src.Endpoint.CredentialRef))
         {
             var cred = credentials.Get(src.Endpoint.CredentialRef);
@@ -170,6 +173,7 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
                 SourceFieldKind.Select or SourceFieldKind.Radio => MakeSelect(field),
                 SourceFieldKind.Checkbox => MakeCheck(field),
                 SourceFieldKind.File => MakeFile(field),
+                SourceFieldKind.KeyValueList => MakeKeyValueList(field),
                 _ => MakeText(field, Keyboard.Default)
             };
             _fieldsHost.Children.Add(editor);
@@ -191,6 +195,21 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
         if (string.Equals(field.Key, "name", StringComparison.OrdinalIgnoreCase))
             _nameEntry = entry;
         return entry;
+    }
+
+    private Editor MakeKeyValueList(SourceFieldSpec field)
+    {
+        var editor = new Editor
+        {
+            FontSize = 13,
+            TextColor = _text,
+            BackgroundColor = _card,
+            AutoSize = EditorAutoSizeOption.TextChanges,
+            MinimumHeightRequest = 72,
+            Text = _values.GetValueOrDefault(field.Key) ?? ""
+        };
+        editor.TextChanged += (_, _) => _values[field.Key] = editor.Text;
+        return editor;
     }
 
     private View MakePassword(SourceFieldSpec field)
@@ -419,42 +438,80 @@ internal sealed class VideoWallSourceForm : VerticalStackLayout
     {
         try
         {
-            string? path = null;
-#if WINDOWS
-            // unpackaged / 管理员下 MAUI FilePicker 常失败，改走 Win32
-            path = await MainThread.InvokeOnMainThreadAsync(() =>
-                VideoWallWin32PathPicker.PickSingleFile(
-                    title: Loc.T("Tool.VideoWall.Field.FilePath")));
-#else
-            var result = await FilePicker.Default.PickAsync(new PickOptions
+            var title = Loc.T("Tool.VideoWall.Field.FilePath");
+            string? path;
+
+            // net10.0 旁路 DLL 无 WINDOWS 宏：Maui-Win 须运行时走 Win32，避免 FilePicker COMException
+            if (OperatingSystem.IsWindows())
             {
-                PickerTitle = Loc.T("Tool.VideoWall.Field.FilePath"),
-                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
-                {
-                    { DevicePlatform.Android, new[] { "video/*", "*/*" } },
-                    { DevicePlatform.iOS, new[] { "public.movie", "public.data" } },
-                    { DevicePlatform.MacCatalyst, new[] { "public.movie", "public.data" } }
-                })
-            });
-            if (result is null) return;
-            path = result.FullPath;
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                await using var stream = await result.OpenReadAsync();
-                path = Path.Combine(Path.GetTempPath(), result.FileName);
-                await using var fs = File.Create(path);
-                await stream.CopyToAsync(fs);
+                path = await MainThread.InvokeOnMainThreadAsync(() =>
+                    VideoWallWin32PathPicker.PickSingleFile(title: title));
             }
-#endif
+            else
+            {
+                // Android：自定义 MIME（尤其 "*/*"）会 PlatformNotSupportedException
+                FileResult? result;
+                try
+                {
+                    result = await FilePicker.Default.PickAsync(new PickOptions
+                    {
+                        PickerTitle = title,
+                        FileTypes = FilePickerFileType.Videos
+                    });
+                }
+                catch (PlatformNotSupportedException)
+                {
+                    result = await FilePicker.Default.PickAsync(new PickOptions { PickerTitle = title });
+                }
+                catch (COMException)
+                {
+                    result = await FilePicker.Default.PickAsync(new PickOptions { PickerTitle = title });
+                }
+
+                if (result is null) return;
+                path = await MaterializePickedFileAsync(result);
+            }
+
             if (string.IsNullOrWhiteSpace(path)) return;
             entry.Text = path;
             _values[key] = path;
             SuggestNameFromPath(path);
         }
-        catch
+        catch (Exception ex)
         {
-            // 平台不支持或取消时忽略
+            var detail = ex is COMException com
+                ? $"COM 0x{com.HResult:X8} {com.Message}"
+                : ex.ToString();
+            System.Diagnostics.Debug.WriteLine($"VideoWall PickFile: {detail}");
         }
+    }
+
+    /// <summary>Android content:// 等需拷到可 File.Exists 的本地路径。</summary>
+    private static async Task<string?> MaterializePickedFileAsync(FileResult file)
+    {
+        try
+        {
+            var full = file.FullPath;
+            if (!string.IsNullOrWhiteSpace(full)
+                && !full.StartsWith("content:", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(full))
+                return full;
+        }
+        catch { /* ignore */ }
+
+        var name = string.IsNullOrWhiteSpace(file.FileName)
+            ? Guid.NewGuid().ToString("N")
+            : Path.GetFileName(file.FileName);
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+
+        var dir = Path.Combine(FileSystem.CacheDirectory, "VideoWallPick", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var dest = Path.Combine(dir, name);
+        await using (var src = await file.OpenReadAsync())
+        await using (var dst = File.Create(dest))
+            await src.CopyToAsync(dst);
+        return File.Exists(dest) ? dest : null;
     }
 
     private void SuggestNameFromPath(string path)

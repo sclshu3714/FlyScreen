@@ -35,6 +35,10 @@ public static class WindowsDragPaths
     {
         Interlocked.Increment(ref _generation);
         Interlocked.Exchange(ref _prefetchQueued, 0);
+        // 松开后必须再 NoteButtonDown，否则 TryGet/Prefetch 一律失败。
+        // 穿边放下时会吞掉 LBUTTONUP，GetAsyncKeyState 可能仍报按下，
+        // 若此处不清空，回到本机再穿边会把仍选中的项当成新拖拽再次复制。
+        Volatile.Write(ref _buttonDownTick, 0);
         lock (Gate) _snapshot = [];
     }
 
@@ -43,6 +47,9 @@ public static class WindowsDragPaths
     /// </summary>
     public static void PrefetchIfNeeded()
     {
+        var downTick = Volatile.Read(ref _buttonDownTick);
+        if (downTick == 0) return;
+
         lock (Gate)
         {
             if (_snapshot.Length > 0) return;
@@ -53,9 +60,6 @@ public static class WindowsDragPaths
 
         var generation = Volatile.Read(ref _generation);
         var foreground = GetForegroundWindow();
-        var downTick = Volatile.Read(ref _buttonDownTick);
-        if (downTick == 0)
-            downTick = Environment.TickCount64;
 
         PostSta(() =>
         {
@@ -67,12 +71,15 @@ public static class WindowsDragPaths
 
                 if (generation != Volatile.Read(ref _generation))
                     return;
+                if (Volatile.Read(ref _buttonDownTick) == 0)
+                    return;
 
                 if (!IsShellFolder(foreground))
                     return;
 
                 if (TryReadShell(foreground, out var paths)
                     && generation == Volatile.Read(ref _generation)
+                    && Volatile.Read(ref _buttonDownTick) != 0
                     && paths.Length > 0)
                 {
                     lock (Gate) _snapshot = paths;
@@ -91,6 +98,13 @@ public static class WindowsDragPaths
 
     public static bool TryGet(out string[] paths)
     {
+        // 无当前按下会话：禁止读选中项 / 快照，避免松手后二次穿边误触发复制
+        if (Volatile.Read(ref _buttonDownTick) == 0)
+        {
+            paths = [];
+            return false;
+        }
+
         if (EdgeFileDragCapture.TryCopyPaths(out paths) && paths.Length > 0)
             return true;
 
@@ -105,17 +119,15 @@ public static class WindowsDragPaths
 
         // 拖影创建窗口内不要同步扫 Shell
         var downTick = Volatile.Read(ref _buttonDownTick);
-        if (downTick != 0)
+        var sinceDown = Environment.TickCount64 - downTick;
+        if (sinceDown < ShellReadDelayMs)
         {
-            var sinceDown = Environment.TickCount64 - downTick;
-            if (sinceDown < ShellReadDelayMs)
-            {
-                paths = [];
-                return false;
-            }
+            paths = [];
+            return false;
         }
 
-        if (OnSta(TryReadAnyShellSelectionCore, out paths) && paths.Length > 0)
+        if (OnSta(TryReadAnyShellSelectionCore, out paths) && paths.Length > 0
+            && Volatile.Read(ref _buttonDownTick) != 0)
         {
             lock (Gate) _snapshot = paths;
             return true;

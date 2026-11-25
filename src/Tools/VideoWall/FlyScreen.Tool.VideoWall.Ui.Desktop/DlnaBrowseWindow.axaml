@@ -1,0 +1,110 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FlyScreen.Tool.VideoWall.Ui.Desktop.DlnaBrowseWindow"
+        Width="860" Height="560" MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True" ShowInTaskbar="False"
+        Background="{DynamicResource WinBg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="{DynamicResource UiFont}"
+        FontSize="13">
+  <Grid Margin="16" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+    <Grid ColumnDefinitions="*,Auto">
+      <TextBlock x:Name="HdrTitle" FontWeight="SemiBold" VerticalAlignment="Center"
+                 Foreground="{DynamicResource Text}"/>
+      <Button x:Name="DiscoverBtn" Grid.Column="1" Classes="primary" Padding="10,4"
+              Click="DiscoverBtn_Click">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+            <Path Fill="White" Data="{StaticResource GeoRefresh}"/>
+          </Viewbox>
+          <TextBlock x:Name="DiscoverBtnText" VerticalAlignment="Center" Foreground="White"/>
+        </StackPanel>
+      </Button>
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="220,*" ColumnSpacing="8">
+      <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8"
+              Background="{DynamicResource ListBg}" ClipToBounds="True">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                  BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,8">
+            <TextBlock x:Name="HdrServers" FontWeight="SemiBold" FontSize="12"
+                       Foreground="{DynamicResource Muted}"/>
+          </Border>
+          <ListBox x:Name="ServerList" BorderThickness="0"
+                   Background="{DynamicResource ListBg}"
+                   Foreground="{DynamicResource Text}"
+                   SelectionChanged="ServerList_SelectionChanged">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:CompileBindings="False">
+                <StackPanel Margin="4,4">
+                  <TextBlock Text="{Binding FriendlyName}" TextTrimming="CharacterEllipsis"
+                             Foreground="{DynamicResource Text}"/>
+                  <TextBlock Text="{Binding HostHint}" FontSize="11" Margin="0,2,0,0"
+                             Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+
+      <Border Grid.Column="1" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+              CornerRadius="8" Background="{DynamicResource ListBg}" ClipToBounds="True">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Background="{DynamicResource SubtleBg}"
+                  BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,8">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+              <Button x:Name="UpBtn" Classes="normal" Padding="10,4" Click="UpBtn_Click"/>
+              <TextBlock x:Name="PathText" Grid.Column="1" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Muted}"/>
+              <Button x:Name="LoadMoreBtn" Grid.Column="2" Classes="normal" Padding="10,4"
+                      Click="LoadMoreBtn_Click"/>
+            </Grid>
+          </Border>
+          <DockPanel>
+            <Grid DockPanel.Dock="Top" Margin="8,6,8,4" ColumnDefinitions="40,*,72" ColumnSpacing="8">
+              <CheckBox x:Name="HeaderSelectAll" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        IsCheckedChanged="HeaderSelectAll_IsCheckedChanged"/>
+              <TextBlock x:Name="ColNameHdr" Grid.Column="1" FontWeight="SemiBold" FontSize="12"
+                         Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+              <TextBlock x:Name="ColKindHdr" Grid.Column="2" FontWeight="SemiBold" FontSize="12"
+                         Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+            </Grid>
+            <ListBox x:Name="NodeList" BorderThickness="0"
+                     Background="{DynamicResource ListBg}"
+                     Foreground="{DynamicResource Text}"
+                     DoubleTapped="NodeList_DoubleTapped">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:CompileBindings="False">
+                  <Grid ColumnDefinitions="40,*,72" ColumnSpacing="8" Margin="8,4">
+                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                              IsEnabled="{Binding CanSelect}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              IsCheckedChanged="RowCheck_IsCheckedChanged"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Text}"/>
+                    <TextBlock Grid.Column="2" Text="{Binding KindLabel}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Muted}"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+        </DockPanel>
+      </Border>
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <TextBlock x:Name="SelectedText" VerticalAlignment="Center"
+                 Foreground="{DynamicResource Muted}"/>
+      <TextBlock x:Name="StatusText" Grid.Column="1" VerticalAlignment="Center"
+                 Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+      <Button x:Name="AddSourcesBtn" Grid.Column="2" Classes="primary" Padding="12,6"
+              Click="AddSourcesBtn_Click"/>
+      <Button x:Name="CloseBtn" Grid.Column="3" Classes="normal" Padding="12,6"
+              Click="CloseBtn_Click"/>
+    </Grid>
+  </Grid>
+</Window>
