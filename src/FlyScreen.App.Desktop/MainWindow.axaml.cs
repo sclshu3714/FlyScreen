@@ -720,9 +720,14 @@ public partial class MainWindow : Window
                 toolsSub.Add(TrayItem(item.Label, () => LaunchTrayToolShortcut(toolId),
                     TrayToolsMenu.TryGetIconPng(item.IconKey)));
             }
-
-            toolsSub.Add(new NativeMenuItemSeparator());
         }
+        else
+        {
+            toolsSub.Add(new NativeMenuItem(TrayToolsMenu.EmptyLabel) { IsEnabled = false });
+        }
+
+        toolsRoot.Menu = toolsSub;
+        menu.Add(toolsRoot);
 
         var lockRoot = new NativeMenuItem($"{TrayMenuIcons.UniLock}  {TrayLockMenu.LockLabel}");
         var lockSub = new NativeMenu();
@@ -737,9 +742,7 @@ public partial class MainWindow : Window
             lockSub.Add(new NativeMenuItemSeparator());
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniLockAll}  {TrayLockMenu.AllLabel}", TrayLockAll));
         lockRoot.Menu = lockSub;
-        toolsSub.Add(lockRoot);
-        toolsRoot.Menu = toolsSub;
-        menu.Add(toolsRoot);
+        menu.Add(lockRoot);
 
         menu.Add(new NativeMenuItemSeparator());
         menu.Add(TrayItem($"{TrayMenuIcons.UniAbout}  {Loc.T("Tray.About")}", () =>

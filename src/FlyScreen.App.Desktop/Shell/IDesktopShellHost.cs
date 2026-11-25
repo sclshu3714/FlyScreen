@@ -34,7 +34,7 @@ public interface IDesktopShellHost
     /// <summary>托盘「切换机器」：跳到布局中的本机/对端；无穿边路由时返回 false。</summary>
     bool TrySwitchToMachine(string machineName) => false;
 
-    /// <summary>本机锁屏（托盘「工具→锁屏」/ 对端 LockScreen）。</summary>
+    /// <summary>本机锁屏（托盘主菜单「工具」下的「锁屏」/ 对端 LockScreen）。</summary>
     void LockLocalScreen() { }
 
     Task StartAsync();

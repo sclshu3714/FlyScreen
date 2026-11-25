@@ -11,10 +11,16 @@ internal readonly record struct MauiTraySubItem(
 {
     public bool IsSubmenu => Nested is { Count: > 0 };
 
+    /// <summary>不可点的占位文案（如工具菜单为空）。</summary>
+    public bool IsPlaceholder => Action == null && !IsSubmenu;
+
     public static MauiTraySubItem Click(string label, Action action, byte[]? iconPng = null, string? mdl2 = null)
         => new(label, action, iconPng, mdl2);
 
     public static MauiTraySubItem Submenu(string label, IReadOnlyList<MauiTraySubItem> nested, string? mdl2 = null)
         => new(label, null, null, mdl2, nested);
+
+    public static MauiTraySubItem Placeholder(string label)
+        => new(label, null);
 }
 #endif

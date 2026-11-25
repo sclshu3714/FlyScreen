@@ -4,7 +4,7 @@ using FlyScreen.Services.Network;
 
 namespace FlyScreen.Helpers;
 
-/// <summary>托盘「工具 → 锁屏」：布局内电脑（排除手机/平板）+「全部」。</summary>
+/// <summary>托盘主菜单「工具」下方的「锁屏」：布局内电脑（排除手机/平板）+「全部」。</summary>
 public static class TrayLockMenu
 {
     public static string LockLabel => Loc.T("Tray.Lock");

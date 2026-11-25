@@ -170,6 +170,7 @@ public sealed class TrayContextMenuWindow : Window
         stack.Children.Add(BuildSeparator());
         stack.Children.Add(BuildSwitchFlyoutItem());
         stack.Children.Add(BuildToolsFlyoutItem());
+        stack.Children.Add(BuildLockFlyoutItem());
         stack.Children.Add(BuildSeparator());
         stack.Children.Add(BuildItem(Loc.T("Tray.About"), _onAbout, TrayMenuIcons.Mdl2About));
         stack.Children.Add(BuildItem(Loc.T("Tray.Exit"), _onExit, TrayMenuIcons.Mdl2Exit));
@@ -299,6 +300,7 @@ public sealed class TrayContextMenuWindow : Window
         void OpenSwitch()
         {
             CloseToolsFlyout();
+            CloseLockFlyout();
             CancelSwitchClose();
             if (_switchPopup != null)
                 _switchPopup.IsOpen = true;
@@ -397,17 +399,12 @@ public sealed class TrayContextMenuWindow : Window
 
         var subStack = new StackPanel { Margin = new Thickness(4, 6, 4, 6) };
         if (_toolShortcuts.Count == 0)
-        {
-            // 无快捷工具时仍保留「锁屏」，不占位「暂无」
-        }
+            subStack.Children.Add(BuildMutedSubItem(TrayToolsMenu.EmptyLabel));
         else
         {
             foreach (var (label, action, icon) in _toolShortcuts)
                 subStack.Children.Add(BuildSubItem(label, action, forTools: true, icon: icon));
-            subStack.Children.Add(BuildSeparator());
         }
-
-        subStack.Children.Add(BuildLockNestedItem());
 
         var subCard = new Border
         {
@@ -448,6 +445,7 @@ public sealed class TrayContextMenuWindow : Window
         void OpenTools()
         {
             CloseSwitchFlyout();
+            CloseLockFlyout();
             CancelToolsClose();
             if (_toolsPopup != null)
                 _toolsPopup.IsOpen = true;
@@ -458,11 +456,7 @@ public sealed class TrayContextMenuWindow : Window
 
         row.MouseEnter += (_, _) => OpenTools();
         row.MouseLeave += (_, _) => ScheduleToolsClose();
-        subCard.MouseEnter += (_, _) =>
-        {
-            CancelToolsClose();
-            CancelLockClose();
-        };
+        subCard.MouseEnter += (_, _) => CancelToolsClose();
         subCard.MouseLeave += (_, _) => ScheduleToolsClose();
         row.MouseLeftButtonUp += (_, e) =>
         {
@@ -472,7 +466,30 @@ public sealed class TrayContextMenuWindow : Window
         return row;
     }
 
-    private FrameworkElement BuildLockNestedItem()
+    private static FrameworkElement BuildMutedSubItem(string label)
+    {
+        var text = new TextBlock
+        {
+            Text = label,
+            FontSize = 13,
+            FontFamily = new WpfFontFamily("Microsoft YaHei UI, Segoe UI"),
+            Foreground = new SolidColorBrush(WpfColor.FromRgb(0x6B, 0x7C, 0x8F)),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = WpfHAlign.Left
+        };
+        return new Border
+        {
+            Background = WpfBrushes.Transparent,
+            Padding = new Thickness(14, 0, 14, 0),
+            Height = 36,
+            Margin = new Thickness(4, 1, 4, 1),
+            IsHitTestVisible = false,
+            Child = text,
+            SnapsToDevicePixels = true
+        };
+    }
+
+    private FrameworkElement BuildLockFlyoutItem()
     {
         var hoverBg = new SolidColorBrush(WpfColor.FromRgb(0xE8, 0xF2, 0xFF));
         var hoverBorder = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xC3, 0xDE));
@@ -593,7 +610,8 @@ public sealed class TrayContextMenuWindow : Window
 
         void OpenLock()
         {
-            CancelToolsClose();
+            CloseSwitchFlyout();
+            CloseToolsFlyout();
             CancelLockClose();
             if (_lockPopup != null)
                 _lockPopup.IsOpen = true;
@@ -604,11 +622,7 @@ public sealed class TrayContextMenuWindow : Window
 
         row.MouseEnter += (_, _) => OpenLock();
         row.MouseLeave += (_, _) => ScheduleLockClose();
-        lockCard.MouseEnter += (_, _) =>
-        {
-            CancelLockClose();
-            CancelToolsClose();
-        };
+        lockCard.MouseEnter += (_, _) => CancelLockClose();
         lockCard.MouseLeave += (_, _) => ScheduleLockClose();
         row.MouseLeftButtonUp += (_, e) =>
         {
@@ -672,7 +686,6 @@ public sealed class TrayContextMenuWindow : Window
     private void CloseToolsFlyout()
     {
         CancelToolsClose();
-        CloseLockFlyout();
         if (_toolsPopup != null)
             _toolsPopup.IsOpen = false;
         if (_toolsParentRow != null)

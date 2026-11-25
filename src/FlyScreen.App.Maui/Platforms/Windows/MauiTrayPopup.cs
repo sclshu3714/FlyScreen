@@ -137,21 +137,32 @@ internal sealed class MauiTrayPopup : IDisposable
             foreach (var (label, action, icon) in toolShortcuts)
                 toolItems.Add(MauiTraySubItem.Click(label, action, icon));
         }
+        else
+        {
+            toolItems.Add(MauiTraySubItem.Placeholder(TrayToolsMenu.EmptyLabel));
+        }
 
-        var lockNested = new List<MauiTraySubItem>();
+        _submenus[toolsClickIndex] = new SubmenuSpec { Items = toolItems };
+
+        var lockClickIndex = CountClickable();
+        _rows.Add(new TrayRow
+        {
+            Label = TrayLockMenu.LockLabel,
+            IsSubmenu = true,
+            Mdl2Glyph = TrayMenuIcons.Mdl2Lock
+        });
+        var lockItems = new List<MauiTraySubItem>();
         if (lockMachines != null)
         {
             foreach (var (label, action) in lockMachines)
-                lockNested.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
+                lockItems.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
         }
 
-        lockNested.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
-        toolItems.Add(MauiTraySubItem.Submenu(TrayLockMenu.LockLabel, lockNested, TrayMenuIcons.Mdl2Lock));
-        // 有工具快捷时，锁屏前加分隔（SepBeforeLast 把最后一项「锁屏」前画线）
-        _submenus[toolsClickIndex] = new SubmenuSpec
+        lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
+        _submenus[lockClickIndex] = new SubmenuSpec
         {
-            Items = toolItems,
-            SepBeforeLast = toolItems.Count > 1
+            Items = lockItems,
+            SepBeforeLast = lockItems.Count > 1
         };
 
         _sepAfterClickIndex.Add(CountClickable() - 1);

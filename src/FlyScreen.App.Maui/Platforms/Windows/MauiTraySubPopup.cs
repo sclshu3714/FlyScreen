@@ -233,7 +233,7 @@ internal sealed class MauiTraySubPopup : IDisposable
             {
                 var item = _items[i];
                 var rect = _itemRects[i];
-                if (i == _hoverIndex)
+                if (i == _hoverIndex && !item.IsPlaceholder)
                 {
                     using var hoverPath = RoundedRect(rect.X, rect.Y, rect.Width, rect.Height, ItemCorner);
                     using var hb = new SolidBrush(HoverBg);
@@ -274,7 +274,7 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var rightReserve = item.IsSubmenu ? 18 : 0;
                 var textRect = new RectangleF(x, rect.Y,
                     Math.Max(8, rect.Right - ItemHPad - x - rightReserve), rect.Height);
-                g.DrawString(item.Label, font, textBrush, textRect, sf);
+                g.DrawString(item.Label, font, item.IsPlaceholder ? mutedBrush : textBrush, textRect, sf);
                 if (item.IsSubmenu)
                 {
                     var chevronRect = new RectangleF(rect.X + ItemHPad, rect.Y,
@@ -330,6 +330,8 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                 var scale = GetDpiScale();
                 var idx = HitTest((int)(x / scale), (int)(y / scale));
+                if (idx >= 0 && idx < _items.Count && _items[idx].IsPlaceholder)
+                    idx = -1;
                 if (idx != _hoverIndex)
                 {
                     _hoverIndex = idx;
