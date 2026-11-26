@@ -12,8 +12,21 @@ public static class TrayLockMenu
 {
     public static string LockLabel => Loc.T("Tray.Lock");
     public static string AllLabel => Loc.T("Tray.LockAll");
+    public static string TurnOffDisplayLabel => Loc.T("Tray.LockTurnOffDisplay");
     public static string UnlockAllLabel => Loc.T("Tray.UnlockAll");
     public static string ShutdownAllLabel => Loc.T("Tray.ShutdownAll");
+
+    /// <summary>读取本机「息屏」勾选（单机/全部锁屏共用）。</summary>
+    public static bool GetTurnOffDisplay(AppSettings settings)
+        => settings.LockTurnOffDisplay;
+
+    /// <summary>写入并持久化「息屏」勾选。</summary>
+    public static void SetTurnOffDisplay(AppSettings settings, bool value)
+    {
+        if (settings.LockTurnOffDisplay == value) return;
+        settings.LockTurnOffDisplay = value;
+        try { settings.Save(); } catch { /* ignore */ }
+    }
 
     /// <summary>布局槽位中可锁屏的电脑（空槽 / 手机 / 平板跳过）。</summary>
     public static IReadOnlyList<(string MachineName, string Label, bool IsLocal)> BuildItems(
@@ -39,33 +52,37 @@ public static class TrayLockMenu
     public static void LockMachine(
         ConnectionManager connections,
         string machineName,
-        Action lockLocal)
+        Action<bool> lockLocal,
+        bool turnOffDisplay)
     {
         if (string.IsNullOrWhiteSpace(machineName)) return;
         if (IsLocalMachine(machineName))
         {
-            try { lockLocal(); } catch { /* ignore */ }
+            try { lockLocal(turnOffDisplay); } catch { /* ignore */ }
             return;
         }
 
-        _ = connections.SendToAsync(machineName.Trim(), MessageType.LockScreen);
+        var payload = MessageCodec.JsonBytes(new LockScreenPayload { TurnOffDisplay = turnOffDisplay });
+        _ = connections.SendToAsync(machineName.Trim(), MessageType.LockScreen, payload);
     }
 
     /// <summary>锁定布局内全部可锁屏电脑（本机 + 已连接对端）。</summary>
     public static void LockAll(
         AppSettings settings,
         ConnectionManager connections,
-        Action lockLocal)
+        Action<bool> lockLocal,
+        bool turnOffDisplay)
     {
         foreach (var (name, _, isLocal) in BuildItems(settings, connections))
         {
             if (isLocal)
             {
-                try { lockLocal(); } catch { /* ignore */ }
+                try { lockLocal(turnOffDisplay); } catch { /* ignore */ }
                 continue;
             }
 
-            _ = connections.SendToAsync(name, MessageType.LockScreen);
+            var payload = MessageCodec.JsonBytes(new LockScreenPayload { TurnOffDisplay = turnOffDisplay });
+            _ = connections.SendToAsync(name, MessageType.LockScreen, payload);
         }
     }
 

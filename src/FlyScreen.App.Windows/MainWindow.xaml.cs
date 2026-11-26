@@ -450,7 +450,8 @@ public partial class MainWindow : Window
             {
                 var name = x.MachineName;
                 return (x.Label, (Action)(() =>
-                    TrayLockMenu.LockMachine(_host.Connections, name, WindowsScreenLock.TryLock)));
+                    TrayLockMenu.LockMachine(_host.Connections, name, WindowsScreenLock.TryLock,
+                        TrayLockMenu.GetTurnOffDisplay(s))));
             })
             .ToList();
         TrayContextMenuWindow.ShowNearCursor(
@@ -469,9 +470,12 @@ public partial class MainWindow : Window
             onToggleDisable: ToggleTraySwitchHotkeyDisable,
             toolShortcuts: tools,
             lockMachines: lockMachines,
-            onLockAll: () => TrayLockMenu.LockAll(s, _host.Connections, WindowsScreenLock.TryLock),
+            onLockAll: () => TrayLockMenu.LockAll(s, _host.Connections, WindowsScreenLock.TryLock,
+                TrayLockMenu.GetTurnOffDisplay(s)),
             onUnlockAll: TrayUnlockAll,
-            onShutdownAll: TrayShutdownAll);
+            onShutdownAll: TrayShutdownAll,
+            lockTurnOffDisplay: TrayLockMenu.GetTurnOffDisplay(s),
+            onLockTurnOffDisplayChanged: v => TrayLockMenu.SetTurnOffDisplay(s, v));
     }
 
     private void TrayUnlockAll()

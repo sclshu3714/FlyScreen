@@ -35,7 +35,7 @@ public interface IDesktopShellHost
     bool TrySwitchToMachine(string machineName) => false;
 
     /// <summary>本机锁屏（托盘主菜单「锁屏」/ 对端 LockScreen）。</summary>
-    void LockLocalScreen() { }
+    void LockLocalScreen(bool turnOffDisplay = false) { }
 
     /// <summary>本机解锁（托盘「全部解锁」/ 对端 UnlockScreen）。本机不参与全部解锁时可空实现。</summary>
     void UnlockLocalScreen(string password) { }

@@ -18,6 +18,10 @@ public static class WindowsScreenUnlock
         if (string.IsNullOrEmpty(password)) return;
         LockScreenSession.EnsureStarted();
 
+        // 息屏/DPMS：先微移唤醒显示器，再处理屏保与密码框
+        NudgeSecureDesktop(preferEscape: false);
+        Thread.Sleep(200);
+
         // 屏保态：任意键/微移即可退出；勿在此时打密码（会被屏保吃掉，只留下登录页）
         if (IsScreenSaverRunning())
         {

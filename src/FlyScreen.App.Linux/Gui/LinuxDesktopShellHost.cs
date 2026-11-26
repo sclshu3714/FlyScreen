@@ -84,7 +84,7 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
     public bool SupportsTray => true;
     public bool SupportsAutoStart => false;
 
-    public void LockLocalScreen() => LinuxScreenLock.TryLock();
+    public void LockLocalScreen(bool turnOffDisplay = false) => LinuxScreenLock.TryLock(turnOffDisplay);
 
     public void UnlockLocalScreen(string password) => LinuxScreenUnlock.TryUnlock(password);
 

@@ -90,7 +90,9 @@ internal sealed class MauiTrayPopup : IDisposable
         IReadOnlyList<(string Label, Action Action)>? lockMachines,
         Action onLockAll,
         Action onUnlockAll,
-        Action onShutdownAll)
+        Action onShutdownAll,
+        bool lockTurnOffDisplay,
+        Action<bool> onLockTurnOffDisplayChanged)
     {
         _projectPhase = projectPhase;
         _rows = [];
@@ -161,7 +163,13 @@ internal sealed class MauiTrayPopup : IDisposable
                 lockItems.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
         }
 
-        lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
+        lockItems.Add(MauiTraySubItem.ClickWithTrailingCheck(
+            TrayLockMenu.AllLabel,
+            onLockAll,
+            TrayLockMenu.TurnOffDisplayLabel,
+            lockTurnOffDisplay,
+            onLockTurnOffDisplayChanged,
+            mdl2: TrayMenuIcons.Mdl2LockAll));
         lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.UnlockAllLabel, onUnlockAll, mdl2: TrayMenuIcons.Mdl2UnlockAll));
         lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.ShutdownAllLabel, onShutdownAll, mdl2: TrayMenuIcons.Mdl2ShutdownAll));
         _submenus[lockClickIndex] = new SubmenuSpec
@@ -200,7 +208,9 @@ internal sealed class MauiTrayPopup : IDisposable
         IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
         Action? onLockAll = null,
         Action? onUnlockAll = null,
-        Action? onShutdownAll = null)
+        Action? onShutdownAll = null,
+        bool lockTurnOffDisplay = false,
+        Action<bool>? onLockTurnOffDisplayChanged = null)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
         var popup = new MauiTrayPopup(
@@ -212,7 +222,9 @@ internal sealed class MauiTrayPopup : IDisposable
             lockMachines,
             onLockAll ?? (() => { }),
             onUnlockAll ?? (() => { }),
-            onShutdownAll ?? (() => { }));
+            onShutdownAll ?? (() => { }),
+            lockTurnOffDisplay,
+            onLockTurnOffDisplayChanged ?? (_ => { }));
         _open = popup;
         popup.ShowAtCursor();
     }

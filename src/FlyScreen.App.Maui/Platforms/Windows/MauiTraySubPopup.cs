@@ -35,10 +35,14 @@ internal sealed class MauiTraySubPopup : IDisposable
     private static readonly Color Accent = Color.FromArgb(255, 0x25, 0x63, 0xEB);
     private static readonly Color Shadow = Color.FromArgb(70, 0x14, 0x23, 0x3A);
 
+    /// <summary>行内「息屏」复选区宽度（不参与加宽菜单，挤占左侧标签空间）。</summary>
+    private const int TrailingCheckReserve = 52;
+
     private readonly IReadOnlyList<MauiTraySubItem> _items;
     private readonly Action _onItemInvoked;
     private readonly Action? _onDismissRequested;
     private readonly Rectangle[] _itemRects;
+    private readonly bool[] _trailingChecked;
     private readonly int _sepBeforeTrailing;
     private readonly bool _showIcons;
 
@@ -83,6 +87,7 @@ internal sealed class MauiTraySubPopup : IDisposable
             : 0;
         _showIcons = items.Any(x => x.IconPng is { Length: > 0 } || !string.IsNullOrEmpty(x.Mdl2Glyph) || x.IsSubmenu);
         _itemRects = new Rectangle[items.Count];
+        _trailingChecked = items.Select(x => x.TrailingChecked).ToArray();
         Measure();
     }
 
@@ -275,7 +280,8 @@ internal sealed class MauiTraySubPopup : IDisposable
                     x += IconSize + IconGap;
                 }
 
-                var rightReserve = item.IsSubmenu ? 18 : 0;
+                var rightReserve = item.IsSubmenu ? 18
+                    : item.HasTrailingCheck ? TrailingCheckReserve : 0;
                 var textRect = new RectangleF(x, rect.Y,
                     Math.Max(8, rect.Right - ItemHPad - x - rightReserve), rect.Height);
                 g.DrawString(item.Label, font, item.IsPlaceholder ? mutedBrush : textBrush, textRect, sf);
@@ -284,6 +290,10 @@ internal sealed class MauiTraySubPopup : IDisposable
                     var chevronRect = new RectangleF(rect.X + ItemHPad, rect.Y,
                         Math.Max(8, rect.Width - ItemHPad * 2), rect.Height);
                     g.DrawString("\uE76C", iconFont, mutedBrush, chevronRect, sfRight);
+                }
+                else if (item.HasTrailingCheck)
+                {
+                    DrawTrailingCheck(g, font, iconFont, mutedBrush, textBrush, rect, i, item.TrailingCheckLabel!);
                 }
             }
         }
@@ -366,12 +376,23 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var x = (short)(lParam.ToInt64() & 0xFFFF);
                 var y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                 var scale = GetDpiScale();
-                var idx = HitTest((int)(x / scale), (int)(y / scale));
+                var lx = (int)(x / scale);
+                var ly = (int)(y / scale);
+                var idx = HitTest(lx, ly);
                 if (idx >= 0 && idx < _items.Count)
                 {
                     if (_items[idx].IsSubmenu)
                     {
                         OpenNested(idx, scale);
+                        return IntPtr.Zero;
+                    }
+
+                    if (_items[idx].HasTrailingCheck && HitTrailingCheck(idx, lx))
+                    {
+                        _trailingChecked[idx] = !_trailingChecked[idx];
+                        try { _items[idx].TrailingCheckChanged!(_trailingChecked[idx]); }
+                        catch { /* ignore */ }
+                        Render(scale);
                         return IntPtr.Zero;
                     }
 
@@ -411,6 +432,56 @@ internal sealed class MauiTraySubPopup : IDisposable
         }
 
         return DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+
+    private bool HitTrailingCheck(int index, int x)
+    {
+        if (index < 0 || index >= _itemRects.Length) return false;
+        var rect = _itemRects[index];
+        return x >= rect.Right - ItemHPad - TrailingCheckReserve;
+    }
+
+    private void DrawTrailingCheck(
+        Graphics g,
+        Font font,
+        Font iconFont,
+        SolidBrush mutedBrush,
+        SolidBrush textBrush,
+        Rectangle rect,
+        int index,
+        string label)
+    {
+        var zone = new Rectangle(
+            rect.Right - ItemHPad - TrailingCheckReserve,
+            rect.Y,
+            TrailingCheckReserve,
+            rect.Height);
+        var box = 12;
+        var bx = zone.X;
+        var by = zone.Y + (zone.Height - box) / 2;
+        using (var pen = new Pen(Color.FromArgb(255, 0x6B, 0x7C, 0x8F), 1.2f))
+            g.DrawRectangle(pen, bx, by, box, box);
+        if (_trailingChecked[index])
+        {
+            // MDL2 CheckMark
+            g.DrawString("\uE73E", iconFont, textBrush,
+                new RectangleF(bx - 1, rect.Y, box + 4, rect.Height),
+                new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center,
+                    FormatFlags = StringFormatFlags.NoWrap
+                });
+        }
+
+        var labelRect = new RectangleF(bx + box + 3, rect.Y,
+            Math.Max(4, zone.Right - (bx + box + 3)), rect.Height);
+        g.DrawString(label, font, mutedBrush, labelRect, new StringFormat
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        });
     }
 
     private int HitTest(int x, int y)

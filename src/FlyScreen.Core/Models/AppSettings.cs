@@ -74,6 +74,10 @@ public sealed class AppSettings
     /// 开启后允许对端在本机登录界面继续键鼠注入。
     /// </summary>
     public bool LockScreenInputHelper { get; set; }
+    /// <summary>
+    /// 托盘锁屏时是否同时息屏（本机偏好，不参与 BehaviorSync；单机/全部锁屏共用）。
+    /// </summary>
+    public bool LockTurnOffDisplay { get; set; }
     /// <summary>启动时静默检查更新（GitHub，失败改用 Gitee）。</summary>
     public bool CheckUpdatesOnStartup { get; set; } = true;
     /// <summary>界面主题：Light / Dark / Custom（可扩展注册）。</summary>

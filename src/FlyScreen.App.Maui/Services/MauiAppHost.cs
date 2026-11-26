@@ -1041,8 +1041,21 @@ public sealed class MauiAppHost : IAsyncDisposable
                 break;
             }
             case MessageType.LockScreen:
-                LockLocalScreen();
+            {
+                var turnOff = false;
+                if (msg.Payload is { Length: > 0 })
+                {
+                    try
+                    {
+                        var lockPayload = MessageCodec.DecodeJson<LockScreenPayload>(msg.Payload);
+                        turnOff = lockPayload?.TurnOffDisplay == true;
+                    }
+                    catch { /* 旧端空/非法载荷 */ }
+                }
+
+                LockLocalScreen(turnOff);
                 break;
+            }
             case MessageType.UnlockScreen:
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
@@ -1058,10 +1071,10 @@ public sealed class MauiAppHost : IAsyncDisposable
     }
 
     /// <summary>本机锁屏（托盘 / 对端 LockScreen）。非桌面端空操作。</summary>
-    public void LockLocalScreen()
+    public void LockLocalScreen(bool turnOffDisplay = false)
     {
 #if WINDOWS
-        FlyScreen.Helpers.WindowsScreenLock.TryLock();
+        FlyScreen.Helpers.WindowsScreenLock.TryLock(turnOffDisplay);
 #endif
     }
 

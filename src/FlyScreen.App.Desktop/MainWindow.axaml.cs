@@ -742,6 +742,15 @@ public partial class MainWindow : Window
         if (lockSub.Items.Count > 0)
             lockSub.Add(new NativeMenuItemSeparator());
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniLockAll}  {TrayLockMenu.AllLabel}", TrayLockAll));
+        // 系统原生菜单无法在同一行嵌复选框；单独可勾选项，语义与 Win/Maui 行内「息屏」一致
+        var turnOffItem = new NativeMenuItem(TrayLockMenu.TurnOffDisplayLabel)
+        {
+            ToggleType = NativeMenuItemToggleType.CheckBox,
+            IsChecked = TrayLockMenu.GetTurnOffDisplay(_host.Settings)
+        };
+        turnOffItem.Click += (_, _) =>
+            TrayLockMenu.SetTurnOffDisplay(_host.Settings, turnOffItem.IsChecked == true);
+        lockSub.Add(turnOffItem);
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniUnlockAll}  {TrayLockMenu.UnlockAllLabel}", TrayUnlockAll));
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniShutdownAll}  {TrayLockMenu.ShutdownAllLabel}", TrayShutdownAll));
         lockRoot.Menu = lockSub;
@@ -759,10 +768,18 @@ public partial class MainWindow : Window
     }
 
     private void TrayLockMachine(string machineName)
-        => TrayLockMenu.LockMachine(_host.Connections, machineName, () => _host.LockLocalScreen());
+        => TrayLockMenu.LockMachine(
+            _host.Connections,
+            machineName,
+            turnOff => _host.LockLocalScreen(turnOff),
+            TrayLockMenu.GetTurnOffDisplay(_host.Settings));
 
     private void TrayLockAll()
-        => TrayLockMenu.LockAll(_host.Settings, _host.Connections, () => _host.LockLocalScreen());
+        => TrayLockMenu.LockAll(
+            _host.Settings,
+            _host.Connections,
+            turnOff => _host.LockLocalScreen(turnOff),
+            TrayLockMenu.GetTurnOffDisplay(_host.Settings));
 
     private void TrayUnlockAll() => _ = TrayUnlockAllAsync();
 

@@ -432,8 +432,21 @@ public sealed class MacAppHost : IAsyncDisposable
                 break;
             }
             case MessageType.LockScreen:
-                MacScreenLock.TryLock();
+            {
+                var turnOff = false;
+                if (msg.Payload is { Length: > 0 })
+                {
+                    try
+                    {
+                        var lockPayload = MessageCodec.DecodeJson<LockScreenPayload>(msg.Payload);
+                        turnOff = lockPayload?.TurnOffDisplay == true;
+                    }
+                    catch { /* 旧端空/非法载荷 */ }
+                }
+
+                MacScreenLock.TryLock(turnOff);
                 break;
+            }
             case MessageType.UnlockScreen:
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);

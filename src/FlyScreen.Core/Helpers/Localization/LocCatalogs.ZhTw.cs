@@ -596,6 +596,7 @@ internal static partial class LocCatalogs
             ("Tray.ToolsEmpty", "暫無快捷工具"),
             ("Tray.Lock", "鎖屏"),
             ("Tray.LockAll", "全部鎖屏"),
+            ("Tray.LockTurnOffDisplay", "息屏"),
             ("Tray.UnlockAll", "全部解鎖"),
             ("Tray.ShutdownAll", "全部關機"),
             ("Tray.UnlockPasswords.Title", "解鎖密碼"),

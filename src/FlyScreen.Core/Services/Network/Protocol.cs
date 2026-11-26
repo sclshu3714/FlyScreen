@@ -666,6 +666,12 @@ public sealed class CursorOwnerPayload
     public string OwnerMachine { get; set; } = "";
 }
 
+/// <summary>请对端锁屏；可选同时息屏。旧端无 Payload / 忽略未知字段。</summary>
+public sealed class LockScreenPayload
+{
+    public bool TurnOffDisplay { get; set; }
+}
+
 /// <summary>请对端在登录/锁屏界面注入密码并回车解锁。</summary>
 public sealed class UnlockScreenPayload
 {

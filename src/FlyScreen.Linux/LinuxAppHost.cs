@@ -419,8 +419,21 @@ public sealed class LinuxAppHost : IAsyncDisposable
                 break;
             }
             case MessageType.LockScreen:
-                LinuxScreenLock.TryLock();
+            {
+                var turnOff = false;
+                if (msg.Payload is { Length: > 0 })
+                {
+                    try
+                    {
+                        var lockPayload = MessageCodec.DecodeJson<LockScreenPayload>(msg.Payload);
+                        turnOff = lockPayload?.TurnOffDisplay == true;
+                    }
+                    catch { /* 旧端空/非法载荷 */ }
+                }
+
+                LinuxScreenLock.TryLock(turnOff);
                 break;
+            }
             case MessageType.UnlockScreen:
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);

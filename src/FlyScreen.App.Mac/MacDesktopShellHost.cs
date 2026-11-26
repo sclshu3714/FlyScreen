@@ -91,7 +91,7 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
     public bool TrySwitchToMachine(string machineName)
         => _host.WindowsEdge?.TrySwitchToMachine(machineName) == true;
 
-    public void LockLocalScreen() => MacScreenLock.TryLock();
+    public void LockLocalScreen(bool turnOffDisplay = false) => MacScreenLock.TryLock(turnOffDisplay);
 
     public void UnlockLocalScreen(string password) => MacScreenUnlock.TryUnlock(password);
 
