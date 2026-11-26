@@ -47,8 +47,6 @@ public sealed class SecurePasswordBox : Border
         MinHeight = 36;
         Height = 36;
         Padding = new Thickness(10, 0, 4, 0);
-        Background = ResolveBrush("ControlBg", Brushes.White);
-        BorderBrush = ResolveBrush("ControlBorder", new SolidColorBrush(Color.Parse("#D1D5DB")));
 
         _box = new TextBox
         {
@@ -57,8 +55,7 @@ public sealed class SecurePasswordBox : Border
             Background = Brushes.Transparent,
             Padding = new Thickness(0),
             VerticalContentAlignment = VerticalAlignment.Center,
-            MinHeight = 28,
-            Foreground = ResolveBrush("Text", Brushes.Black)
+            MinHeight = 28
         };
         _box.TextChanged += (_, _) =>
         {
@@ -78,8 +75,7 @@ public sealed class SecurePasswordBox : Border
             Width = 16,
             Height = 16,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Fill = ResolveBrush("Muted", new SolidColorBrush(Color.Parse("#6B7280")))
+            VerticalAlignment = VerticalAlignment.Center
         };
         // 不用 Button：避免宿主全局 Button MinWidth/主题铬吞样式
         _eyeHost = new Border
@@ -126,6 +122,18 @@ public sealed class SecurePasswordBox : Border
             if (!_box.IsFocused)
                 BorderBrush = ResolveBrush("ControlBorder", new SolidColorBrush(Color.Parse("#D1D5DB")));
         };
+
+        ApplyThemeFromResources();
+        AttachedToVisualTree += (_, _) => ApplyThemeFromResources();
+    }
+
+    /// <summary>挂到已注入弹窗色板的父窗后再刷，避免构造时吃到应用级深色 ControlBg。</summary>
+    public void ApplyThemeFromResources()
+    {
+        Background = ResolveBrush("ControlBg", Brushes.White);
+        BorderBrush = ResolveBrush("ControlBorder", new SolidColorBrush(Color.Parse("#D1D5DB")));
+        _box.Foreground = ResolveBrush("Text", Brushes.Black);
+        _eyePath.Fill = ResolveBrush("Muted", new SolidColorBrush(Color.Parse("#6B7280")));
     }
 
     public event EventHandler? PasswordChanged;

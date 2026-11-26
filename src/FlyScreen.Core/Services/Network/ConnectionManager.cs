@@ -1626,8 +1626,10 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         var p = MessageCodec.DecodeJson<ScreenLockStatePayload>(msg.Payload);
         if (p == null) return;
-        var name = string.IsNullOrWhiteSpace(p.MachineName) ? peerName : p.MachineName.Trim();
-        _peerScreenLocked[name] = p.Locked;
+        // 会话名与载荷 MachineName 都记一份，避免布局槽位名与对端自报名不一致时「仍锁屏」误判
+        _peerScreenLocked[peerName.Trim()] = p.Locked;
+        if (!string.IsNullOrWhiteSpace(p.MachineName))
+            _peerScreenLocked[p.MachineName.Trim()] = p.Locked;
     }
 
     private void ApplyPeerInfoUpdate(string peerName, NetMessage msg)

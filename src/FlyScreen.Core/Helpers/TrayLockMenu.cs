@@ -10,19 +10,39 @@ namespace FlyScreen.Helpers;
 /// </summary>
 public static class TrayLockMenu
 {
+    private static readonly SemaphoreSlim UnlockAllGate = new(1, 1);
+
     public static string LockLabel => Loc.T("Tray.Lock");
     public static string AllLabel => Loc.T("Tray.LockAll");
     public static string TurnOffDisplayLabel => Loc.T("Tray.LockTurnOffDisplay");
     public static string UnlockAllLabel => Loc.T("Tray.UnlockAll");
     public static string ShutdownAllLabel => Loc.T("Tray.ShutdownAll");
 
-    /// <summary>读取本机「息屏」勾选（单机/全部锁屏共用）。</summary>
+    /// <summary>
+    /// 托盘是否展示「息屏」勾选。暂隐藏：息屏后本机/远程唤醒与解锁问题过多。
+    /// 协议字段与锁屏实现仍保留，改为 <c>true</c> 即可恢复 UI。
+    /// </summary>
+    public static bool TurnOffDisplayUiEnabled { get; } = false;
+
+    /// <summary>读取本机「息屏」勾选（单机/全部锁屏共用）。UI 关闭时恒为 false。</summary>
     public static bool GetTurnOffDisplay(AppSettings settings)
-        => settings.LockTurnOffDisplay;
+    {
+        if (!TurnOffDisplayUiEnabled)
+        {
+            // 清除历史勾选，避免隐藏后仍按旧配置息屏
+            if (settings.LockTurnOffDisplay)
+                SetTurnOffDisplay(settings, false);
+            return false;
+        }
+
+        return settings.LockTurnOffDisplay;
+    }
 
     /// <summary>写入并持久化「息屏」勾选。</summary>
     public static void SetTurnOffDisplay(AppSettings settings, bool value)
     {
+        if (!TurnOffDisplayUiEnabled)
+            value = false;
         if (settings.LockTurnOffDisplay == value) return;
         settings.LockTurnOffDisplay = value;
         try { settings.Save(); } catch { /* ignore */ }
@@ -185,8 +205,11 @@ public static class TrayLockMenu
         try { store.Save(); } catch { /* ignore */ }
     }
 
-    /// <summary>解锁结果观察等待（屏保退出 + 登录动画）。</summary>
-    public static int UnlockSettleDelayMs { get; set; } = 3200;
+    /// <summary>解锁结果观察最长等待（屏保退出 + 欢迎页 + 密码注入 + 登录动画）。</summary>
+    public static int UnlockSettleDelayMs { get; set; } = 12000;
+
+    /// <summary>轮询对端锁屏状态间隔。</summary>
+    public static int UnlockPollIntervalMs { get; set; } = 400;
 
     /// <summary>
     /// 同步全部解锁（适合 WPF ShowDialog）。本机不参与；已解锁对端不发解锁。
@@ -214,7 +237,7 @@ public static class TrayLockMenu
     }
 
     /// <summary>
-    /// 全部解锁：缺密码先维护；发送后等待，仍锁屏则清错密并再弹维护表重试一次。
+    /// 全部解锁：缺密码先维护；发送后轮询等待，仍锁屏则清错密并再弹维护表重试一次。
     /// </summary>
     public static async Task UnlockAllWithRetryAsync(
         AppSettings settings,
@@ -223,39 +246,74 @@ public static class TrayLockMenu
         Func<IReadOnlyList<(string MachineName, string Label)>, Task<IReadOnlyDictionary<string, string>?>> promptMissingPasswords,
         CancellationToken ct = default)
     {
-        PrepareUnlockAll(settings, connections, store, out var items, out var passwords, out var missing);
-        if (items.Count == 0 && missing.Count == 0) return;
+        // 托盘连点会并行进此方法 → 多弹窗 + 重复注入密码（对端表现为密码错误）
+        if (!await UnlockAllGate.WaitAsync(0, ct).ConfigureAwait(true))
+            return;
 
-        if (missing.Count > 0)
+        try
         {
-            var filled = await promptMissingPasswords(missing).ConfigureAwait(true);
-            if (filled == null) return;
-            ApplyMissingPasswords(store, passwords, filled);
+            PrepareUnlockAll(settings, connections, store, out var items, out var passwords, out var missing);
+            if (items.Count == 0 && missing.Count == 0) return;
+
+            if (missing.Count > 0)
+            {
+                var filled = await promptMissingPasswords(missing).ConfigureAwait(true);
+                if (filled == null) return;
+                ApplyMissingPasswords(store, passwords, filled);
+            }
+
+            if (items.Count == 0) return;
+
+            var pending = items.ToList();
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+                ExecuteUnlock(pending, passwords, connections);
+
+                var still = await WaitStillLockedAsync(pending, connections, UnlockSettleDelayMs, ct)
+                    .ConfigureAwait(true);
+                if (still.Count == 0) return;
+                if (attempt >= 1) return;
+
+                ClearStoredPasswords(store, passwords, still.Select(x => x.MachineName));
+                var filled = await promptMissingPasswords(still).ConfigureAwait(true);
+                if (filled == null) return;
+                ApplyMissingPasswords(store, passwords, filled);
+
+                pending = items
+                    .Where(x => still.Any(s => s.MachineName.Equals(x.MachineName, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                if (pending.Count == 0) return;
+            }
         }
+        finally
+        {
+            UnlockAllGate.Release();
+        }
+    }
 
-        if (items.Count == 0) return;
-
-        var pending = items.ToList();
-        for (var attempt = 0; attempt < 2; attempt++)
+    /// <summary>轮询直至全部解锁或超时；超时返回仍锁屏的机器。</summary>
+    private static async Task<IReadOnlyList<(string MachineName, string Label)>> WaitStillLockedAsync(
+        IReadOnlyList<(string MachineName, string Label, bool IsLocal)> pending,
+        ConnectionManager connections,
+        int timeoutMs,
+        CancellationToken ct)
+    {
+        var until = Environment.TickCount64 + Math.Max(1000, timeoutMs);
+        var poll = Math.Clamp(UnlockPollIntervalMs, 100, 2000);
+        IReadOnlyList<(string MachineName, string Label)> still = CollectStillLocked(pending, connections);
+        while (Environment.TickCount64 < until)
         {
             ct.ThrowIfCancellationRequested();
-            ExecuteUnlock(pending, passwords, connections);
-            await Task.Delay(UnlockSettleDelayMs, ct).ConfigureAwait(true);
-
-            var still = CollectStillLocked(pending, connections);
-            if (still.Count == 0) return;
-            if (attempt >= 1) return;
-
-            ClearStoredPasswords(store, passwords, still.Select(x => x.MachineName));
-            var filled = await promptMissingPasswords(still).ConfigureAwait(true);
-            if (filled == null) return;
-            ApplyMissingPasswords(store, passwords, filled);
-
-            pending = items
-                .Where(x => still.Any(s => s.MachineName.Equals(x.MachineName, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-            if (pending.Count == 0) return;
+            still = CollectStillLocked(pending, connections);
+            if (still.Count == 0)
+                return still;
+            var remain = (int)Math.Min(poll, until - Environment.TickCount64);
+            if (remain <= 0) break;
+            await Task.Delay(remain, ct).ConfigureAwait(true);
         }
+
+        return CollectStillLocked(pending, connections);
     }
 
     /// <summary>布局内全部可关机电脑（本机 + 已连接对端）。</summary>

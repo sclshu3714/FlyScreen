@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using FlyScreen.LockInput;
 using FlyScreen.Native;
 
 namespace FlyScreen.Helpers;
@@ -12,6 +13,7 @@ public static class WindowsScreenLock
 
     public static void TryLock(bool turnOffDisplay = false)
     {
+        LockScreenSession.EnsureStarted();
         try { NativeMethods.LockWorkStation(); }
         catch { /* ignore */ }
 
@@ -19,7 +21,8 @@ public static class WindowsScreenLock
         try
         {
             // 等 SessionLock / 安全桌面就绪后再灭屏，避免关屏抢在锁屏之前
-            Thread.Sleep(350);
+            WaitUntilLocked(timeoutMs: 3000);
+            Thread.Sleep(200);
             TryTurnOffDisplay();
         }
         catch { /* ignore */ }
@@ -27,8 +30,26 @@ public static class WindowsScreenLock
 
     public static void TryTurnOffDisplay()
     {
-        // lParam=2：关闭显示器；键鼠输入可唤醒
+        // lParam=2：关闭显示器；键鼠输入或 TryWakeDisplay 可唤醒
         SendMessage(HwndBroadcast, WmSysCommand, (IntPtr)ScMonitorPower, (IntPtr)2);
+    }
+
+    /// <summary>强制点亮显示器（息屏锁定后远程解锁前置步骤）。</summary>
+    public static void TryWakeDisplay()
+    {
+        // lParam=-1：打开显示器
+        SendMessage(HwndBroadcast, WmSysCommand, (IntPtr)ScMonitorPower, (IntPtr)(-1));
+    }
+
+    private static void WaitUntilLocked(int timeoutMs)
+    {
+        var until = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < until)
+        {
+            LockScreenSession.SyncFromOs();
+            if (LockScreenSession.IsLocked) return;
+            Thread.Sleep(50);
+        }
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]

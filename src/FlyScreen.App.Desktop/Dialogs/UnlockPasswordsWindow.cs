@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Ui.Avalonia;
 
@@ -10,6 +11,8 @@ namespace FlyScreen.DesktopUi.Dialogs;
 /// <summary>缺解锁密码时的设备/密码小窗（独立 Show，不挂主窗 Owner）。</summary>
 public sealed class UnlockPasswordsWindow : Window
 {
+    private static int _promptOpen;
+
     private readonly Dictionary<string, SecurePasswordBox> _boxes = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyDictionary<string, string>? Result { get; private set; }
@@ -26,7 +29,10 @@ public sealed class UnlockPasswordsWindow : Window
         ShowInTaskbar = true;
         Topmost = true;
         SystemDecorations = SystemDecorations.Full;
-        Background = new SolidColorBrush(Color.FromRgb(0xF7, 0xF9, 0xFC));
+
+        DesktopThemeService.ApplyToChildWindow(this);
+        var textBrush = BrushOr("Text", Brushes.Black);
+        var mutedBrush = BrushOr("Muted", new SolidColorBrush(Color.Parse("#6B7280")));
 
         var root = new StackPanel { Margin = new Thickness(14) };
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
@@ -38,12 +44,14 @@ public sealed class UnlockPasswordsWindow : Window
         {
             Text = Loc.T("Tray.UnlockPasswords.Device"),
             FontWeight = FontWeight.SemiBold,
+            Foreground = mutedBrush,
             Margin = new Thickness(0, 0, 8, 6)
         };
         var headPass = new TextBlock
         {
             Text = Loc.T("Tray.UnlockPasswords.Password"),
             FontWeight = FontWeight.SemiBold,
+            Foreground = mutedBrush,
             Margin = new Thickness(0, 0, 0, 6)
         };
         Grid.SetColumn(headDevice, 0);
@@ -60,6 +68,7 @@ public sealed class UnlockPasswordsWindow : Window
             var device = new TextBlock
             {
                 Text = label,
+                Foreground = textBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 6),
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -128,8 +137,21 @@ public sealed class UnlockPasswordsWindow : Window
         root.Children.Add(buttons);
         Content = root;
 
-        if (_boxes.Count > 0)
-            Opened += (_, _) => _boxes.Values.First().Focus();
+        Opened += (_, _) =>
+        {
+            DesktopThemeService.ApplyToChildWindow(this);
+            foreach (var box in _boxes.Values)
+                box.ApplyThemeFromResources();
+            if (_boxes.Count > 0)
+                _boxes.Values.First().Focus();
+        };
+    }
+
+    private IBrush BrushOr(string key, IBrush fallback)
+    {
+        if (this.TryGetResource(key, ActualThemeVariant, out var value) && value is IBrush brush)
+            return brush;
+        return fallback;
     }
 
     public static Task<IReadOnlyDictionary<string, string>?> PromptAsync(
@@ -140,6 +162,9 @@ public sealed class UnlockPasswordsWindow : Window
         if (machines.Count == 0)
             return Task.FromResult<IReadOnlyDictionary<string, string>?>(new Dictionary<string, string>());
 
+        if (Interlocked.CompareExchange(ref _promptOpen, 1, 0) != 0)
+            return Task.FromResult<IReadOnlyDictionary<string, string>?>(null);
+
         var tcs = new TaskCompletionSource<IReadOnlyDictionary<string, string>?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var dlg = new UnlockPasswordsWindow(machines);
@@ -148,6 +173,7 @@ public sealed class UnlockPasswordsWindow : Window
 
         dlg.Closed += (_, _) =>
         {
+            Interlocked.Exchange(ref _promptOpen, 0);
             try
             {
                 if (keepHidden && appMain is { IsVisible: true })
@@ -157,7 +183,16 @@ public sealed class UnlockPasswordsWindow : Window
 
             tcs.TrySetResult(dlg.Result);
         };
-        dlg.Show();
+        try
+        {
+            dlg.Show();
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _promptOpen, 0);
+            throw;
+        }
+
         return tcs.Task;
     }
 }

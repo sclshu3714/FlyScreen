@@ -11,7 +11,19 @@ public static class LinuxScreenUnlock
     {
         if (string.IsNullOrEmpty(password)) return;
         LinuxLockScreenSession.EnsureStarted();
+
+        LinuxScreenLock.TryWakeDisplay();
+        Thread.Sleep(400);
+
+        if (!LinuxLockScreenSession.IsLocked)
+        {
+            var until = Environment.TickCount64 + 3000;
+            while (Environment.TickCount64 < until && !LinuxLockScreenSession.IsLocked)
+                Thread.Sleep(50);
+        }
+
         if (!LinuxLockScreenSession.IsLocked) return;
+
         // 先唤醒锁屏 UI，再注入密码（一次完成）
         LinuxLockScreenInputBridge.TryKey(0x20, down: true, extended: false);
         LinuxLockScreenInputBridge.TryKey(0x20, down: false, extended: false);

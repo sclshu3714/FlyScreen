@@ -163,13 +163,21 @@ internal sealed class MauiTrayPopup : IDisposable
                 lockItems.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
         }
 
-        lockItems.Add(MauiTraySubItem.ClickWithTrailingCheck(
-            TrayLockMenu.AllLabel,
-            onLockAll,
-            TrayLockMenu.TurnOffDisplayLabel,
-            lockTurnOffDisplay,
-            onLockTurnOffDisplayChanged,
-            mdl2: TrayMenuIcons.Mdl2LockAll));
+        if (TrayLockMenu.TurnOffDisplayUiEnabled)
+        {
+            lockItems.Add(MauiTraySubItem.ClickWithTrailingCheck(
+                TrayLockMenu.AllLabel,
+                onLockAll,
+                TrayLockMenu.TurnOffDisplayLabel,
+                lockTurnOffDisplay,
+                onLockTurnOffDisplayChanged,
+                mdl2: TrayMenuIcons.Mdl2LockAll));
+        }
+        else
+        {
+            lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
+        }
+
         lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.UnlockAllLabel, onUnlockAll, mdl2: TrayMenuIcons.Mdl2UnlockAll));
         lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.ShutdownAllLabel, onShutdownAll, mdl2: TrayMenuIcons.Mdl2ShutdownAll));
         _submenus[lockClickIndex] = new SubmenuSpec

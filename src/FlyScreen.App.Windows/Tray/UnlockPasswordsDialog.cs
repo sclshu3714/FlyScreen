@@ -5,9 +5,13 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Ui.Theme.Wpf;
 using FlyScreen.Ui.Wpf;
+using WpfBrush = System.Windows.Media.Brush;
+using WpfBrushes = System.Windows.Media.Brushes;
 using WpfButton = System.Windows.Controls.Button;
 using WpfColor = System.Windows.Media.Color;
+using WpfFontFamily = System.Windows.Media.FontFamily;
 using WpfOrientation = System.Windows.Controls.Orientation;
 
 namespace FlyScreen.Tray;
@@ -17,6 +21,8 @@ namespace FlyScreen.Tray;
 /// </summary>
 public sealed class UnlockPasswordsDialog : Window
 {
+    private static int _promptOpen;
+
     private readonly Dictionary<string, SecurePasswordBox> _boxes = new(StringComparer.OrdinalIgnoreCase);
     private bool _accepted;
 
@@ -24,7 +30,7 @@ public sealed class UnlockPasswordsDialog : Window
 
     public UnlockPasswordsDialog(IReadOnlyList<(string MachineName, string Label)> machines)
     {
-        // 切断与主窗主题/模板的关联
+        // 切断与主窗主题/模板的关联（避免托盘主窗铬），颜色走弹窗实心色板
         Style = null;
         OverridesDefaultStyle = false;
 
@@ -40,7 +46,12 @@ public sealed class UnlockPasswordsDialog : Window
         Topmost = true;
         WindowStyle = WindowStyle.ToolWindow; // 无最大/最小化；系统标题栏，无主窗「投影」
         AllowsTransparency = false;
-        Background = new SolidColorBrush(WpfColor.FromRgb(0xF7, 0xF9, 0xFC));
+        FontFamily = new WpfFontFamily("Microsoft YaHei UI, Segoe UI");
+        FontSize = 13;
+
+        WpfDialogTheme.ApplyTo(this);
+        var textBrush = BrushOr("Text", WpfBrushes.Black);
+        var mutedBrush = BrushOr("Muted", new SolidColorBrush(WpfColor.FromRgb(0x6B, 0x72, 0x80)));
 
         var root = new StackPanel { Margin = new Thickness(14) };
 
@@ -53,12 +64,14 @@ public sealed class UnlockPasswordsDialog : Window
         {
             Text = Loc.T("Tray.UnlockPasswords.Device"),
             FontWeight = FontWeights.SemiBold,
+            Foreground = mutedBrush,
             Margin = new Thickness(0, 0, 8, 6)
         };
         var headPass = new TextBlock
         {
             Text = Loc.T("Tray.UnlockPasswords.Password"),
             FontWeight = FontWeights.SemiBold,
+            Foreground = mutedBrush,
             Margin = new Thickness(0, 0, 0, 6)
         };
         Grid.SetColumn(headDevice, 0);
@@ -75,6 +88,7 @@ public sealed class UnlockPasswordsDialog : Window
             var device = new TextBlock
             {
                 Text = label,
+                Foreground = textBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 6),
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -121,6 +135,8 @@ public sealed class UnlockPasswordsDialog : Window
             Height = 28,
             IsCancel = true
         };
+        ApplyButtonStyle(ok, "DlgPrimaryBtn");
+        ApplyButtonStyle(cancel, "DlgNormalBtn");
         ok.Click += (_, _) =>
         {
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -152,8 +168,23 @@ public sealed class UnlockPasswordsDialog : Window
             StripMinMaxButtons();
             CenterOnScreen();
         };
-        if (_boxes.Count > 0)
-            Loaded += (_, _) => _boxes.Values.First().Focus();
+        Loaded += (_, _) =>
+        {
+            WpfDialogTheme.ApplyTo(this);
+            foreach (var box in _boxes.Values)
+                box.ApplyThemeFromResources();
+            if (_boxes.Count > 0)
+                _boxes.Values.First().FocusInput();
+        };
+    }
+
+    private WpfBrush BrushOr(string key, WpfBrush fallback)
+        => TryFindResource(key) as WpfBrush ?? fallback;
+
+    private void ApplyButtonStyle(WpfButton button, string key)
+    {
+        if (TryFindResource(key) is Style style)
+            button.Style = style;
     }
 
     private void StripMinMaxButtons()
@@ -222,6 +253,10 @@ public sealed class UnlockPasswordsDialog : Window
         if (machines.Count == 0)
             return new Dictionary<string, string>();
 
+        // 禁止多开：连点托盘会叠多个密码窗，确认后重复注入导致对端「密码错误」
+        if (Interlocked.CompareExchange(ref _promptOpen, 1, 0) != 0)
+            return null;
+
         var app = Application.Current;
         var realMain = app?.MainWindow;
         var mainWasVisible = realMain?.IsVisible == true;
@@ -254,6 +289,7 @@ public sealed class UnlockPasswordsDialog : Window
         }
         finally
         {
+            Interlocked.Exchange(ref _promptOpen, 0);
             if (app != null && realMain != null)
             {
                 try

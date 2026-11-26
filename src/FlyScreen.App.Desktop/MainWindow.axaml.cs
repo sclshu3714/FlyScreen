@@ -742,15 +742,19 @@ public partial class MainWindow : Window
         if (lockSub.Items.Count > 0)
             lockSub.Add(new NativeMenuItemSeparator());
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniLockAll}  {TrayLockMenu.AllLabel}", TrayLockAll));
-        // 系统原生菜单无法在同一行嵌复选框；单独可勾选项，语义与 Win/Maui 行内「息屏」一致
-        var turnOffItem = new NativeMenuItem(TrayLockMenu.TurnOffDisplayLabel)
+        // 息屏 UI 暂隐藏（TurnOffDisplayUiEnabled）；恢复时在此加可勾选项
+        if (TrayLockMenu.TurnOffDisplayUiEnabled)
         {
-            ToggleType = NativeMenuItemToggleType.CheckBox,
-            IsChecked = TrayLockMenu.GetTurnOffDisplay(_host.Settings)
-        };
-        turnOffItem.Click += (_, _) =>
-            TrayLockMenu.SetTurnOffDisplay(_host.Settings, turnOffItem.IsChecked == true);
-        lockSub.Add(turnOffItem);
+            var turnOffItem = new NativeMenuItem(TrayLockMenu.TurnOffDisplayLabel)
+            {
+                ToggleType = NativeMenuItemToggleType.CheckBox,
+                IsChecked = TrayLockMenu.GetTurnOffDisplay(_host.Settings)
+            };
+            turnOffItem.Click += (_, _) =>
+                TrayLockMenu.SetTurnOffDisplay(_host.Settings, turnOffItem.IsChecked == true);
+            lockSub.Add(turnOffItem);
+        }
+
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniUnlockAll}  {TrayLockMenu.UnlockAllLabel}", TrayUnlockAll));
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniShutdownAll}  {TrayLockMenu.ShutdownAllLabel}", TrayShutdownAll));
         lockRoot.Menu = lockSub;

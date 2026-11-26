@@ -1,19 +1,30 @@
+using FlyScreen.AppMaui.Helpers;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Ui.Maui;
+using FlyScreen.Ui.Theme;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
 /// <summary>Maui-Win：独立小窗录入解锁密码（禁止 PushModal 嵌进主窗；无投影按钮 / 无最大最小化）。</summary>
 public static class MauiUnlockPasswordsPrompt
 {
+    private static int _promptOpen;
+
     public static async Task<IReadOnlyDictionary<string, string>?> PromptAsync(
         IReadOnlyList<(string MachineName, string Label)> machines)
     {
         if (machines.Count == 0)
             return new Dictionary<string, string>();
 
+        if (Interlocked.CompareExchange(ref _promptOpen, 1, 0) != 0)
+            return null;
+
         var app = Application.Current;
-        if (app == null) return null;
+        if (app == null)
+        {
+            Interlocked.Exchange(ref _promptOpen, 0);
+            return null;
+        }
 
         var tcs = new TaskCompletionSource<IReadOnlyDictionary<string, string>?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -43,6 +54,7 @@ public static class MauiUnlockPasswordsPrompt
         }
         finally
         {
+            Interlocked.Exchange(ref _promptOpen, 0);
             try { app.CloseWindow(window); }
             catch { /* ignore */ }
         }
@@ -142,7 +154,13 @@ public static class MauiUnlockPasswordsPrompt
             Action<IReadOnlyDictionary<string, string>?> complete)
         {
             Title = Loc.T("Tray.UnlockPasswords.Title");
-            BackgroundColor = Color.FromRgb(0xF7, 0xF9, 0xFC);
+            MauiThemeService.ApplyToDialog(this);
+
+            var colors = ThemePalette.ForDialog(MauiThemeService.Current, maui: true);
+            var text = Color.FromArgb(colors.Text);
+            var muted = Color.FromArgb(colors.Muted);
+            var line = Color.FromArgb(colors.ControlBorder);
+            var controlBg = Color.FromArgb(colors.ControlBg);
 
             var grid = new Grid
             {
@@ -161,12 +179,14 @@ public static class MauiUnlockPasswordsPrompt
             {
                 Text = Loc.T("Tray.UnlockPasswords.Device"),
                 FontAttributes = FontAttributes.Bold,
+                TextColor = muted,
                 VerticalOptions = LayoutOptions.Center
             }, 0, 0);
             grid.Add(new Label
             {
                 Text = Loc.T("Tray.UnlockPasswords.Password"),
                 FontAttributes = FontAttributes.Bold,
+                TextColor = muted,
                 VerticalOptions = LayoutOptions.Center
             }, 1, 0);
 
@@ -178,6 +198,7 @@ public static class MauiUnlockPasswordsPrompt
                 grid.Add(new Label
                 {
                     Text = label,
+                    TextColor = text,
                     VerticalOptions = LayoutOptions.Center,
                     LineBreakMode = LineBreakMode.TailTruncation,
                     MaxLines = 1
@@ -191,6 +212,7 @@ public static class MauiUnlockPasswordsPrompt
                     HeightRequest = 40,
                     WidthRequest = 200
                 };
+                entry.ApplyTheme(text, muted, line, controlBg);
                 _entries[name] = entry;
                 grid.Add(entry, 1, row);
             }
@@ -207,6 +229,13 @@ public static class MauiUnlockPasswordsPrompt
                 WidthRequest = 88,
                 HeightRequest = 36
             };
+            if (Application.Current?.Resources.TryGetValue("DlgPrimaryBtn", out var primary) == true
+                && primary is Style primaryStyle)
+                ok.Style = primaryStyle;
+            if (Application.Current?.Resources.TryGetValue("DlgNormalBtn", out var normal) == true
+                && normal is Style normalStyle)
+                cancel.Style = normalStyle;
+
             ok.Clicked += (_, _) =>
             {
                 var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -238,6 +267,13 @@ public static class MauiUnlockPasswordsPrompt
                         Children = { ok, cancel }
                     }
                 }
+            };
+
+            Appearing += (_, _) =>
+            {
+                MauiThemeService.ApplyToDialog(this);
+                foreach (var entry in _entries.Values)
+                    entry.ApplyTheme(text, muted, line, controlBg);
             };
         }
     }

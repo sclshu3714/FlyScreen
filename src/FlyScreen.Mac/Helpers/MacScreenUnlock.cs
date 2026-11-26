@@ -11,7 +11,19 @@ public static class MacScreenUnlock
     {
         if (string.IsNullOrEmpty(password)) return;
         MacLockScreenSession.EnsureStarted();
+
+        MacScreenLock.TryWakeDisplay();
+        Thread.Sleep(400);
+
+        if (!MacLockScreenSession.IsLocked)
+        {
+            var until = Environment.TickCount64 + 3000;
+            while (Environment.TickCount64 < until && !MacLockScreenSession.IsLocked)
+                Thread.Sleep(50);
+        }
+
         if (!MacLockScreenSession.IsLocked) return;
+
         // 先唤醒锁屏 UI，再注入密码（一次完成）
         MacLockScreenInputBridge.TryKey(0x20, down: true, extended: false);
         MacLockScreenInputBridge.TryKey(0x20, down: false, extended: false);

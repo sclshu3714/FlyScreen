@@ -586,7 +586,11 @@ public sealed class TrayContextMenuWindow : Window
             lockStack.Children.Add(BuildSubItem(label, action, forTools: true, mdl2Glyph: TrayMenuIcons.Mdl2Computer));
         if (_lockMachines.Count > 0)
             lockStack.Children.Add(BuildSeparator());
-        lockStack.Children.Add(BuildLockAllWithTurnOffRow());
+        if (TrayLockMenu.TurnOffDisplayUiEnabled)
+            lockStack.Children.Add(BuildLockAllWithTurnOffRow());
+        else
+            lockStack.Children.Add(BuildSubItem(TrayLockMenu.AllLabel, _onLockAll, forTools: true,
+                mdl2Glyph: TrayMenuIcons.Mdl2LockAll));
         lockStack.Children.Add(BuildSubItem(TrayLockMenu.UnlockAllLabel, _onUnlockAll, forTools: true,
             mdl2Glyph: TrayMenuIcons.Mdl2UnlockAll));
         lockStack.Children.Add(BuildSubItem(TrayLockMenu.ShutdownAllLabel, _onShutdownAll, forTools: true,

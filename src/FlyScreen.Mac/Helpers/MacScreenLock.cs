@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using FlyScreen.Mac.LockInput;
 
 namespace FlyScreen.Mac.Helpers;
 
@@ -7,6 +8,7 @@ public static class MacScreenLock
 {
     public static void TryLock(bool turnOffDisplay = false)
     {
+        MacLockScreenSession.EnsureStarted();
         try
         {
             var cg = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession";
@@ -36,7 +38,8 @@ public static class MacScreenLock
         if (!turnOffDisplay) return;
         try
         {
-            Thread.Sleep(350);
+            WaitUntilLocked(timeoutMs: 3000);
+            Thread.Sleep(200);
             TryTurnOffDisplay();
         }
         catch { /* ignore */ }
@@ -55,5 +58,33 @@ public static class MacScreenLock
             });
         }
         catch { /* ignore */ }
+    }
+
+    /// <summary>唤醒显示器（息屏后远程解锁前置）。</summary>
+    public static void TryWakeDisplay()
+    {
+        try
+        {
+            // caffeinate -u 模拟用户活动以唤醒显示
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = "/usr/bin/caffeinate",
+                Arguments = "-u -t 2",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        catch { /* ignore */ }
+    }
+
+    private static void WaitUntilLocked(int timeoutMs)
+    {
+        var until = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < until)
+        {
+            try { MacLockScreenSession.EnsureStarted(); } catch { /* ignore */ }
+            if (MacLockScreenSession.IsLocked) return;
+            Thread.Sleep(50);
+        }
     }
 }
