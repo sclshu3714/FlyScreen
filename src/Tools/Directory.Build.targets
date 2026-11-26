@@ -1,0 +1,51 @@
+<!--
+  Tools 工程生成/重新生成后增量组包 .flytool → artifacts/flytools。
+  App 宿主构建不组包，只复制（见 build/FlyScreen.BundleFlyTools.targets）。
+
+  右键解决方案「Tools」或 ColorPicker / SharedDevices 等子文件夹 → 生成/重新生成
+  会编译对应工程并触发本组包。
+-->
+<Project>
+  <PropertyGroup>
+    <_FsToolsRepoRoot>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..'))</_FsToolsRepoRoot>
+    <_FsPackFlyToolsScript>$([MSBuild]::NormalizePath('$(_FsToolsRepoRoot)', 'build', 'Pack-FlyTools.ps1'))</_FsPackFlyToolsScript>
+    <_FsToolsProjectDirNorm>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_FsToolsProjectDirNorm>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/ColorPicker/')) Or $(_FsToolsProjectDirNorm.EndsWith('/ColorPicker'))">
+    <_FsFlyToolId>color-picker</_FsFlyToolId>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/SharedDevices/')) Or $(_FsToolsProjectDirNorm.EndsWith('/SharedDevices'))">
+    <_FsFlyToolId>shared-devices</_FsFlyToolId>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/PortProxy/')) Or $(_FsToolsProjectDirNorm.EndsWith('/PortProxy'))">
+    <_FsFlyToolId>port-proxy</_FsFlyToolId>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/VideoWall/')) Or $(_FsToolsProjectDirNorm.EndsWith('/VideoWall'))">
+    <_FsFlyToolId>video-wall</_FsFlyToolId>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/DeveloperTools/')) Or $(_FsToolsProjectDirNorm.EndsWith('/DeveloperTools'))">
+    <_FsFlyToolId>developer-tools</_FsFlyToolId>
+  </PropertyGroup>
+
+  <!--
+    仅模块入口工程触发组包（FlyScreen.Tool.Xxx，不含 .Ui.*），避免同文件夹多 Ui 工程重复跑 Pack。
+    Pack 使用 -SkipBuild：编译已由本次 VS/MSBuild 完成。
+  -->
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('FlyScreen.Tool.')) And !$(MSBuildProjectName.Contains('.Ui.'))">
+    <_FsIsFlyToolModule>true</_FsIsFlyToolModule>
+  </PropertyGroup>
+
+  <Target Name="FlyScreen_PackFlyToolAfterBuild"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true'
+                     And '$(FlyScreenSkipToolPackOnBuild)' != 'true'
+                     And '$(_FsIsFlyToolModule)' == 'true'
+                     And '$(_FsFlyToolId)' != ''
+                     And Exists('$(_FsPackFlyToolsScript)')">
+    <Message Importance="High"
+             Text="Tools 构建完成 → 组包 $(_FsFlyToolId).flytool（SkipBuild，Configuration=$(Configuration)）" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_FsPackFlyToolsScript)&quot; -Configuration &quot;$(Configuration)&quot; -SkipAppCopy -SkipBuild -ToolIds &quot;$(_FsFlyToolId)&quot;"
+          IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+</Project>

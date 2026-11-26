@@ -717,7 +717,9 @@ public sealed class AppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
                 if (p == null || string.IsNullOrEmpty(p.Password)) break;
-                WindowsScreenUnlock.TryUnlock(p.Password);
+                // 屏保退出 + 唤醒登录页含等待，勿堵消息泵
+                var password = p.Password;
+                _ = Task.Run(() => WindowsScreenUnlock.TryUnlock(password));
                 break;
             }
             case MessageType.ShutdownComputer:

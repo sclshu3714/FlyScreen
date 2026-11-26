@@ -1047,7 +1047,8 @@ public sealed class MauiAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
                 if (p == null || string.IsNullOrEmpty(p.Password)) break;
-                UnlockLocalScreen(p.Password);
+                var password = p.Password;
+                _ = Task.Run(() => UnlockLocalScreen(password));
                 break;
             }
             case MessageType.ShutdownComputer:

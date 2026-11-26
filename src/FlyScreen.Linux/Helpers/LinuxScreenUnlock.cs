@@ -12,6 +12,10 @@ public static class LinuxScreenUnlock
         if (string.IsNullOrEmpty(password)) return;
         LinuxLockScreenSession.EnsureStarted();
         if (!LinuxLockScreenSession.IsLocked) return;
+        // 先唤醒锁屏 UI，再注入密码（一次完成）
+        LinuxLockScreenInputBridge.TryKey(0x20, down: true, extended: false);
+        LinuxLockScreenInputBridge.TryKey(0x20, down: false, extended: false);
+        Thread.Sleep(300);
         if (!LinuxLockScreenInputBridge.TryInsertText(password)) return;
         Thread.Sleep(80);
         LinuxLockScreenInputBridge.TryKey(VkReturn, down: true, extended: false);

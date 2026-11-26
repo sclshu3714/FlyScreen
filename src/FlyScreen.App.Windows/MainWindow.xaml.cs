@@ -476,20 +476,26 @@ public partial class MainWindow : Window
 
     private void TrayUnlockAll()
     {
-        // 托盘菜单刚 Close：下一帧再弹，避免 Owner 仍是 Hidden / 与托盘 Deactivated 抢焦点导致窗体不出现
-        Dispatcher.BeginInvoke(new Action(() =>
+        // 托盘菜单刚 Close：下一帧再跑，避免与托盘 Deactivated 抢焦点
+        Dispatcher.BeginInvoke(new Action(() => _ = TrayUnlockAllAsync()),
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
+
+    private async Task TrayUnlockAllAsync()
+    {
+        try
         {
-            TrayLockMenu.UnlockAll(
+            await TrayLockMenu.UnlockAllWithRetryAsync(
                 _host.Settings,
                 _host.Connections,
                 MachineUnlockCredentialStore.Shared,
-                missing => UnlockPasswordsDialog.Prompt(missing, ResolveDialogOwner()));
-        }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                missing => Task.FromResult(UnlockPasswordsDialog.Prompt(missing))).ConfigureAwait(true);
+        }
+        catch
+        {
+            // ignore
+        }
     }
-
-    /// <summary>主窗隐藏到托盘时不能做 Owner，否则 ShowDialog 会失败并被托盘 catch 吞掉。</summary>
-    private Window? ResolveDialogOwner()
-        => IsVisible && IsLoaded ? this : null;
 
     private void TrayShutdownAll()
         => TrayLockMenu.ShutdownAll(_host.Settings, _host.Connections, WindowsScreenShutdown.TryShutdown);

@@ -263,21 +263,18 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
 
     private async Task TrayUnlockAllAsync()
     {
-        var store = MachineUnlockCredentialStore.Shared;
-        TrayLockMenu.PrepareUnlockAll(
-            _settings, _connections, store,
-            out var items, out var passwords, out var missing);
-        if (items.Count == 0 && missing.Count == 0) return;
-
-        if (missing.Count > 0)
+        try
         {
-            var filled = await MauiUnlockPasswordsPrompt.PromptAsync(missing).ConfigureAwait(true);
-            if (filled == null) return;
-            TrayLockMenu.ApplyMissingPasswords(store, passwords, filled);
+            await TrayLockMenu.UnlockAllWithRetryAsync(
+                _settings,
+                _connections,
+                MachineUnlockCredentialStore.Shared,
+                MauiUnlockPasswordsPrompt.PromptAsync).ConfigureAwait(true);
         }
-
-        if (items.Count == 0) return;
-        TrayLockMenu.ExecuteUnlock(items, passwords, _connections);
+        catch
+        {
+            // ignore
+        }
     }
 
     public void HideToBackground(

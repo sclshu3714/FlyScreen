@@ -425,7 +425,8 @@ public sealed class LinuxAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
                 if (p == null || string.IsNullOrEmpty(p.Password)) break;
-                LinuxScreenUnlock.TryUnlock(p.Password);
+                var password = p.Password;
+                _ = Task.Run(() => LinuxScreenUnlock.TryUnlock(password));
                 break;
             }
             case MessageType.ShutdownComputer:

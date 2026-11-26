@@ -1,8 +1,13 @@
 <!--
   将 artifacts/flytools/*.flytool 复制到宿主输出目录 $(TargetDir)/Tools/Bundled。
   禁止写入 src/**/Tools/Bundled（源码树）、禁止 AppData。
-  每次构建增量跑 Pack-FlyTools.ps1（dll/manifest 新于 .flytool 才重打）。
-  设 FlyScreenSkipFlyTools=true 可跳过；FlyScreenForceFlyTools=true 强制全量重打。
+
+  App 宿主（生成 / 重新生成 / F5 / Ctrl+F5）默认只复制已有 .flytool，不编译、不组包。
+  编译与组包由生成/重新生成 src/Tools（或子文件夹工程）触发，见 src/Tools/Directory.Build.targets。
+
+  设 FlyScreenSkipFlyTools=true 可跳过复制；
+  设 FlyScreenSkipFlyToolsPack=false 可恢复「宿主构建时顺带组包」（发布工具集成场景另传 FlyScreenFlyToolsOut）；
+  设 FlyScreenForceFlyTools=true 强制全量重打（仅当未 SkipPack）。
 
   路径规则（永久）：
   - 仅用 MSBuild::NormalizePath 得到绝对路径，落在 bin/obj（或 artifacts）。
@@ -12,6 +17,8 @@
   <PropertyGroup>
     <_FsFlyToolsScript>$(MSBuildThisFileDirectory)Pack-FlyTools.ps1</_FsFlyToolsScript>
     <_FsGuardScript>$(MSBuildThisFileDirectory)Guard-FlyToolsDest.ps1</_FsGuardScript>
+    <!-- 宿主默认跳过组包；显式传 false 才在 App 构建时跑 Pack-FlyTools -->
+    <FlyScreenSkipFlyToolsPack Condition="'$(FlyScreenSkipFlyToolsPack)' == ''">true</FlyScreenSkipFlyToolsPack>
     <!-- 发布工具可传入 FlyScreenFlyToolsOut，指向已筛好的 .flytool 目录 -->
     <_FsFlyToolsOut Condition="'$(FlyScreenFlyToolsOut)' != ''">$([MSBuild]::NormalizePath('$(FlyScreenFlyToolsOut)'))</_FsFlyToolsOut>
     <_FsFlyToolsOut Condition="'$(_FsFlyToolsOut)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\artifacts\flytools'))</_FsFlyToolsOut>

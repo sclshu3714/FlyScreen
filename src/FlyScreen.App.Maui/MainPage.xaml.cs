@@ -5763,7 +5763,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         options.Add(Loc.T("Remote.Rebind"));
         options.Add(slot.ActiveRemoteIsProjecting ? Loc.T("Remote.StopProject") : Loc.T("Remote.Project"));
 
-        var choice = await DisplayActionSheet(
+        var choice = await DisplayActionSheetAsync(
             slot.ActiveRemoteName,
             Loc.T("Dlg.Cancel"),
             null,
@@ -5800,7 +5800,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
             return $"{mark}{b.RemoteName}  [{mode}]{rtt}";
         }).ToArray();
 
-        var choice = await DisplayActionSheet(
+        var choice = await DisplayActionSheetAsync(
             Loc.T("Remote.SwitchTitle"),
             Loc.T("Dlg.Cancel"),
             null,
@@ -5841,7 +5841,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         }
 
         var labels = targets.Select(t => t.Label).ToArray();
-        var choice = await DisplayActionSheet(
+        var choice = await DisplayActionSheetAsync(
             Loc.T("Net.BindTitle"),
             Loc.T("Dlg.Cancel"),
             null,

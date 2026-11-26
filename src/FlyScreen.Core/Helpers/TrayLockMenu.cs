@@ -135,9 +135,46 @@ public static class TrayLockMenu
         }
     }
 
+    /// <summary>等待对端处理解锁后，仍报告锁屏的机器（密码错误或未完成）。</summary>
+    public static IReadOnlyList<(string MachineName, string Label)> CollectStillLocked(
+        IReadOnlyList<(string MachineName, string Label, bool IsLocal)> items,
+        ConnectionManager connections)
+    {
+        var failed = new List<(string, string)>();
+        foreach (var (name, label, isLocal) in items)
+        {
+            if (isLocal) continue;
+            if (connections.GetPeerScreenLocked(name) == true)
+                failed.Add((name, label));
+        }
+
+        return failed;
+    }
+
+    /// <summary>清除错误密码，便于重弹维护表。</summary>
+    public static void ClearStoredPasswords(
+        MachineUnlockCredentialStore store,
+        Dictionary<string, string> passwords,
+        IEnumerable<string> machineNames)
+    {
+        foreach (var name in machineNames)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var key = name.Trim();
+            passwords.Remove(key);
+            store.Set(key, "");
+        }
+
+        try { store.Save(); } catch { /* ignore */ }
+    }
+
+    /// <summary>解锁结果观察等待（屏保退出 + 登录动画）。</summary>
+    public static int UnlockSettleDelayMs { get; set; } = 3200;
+
     /// <summary>
     /// 同步全部解锁（适合 WPF ShowDialog）。本机不参与；已解锁对端不发解锁。
     /// 布局对端缺密码时仍弹维护表（即使当前无需解锁），便于安装后首次录入。
+    /// 不在此方法内等待重试；请用异步路径 <see cref="UnlockAllWithRetryAsync"/>。
     /// </summary>
     public static void UnlockAll(
         AppSettings settings,
@@ -157,6 +194,51 @@ public static class TrayLockMenu
 
         if (items.Count == 0) return;
         ExecuteUnlock(items, passwords, connections);
+    }
+
+    /// <summary>
+    /// 全部解锁：缺密码先维护；发送后等待，仍锁屏则清错密并再弹维护表重试一次。
+    /// </summary>
+    public static async Task UnlockAllWithRetryAsync(
+        AppSettings settings,
+        ConnectionManager connections,
+        MachineUnlockCredentialStore store,
+        Func<IReadOnlyList<(string MachineName, string Label)>, Task<IReadOnlyDictionary<string, string>?>> promptMissingPasswords,
+        CancellationToken ct = default)
+    {
+        PrepareUnlockAll(settings, connections, store, out var items, out var passwords, out var missing);
+        if (items.Count == 0 && missing.Count == 0) return;
+
+        if (missing.Count > 0)
+        {
+            var filled = await promptMissingPasswords(missing).ConfigureAwait(true);
+            if (filled == null) return;
+            ApplyMissingPasswords(store, passwords, filled);
+        }
+
+        if (items.Count == 0) return;
+
+        var pending = items.ToList();
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            ExecuteUnlock(pending, passwords, connections);
+            await Task.Delay(UnlockSettleDelayMs, ct).ConfigureAwait(true);
+
+            var still = CollectStillLocked(pending, connections);
+            if (still.Count == 0) return;
+            if (attempt >= 1) return;
+
+            ClearStoredPasswords(store, passwords, still.Select(x => x.MachineName));
+            var filled = await promptMissingPasswords(still).ConfigureAwait(true);
+            if (filled == null) return;
+            ApplyMissingPasswords(store, passwords, filled);
+
+            pending = items
+                .Where(x => still.Any(s => s.MachineName.Equals(x.MachineName, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (pending.Count == 0) return;
+        }
     }
 
     /// <summary>布局内全部可关机电脑（本机 + 已连接对端）。</summary>

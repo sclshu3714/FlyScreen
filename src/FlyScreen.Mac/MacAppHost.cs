@@ -438,7 +438,8 @@ public sealed class MacAppHost : IAsyncDisposable
             {
                 var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
                 if (p == null || string.IsNullOrEmpty(p.Password)) break;
-                MacScreenUnlock.TryUnlock(p.Password);
+                var password = p.Password;
+                _ = Task.Run(() => MacScreenUnlock.TryUnlock(password));
                 break;
             }
             case MessageType.ShutdownComputer:

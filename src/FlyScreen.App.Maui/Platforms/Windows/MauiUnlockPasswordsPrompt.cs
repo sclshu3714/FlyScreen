@@ -1,8 +1,9 @@
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Ui.Maui;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
 
-/// <summary>Maui-Win：缺解锁密码时的设备/密码表格（模态 Page）。</summary>
+/// <summary>Maui-Win：独立小窗录入解锁密码（禁止 PushModal 嵌进主窗；无投影按钮 / 无最大最小化）。</summary>
 public static class MauiUnlockPasswordsPrompt
 {
     public static async Task<IReadOnlyDictionary<string, string>?> PromptAsync(
@@ -11,44 +12,149 @@ public static class MauiUnlockPasswordsPrompt
         if (machines.Count == 0)
             return new Dictionary<string, string>();
 
-        var page = new UnlockPasswordsPage(machines);
-        var nav = Application.Current?.Windows?.FirstOrDefault()?.Page?.Navigation
-                  ?? Application.Current?.MainPage?.Navigation;
-        if (nav == null) return null;
+        var app = Application.Current;
+        if (app == null) return null;
 
-        await nav.PushModalAsync(page).ConfigureAwait(true);
+        var tcs = new TaskCompletionSource<IReadOnlyDictionary<string, string>?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var title = Loc.T("Tray.UnlockPasswords.Title");
+        var page = new UnlockPasswordsPage(machines, result => tcs.TrySetResult(result));
+        var height = Math.Clamp(130 + machines.Count * 48, 170, 440);
+        var window = new Window(page)
+        {
+            Title = title,
+            Width = 390,
+            Height = height,
+            MinimumWidth = 360,
+            MaximumWidth = 440,
+            MinimumHeight = 150
+        };
+
+        window.Created += (_, _) => ApplyUnlockWindowChrome(window, title);
+        window.HandlerChanged += (_, _) => ApplyUnlockWindowChrome(window, title);
+
+        app.OpenWindow(window);
+        _ = RefreshChromeDelayedAsync(window, title);
+
         try
         {
-            return await page.Completion.ConfigureAwait(true);
+            return await tcs.Task.ConfigureAwait(true);
         }
         finally
         {
-            try { await nav.PopModalAsync().ConfigureAwait(true); }
+            try { app.CloseWindow(window); }
             catch { /* ignore */ }
         }
     }
 
+    private static async Task RefreshChromeDelayedAsync(Window window, string title)
+    {
+#if WINDOWS
+        foreach (var ms in new[] { 30, 80, 160, 320, 600 })
+        {
+            try
+            {
+                await Task.Delay(ms).ConfigureAwait(true);
+                MainThread.BeginInvokeOnMainThread(() => ApplyUnlockWindowChrome(window, title));
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+#else
+        await Task.CompletedTask.ConfigureAwait(false);
+#endif
+    }
+
+    private static void ApplyUnlockWindowChrome(Window window, string title)
+    {
+#if WINDOWS
+        try
+        {
+            if (window.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
+                return;
+
+            try { native.Title = title; } catch { /* ignore */ }
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(native);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+            try { appWindow.Title = title; } catch { /* ignore */ }
+
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op)
+            {
+                op.IsMaximizable = false;
+                op.IsMinimizable = false;
+                op.IsResizable = false;
+            }
+
+            try
+            {
+                var work = Microsoft.UI.Windowing.DisplayArea.Primary.WorkArea;
+                var w = appWindow.Size.Width;
+                var h = appWindow.Size.Height;
+                appWindow.Move(new global::Windows.Graphics.PointInt32(
+                    work.X + (work.Width - w) / 2,
+                    work.Y + (work.Height - h) / 2));
+            }
+            catch { /* ignore */ }
+
+            if (native.Content is Microsoft.UI.Xaml.DependencyObject tree)
+            {
+                if (FindByName(tree, "TitleProjectBtn") is Microsoft.UI.Xaml.Controls.Button projectBtn)
+                    projectBtn.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+
+                if (FindByName(tree, "AppTitle") is Microsoft.UI.Xaml.Controls.TextBlock appTitle)
+                    appTitle.Text = title;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+#endif
+    }
+
+#if WINDOWS
+    private static Microsoft.UI.Xaml.DependencyObject? FindByName(
+        Microsoft.UI.Xaml.DependencyObject parent, string name)
+    {
+        if (parent is Microsoft.UI.Xaml.FrameworkElement fe && fe.Name == name)
+            return parent;
+        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
+        for (var i = 0; i < count; i++)
+        {
+            var found = FindByName(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i), name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+#endif
+
     private sealed class UnlockPasswordsPage : ContentPage
     {
-        private readonly TaskCompletionSource<IReadOnlyDictionary<string, string>?> _tcs = new();
-        private readonly Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, SecurePasswordBox> _entries = new(StringComparer.OrdinalIgnoreCase);
 
-        public Task<IReadOnlyDictionary<string, string>?> Completion => _tcs.Task;
-
-        public UnlockPasswordsPage(IReadOnlyList<(string MachineName, string Label)> machines)
+        public UnlockPasswordsPage(
+            IReadOnlyList<(string MachineName, string Label)> machines,
+            Action<IReadOnlyDictionary<string, string>?> complete)
         {
             Title = Loc.T("Tray.UnlockPasswords.Title");
+            BackgroundColor = Color.FromRgb(0xF7, 0xF9, 0xFC);
+
             var grid = new Grid
             {
                 ColumnDefinitions =
                 {
-                    new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) },
-                    new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) }
+                    new ColumnDefinition { Width = new GridLength(132) },
+                    new ColumnDefinition { Width = new GridLength(200) }
                 },
                 RowDefinitions = { new RowDefinition { Height = GridLength.Auto } },
-                Padding = new Thickness(16),
-                RowSpacing = 8,
-                ColumnSpacing = 8
+                RowSpacing = 6,
+                ColumnSpacing = 8,
+                HorizontalOptions = LayoutOptions.Center
             };
 
             grid.Add(new Label
@@ -73,14 +179,17 @@ public static class MauiUnlockPasswordsPrompt
                 {
                     Text = label,
                     VerticalOptions = LayoutOptions.Center,
-                    LineBreakMode = LineBreakMode.TailTruncation
+                    LineBreakMode = LineBreakMode.TailTruncation,
+                    MaxLines = 1
                 }, 0, row);
 
-                var entry = new Entry
+                var entry = new SecurePasswordBox
                 {
-                    IsPassword = true,
                     Placeholder = Loc.T("Tray.UnlockPasswords.Password"),
-                    HeightRequest = 40
+                    ShowPasswordTip = Loc.T("Sec.ShowPassword"),
+                    HidePasswordTip = Loc.T("Sec.HidePassword"),
+                    HeightRequest = 40,
+                    WidthRequest = 200
                 };
                 _entries[name] = entry;
                 grid.Add(entry, 1, row);
@@ -89,42 +198,44 @@ public static class MauiUnlockPasswordsPrompt
             var ok = new Button
             {
                 Text = Loc.T("Tray.UnlockPasswords.Ok"),
-                HorizontalOptions = LayoutOptions.End
+                WidthRequest = 88,
+                HeightRequest = 36
             };
             var cancel = new Button
             {
                 Text = Loc.T("Tray.UnlockPasswords.Cancel"),
-                HorizontalOptions = LayoutOptions.End
+                WidthRequest = 88,
+                HeightRequest = 36
             };
             ok.Clicked += (_, _) =>
             {
                 var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var (name, entry) in _entries)
                 {
-                    var pwd = entry.Text ?? "";
+                    var pwd = entry.Password ?? "";
                     if (string.IsNullOrEmpty(pwd)) continue;
                     map[name] = pwd;
                 }
 
                 if (map.Count == 0) return;
-                _tcs.TrySetResult(map);
+                complete(map);
             };
-            cancel.Clicked += (_, _) => _tcs.TrySetResult(null);
+            cancel.Clicked += (_, _) => complete(null);
 
-            Content = new ScrollView
+            Content = new VerticalStackLayout
             {
-                Content = new VerticalStackLayout
+                Padding = new Thickness(16),
+                Spacing = 12,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center,
+                Children =
                 {
-                    Spacing = 12,
-                    Children =
+                    grid,
+                    new HorizontalStackLayout
                     {
-                        grid,
-                        new HorizontalStackLayout
-                        {
-                            Spacing = 8,
-                            HorizontalOptions = LayoutOptions.End,
-                            Children = { ok, cancel }
-                        }
+                        Spacing = 8,
+                        HorizontalOptions = LayoutOptions.Center,
+                        Children = { ok, cancel }
                     }
                 }
             };

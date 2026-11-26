@@ -768,21 +768,18 @@ public partial class MainWindow : Window
 
     private async Task TrayUnlockAllAsync()
     {
-        var store = MachineUnlockCredentialStore.Shared;
-        TrayLockMenu.PrepareUnlockAll(
-            _host.Settings, _host.Connections, store,
-            out var items, out var passwords, out var missing);
-        if (items.Count == 0 && missing.Count == 0) return;
-
-        if (missing.Count > 0)
+        try
         {
-            var filled = await UnlockPasswordsWindow.PromptAsync(this, missing).ConfigureAwait(true);
-            if (filled == null) return;
-            TrayLockMenu.ApplyMissingPasswords(store, passwords, filled);
+            await TrayLockMenu.UnlockAllWithRetryAsync(
+                _host.Settings,
+                _host.Connections,
+                MachineUnlockCredentialStore.Shared,
+                missing => UnlockPasswordsWindow.PromptAsync(owner: null, missing)).ConfigureAwait(true);
         }
-
-        if (items.Count == 0) return;
-        TrayLockMenu.ExecuteUnlock(items, passwords, _host.Connections);
+        catch
+        {
+            // ignore
+        }
     }
 
     private void TrayShutdownAll()
