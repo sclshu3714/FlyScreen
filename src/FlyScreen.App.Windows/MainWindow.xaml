@@ -863,13 +863,15 @@
                                 <CheckBox x:Name="AutoStartCheck" Content="开机自动启动并连接"
                           ToolTip="登录后约 15 秒以管理员权限启动（任务计划程序）。因需提权，不能用普通启动项。"/>
                                 <CheckBox x:Name="BlockSaverCheck" Content="阻止其他机器屏保"
-                          ToolTip="当本机控制远端时，尝试阻止其它机器进入屏保，避免切换后无法操作。"/>
+                          ToolTip="开启后，只要集群中有已连接电脑，各端会抑制本机屏保/空闲熄屏，避免切回时已黑屏或锁屏。"/>
                                 <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"
                           ToolTip="使用相对位移转发鼠标移动。部分游戏或远程桌面场景可能更流畅，一般办公建议关闭。"/>
                                 <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"
                           ToolTip="屏幕四角附近不触发边缘切换，减少误触（例如移向关闭按钮时）。"/>
                                 <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"
                           ToolTip="启用后，将鼠标移出屏幕边缘即可切换到布局中相邻的电脑。"/>
+                                <CheckBox x:Name="LockInputHelperCheck" Content="锁屏输入助手"
+                          ToolTip="开启后安装本机解锁服务，允许其它电脑在本机锁屏/登录界面继续使用键鼠（需管理员；有额外安全风险）。关闭则卸载服务。"/>
                             </StackPanel>
                             <StackPanel x:Name="EdgeCrossColumn" Grid.Column="2" Margin="10,0,0,0">
                                 <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" FontWeight="SemiBold" Margin="0,0,0,8"/>

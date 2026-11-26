@@ -39,7 +39,7 @@ internal sealed class MauiTraySubPopup : IDisposable
     private readonly Action _onItemInvoked;
     private readonly Action? _onDismissRequested;
     private readonly Rectangle[] _itemRects;
-    private readonly bool _sepBeforeLast;
+    private readonly int _sepBeforeTrailing;
     private readonly bool _showIcons;
 
     private IntPtr _hwnd;
@@ -73,12 +73,14 @@ internal sealed class MauiTraySubPopup : IDisposable
         IReadOnlyList<MauiTraySubItem> items,
         Action onItemInvoked,
         Action? onDismissRequested,
-        bool sepBeforeLast)
+        int sepBeforeTrailing)
     {
         _items = items;
         _onItemInvoked = onItemInvoked;
         _onDismissRequested = onDismissRequested;
-        _sepBeforeLast = sepBeforeLast && items.Count > 1;
+        _sepBeforeTrailing = sepBeforeTrailing > 0 && items.Count > sepBeforeTrailing
+            ? sepBeforeTrailing
+            : 0;
         _showIcons = items.Any(x => x.IconPng is { Length: > 0 } || !string.IsNullOrEmpty(x.Mdl2Glyph) || x.IsSubmenu);
         _itemRects = new Rectangle[items.Count];
         Measure();
@@ -90,9 +92,9 @@ internal sealed class MauiTraySubPopup : IDisposable
         IReadOnlyList<MauiTraySubItem> items,
         Action onItemInvoked,
         Action? onDismissRequested = null,
-        bool sepBeforeLast = true)
+        int sepBeforeTrailing = 1)
     {
-        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested, sepBeforeLast);
+        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested, sepBeforeTrailing);
         popup.ShowAt(screenX, screenY);
         return popup;
     }
@@ -104,10 +106,10 @@ internal sealed class MauiTraySubPopup : IDisposable
         IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
         Action onItemInvoked,
         Action? onDismissRequested = null,
-        bool sepBeforeLast = true)
+        int sepBeforeTrailing = 1)
     {
         var mapped = items.Select(x => MauiTraySubItem.Click(x.Label, x.Action, x.IconPng)).ToList();
-        return Show(screenX, screenY, mapped, onItemInvoked, onDismissRequested, sepBeforeLast);
+        return Show(screenX, screenY, mapped, onItemInvoked, onDismissRequested, sepBeforeTrailing);
     }
 
     private void Measure()
@@ -128,7 +130,7 @@ internal sealed class MauiTraySubPopup : IDisposable
         }
 
         _cardW = Math.Max(CardMinWidth, textW + iconSlot + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
-        var sepBlock = _sepBeforeLast ? 1 + 6 * 2 : 0;
+        var sepBlock = _sepBeforeTrailing > 0 ? 1 + 6 * 2 : 0;
         _cardH = PanelPadY * 2
                  + _items.Count * (ItemHeight + ItemMargin * 2)
                  + sepBlock;
@@ -136,9 +138,10 @@ internal sealed class MauiTraySubPopup : IDisposable
         _height = _cardH + CardMargin * 2;
 
         var y = CardMargin + PanelPadY;
+        var sepAt = _sepBeforeTrailing > 0 ? _items.Count - _sepBeforeTrailing : -1;
         for (var i = 0; i < _items.Count; i++)
         {
-            if (_sepBeforeLast && i == _items.Count - 1)
+            if (i == sepAt)
                 y += 6 + 1 + 6;
             _itemRects[i] = new Rectangle(
                 CardMargin + PanelPadX + ItemMargin,
@@ -222,9 +225,10 @@ internal sealed class MauiTraySubPopup : IDisposable
                 FormatFlags = StringFormatFlags.NoWrap
             };
 
-            if (_sepBeforeLast && _items.Count >= 2)
+            if (_sepBeforeTrailing > 0 && _items.Count > _sepBeforeTrailing)
             {
-                var sepY = _itemRects[_items.Count - 2].Bottom + ItemMargin + 6;
+                var before = _items.Count - _sepBeforeTrailing - 1;
+                var sepY = _itemRects[before].Bottom + ItemMargin + 6;
                 using var sepPen = new Pen(SepColor);
                 g.DrawLine(sepPen, CardMargin + 12, sepY, CardMargin + _cardW - 12, sepY);
             }
@@ -440,7 +444,7 @@ internal sealed class MauiTraySubPopup : IDisposable
             nested,
             onItemInvoked: _onItemInvoked,
             onDismissRequested: _onDismissRequested,
-            sepBeforeLast: nested.Count > 1);
+            sepBeforeTrailing: nested.Count > 1 ? 1 : 0);
     }
 
     private void CloseNested()

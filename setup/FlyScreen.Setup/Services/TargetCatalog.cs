@@ -19,6 +19,7 @@ public static class TargetCatalog
                 SupportsInstaller = true,
                 UsesWindowsSetup = true,
                 SupportsVddOffline = true,
+                SupportsFlyToolsBundle = true,
                 IsSelected = true,
                 FrameworkChoices =
                 [
@@ -44,6 +45,7 @@ public static class TargetCatalog
                 SupportsInstaller = true,
                 UsesWindowsSetup = true,
                 SupportsVddOffline = true,
+                SupportsFlyToolsBundle = true,
                 FrameworkChoices =
                 [
                     new FrameworkChoice
@@ -68,6 +70,7 @@ public static class TargetCatalog
                 UsesWindowsSetup = false,
                 SupportsStandalone = false,
                 SupportsSelfContained = false,
+                SupportsFlyToolsBundle = true,
                 FrameworkChoices =
                 [
                     new FrameworkChoice
@@ -89,6 +92,7 @@ public static class TargetCatalog
                 SupportsInstaller = true,
                 UsesWindowsSetup = false,
                 UsesArchiveInstaller = true,
+                SupportsFlyToolsBundle = true,
                 FrameworkChoices =
                 [
                     new FrameworkChoice
@@ -108,6 +112,7 @@ public static class TargetCatalog
                 Framework = "net10.0",
                 RequiresMac = true,
                 SupportsInstaller = false,
+                SupportsFlyToolsBundle = true,
                 FrameworkChoices =
                 [
                     new FrameworkChoice
@@ -128,6 +133,7 @@ public static class TargetCatalog
                 ExtraArgs = "-r maccatalyst-arm64 -p:CreatePackage=false",
                 RequiresMac = true,
                 SupportsInstaller = false,
+                SupportsFlyToolsBundle = true,
                 FrameworkChoices =
                 [
                     new FrameworkChoice

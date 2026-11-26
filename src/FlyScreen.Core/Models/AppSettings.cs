@@ -27,6 +27,9 @@ public sealed class AppSettings
     public bool HideMouseAtEdge { get; set; } = true;
     public bool DrawMouseCursor { get; set; } = true;
     public bool SameSubnetOnly { get; set; }
+    /// <summary>
+    /// 阻止屏保/空闲熄屏：有存活对端时对本机施加空闲抑制（BehaviorSync 同步到集群）。
+    /// </summary>
     public bool BlockScreenSaver { get; set; } = true;
     public bool MoveMouseRelatively { get; set; }
     public bool BlockMouseAtCorners { get; set; }
@@ -66,6 +69,11 @@ public sealed class AppSettings
     public bool MttVddInstalledByApp { get; set; }
     /// <summary>开机自动启动并连接（写入当前用户启动项）。</summary>
     public bool AutoStart { get; set; }
+    /// <summary>
+    /// 锁屏输入助手偏好（经 BehaviorSync 同步；各端在本机 Apply 安装/启用）。
+    /// 开启后允许对端在本机登录界面继续键鼠注入。
+    /// </summary>
+    public bool LockScreenInputHelper { get; set; }
     /// <summary>启动时静默检查更新（GitHub，失败改用 Gitee）。</summary>
     public bool CheckUpdatesOnStartup { get; set; } = true;
     /// <summary>界面主题：Light / Dark / Custom（可扩展注册）。</summary>

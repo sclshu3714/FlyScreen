@@ -62,6 +62,8 @@ public sealed class PublishTargetItem : INotifyPropertyChanged
     public bool SupportsStandalone { get; init; } = true;
     /// <summary>可打入虚拟显示离线包。仅 Windows 电脑端（WPF / MAUI Win）。</summary>
     public bool SupportsVddOffline { get; init; }
+    /// <summary>可将 .flytool 集成进产物（各 App 端）；插件组包目标本身不算。</summary>
+    public bool SupportsFlyToolsBundle { get; init; }
     public bool SupportsSelfContained { get; init; } = true;
 
     /// <summary>该端可选框架及对应运行时（供配置页级联下拉）。</summary>
@@ -230,6 +232,7 @@ public sealed class PublishTargetItem : INotifyPropertyChanged
             UsesArchiveInstaller = UsesArchiveInstaller,
             SupportsStandalone = SupportsStandalone,
             SupportsVddOffline = SupportsVddOffline,
+            SupportsFlyToolsBundle = SupportsFlyToolsBundle,
             SupportsSelfContained = SupportsSelfContained,
             FrameworkChoices = FrameworkChoices,
             SelectedFramework = SelectedFramework,
@@ -266,6 +269,15 @@ public sealed class PublishOptions
     /// </summary>
     public bool IncludeVddOffline { get; set; }
 
+    /// <summary>
+    /// App 端是否把选中的 .flytool 打进 Tools/Bundled；默认 false。
+    /// 插件组包目标忽略此开关，始终按 <see cref="SelectedFlyToolIds"/> 组包。
+    /// </summary>
+    public bool IncludeFlyTools { get; set; }
+
+    /// <summary>要组包或集成的插件 Id；空表示无。</summary>
+    public List<string> SelectedFlyToolIds { get; set; } = [];
+
     /// <summary>发布版本号（x.y.z）；默认取 build/version.json，可在 UI 中修改。</summary>
     public string Version { get; set; } = "1.0.0";
 
@@ -301,6 +313,8 @@ public sealed class PublishOptions
         CreateDesktopShortcut = CreateDesktopShortcut,
         CreateStartMenuShortcut = CreateStartMenuShortcut,
         IncludeVddOffline = IncludeVddOffline,
+        IncludeFlyTools = IncludeFlyTools,
+        SelectedFlyToolIds = [..SelectedFlyToolIds],
         Version = Version,
         DockerSshHost = DockerSshHost,
         DockerSshPort = DockerSshPort,

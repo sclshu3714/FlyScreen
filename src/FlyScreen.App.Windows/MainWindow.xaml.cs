@@ -469,8 +469,30 @@ public partial class MainWindow : Window
             onToggleDisable: ToggleTraySwitchHotkeyDisable,
             toolShortcuts: tools,
             lockMachines: lockMachines,
-            onLockAll: () => TrayLockMenu.LockAll(s, _host.Connections, WindowsScreenLock.TryLock));
+            onLockAll: () => TrayLockMenu.LockAll(s, _host.Connections, WindowsScreenLock.TryLock),
+            onUnlockAll: TrayUnlockAll,
+            onShutdownAll: TrayShutdownAll);
     }
+
+    private void TrayUnlockAll()
+    {
+        // 托盘菜单刚 Close：下一帧再弹，避免 Owner 仍是 Hidden / 与托盘 Deactivated 抢焦点导致窗体不出现
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            TrayLockMenu.UnlockAll(
+                _host.Settings,
+                _host.Connections,
+                MachineUnlockCredentialStore.Shared,
+                missing => UnlockPasswordsDialog.Prompt(missing, ResolveDialogOwner()));
+        }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
+
+    /// <summary>主窗隐藏到托盘时不能做 Owner，否则 ShowDialog 会失败并被托盘 catch 吞掉。</summary>
+    private Window? ResolveDialogOwner()
+        => IsVisible && IsLoaded ? this : null;
+
+    private void TrayShutdownAll()
+        => TrayLockMenu.ShutdownAll(_host.Settings, _host.Connections, WindowsScreenShutdown.TryShutdown);
 
     private void LaunchTrayToolShortcut(string toolId)
     {
@@ -538,6 +560,14 @@ public partial class MainWindow : Window
         if (s.AutoStart != autoStart)
         {
             s.AutoStart = autoStart;
+            s.Save();
+        }
+
+        var lockHelper = FlyScreen.LockInput.LockScreenInputServiceControl.IsServiceRunning();
+        LockInputHelperCheck.IsChecked = lockHelper;
+        if (s.LockScreenInputHelper != lockHelper)
+        {
+            s.LockScreenInputHelper = lockHelper;
             s.Save();
         }
         TcpPortBox.Text = s.TcpPort.ToString();
@@ -895,10 +925,13 @@ public partial class MainWindow : Window
         s.MoveMouseRelatively = MoveRelCheck.IsChecked == true;
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
+        var wantLockInput = LockInputHelperCheck.IsChecked == true;
+        s.LockScreenInputHelper = wantLockInput;
         s.EdgeCrossMode = ReadEdgeCrossModeUi();
         // 先落地穿边/键鼠，再处理后台自启（schtasks 不可挡 UI）
         _host.Input.EasyMouseEnabled = s.EasyMouse;
         _host.Input.RefreshEdgeCrossFromSettings();
+        _host.ScreenSaverBlock.Refresh();
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
         s.AutoStart = wantAutoStart;
@@ -944,9 +977,13 @@ public partial class MainWindow : Window
         s.EnsureLocalMachineSlot();
         s.Save();
 
-        // 开机自启改后台写入，完成后回写勾选/状态；失败不拖住「应用」与穿边
-        _ = ApplyAutoStartAsync(wantAutoStart);
+        // 开机自启 / 锁屏助手由 Apply_Click 等待完成，避免「应用成功」盖住失败提示、勾选被静默打回
+        _pendingAutoStart = wantAutoStart;
+        _pendingLockInput = wantLockInput;
     }
+
+    private bool? _pendingAutoStart;
+    private bool? _pendingLockInput;
 
     private async Task ApplyAutoStartAsync(bool wantAutoStart)
     {
@@ -968,6 +1005,38 @@ public partial class MainWindow : Window
         }
         else if (wantAutoStart)
             StatusText.Text = "已启用开机自启（登录后约 15 秒以管理员启动）";
+    }
+
+    /// <returns>失败时的状态文案；成功返回 null。</returns>
+    private async Task<string?> ApplyLockInputHelperAsync(bool wantEnabled)
+    {
+        var ok = await Task.Run(() => FlyScreen.LockInput.LockScreenInputHost.Apply(wantEnabled))
+            .ConfigureAwait(true);
+        var s = _host.Settings;
+        var actual = wantEnabled
+            && FlyScreen.LockInput.LockScreenInputServiceControl.IsServiceRunning();
+        if (!wantEnabled)
+            actual = false;
+
+        if (s.LockScreenInputHelper != actual)
+        {
+            s.LockScreenInputHelper = actual;
+            s.Save();
+        }
+
+        LockInputHelperCheck.IsChecked = actual;
+        try { _ = _host.Connections.BroadcastLocalPeerInfoAsync(); } catch { /* ignore */ }
+
+        if (!wantEnabled)
+            return null;
+
+        if (ok && actual)
+            return null;
+
+        var detail = FlyScreen.LockInput.LockScreenInputServiceControl.LastError;
+        return string.IsNullOrWhiteSpace(detail)
+            ? Loc.T("Status.LockInputHelper.Fail")
+            : $"{Loc.T("Status.LockInputHelper.Fail")}：{detail}";
     }
 
     private void ApplyLocalizedUi()
@@ -1138,6 +1207,7 @@ public partial class MainWindow : Window
         SetOpt(MoveRelCheck, "Opt.MoveRel", "Tip.MoveRel");
         SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
         SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
+        SetOpt(LockInputHelperCheck, "Opt.LockInputHelper", "Tip.LockInputHelper");
 
         EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
         EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
@@ -1282,13 +1352,26 @@ public partial class MainWindow : Window
         var prevIp = s.PreferredLocalIp ?? "";
         var prevKey = s.SecurityKey ?? "";
 
+        _pendingAutoStart = null;
+        _pendingLockInput = null;
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
-        await _host.BroadcastBehaviorSyncAsync();
         // 默认保持连接；仅端口/网卡/密钥变化才整网重启
         await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
-        StatusText.Text = Loc.T("Sys.Applied");
         SyncSlotLocalFlags();
+
+        // 先落地锁屏助手实际状态，再 BehaviorSync，避免对端收到意图值而本机随后改回
+        string? lockFail = null;
+        if (_pendingLockInput is { } wantLock)
+            lockFail = await ApplyLockInputHelperAsync(wantLock).ConfigureAwait(true);
+        if (_pendingAutoStart is { } wantAuto)
+            await ApplyAutoStartAsync(wantAuto).ConfigureAwait(true);
+
+        await _host.BroadcastBehaviorSyncAsync();
+
+        StatusText.Text = !string.IsNullOrEmpty(lockFail)
+            ? lockFail
+            : Loc.T("Sys.Applied");
     }
 
     private void OnLayoutSyncedFromPeer(string from)
@@ -1346,6 +1429,9 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        // 以服务实际状态为准（对端 BehaviorSync 后可能异步 Apply）
+        LockInputHelperCheck.IsChecked =
+            FlyScreen.LockInput.LockScreenInputServiceControl.IsServiceRunning();
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
         _host.Input.EasyMouseEnabled = s.EasyMouse;
         _host.Input.RefreshEdgeCrossFromSettings();

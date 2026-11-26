@@ -306,8 +306,16 @@ public sealed class GitHubReleaseClient
         using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             throw new InvalidOperationException($"{sourceName} 上尚无 Release。请访问：\n{releasesPageUrl}");
+        if (!resp.IsSuccessStatusCode)
+        {
+            // 不用 EnsureSuccessStatusCode：403 rate limit 等属预期回退路径，避免刷 HttpRequestException
+            var code = (int)resp.StatusCode;
+            var reason = resp.ReasonPhrase ?? resp.StatusCode.ToString();
+            if (code == 403 && reason.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"{sourceName} API 限流（403），将尝试其它源");
+            throw new InvalidOperationException($"{sourceName} HTTP {code} {reason}");
+        }
 
-        resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         var root = doc.RootElement;

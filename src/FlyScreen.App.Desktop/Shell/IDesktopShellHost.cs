@@ -34,8 +34,29 @@ public interface IDesktopShellHost
     /// <summary>托盘「切换机器」：跳到布局中的本机/对端；无穿边路由时返回 false。</summary>
     bool TrySwitchToMachine(string machineName) => false;
 
-    /// <summary>本机锁屏（托盘主菜单「工具」下的「锁屏」/ 对端 LockScreen）。</summary>
+    /// <summary>本机锁屏（托盘主菜单「锁屏」/ 对端 LockScreen）。</summary>
     void LockLocalScreen() { }
+
+    /// <summary>本机解锁（托盘「全部解锁」/ 对端 UnlockScreen）。本机不参与全部解锁时可空实现。</summary>
+    void UnlockLocalScreen(string password) { }
+
+    /// <summary>本机关机（托盘「全部关机」/ 对端 ShutdownComputer）。</summary>
+    void ShutdownLocalScreen() { }
+
+    /// <summary>锁屏输入助手是否已实际运行（Mac：辅助功能+开关；Linux：uinput+开关）。</summary>
+    bool IsLockInputHelperRunning => false;
+
+    /// <summary>应用锁屏输入助手开关。返回是否与期望一致。</summary>
+    bool ApplyLockInputHelper(bool wantEnabled) => !wantEnabled;
+
+    /// <summary>锁屏助手说明文案键（Tip.*）。</summary>
+    string LockInputHelperTipKey => "Tip.LockInputHelper";
+
+    /// <summary>锁屏助手失败文案键（Status.*）。</summary>
+    string LockInputHelperFailKey => "Status.LockInputHelper.Fail";
+
+    /// <summary>设置变更后刷新「阻止其他机器屏保」空闲抑制。</summary>
+    void RefreshScreenSaverBlock() { }
 
     Task StartAsync();
     Task RestartNetworkingAsync();

@@ -1,6 +1,8 @@
+using FlyScreen.Helpers;
 using FlyScreen.Mac.Audio;
 using FlyScreen.Mac.Helpers;
 using FlyScreen.Mac.Input;
+using FlyScreen.Mac.LockInput;
 using FlyScreen.Mac.Native;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Mac.ScreenExtend;
@@ -46,6 +48,7 @@ public sealed class MacAppHost : IAsyncDisposable
     public FlyScreen.Mac.ScreenExtend.MacProjectionHost Projection { get; }
     private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
+    public ScreenSaverBlockService ScreenSaverBlock { get; }
     /// <summary>macOS 上始终可跟手读指针；未授辅助功能时引导设置，仍尝试跟手放下。</summary>
     public bool CanFollowEdgeFileDrag => AccessibilityPermission.IsMacOS;
 
@@ -151,11 +154,18 @@ public sealed class MacAppHost : IAsyncDisposable
         {
             LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
         };
+        ScreenSaverBlock = new ScreenSaverBlockService(Settings, Connections, MacIdleInhibit.SetActive);
         BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
         BehaviorSync.StatusMessage += PublishStatus;
         BehaviorSync.BehaviorSyncedFromPeer += peer =>
         {
-            BehaviorSyncedFromPeer?.Invoke(peer);
+            ScreenSaverBlock.Refresh();
+            _ = Task.Run(() =>
+            {
+                try { MacLockScreenInputHost.Apply(Settings.LockScreenInputHelper); }
+                catch { /* ignore */ }
+                try { BehaviorSyncedFromPeer?.Invoke(peer); } catch { /* ignore */ }
+            });
         };
         RemoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
         RemoteBindingSync.StatusMessage += PublishStatus;
@@ -241,12 +251,22 @@ public sealed class MacAppHost : IAsyncDisposable
     private void PublishStatus(string message)
     {
         AppLog.RecordStatus(message);
+        if (!Settings.ShowStatusMessages) return;
         StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
     public async Task StartAsync()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
+
+        MacLockScreenInputHost.BindInjector(Injector);
+        MacLockScreenInputHost.ConnectionsBroadcastPeerInfo = () => Connections.BroadcastLocalPeerInfoAsync();
+        MacLockScreenInputHost.InitializeFromSettings(Settings.LockScreenInputHelper);
+        MacLockScreenSession.EnsureStarted();
+        MacLockScreenSession.Changed -= OnLocalScreenLockChanged;
+        MacLockScreenSession.Changed += OnLocalScreenLockChanged;
+        ScreenLockStateBroadcaster.Broadcast(Connections, MacLockScreenSession.IsLocked);
+        ScreenSaverBlock.Refresh();
 
         RefreshCapsForPermission();
         // 钩子必须装在带消息泵的 UI 线程上，且要在 ConfigureAwait(false) 之前。
@@ -331,9 +351,12 @@ public sealed class MacAppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
+                // 锁屏助手：跳过被控门闩，直接 CGEvent（锁屏壁纸/部分密码框）
+                if (TryInjectViaLockHelper(p))
+                    break;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 if (WindowsEdge != null)
                 {
                     if (p.Relative) WindowsEdge.MoveRelative(p.Dx, p.Dy);
@@ -345,27 +368,41 @@ public sealed class MacAppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
                 if (p == null) return;
+                if (MacLockScreenInputBridge.HelperEnabled && MacLockScreenSession.IsLocked
+                    && MacLockScreenInputBridge.TryMouseButton(p.Button, p.Down))
+                    break;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 if (WindowsEdge != null) WindowsEdge.MouseButton(p);
                 else Injector.MouseButton(p);
                 break;
             }
             case MessageType.MouseWheel:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
                 if (p == null) return;
+                if (MacLockScreenInputBridge.HelperEnabled && MacLockScreenSession.IsLocked
+                    && MacLockScreenInputBridge.TryMouseWheel(p.Delta, p.Horizontal))
+                    break;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 if (WindowsEdge != null) WindowsEdge.MouseWheel(p);
                 else Injector.MouseWheel(p);
                 break;
             }
             case MessageType.KeyEvent:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
                 if (p == null) return;
+                if (MacLockScreenInputBridge.HelperEnabled && MacLockScreenSession.IsLocked)
+                {
+                    if (!string.IsNullOrEmpty(p.Text)
+                        ? MacLockScreenInputBridge.TryInsertText(p.Text)
+                        : MacLockScreenInputBridge.TryKey(p.VirtualKey, p.Down, p.Extended))
+                        break;
+                }
+
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 if (WindowsEdge != null) WindowsEdge.Key(p);
                 else Injector.Key(p);
                 break;
@@ -397,7 +434,29 @@ public sealed class MacAppHost : IAsyncDisposable
             case MessageType.LockScreen:
                 MacScreenLock.TryLock();
                 break;
+            case MessageType.UnlockScreen:
+            {
+                var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
+                if (p == null || string.IsNullOrEmpty(p.Password)) break;
+                MacScreenUnlock.TryUnlock(p.Password);
+                break;
+            }
+            case MessageType.ShutdownComputer:
+                MacScreenShutdown.TryShutdown();
+                break;
         }
+    }
+
+    private void OnLocalScreenLockChanged(bool locked)
+        => ScreenLockStateBroadcaster.Broadcast(Connections, locked);
+
+    private static bool TryInjectViaLockHelper(MouseMovePayload p)
+    {
+        if (!MacLockScreenInputBridge.HelperEnabled || !MacLockScreenSession.IsLocked)
+            return false;
+        return p.Relative
+            ? MacLockScreenInputBridge.TryMoveRelative(p.Dx, p.Dy)
+            : MacLockScreenInputBridge.TryMoveAbsoluteNormalized(p.Nx, p.Ny);
     }
 
     /// <summary>
@@ -514,6 +573,7 @@ public sealed class MacAppHost : IAsyncDisposable
         EdgeDrag.Dispose();
         WindowsEdge?.Dispose();
         Capture.Dispose();
+        ScreenSaverBlock.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         if (ReferenceEquals(_instance, this))
             _instance = null;

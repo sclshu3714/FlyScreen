@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using FlyScreen.Linux.Environment;
+using FlyScreen.Linux.LockInput;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.Linux.Input;
@@ -67,6 +68,7 @@ public sealed class X11InputInjector : ILinuxInputInjector, IDisposable
 
     public void MoveAbsoluteNormalized(double nx, double ny)
     {
+        if (LinuxLockScreenInputBridge.TryMoveAbsoluteNormalized(nx, ny)) return;
         if (!IsAvailable) return;
         if (!_cursorEnsured) EnsureCursorVisible();
 
@@ -90,6 +92,7 @@ public sealed class X11InputInjector : ILinuxInputInjector, IDisposable
 
     public void MoveRelative(int dx, int dy)
     {
+        if (LinuxLockScreenInputBridge.TryMoveRelative(dx, dy)) return;
         if (!IsAvailable) return;
         if (!_cursorEnsured) EnsureCursorVisible();
         try
@@ -175,6 +178,7 @@ public sealed class X11InputInjector : ILinuxInputInjector, IDisposable
 
     public void MouseButton(MouseButtonPayload p)
     {
+        if (LinuxLockScreenInputBridge.TryMouseButton(p.Button, p.Down)) return;
         if (!IsAvailable) return;
         uint button = p.Button switch { 1 => 3, 2 => 2, _ => 1 };
         try
@@ -187,6 +191,7 @@ public sealed class X11InputInjector : ILinuxInputInjector, IDisposable
 
     public void MouseWheel(MouseWheelPayload p)
     {
+        if (LinuxLockScreenInputBridge.TryMouseWheel(p.Delta, p.Horizontal)) return;
         if (!IsAvailable) return;
         uint button = p.Delta > 0 ? 4u : 5u;
         var clicks = Math.Max(1, Math.Abs(p.Delta) / 120);
@@ -204,6 +209,13 @@ public sealed class X11InputInjector : ILinuxInputInjector, IDisposable
 
     public void Key(KeyEventPayload p)
     {
+        if (!string.IsNullOrEmpty(p.Text))
+        {
+            if (LinuxLockScreenInputBridge.TryInsertText(p.Text)) return;
+        }
+        else if (LinuxLockScreenInputBridge.TryKey(p.VirtualKey, p.Down, p.Extended))
+            return;
+
         if (!IsAvailable) return;
         if (!string.IsNullOrEmpty(p.Text))
         {

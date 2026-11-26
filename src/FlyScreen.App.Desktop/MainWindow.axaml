@@ -657,6 +657,7 @@
                   <CheckBox x:Name="MoveRelCheck" Content="相对移动鼠标"/>
                   <CheckBox x:Name="BlockCornerCheck" Content="屏幕四角阻挡切换"/>
                   <CheckBox x:Name="EasyMouseCheck" Content="轻松鼠标（移出边缘切换）"/>
+                  <CheckBox x:Name="LockInputHelperCheck" Content="锁屏输入助手"/>
                 </StackPanel>
                 <StackPanel x:Name="EdgeCrossColumn" Grid.Column="2" Margin="8,0,0,0" Spacing="2">
                   <TextBlock x:Name="EdgeCrossTitleText" Text="穿边模式" FontWeight="SemiBold" Margin="0,0,0,6"/>

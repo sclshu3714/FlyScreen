@@ -4,6 +4,7 @@ using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Mac;
 using FlyScreen.Mac.Helpers;
+using FlyScreen.Mac.LockInput;
 using FlyScreen.Mac.Permissions;
 using FlyScreen.Mac.ScreenExtend;
 using FlyScreen.Models;
@@ -91,6 +92,20 @@ internal sealed class MacDesktopShellHost : IDesktopShellHost
         => _host.WindowsEdge?.TrySwitchToMachine(machineName) == true;
 
     public void LockLocalScreen() => MacScreenLock.TryLock();
+
+    public void UnlockLocalScreen(string password) => MacScreenUnlock.TryUnlock(password);
+
+    public void ShutdownLocalScreen() => MacScreenShutdown.TryShutdown();
+
+    public bool IsLockInputHelperRunning => MacLockScreenInputHost.IsRunning;
+
+    public bool ApplyLockInputHelper(bool wantEnabled) => MacLockScreenInputHost.Apply(wantEnabled);
+
+    public string LockInputHelperTipKey => "Tip.LockInputHelper.Mac";
+
+    public string LockInputHelperFailKey => "Status.LockInputHelper.Fail.Mac";
+
+    public void RefreshScreenSaverBlock() => _host.ScreenSaverBlock.Refresh();
 
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();

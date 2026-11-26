@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\build\FlyScreen.Assets.props" />
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.LockInputHelper</RootNamespace>
+    <AssemblyName>FlyScreen.LockInputHelper</AssemblyName>
+    <AssemblyTitle>玄鸟·锁屏输入助手</AssemblyTitle>
+    <Product>玄鸟·锁屏输入助手</Product>
+    <Description>在锁屏/登录界面接收玄鸟键鼠注入（Windows 服务）。</Description>
+    <ApplicationIcon>$(FlyScreenAppIco)</ApplicationIcon>
+    <UseAppHost>true</UseAppHost>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

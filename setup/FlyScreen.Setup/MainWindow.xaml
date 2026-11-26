@@ -38,7 +38,9 @@
                 <TextBlock Text="础" Style="{StaticResource LeftTabHeaderChar}" Margin="0,2,0,0"/>
               </StackPanel>
             </TabItem.Header>
-            <ScrollViewer Style="{StaticResource ModernScrollViewer}">
+            <ScrollViewer Style="{StaticResource ModernScrollViewer}"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
               <StackPanel>
                 <!-- 打包方式 -->
                 <Border Style="{StaticResource SectionCard}">
@@ -132,7 +134,9 @@
                 <TextBlock Text="置" Style="{StaticResource LeftTabHeaderChar}" Margin="0,2,0,0"/>
               </StackPanel>
             </TabItem.Header>
-            <ScrollViewer Style="{StaticResource ModernScrollViewer}">
+            <ScrollViewer Style="{StaticResource ModernScrollViewer}"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
               <StackPanel>
                 <!-- 打包目标：单选 -->
                 <Border Style="{StaticResource SectionCard}">
@@ -163,6 +167,40 @@
                     </ItemsControl>
                     <TextBlock x:Name="TargetMutexHint" TextWrapping="Wrap" FontSize="12"
                                Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
+                  </StackPanel>
+                </Border>
+
+                <!-- 插件工具：独立组包，或集成进 App 安装包 -->
+                <Border x:Name="FlyToolsPanel" Style="{StaticResource SectionCard}">
+                  <StackPanel>
+                    <TextBlock Text="插件工具" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="IncludeFlyToolsBox" IsChecked="False"
+                              Content="集成插件工具到安装包/产物"
+                              Checked="IncludeFlyTools_Changed"
+                              Unchecked="IncludeFlyTools_Changed"/>
+                    <TextBlock x:Name="FlyToolsHint"
+                               TextWrapping="Wrap" FontSize="12"
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,6,0,8"/>
+                    <ItemsControl x:Name="FlyToolList">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border Margin="0,0,0,4" Padding="8,6" CornerRadius="6"
+                                  Background="White" BorderBrush="#EEF2F7" BorderThickness="1"
+                                  Opacity="{Binding Opacity}">
+                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                      IsEnabled="{Binding IsEnabled}"
+                                      ToolTip="{Binding DisabledReason}">
+                              <StackPanel>
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding PlatformsText}" FontSize="11"
+                                           Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
+                              </StackPanel>
+                            </CheckBox>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                   </StackPanel>
                 </Border>
 
@@ -426,11 +464,12 @@
                        Style="{StaticResource SetupLogListBox}"
                        ItemContainerStyle="{StaticResource SetupLogListBoxItem}"
                        SelectionMode="Extended"
-                       Margin="0,0,0,2"
+                       Margin="0,0,0,0"
                        ScrollViewer.CanContentScroll="False"
                        VirtualizingPanel.IsVirtualizing="False"
                        ScrollViewer.VerticalScrollBarVisibility="Auto"
-                       ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       ScrollViewer.PanningMode="VerticalOnly">
                 <ListBox.InputBindings>
                   <KeyBinding Key="C" Modifiers="Control" Command="ApplicationCommands.Copy"/>
                   <KeyBinding Key="A" Modifiers="Control" Command="ApplicationCommands.SelectAll"/>

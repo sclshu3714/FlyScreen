@@ -8,7 +8,9 @@ param(
     [string]$OutRoot = "",
     [switch]$SkipAppCopy,
     # Force: rebuild zip even if dll/manifest not newer than existing .flytool
-    [switch]$Force
+    [switch]$Force,
+    # 仅组包指定工具 Id（逗号分隔）；空 = 全部
+    [string]$ToolIds = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +36,15 @@ catch {
 }
 
 try {
+$wantIds = @()
+if (-not [string]::IsNullOrWhiteSpace($ToolIds)) {
+    $wantIds = @(
+        $ToolIds.Split(@(',', ';'), [System.StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+}
+
 $tools = @(
     @{
         Id = "color-picker"
@@ -196,6 +207,11 @@ $index = [ordered]@{ schemaVersion = 1; tools = @() }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 foreach ($t in $tools) {
+    if ($wantIds.Count -gt 0 -and ($wantIds -notcontains $t.Id)) {
+        Write-Host "Skip $($t.Id) (not in -ToolIds)"
+        continue
+    }
+
     $proj = Join-Path $repo $t.Proj
     if (-not (Test-Path -LiteralPath $proj)) { throw "missing project: $($t.Proj)" }
     $manifest = Join-Path $repo $t.Manifest

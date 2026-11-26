@@ -255,7 +255,29 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 return list;
             },
             lockAll: () => () =>
-                TrayLockMenu.LockAll(_settings, _connections, WindowsScreenLock.TryLock));
+                TrayLockMenu.LockAll(_settings, _connections, WindowsScreenLock.TryLock),
+            unlockAll: () => () => _ = TrayUnlockAllAsync(),
+            shutdownAll: () => () =>
+                TrayLockMenu.ShutdownAll(_settings, _connections, WindowsScreenShutdown.TryShutdown));
+    }
+
+    private async Task TrayUnlockAllAsync()
+    {
+        var store = MachineUnlockCredentialStore.Shared;
+        TrayLockMenu.PrepareUnlockAll(
+            _settings, _connections, store,
+            out var items, out var passwords, out var missing);
+        if (items.Count == 0 && missing.Count == 0) return;
+
+        if (missing.Count > 0)
+        {
+            var filled = await MauiUnlockPasswordsPrompt.PromptAsync(missing).ConfigureAwait(true);
+            if (filled == null) return;
+            TrayLockMenu.ApplyMissingPasswords(store, passwords, filled);
+        }
+
+        if (items.Count == 0) return;
+        TrayLockMenu.ExecuteUnlock(items, passwords, _connections);
     }
 
     public void HideToBackground(

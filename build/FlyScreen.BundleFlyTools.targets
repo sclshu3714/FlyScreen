@@ -12,6 +12,8 @@
   <PropertyGroup>
     <_FsFlyToolsScript>$(MSBuildThisFileDirectory)Pack-FlyTools.ps1</_FsFlyToolsScript>
     <_FsGuardScript>$(MSBuildThisFileDirectory)Guard-FlyToolsDest.ps1</_FsGuardScript>
+    <!-- 发布工具可传入 FlyScreenFlyToolsOut，指向已筛好的 .flytool 目录 -->
+    <_FsFlyToolsOut Condition="'$(FlyScreenFlyToolsOut)' != ''">$([MSBuild]::NormalizePath('$(FlyScreenFlyToolsOut)'))</_FsFlyToolsOut>
     <_FsFlyToolsOut Condition="'$(_FsFlyToolsOut)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\artifacts\flytools'))</_FsFlyToolsOut>
   </PropertyGroup>
 

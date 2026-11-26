@@ -1358,6 +1358,18 @@ public partial class MainPage : ContentPage, IWallpaperHost
         HideMouseCheck.IsChecked = s.HideMouseAtEdge;
         DrawCursorCheck.IsChecked = s.DrawMouseCursor;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+#if WINDOWS
+        LockInputHelperRow.IsVisible = true;
+        var lockRunning = FlyScreen.LockInput.LockScreenInputServiceControl.IsServiceRunning();
+        LockInputHelperCheck.IsChecked = lockRunning;
+        if (s.LockScreenInputHelper != lockRunning)
+        {
+            s.LockScreenInputHelper = lockRunning;
+            s.Save();
+        }
+#else
+        LockInputHelperRow.IsVisible = false;
+#endif
         SyncNotifyInjectCheck();
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
         SameSubnetCheck.IsChecked = s.SameSubnetOnly;
@@ -1440,6 +1452,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         RelativeMouseLabel.Text = Loc.T("Opt.MoveRel");
         BlockCornersLabel.Text = Loc.T("Opt.BlockCorner");
         EasyMouseLabel.Text = Loc.T("Opt.EasyMouse");
+        LockInputHelperLabel.Text = Loc.T("Opt.LockInputHelper");
         NotifyInjectLabel.Text = Loc.T("Opt.NotifyInject");
         NotifyInjectTipLabel.Text = Loc.T("Opt.NotifyInjectTip");
         A11yInjectLabel.Text = Loc.T("Opt.A11yInject");
@@ -1505,7 +1518,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         XferEmptyText.Text = Loc.T("Xfer.Empty");
         ApplyXferListColumns();
 
-        foreach (var item in _host.Transfers.Items)
+        foreach (var item in _host.Transfers.Items.ToList())
             item.RefreshLocalized();
 
         foreach (var slot in _slots)
@@ -4922,6 +4935,10 @@ public partial class MainPage : ContentPage, IWallpaperHost
         var layoutMerge = !removedAny && newSet.Count >= prevSet.Count;
 
         var wantAutoStart = AutoStartCheck.IsChecked == true;
+#if WINDOWS
+        // 必须在 LoadUi 之前读取：LoadUi 会按「服务是否在跑」清掉勾选并写回设置
+        var wantLockInput = LockInputHelperCheck.IsChecked == true;
+#endif
         _host.ApplyFromUi(
             KeyEntry.Password ?? "",
             newSlots,
@@ -4949,6 +4966,9 @@ public partial class MainPage : ContentPage, IWallpaperHost
             lang,
             ReadEdgeCrossModeUi());
 
+#if WINDOWS
+        _host.Settings.LockScreenInputHelper = wantLockInput;
+#endif
         Loc.SetCulture(lang);
         UiWallpaperStore.ApplyThemePolicy(
             _host.Settings,
@@ -4972,7 +4992,6 @@ public partial class MainPage : ContentPage, IWallpaperHost
             await _host.BroadcastLayoutMergeAsync();
         else
             await _host.BroadcastLayoutSyncAsync();
-        await _host.BroadcastBehaviorSyncAsync();
         // 默认保持连接；仅端口/网卡/密钥变化才整网重启
         await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         if (_host.Platform.SupportsAutoStart
@@ -4984,6 +5003,41 @@ public partial class MainPage : ContentPage, IWallpaperHost
         }
         else
             StatusLabel.Text = Loc.T("Sys.Applied");
+
+#if WINDOWS
+        // 先落地锁屏助手实际状态，再 BehaviorSync，避免对端与本机不一致
+        LockInputHelperCheck.IsChecked = wantLockInput;
+        _host.Settings.LockScreenInputHelper = wantLockInput;
+        _host.Settings.Save();
+        var lockOk = await Task.Run(() => FlyScreen.LockInput.LockScreenInputHost.Apply(wantLockInput))
+            .ConfigureAwait(true);
+        var lockActual = wantLockInput && FlyScreen.LockInput.LockScreenInputServiceControl.IsServiceRunning();
+        LockInputHelperCheck.IsChecked = lockActual;
+        if (_host.Settings.LockScreenInputHelper != lockActual)
+        {
+            _host.Settings.LockScreenInputHelper = lockActual;
+            _host.Settings.Save();
+        }
+
+        if (!lockOk || lockActual != wantLockInput)
+        {
+            var detail = FlyScreen.LockInput.LockScreenInputServiceControl.LastError;
+            var msg = string.IsNullOrWhiteSpace(detail)
+                ? Loc.T("Status.LockInputHelper.Fail")
+                : $"{Loc.T("Status.LockInputHelper.Fail")}：{detail}";
+            StatusLabel.Text = msg;
+            AppLog.Warn(msg);
+        }
+        else if (wantLockInput)
+        {
+            StatusLabel.Text = Loc.T("Status.LockInputHelper.On");
+            AppLog.Info(Loc.T("Status.LockInputHelper.On"));
+        }
+        else
+            AppLog.Info(Loc.T("Status.LockInputHelper.Off"));
+        try { _ = _host.Connections.BroadcastLocalPeerInfoAsync(); } catch { /* ignore */ }
+#endif
+        await _host.BroadcastBehaviorSyncAsync();
     }
 
     public async Task OpenProjectionDialogAsync()
@@ -6081,7 +6135,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
 
     private async void ClearTransfers_Clicked(object? sender, EventArgs e)
     {
-        var hasReceive = _host.Transfers.Items.Any(i =>
+        var hasReceive = _host.Transfers.Items.ToList().Any(i =>
             i.Direction == TransferDirection.Receive
             && i.State is TransferState.Completed or TransferState.Failed or TransferState.Cancelled);
         if (!hasReceive)

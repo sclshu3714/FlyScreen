@@ -1,4 +1,5 @@
-﻿using FlyScreen.Native;
+﻿using FlyScreen.LockInput;
+using FlyScreen.Native;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.AppMaui.Platforms.Windows;
@@ -21,6 +22,7 @@ public static class MauiInputInjector
 
     public static void MoveAbsoluteNormalized(double nx, double ny)
     {
+        if (LockScreenInputBridge.TryMoveAbsoluteNormalized(nx, ny)) return;
         var vw = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN);
         var vh = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN);
         if (vw <= 0 || vh <= 0) return;
@@ -47,11 +49,13 @@ public static class MauiInputInjector
 
     public static void MoveRelative(int dx, int dy)
     {
+        if (LockScreenInputBridge.TryMoveRelative(dx, dy)) return;
         SendMouse(NativeMethods.MOUSEEVENTF_MOVE, dx, dy, 0);
     }
 
     public static void MouseButton(MouseButtonPayload p)
     {
+        if (LockScreenInputBridge.TryMouseButton(p.Button, p.Down)) return;
         uint flags = (p.Button, p.Down) switch
         {
             (0, true) => NativeMethods.MOUSEEVENTF_LEFTDOWN,
@@ -68,12 +72,14 @@ public static class MauiInputInjector
 
     public static void MouseWheel(MouseWheelPayload p)
     {
+        if (LockScreenInputBridge.TryMouseWheel(p.Delta, p.Horizontal)) return;
         var flags = p.Horizontal ? NativeMethods.MOUSEEVENTF_HWHEEL : NativeMethods.MOUSEEVENTF_WHEEL;
         SendMouse(flags, 0, 0, unchecked((uint)p.Delta));
     }
 
     public static void Key(KeyEventPayload p)
     {
+        if (LockScreenInputBridge.TryKey(p.VirtualKey, p.Down, p.Extended)) return;
         var input = new NativeMethods.INPUT
         {
             type = NativeMethods.INPUT_KEYBOARD,
@@ -96,6 +102,7 @@ public static class MauiInputInjector
     public static void InsertText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
+        if (LockScreenInputBridge.TryInsertText(text)) return;
         var batch = new List<NativeMethods.INPUT>(text.Length * 2);
         foreach (var ch in text)
         {

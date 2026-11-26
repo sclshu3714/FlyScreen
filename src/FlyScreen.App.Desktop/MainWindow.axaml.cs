@@ -16,6 +16,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FlyScreen.App.Desktop.Controls;
+using FlyScreen.DesktopUi.Dialogs;
 using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
@@ -741,6 +742,8 @@ public partial class MainWindow : Window
         if (lockSub.Items.Count > 0)
             lockSub.Add(new NativeMenuItemSeparator());
         lockSub.Add(TrayItem($"{TrayMenuIcons.UniLockAll}  {TrayLockMenu.AllLabel}", TrayLockAll));
+        lockSub.Add(TrayItem($"{TrayMenuIcons.UniUnlockAll}  {TrayLockMenu.UnlockAllLabel}", TrayUnlockAll));
+        lockSub.Add(TrayItem($"{TrayMenuIcons.UniShutdownAll}  {TrayLockMenu.ShutdownAllLabel}", TrayShutdownAll));
         lockRoot.Menu = lockSub;
         menu.Add(lockRoot);
 
@@ -760,6 +763,30 @@ public partial class MainWindow : Window
 
     private void TrayLockAll()
         => TrayLockMenu.LockAll(_host.Settings, _host.Connections, () => _host.LockLocalScreen());
+
+    private void TrayUnlockAll() => _ = TrayUnlockAllAsync();
+
+    private async Task TrayUnlockAllAsync()
+    {
+        var store = MachineUnlockCredentialStore.Shared;
+        TrayLockMenu.PrepareUnlockAll(
+            _host.Settings, _host.Connections, store,
+            out var items, out var passwords, out var missing);
+        if (items.Count == 0 && missing.Count == 0) return;
+
+        if (missing.Count > 0)
+        {
+            var filled = await UnlockPasswordsWindow.PromptAsync(this, missing).ConfigureAwait(true);
+            if (filled == null) return;
+            TrayLockMenu.ApplyMissingPasswords(store, passwords, filled);
+        }
+
+        if (items.Count == 0) return;
+        TrayLockMenu.ExecuteUnlock(items, passwords, _host.Connections);
+    }
+
+    private void TrayShutdownAll()
+        => TrayLockMenu.ShutdownAll(_host.Settings, _host.Connections, () => _host.ShutdownLocalScreen());
 
     private void LaunchTrayToolShortcut(string toolId)
     {
@@ -890,6 +917,13 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        var lockRunning = _host.IsLockInputHelperRunning;
+        LockInputHelperCheck.IsChecked = lockRunning;
+        if (s.LockScreenInputHelper != lockRunning)
+        {
+            s.LockScreenInputHelper = lockRunning;
+            s.Save();
+        }
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
 
         // 以实际自启状态为准，禁止 settings OR 强制写回
@@ -1095,6 +1129,7 @@ public partial class MainWindow : Window
         SetOpt(MoveRelCheck, "Opt.MoveRel", "Tip.MoveRel");
         SetOpt(BlockCornerCheck, "Opt.BlockCorner", "Tip.BlockCorner");
         SetOpt(EasyMouseCheck, "Opt.EasyMouse", "Tip.EasyMouse");
+        SetOpt(LockInputHelperCheck, "Opt.LockInputHelper", _host.LockInputHelperTipKey);
         EdgeCrossTitleText.Text = Loc.T("Opt.EdgeCrossMode");
         EdgeCrossBarrierRadio.Content = Loc.T("Opt.EdgeCross.BarrierFree");
         EdgeCrossDoubleRadio.Content = Loc.T("Opt.EdgeCross.DoubleTap");
@@ -1216,6 +1251,10 @@ public partial class MainWindow : Window
         s.MoveMouseRelatively = MoveRelCheck.IsChecked == true;
         s.BlockMouseAtCorners = BlockCornerCheck.IsChecked == true;
         s.EasyMouse = EasyMouseCheck.IsChecked == true;
+        var wantLockInput = LockInputHelperCheck.IsChecked == true;
+        s.LockScreenInputHelper = wantLockInput;
+        _pendingLockInput = wantLockInput;
+        _host.RefreshScreenSaverBlock();
         s.EdgeCrossMode = ReadEdgeCrossModeUi();
 
         if (_host.SupportsAutoStart)
@@ -1268,6 +1307,8 @@ public partial class MainWindow : Window
         s.Save();
     }
 
+    private bool? _pendingLockInput;
+
     private async void Apply_Click(object? sender, RoutedEventArgs e)
     {
         var s = _host.Settings;
@@ -1277,12 +1318,22 @@ public partial class MainWindow : Window
         var prevIp = s.PreferredLocalIp ?? "";
         var prevKey = s.SecurityKey ?? "";
 
+        _pendingLockInput = null;
         ApplySettingsFromUi();
         await _host.BroadcastLayoutSyncAsync();
-        await _host.BroadcastBehaviorSyncAsync();
         await _host.ApplyNetworkingAsync(prevTcp, prevUdp, prevNic, prevIp, prevKey);
         SyncSlotLocalFlags();
-        StatusText.Text = Loc.T("Sys.Applied");
+
+        string? lockFail = null;
+        if (_pendingLockInput is { } wantLock)
+            lockFail = await ApplyLockInputHelperAsync(wantLock).ConfigureAwait(true);
+
+        // 先 Apply 锁屏助手实际状态，再同步到布局对端
+        await _host.BroadcastBehaviorSyncAsync();
+
+        StatusText.Text = !string.IsNullOrEmpty(lockFail)
+            ? lockFail
+            : Loc.T("Sys.Applied");
     }
 
     private void ApplyBehaviorFromSettings()
@@ -1299,7 +1350,31 @@ public partial class MainWindow : Window
         MoveRelCheck.IsChecked = s.MoveMouseRelatively;
         BlockCornerCheck.IsChecked = s.BlockMouseAtCorners;
         EasyMouseCheck.IsChecked = s.EasyMouse;
+        LockInputHelperCheck.IsChecked = _host.IsLockInputHelperRunning;
         LoadEdgeCrossModeUi(s.EdgeCrossMode);
+    }
+
+    /// <returns>失败时的状态文案；成功返回 null。</returns>
+    private async Task<string?> ApplyLockInputHelperAsync(bool wantEnabled)
+    {
+        var ok = await Task.Run(() => _host.ApplyLockInputHelper(wantEnabled)).ConfigureAwait(true);
+        var s = _host.Settings;
+        var actual = wantEnabled && _host.IsLockInputHelperRunning;
+        if (!wantEnabled)
+            actual = false;
+
+        if (s.LockScreenInputHelper != actual)
+        {
+            s.LockScreenInputHelper = actual;
+            s.Save();
+        }
+
+        LockInputHelperCheck.IsChecked = actual;
+        try { _ = _host.Connections.BroadcastLocalPeerInfoAsync(); } catch { /* ignore */ }
+
+        if (!wantEnabled || (ok && actual))
+            return null;
+        return Loc.T(_host.LockInputHelperFailKey);
     }
 
     private void Hide_Click(object? sender, RoutedEventArgs e)

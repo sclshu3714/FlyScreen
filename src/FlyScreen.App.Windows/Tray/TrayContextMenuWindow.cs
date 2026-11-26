@@ -37,6 +37,8 @@ public sealed class TrayContextMenuWindow : Window
     private readonly IReadOnlyList<(string Label, Action Action, ImageSource? Icon)> _toolShortcuts;
     private readonly IReadOnlyList<(string Label, Action Action)> _lockMachines;
     private readonly Action _onLockAll;
+    private readonly Action _onUnlockAll;
+    private readonly Action _onShutdownAll;
     private Popup? _switchPopup;
     private Popup? _toolsPopup;
     private Popup? _lockPopup;
@@ -63,7 +65,9 @@ public sealed class TrayContextMenuWindow : Window
         Action? onToggleDisable = null,
         IReadOnlyList<(string Label, Action Action, ImageSource? Icon)>? toolShortcuts = null,
         IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
-        Action? onLockAll = null)
+        Action? onLockAll = null,
+        Action? onUnlockAll = null,
+        Action? onShutdownAll = null)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
@@ -77,6 +81,8 @@ public sealed class TrayContextMenuWindow : Window
         _toolShortcuts = toolShortcuts ?? Array.Empty<(string, Action, ImageSource?)>();
         _lockMachines = lockMachines ?? Array.Empty<(string, Action)>();
         _onLockAll = onLockAll ?? (() => { });
+        _onUnlockAll = onUnlockAll ?? (() => { });
+        _onShutdownAll = onShutdownAll ?? (() => { });
 
         AllowsTransparency = true;
         Background = WpfBrushes.Transparent;
@@ -113,14 +119,16 @@ public sealed class TrayContextMenuWindow : Window
         Action? onToggleDisable = null,
         IReadOnlyList<(string Label, Action Action, ImageSource? Icon)>? toolShortcuts = null,
         IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
-        Action? onLockAll = null)
+        Action? onLockAll = null,
+        Action? onUnlockAll = null,
+        Action? onShutdownAll = null)
     {
         try { _open?.CloseMenu(); } catch { /* ignore */ }
 
         var w = new TrayContextMenuWindow(
             onOpen, onReconnect, onProject, projectPhase, onAbout, onExit,
             switchMachines, disableLabel, onToggleDisable, toolShortcuts,
-            lockMachines, onLockAll);
+            lockMachines, onLockAll, onUnlockAll, onShutdownAll);
         _open = w;
         // 先在光标处就位再显示。直接 Show 会先画在 (0,0)，再跳到鼠标，看起来从左上角闪过来。
         w.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -571,6 +579,10 @@ public sealed class TrayContextMenuWindow : Window
             lockStack.Children.Add(BuildSeparator());
         lockStack.Children.Add(BuildSubItem(TrayLockMenu.AllLabel, _onLockAll, forTools: true,
             mdl2Glyph: TrayMenuIcons.Mdl2LockAll));
+        lockStack.Children.Add(BuildSubItem(TrayLockMenu.UnlockAllLabel, _onUnlockAll, forTools: true,
+            mdl2Glyph: TrayMenuIcons.Mdl2UnlockAll));
+        lockStack.Children.Add(BuildSubItem(TrayLockMenu.ShutdownAllLabel, _onShutdownAll, forTools: true,
+            mdl2Glyph: TrayMenuIcons.Mdl2ShutdownAll));
 
         var lockCard = new Border
         {

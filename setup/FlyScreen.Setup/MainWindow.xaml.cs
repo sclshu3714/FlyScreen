@@ -18,6 +18,7 @@ public partial class MainWindow : Window
 
     private readonly string _repoRoot;
     private readonly ObservableCollection<PublishTargetItem> _targets;
+    private readonly ObservableCollection<FlyToolSelectItem> _flyTools;
     private readonly ObservableCollection<PublishJobItem> _jobs = [];
     private readonly object _schedulerLock = new();
     private readonly HashSet<Guid> _runningIds = [];
@@ -41,6 +42,13 @@ public partial class MainWindow : Window
         _maxConcurrentJobs = _concurrency.MaxJobs;
         _repoRoot = RepoPaths.FindRepoRoot();
         _targets = new ObservableCollection<PublishTargetItem>(TargetCatalog.CreateDefaults());
+        _flyTools = new ObservableCollection<FlyToolSelectItem>(
+            FlyToolCatalog.All.Select(t => new FlyToolSelectItem
+            {
+                Id = t.Id,
+                DisplayName = t.DisplayName,
+                Platforms = t.Platforms
+            }));
         foreach (var t in _targets)
         {
             t.PropertyChanged += (_, e) =>
@@ -49,6 +57,7 @@ public partial class MainWindow : Window
                     or nameof(PublishTargetItem.IsEnabled))
                 {
                     ApplyVddOfflineState();
+                    ApplyFlyToolsState();
                     RefreshCascadeFromSelection();
                     UpdateQueueEmptyHint();
                 }
@@ -56,6 +65,7 @@ public partial class MainWindow : Window
         }
 
         TargetList.ItemsSource = _targets;
+        FlyToolList.ItemsSource = _flyTools;
         JobList.ItemsSource = _jobs;
         LogList.ItemsSource = _systemLogs;
         _jobs.CollectionChanged += Jobs_CollectionChanged;
@@ -87,6 +97,7 @@ public partial class MainWindow : Window
         AppendSystemLog("打包固定使用 Release，发布产物将去除 .pdb。");
         AppendSystemLog(_concurrency.Summary);
         ApplyMutexRules();
+        ApplyFlyToolsState();
         RefreshCascadeFromSelection();
         UpdateQueueEmptyHint();
         RefreshStatusBar();
@@ -118,6 +129,7 @@ public partial class MainWindow : Window
         }
 
         ApplyVddOfflineState();
+        ApplyFlyToolsState();
         RefreshCascadeFromSelection();
     }
 
@@ -206,9 +218,12 @@ public partial class MainWindow : Window
         TargetMutexHint.Text = DescribeTargetHint(installerMode, enabledCount, selected);
 
         ApplyVddOfflineState();
+        ApplyFlyToolsState();
         RefreshCascadeFromSelection();
         RefreshDockerHostPanel();
     }
+
+    private void IncludeFlyTools_Changed(object sender, RoutedEventArgs e) => ApplyFlyToolsState();
 
     private static string DescribeTargetHint(bool installerMode, int enabledCount, PublishTargetItem? selected)
     {
@@ -518,6 +533,66 @@ public partial class MainWindow : Window
             : "虚拟显示离线包仅 Windows 电脑端支持。当前未选 Windows 桌面或 MAUI Win，此选项不可用。";
     }
 
+    private void ApplyFlyToolsState()
+    {
+        if (FlyToolsPanel == null || IncludeFlyToolsBox == null || FlyToolsHint == null || _flyTools == null)
+            return;
+
+        var selected = _targets?.FirstOrDefault(t => t.IsSelected && t.IsEnabled);
+        var isFlyToolsTarget = selected?.IsFlyTools == true;
+        var canBundle = selected?.SupportsFlyToolsBundle == true;
+        var platform = FlyToolCatalog.ResolvePlatform(selected?.Id);
+
+        FlyToolsPanel.Visibility = isFlyToolsTarget || canBundle
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        IncludeFlyToolsBox.Visibility = canBundle ? Visibility.Visible : Visibility.Collapsed;
+        if (!canBundle)
+            IncludeFlyToolsBox.IsChecked = false;
+
+        var listActive = isFlyToolsTarget || (canBundle && IncludeFlyToolsBox.IsChecked == true);
+        foreach (var tool in _flyTools)
+        {
+            var supported = FlyToolCatalog.SupportsPlatform(
+                new FlyToolDescriptor(tool.Id, tool.DisplayName, tool.Platforms),
+                platform);
+            tool.IsEnabled = listActive && supported;
+            if (!supported)
+            {
+                tool.IsChecked = false;
+                tool.DisabledReason = platform == null
+                    ? "不可用"
+                    : $"不支持当前端（{platform}）";
+            }
+            else if (!listActive)
+            {
+                tool.DisabledReason = isFlyToolsTarget
+                    ? tool.PlatformsText
+                    : "请先勾选「集成插件工具」";
+            }
+            else
+            {
+                tool.DisabledReason = tool.PlatformsText;
+            }
+        }
+
+        if (isFlyToolsTarget)
+        {
+            FlyToolsHint.Text = "直接打包 .flytool：勾选需要组包的插件（全部平台均可选）。";
+        }
+        else if (canBundle)
+        {
+            FlyToolsHint.Text = IncludeFlyToolsBox.IsChecked == true
+                ? $"将把勾选的插件打进当前端（{platform}）产物的 Tools/Bundled；不支持本端的插件不可选。"
+                : "默认不集成。勾选后可选择支持本端的插件，打进安装包/独立应用。";
+        }
+        else
+        {
+            FlyToolsHint.Text = "当前目标不支持插件工具。";
+        }
+    }
+
     private void BrowseOutput_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog { Title = "选择输出目录" };
@@ -684,6 +759,12 @@ public partial class MainWindow : Window
         if (snapshot.IsRelayDocker && !TryValidateDockerOptions(out var dockerError))
         {
             MessageDialog.Alert(this, "提示", dockerError, MessageDialogKind.Info);
+            return;
+        }
+
+        if (!TryValidateFlyToolsSelection(selected, out var flyToolsError))
+        {
+            MessageDialog.Alert(this, "提示", flyToolsError, MessageDialogKind.Info);
             return;
         }
 
@@ -1003,6 +1084,9 @@ public partial class MainWindow : Window
             CreateStartMenuShortcut = StartMenuShortcutBox.IsChecked == true,
             IncludeVddOffline = IncludeVddOfflineBox.IsChecked == true
                                 && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsVddOffline),
+            IncludeFlyTools = IncludeFlyToolsBox.IsChecked == true
+                              && _targets.Any(t => t.IsSelected && t.IsEnabled && t.SupportsFlyToolsBundle),
+            SelectedFlyToolIds = CollectSelectedFlyToolIds(),
             Version = version,
             DockerSshHost = local ? "" : host,
             DockerSshPort = port,
@@ -1011,5 +1095,32 @@ public partial class MainWindow : Window
             DockerSshPassword = mode == "password" ? (DockerPasswordBox?.Password ?? "") : "",
             DockerUseTcp = mode == "tcp"
         };
+    }
+
+    private List<string> CollectSelectedFlyToolIds()
+        => _flyTools.Where(t => t.IsChecked && t.IsEnabled).Select(t => t.Id).ToList();
+
+    private bool TryValidateFlyToolsSelection(PublishTargetItem selected, out string error)
+    {
+        error = "";
+        var ids = CollectSelectedFlyToolIds();
+        if (selected.IsFlyTools)
+        {
+            if (ids.Count == 0)
+            {
+                error = "请至少勾选一个要打包的插件工具。";
+                return false;
+            }
+
+            return true;
+        }
+
+        if (selected.SupportsFlyToolsBundle && IncludeFlyToolsBox.IsChecked == true && ids.Count == 0)
+        {
+            error = "已勾选集成插件工具，请至少选择一个支持本端的插件。";
+            return false;
+        }
+
+        return true;
     }
 }

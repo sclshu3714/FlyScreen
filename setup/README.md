@@ -52,6 +52,8 @@ dotnet run --project setup\FlyScreen.Setup\FlyScreen.Setup.csproj -c Release
 
 - 独立应用：`artifacts/release/FlyScreen-{ver}-{rid}.*`（经 `Finish-PublishToArtifacts.ps1`）
 - 安装包：`artifacts/release/FlyScreen-{ver}-{rid}-Setup.exe`（payload 内含 `Uninstall.exe`）
+  - **请直接运行该 Setup**（可放在下载目录）；不要把 Setup.exe 拷进 `Program Files` 当主程序。
+  - 若启动报 `FlyScreen-Setup.runtimeconfig.json` 为空：删掉 Setup 同目录下的 `*.runtimeconfig.json` / `*.runtimeconfig.dev.json` 后再开；重新用发布工具打安装包可避免。
 
 ## 卸载
 
