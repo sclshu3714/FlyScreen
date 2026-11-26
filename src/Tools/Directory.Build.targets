@@ -31,6 +31,7 @@
   <!--
     仅模块入口工程触发组包（FlyScreen.Tool.Xxx，不含 .Ui.*），避免同文件夹多 Ui 工程重复跑 Pack。
     Pack 使用 -SkipBuild：编译已由本次 VS/MSBuild 完成。
+    Pack-FlyTools.ps1 自身编译模块时须传 FlyScreenSkipToolPackOnBuild=true，否则持锁再进本 Target 会死锁。
   -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('FlyScreen.Tool.')) And !$(MSBuildProjectName.Contains('.Ui.'))">
     <_FsIsFlyToolModule>true</_FsIsFlyToolModule>

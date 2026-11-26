@@ -21,12 +21,21 @@ $repo = Split-Path $PSScriptRoot -Parent
 $stage = Join-Path $repo "artifacts/flytools-stage"
 
 # 串行化：VS 多 TFM 并行时否则会同时 Zip / 删 stage 导致 exit 1
+# 注意：持锁期间 dotnet build 工具模块时必须 -p:FlyScreenSkipToolPackOnBuild=true，
+# 否则 AfterTargets 再进本脚本会等同一互斥锁 → 死锁。
 $mutex = $null
 $mutexAcquired = $false
 try {
     $mutex = New-Object System.Threading.Mutex($false, "Local\FlyScreen.PackFlyTools.v1")
     Write-Host "Pack-FlyTools: waiting for lock..."
-    $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(45))
+    try {
+        $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(45))
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        # 上次异常退出未 Release：仍视为已获得锁
+        $mutexAcquired = $true
+        Write-Host "Pack-FlyTools: took abandoned lock"
+    }
     if (-not $mutexAcquired) {
         throw "Pack-FlyTools: timed out waiting for pack lock (another build stuck?)"
     }
@@ -223,8 +232,10 @@ foreach ($t in $tools) {
         Write-Host "SkipBuild $($t.Id) (use existing bin)"
     }
     else {
+        # 必须 SkipToolPackOnBuild：模块工程 AfterTargets 会再调本脚本等同一互斥锁，否则死锁卡在 Building…
         Write-Host "Building $($t.Id)..."
-        dotnet build $proj -c $Configuration --nologo -v q
+        & dotnet build $proj -c $Configuration --nologo -v minimal `
+            -p:FlyScreenSkipToolPackOnBuild=true
         if ($LASTEXITCODE -ne 0) { throw "build failed $($t.Id)" }
     }
 
@@ -240,7 +251,8 @@ foreach ($t in $tools) {
         if (-not (Test-Path -LiteralPath $uiProj)) { continue }
         if (-not $SkipBuild) {
             Write-Host "  Building UI $uiRel..."
-            dotnet build $uiProj -c $Configuration --nologo -v q
+            & dotnet build $uiProj -c $Configuration --nologo -v minimal `
+                -p:FlyScreenSkipToolPackOnBuild=true
             if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
         }
         $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiProj)
