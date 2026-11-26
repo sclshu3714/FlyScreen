@@ -276,6 +276,7 @@
   <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />
   <!-- Windows：TopologyGuard / VddOffline（zip 在 VddOffline\ 下）打进包 -->
   <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
+  <Import Project="..\..\build\FlyScreen.BundleLockInputHelper.targets" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
   <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'" />
 
   <!-- 缓解 Windows 上 XARDF7024（RemoveDirFixed: 目录不是空的 / 文件被占用） -->

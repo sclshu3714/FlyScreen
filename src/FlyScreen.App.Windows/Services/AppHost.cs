@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Threading;
 using FlyScreen.Helpers;
 using FlyScreen.Input;
+using FlyScreen.LockInput;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Input;
@@ -45,6 +46,7 @@ public sealed class AppHost : IAsyncDisposable
     private FlyScreen.SharedDevices.WindowsSharedDevicesProviderMedia? _sharedDevicesProviderMedia;
     private DisplayInfoService? _displayInfo;
     private ISharedDevicesRuntime? _sharedDevices;
+    public ScreenSaverBlockService ScreenSaverBlock { get; }
     private AppHost()
     {
         ProgramUiCompatibility.ConfigureLocalHost(ProgramHostKind.WinWpf);
@@ -96,13 +98,21 @@ public sealed class AppHost : IAsyncDisposable
         // （否则会话异常结束时穿边会一直失效）
         Input.TryHandleLocalFilePasteHotkey = () => Clipboard.TryHandlePasteHotkey();
         Input.PrefetchRemoteFilesForLikelyPaste = () => Clipboard.PrefetchForLikelyPaste();
+        ScreenSaverBlock = new ScreenSaverBlockService(Settings, Connections, WindowsIdleInhibit.SetActive);
         _behaviorSync = new BehaviorSyncHelper(Settings, Connections);
         _behaviorSync.StatusMessage += PublishStatus;
         _behaviorSync.BehaviorSyncedFromPeer += from =>
         {
             Input.EasyMouseEnabled = Settings.EasyMouse;
             Input.RefreshEdgeCrossFromSettings();
-            try { BehaviorSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+            ScreenSaverBlock.Refresh();
+            // 先 Apply 锁屏助手，再通知 UI，避免勾选仍显示旧服务状态
+            _ = Task.Run(() =>
+            {
+                try { LockScreenInputHost.Apply(Settings.LockScreenInputHelper); }
+                catch { /* ignore */ }
+                try { BehaviorSyncedFromPeer?.Invoke(from); } catch { /* ignore */ }
+            });
         };
         _remoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
         _remoteBindingSync.StatusMessage += PublishStatus;
@@ -203,6 +213,7 @@ public sealed class AppHost : IAsyncDisposable
     private void PublishStatus(string message)
     {
         AppLog.RecordStatus(message);
+        if (!Settings.ShowStatusMessages) return;
         StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
@@ -230,6 +241,14 @@ public sealed class AppHost : IAsyncDisposable
 
         await EnsureWindowsFirewallAsync().ConfigureAwait(false);
         await Connections.StartAsync().ConfigureAwait(false);
+
+        LockScreenInputHost.ConnectionsBroadcastPeerInfo = () => Connections.BroadcastLocalPeerInfoAsync();
+        LockScreenInputHost.InitializeFromSettings(Settings.LockScreenInputHelper);
+        LockScreenSession.EnsureStarted();
+        LockScreenSession.Changed -= OnLocalScreenLockChanged;
+        LockScreenSession.Changed += OnLocalScreenLockChanged;
+        ScreenLockStateBroadcaster.Broadcast(Connections, LockScreenSession.IsLocked);
+        ScreenSaverBlock.Refresh();
 
         // LL 钩子必须装在带消息泵的 UI 线程（对齐 Maui MainThread.BeginInvokeOnMainThread）。
         // ConfigureAwait(false) 后若在线程池 Start，钩子不回调 → 表现为完全不能穿边。
@@ -692,11 +711,39 @@ public sealed class AppHost : IAsyncDisposable
                 break;
             }
             case MessageType.LockScreen:
-                WindowsScreenLock.TryLock();
+            {
+                var turnOff = false;
+                if (msg.Payload is { Length: > 0 })
+                {
+                    try
+                    {
+                        var lockPayload = MessageCodec.DecodeJson<LockScreenPayload>(msg.Payload);
+                        turnOff = lockPayload?.TurnOffDisplay == true;
+                    }
+                    catch { /* 旧端空/非法载荷 */ }
+                }
+
+                WindowsScreenLock.TryLock(turnOff);
+                break;
+            }
+            case MessageType.UnlockScreen:
+            {
+                var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
+                if (p == null || string.IsNullOrEmpty(p.Password)) break;
+                // 屏保退出 + 唤醒登录页含等待，勿堵消息泵
+                var password = p.Password;
+                _ = Task.Run(() => WindowsScreenUnlock.TryUnlock(password));
+                break;
+            }
+            case MessageType.ShutdownComputer:
+                WindowsScreenShutdown.TryShutdown();
                 break;
             // LayoutSync 由 LayoutSyncHelper 处理
         }
     }
+
+    private void OnLocalScreenLockChanged(bool locked)
+        => ScreenLockStateBroadcaster.Broadcast(Connections, locked);
 
     /// <summary>
     /// EdgeMouse 依赖 SwitchFocus；手机 AbsPointer 可能未发 SwitchFocus，
@@ -784,6 +831,7 @@ public sealed class AppHost : IAsyncDisposable
         Clipboard.Dispose();
         EdgeDrag.Dispose();
         Input.Dispose();
+        ScreenSaverBlock.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         Settings.Save();
     }

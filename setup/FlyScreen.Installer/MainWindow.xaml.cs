@@ -409,13 +409,7 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "安装失败";
             StatusText.Foreground = (Brush)FindResource("DangerBrush");
-            var msg = ex.Message;
-            if (msg.Contains("denied", StringComparison.OrdinalIgnoreCase)
-                || msg.Contains("拒绝访问", StringComparison.OrdinalIgnoreCase))
-            {
-                msg = "无法写入安装目录，请使用管理员身份运行安装程序后重试。\n\n" + msg;
-            }
-            ConfirmDialog.Alert(this, "安装失败", msg, ConfirmDialogKind.Error);
+            ConfirmDialog.Alert(this, "安装失败", FormatInstallFailureMessage(ex), ConfirmDialogKind.Error);
         }
         finally
         {
@@ -532,5 +526,30 @@ public partial class MainWindow : Window
         message =
             $"磁盘剩余空间不足。\n需要：{DiskSpace.FormatBytes(required)}\n剩余：{DiskSpace.FormatBytes(free)}";
         return false;
+    }
+
+    private static string FormatInstallFailureMessage(Exception ex)
+    {
+        var msg = ex.Message ?? "";
+        if (msg.Contains("denied", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("拒绝访问", StringComparison.OrdinalIgnoreCase))
+        {
+            return "无法写入安装目录，请使用管理员身份运行安装程序后重试。\n\n" + msg;
+        }
+
+        // System.IO.Compression：ZIP local file header corrupt / unexpected end
+        if (ex is InvalidDataException
+            || msg.Contains("local file header", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("central directory", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("End of Central Directory", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("unexpected end", StringComparison.OrdinalIgnoreCase))
+        {
+            return "安装包数据已损坏（payload.zip 无法解压）。\n\n"
+                   + "请勿从微信/QQ 聊天记录目录直接运行，请重新下载完整安装包，"
+                   + "单独复制到桌面后再安装。\n\n"
+                   + msg;
+        }
+
+        return msg;
     }
 }

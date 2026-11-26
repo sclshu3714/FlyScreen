@@ -1,14 +1,52 @@
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
+using FlyScreen.Services;
 using FlyScreen.Services.Network;
 
 namespace FlyScreen.Helpers;
 
-/// <summary>托盘主菜单「工具」下方的「锁屏」：布局内电脑（排除手机/平板）+「全部」。</summary>
+/// <summary>
+/// 托盘「锁屏」子菜单：布局内电脑（排除手机/平板）+ 全部锁屏 / 全部解锁 / 全部关机。
+/// </summary>
 public static class TrayLockMenu
 {
+    private static readonly SemaphoreSlim UnlockAllGate = new(1, 1);
+
     public static string LockLabel => Loc.T("Tray.Lock");
     public static string AllLabel => Loc.T("Tray.LockAll");
+    public static string TurnOffDisplayLabel => Loc.T("Tray.LockTurnOffDisplay");
+    public static string UnlockAllLabel => Loc.T("Tray.UnlockAll");
+    public static string ShutdownAllLabel => Loc.T("Tray.ShutdownAll");
+
+    /// <summary>
+    /// 托盘是否展示「息屏」勾选。暂隐藏：息屏后本机/远程唤醒与解锁问题过多。
+    /// 协议字段与锁屏实现仍保留，改为 <c>true</c> 即可恢复 UI。
+    /// </summary>
+    public static bool TurnOffDisplayUiEnabled { get; } = false;
+
+    /// <summary>读取本机「息屏」勾选（单机/全部锁屏共用）。UI 关闭时恒为 false。</summary>
+    public static bool GetTurnOffDisplay(AppSettings settings)
+    {
+        if (!TurnOffDisplayUiEnabled)
+        {
+            // 清除历史勾选，避免隐藏后仍按旧配置息屏
+            if (settings.LockTurnOffDisplay)
+                SetTurnOffDisplay(settings, false);
+            return false;
+        }
+
+        return settings.LockTurnOffDisplay;
+    }
+
+    /// <summary>写入并持久化「息屏」勾选。</summary>
+    public static void SetTurnOffDisplay(AppSettings settings, bool value)
+    {
+        if (!TurnOffDisplayUiEnabled)
+            value = false;
+        if (settings.LockTurnOffDisplay == value) return;
+        settings.LockTurnOffDisplay = value;
+        try { settings.Save(); } catch { /* ignore */ }
+    }
 
     /// <summary>布局槽位中可锁屏的电脑（空槽 / 手机 / 平板跳过）。</summary>
     public static IReadOnlyList<(string MachineName, string Label, bool IsLocal)> BuildItems(
@@ -34,33 +72,265 @@ public static class TrayLockMenu
     public static void LockMachine(
         ConnectionManager connections,
         string machineName,
-        Action lockLocal)
+        Action<bool> lockLocal,
+        bool turnOffDisplay)
     {
         if (string.IsNullOrWhiteSpace(machineName)) return;
         if (IsLocalMachine(machineName))
         {
-            try { lockLocal(); } catch { /* ignore */ }
+            try { lockLocal(turnOffDisplay); } catch { /* ignore */ }
             return;
         }
 
-        _ = connections.SendToAsync(machineName.Trim(), MessageType.LockScreen);
+        var payload = MessageCodec.JsonBytes(new LockScreenPayload { TurnOffDisplay = turnOffDisplay });
+        _ = connections.SendToAsync(machineName.Trim(), MessageType.LockScreen, payload);
     }
 
     /// <summary>锁定布局内全部可锁屏电脑（本机 + 已连接对端）。</summary>
     public static void LockAll(
         AppSettings settings,
         ConnectionManager connections,
-        Action lockLocal)
+        Action<bool> lockLocal,
+        bool turnOffDisplay)
     {
         foreach (var (name, _, isLocal) in BuildItems(settings, connections))
         {
             if (isLocal)
             {
-                try { lockLocal(); } catch { /* ignore */ }
+                try { lockLocal(turnOffDisplay); } catch { /* ignore */ }
                 continue;
             }
 
-            _ = connections.SendToAsync(name, MessageType.LockScreen);
+            var payload = MessageCodec.JsonBytes(new LockScreenPayload { TurnOffDisplay = turnOffDisplay });
+            _ = connections.SendToAsync(name, MessageType.LockScreen, payload);
+        }
+    }
+
+    /// <summary>
+    /// 准备全部解锁：仅<strong>对端电脑</strong>（跳过本机）。
+    /// <paramref name="items"/> = 待发解锁的对端（已知锁屏或状态未知；已解锁跳过）；
+    /// <paramref name="missing"/> = 布局内对端尚无本机密码记录（含已解锁），用于弹出维护表。
+    /// </summary>
+    public static void PrepareUnlockAll(
+        AppSettings settings,
+        ConnectionManager? connections,
+        MachineUnlockCredentialStore store,
+        out IReadOnlyList<(string MachineName, string Label, bool IsLocal)> items,
+        out Dictionary<string, string> passwords,
+        out IReadOnlyList<(string MachineName, string Label)> missing)
+    {
+        var remotes = BuildItems(settings, connections)
+            .Where(x => !x.IsLocal)
+            .ToList();
+        items = remotes
+            .Where(x => NeedsUnlock(connections, x.MachineName))
+            .ToList();
+        passwords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var miss = new List<(string, string)>();
+        foreach (var (name, label, _) in remotes)
+        {
+            var saved = store.Get(name);
+            if (!string.IsNullOrEmpty(saved))
+                passwords[name] = saved!;
+            else
+                miss.Add((name, label));
+        }
+
+        missing = miss;
+    }
+
+    /// <summary>把弹窗填入的密码写入内存字典与本机库。</summary>
+    public static void ApplyMissingPasswords(
+        MachineUnlockCredentialStore store,
+        Dictionary<string, string> passwords,
+        IReadOnlyDictionary<string, string> filled)
+    {
+        foreach (var (name, password) in filled)
+        {
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password)) continue;
+            passwords[name.Trim()] = password;
+            store.Set(name, password);
+        }
+
+        try { store.Save(); } catch { /* ignore */ }
+    }
+
+    /// <summary>仅对端发 <see cref="MessageType.UnlockScreen"/>（本机不参与全部解锁）。</summary>
+    public static void ExecuteUnlock(
+        IReadOnlyList<(string MachineName, string Label, bool IsLocal)> items,
+        IReadOnlyDictionary<string, string> passwords,
+        ConnectionManager connections)
+    {
+        foreach (var (name, _, isLocal) in items)
+        {
+            if (isLocal) continue;
+            if (!passwords.TryGetValue(name, out var password) || string.IsNullOrEmpty(password))
+                continue;
+
+            var payload = MessageCodec.JsonBytes(new UnlockScreenPayload { Password = password });
+            _ = connections.SendToAsync(name, MessageType.UnlockScreen, payload);
+        }
+    }
+
+    /// <summary>等待对端处理解锁后，仍报告锁屏的机器（密码错误或未完成）。</summary>
+    public static IReadOnlyList<(string MachineName, string Label)> CollectStillLocked(
+        IReadOnlyList<(string MachineName, string Label, bool IsLocal)> items,
+        ConnectionManager connections)
+    {
+        var failed = new List<(string, string)>();
+        foreach (var (name, label, isLocal) in items)
+        {
+            if (isLocal) continue;
+            if (connections.GetPeerScreenLocked(name) == true)
+                failed.Add((name, label));
+        }
+
+        return failed;
+    }
+
+    /// <summary>清除错误密码，便于重弹维护表。</summary>
+    public static void ClearStoredPasswords(
+        MachineUnlockCredentialStore store,
+        Dictionary<string, string> passwords,
+        IEnumerable<string> machineNames)
+    {
+        foreach (var name in machineNames)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var key = name.Trim();
+            passwords.Remove(key);
+            store.Set(key, "");
+        }
+
+        try { store.Save(); } catch { /* ignore */ }
+    }
+
+    /// <summary>解锁结果观察最长等待（屏保退出 + 欢迎页 + 密码注入 + 登录动画）。</summary>
+    public static int UnlockSettleDelayMs { get; set; } = 12000;
+
+    /// <summary>轮询对端锁屏状态间隔。</summary>
+    public static int UnlockPollIntervalMs { get; set; } = 400;
+
+    /// <summary>
+    /// 同步全部解锁（适合 WPF ShowDialog）。本机不参与；已解锁对端不发解锁。
+    /// 布局对端缺密码时仍弹维护表（即使当前无需解锁），便于安装后首次录入。
+    /// 不在此方法内等待重试；请用异步路径 <see cref="UnlockAllWithRetryAsync"/>。
+    /// </summary>
+    public static void UnlockAll(
+        AppSettings settings,
+        ConnectionManager connections,
+        MachineUnlockCredentialStore store,
+        Func<IReadOnlyList<(string MachineName, string Label)>, IReadOnlyDictionary<string, string>?> promptMissingPasswords)
+    {
+        PrepareUnlockAll(settings, connections, store, out var items, out var passwords, out var missing);
+        if (items.Count == 0 && missing.Count == 0) return;
+
+        if (missing.Count > 0)
+        {
+            var filled = promptMissingPasswords(missing);
+            if (filled == null) return;
+            ApplyMissingPasswords(store, passwords, filled);
+        }
+
+        if (items.Count == 0) return;
+        ExecuteUnlock(items, passwords, connections);
+    }
+
+    /// <summary>
+    /// 全部解锁：缺密码先维护；发送后轮询等待，仍锁屏则清错密并再弹维护表重试一次。
+    /// </summary>
+    public static async Task UnlockAllWithRetryAsync(
+        AppSettings settings,
+        ConnectionManager connections,
+        MachineUnlockCredentialStore store,
+        Func<IReadOnlyList<(string MachineName, string Label)>, Task<IReadOnlyDictionary<string, string>?>> promptMissingPasswords,
+        CancellationToken ct = default)
+    {
+        // 托盘连点会并行进此方法 → 多弹窗 + 重复注入密码（对端表现为密码错误）
+        if (!await UnlockAllGate.WaitAsync(0, ct).ConfigureAwait(true))
+            return;
+
+        try
+        {
+            PrepareUnlockAll(settings, connections, store, out var items, out var passwords, out var missing);
+            if (items.Count == 0 && missing.Count == 0) return;
+
+            if (missing.Count > 0)
+            {
+                var filled = await promptMissingPasswords(missing).ConfigureAwait(true);
+                if (filled == null) return;
+                ApplyMissingPasswords(store, passwords, filled);
+            }
+
+            if (items.Count == 0) return;
+
+            var pending = items.ToList();
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+                ExecuteUnlock(pending, passwords, connections);
+
+                var still = await WaitStillLockedAsync(pending, connections, UnlockSettleDelayMs, ct)
+                    .ConfigureAwait(true);
+                if (still.Count == 0) return;
+                if (attempt >= 1) return;
+
+                ClearStoredPasswords(store, passwords, still.Select(x => x.MachineName));
+                var filled = await promptMissingPasswords(still).ConfigureAwait(true);
+                if (filled == null) return;
+                ApplyMissingPasswords(store, passwords, filled);
+
+                pending = items
+                    .Where(x => still.Any(s => s.MachineName.Equals(x.MachineName, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                if (pending.Count == 0) return;
+            }
+        }
+        finally
+        {
+            UnlockAllGate.Release();
+        }
+    }
+
+    /// <summary>轮询直至全部解锁或超时；超时返回仍锁屏的机器。</summary>
+    private static async Task<IReadOnlyList<(string MachineName, string Label)>> WaitStillLockedAsync(
+        IReadOnlyList<(string MachineName, string Label, bool IsLocal)> pending,
+        ConnectionManager connections,
+        int timeoutMs,
+        CancellationToken ct)
+    {
+        var until = Environment.TickCount64 + Math.Max(1000, timeoutMs);
+        var poll = Math.Clamp(UnlockPollIntervalMs, 100, 2000);
+        IReadOnlyList<(string MachineName, string Label)> still = CollectStillLocked(pending, connections);
+        while (Environment.TickCount64 < until)
+        {
+            ct.ThrowIfCancellationRequested();
+            still = CollectStillLocked(pending, connections);
+            if (still.Count == 0)
+                return still;
+            var remain = (int)Math.Min(poll, until - Environment.TickCount64);
+            if (remain <= 0) break;
+            await Task.Delay(remain, ct).ConfigureAwait(true);
+        }
+
+        return CollectStillLocked(pending, connections);
+    }
+
+    /// <summary>布局内全部可关机电脑（本机 + 已连接对端）。</summary>
+    public static void ShutdownAll(
+        AppSettings settings,
+        ConnectionManager connections,
+        Action shutdownLocal)
+    {
+        foreach (var (name, _, isLocal) in BuildItems(settings, connections))
+        {
+            if (isLocal)
+            {
+                try { shutdownLocal(); } catch { /* ignore */ }
+                continue;
+            }
+
+            _ = connections.SendToAsync(name, MessageType.ShutdownComputer);
         }
     }
 
@@ -75,6 +345,13 @@ public static class TrayLockMenu
 
         var info = connections?.GetPeerRemoteInfo(machineName);
         return !IsPhoneOrTablet(info?.DeviceClass);
+    }
+
+    /// <summary>已知已解锁则 false；未知或锁屏则 true。</summary>
+    private static bool NeedsUnlock(ConnectionManager? connections, string machineName)
+    {
+        var locked = connections?.GetPeerScreenLocked(machineName);
+        return locked != false;
     }
 
     private static bool IsPhoneOrTablet(string? deviceClass)

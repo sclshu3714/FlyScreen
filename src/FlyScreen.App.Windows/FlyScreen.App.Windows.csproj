@@ -49,6 +49,7 @@
 
   <Import Project="..\..\build\FlyScreen.Version.targets" />
   <Import Project="..\..\build\FlyScreen.BundleTopologyGuard.targets" />
+  <Import Project="..\..\build\FlyScreen.BundleLockInputHelper.targets" />
   <!-- VddOffline → zip 放入发布目录 VddOffline\；单文件则打进包，运行时再落到同路径并展开到 AppData -->
   <Import Project="..\..\build\FlyScreen.BundleVddOffline.targets" />
   <Import Project="..\..\build\FlyScreen.BundleFlyTools.targets" />

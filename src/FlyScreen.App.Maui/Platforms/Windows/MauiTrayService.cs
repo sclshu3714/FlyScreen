@@ -36,6 +36,10 @@ public sealed class MauiTrayService : IDisposable
     private Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? _toolShortcuts;
     private Func<IReadOnlyList<(string Label, Action Action)>>? _lockMachines;
     private Func<Action>? _lockAll;
+    private Func<Action>? _unlockAll;
+    private Func<Action>? _shutdownAll;
+    private Func<bool>? _lockTurnOffDisplay;
+    private Action<bool>? _onLockTurnOffDisplayChanged;
     private bool _added;
 
     public void Ensure(
@@ -49,7 +53,11 @@ public sealed class MauiTrayService : IDisposable
         Func<(string Label, Action Toggle)>? switchDisable = null,
         Func<IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>>? toolShortcuts = null,
         Func<IReadOnlyList<(string Label, Action Action)>>? lockMachines = null,
-        Func<Action>? lockAll = null)
+        Func<Action>? lockAll = null,
+        Func<Action>? unlockAll = null,
+        Func<Action>? shutdownAll = null,
+        Func<bool>? lockTurnOffDisplay = null,
+        Action<bool>? onLockTurnOffDisplayChanged = null)
     {
         _show = show;
         _reconnect = reconnect;
@@ -62,6 +70,10 @@ public sealed class MauiTrayService : IDisposable
         _toolShortcuts = toolShortcuts;
         _lockMachines = lockMachines;
         _lockAll = lockAll;
+        _unlockAll = unlockAll;
+        _shutdownAll = shutdownAll;
+        _lockTurnOffDisplay = lockTurnOffDisplay;
+        _onLockTurnOffDisplayChanged = onLockTurnOffDisplayChanged;
         if (_hwnd != IntPtr.Zero) return;
 
         _proc = WndProcImpl;
@@ -169,6 +181,13 @@ public sealed class MauiTrayService : IDisposable
         try { locks = _lockMachines?.Invoke(); } catch { /* ignore */ }
         Action? onLockAll = null;
         try { onLockAll = _lockAll?.Invoke(); } catch { /* ignore */ }
+        Action? onUnlockAll = null;
+        try { onUnlockAll = _unlockAll?.Invoke(); } catch { /* ignore */ }
+        Action? onShutdownAll = null;
+        try { onShutdownAll = _shutdownAll?.Invoke(); } catch { /* ignore */ }
+
+        var turnOff = false;
+        try { turnOff = _lockTurnOffDisplay?.Invoke() == true; } catch { /* ignore */ }
 
         MauiTrayPopup.ShowNearCursor(
             onOpen: () => _show?.Invoke(),
@@ -182,7 +201,14 @@ public sealed class MauiTrayService : IDisposable
             onToggleDisable: onToggle,
             toolShortcuts: tools,
             lockMachines: locks,
-            onLockAll: onLockAll);
+            onLockAll: onLockAll,
+            onUnlockAll: onUnlockAll,
+            onShutdownAll: onShutdownAll,
+            lockTurnOffDisplay: turnOff,
+            onLockTurnOffDisplayChanged: v =>
+            {
+                try { _onLockTurnOffDisplayChanged?.Invoke(v); } catch { /* ignore */ }
+            });
     }
 
     private IntPtr WndProcImpl(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)

@@ -9,6 +9,7 @@ public static class LocalPeerIdentity
 {
     private static string[]? _capsOverride;
     private static string[]? _extraCaps;
+    private static string[]? _featureCaps;
     private static string? _machineNameOverride;
     private static string? _resolvedMachineName;
     private static Func<string?>? _machineNameResolver;
@@ -47,7 +48,9 @@ public static class LocalPeerIdentity
     }
     public static string AppVersion => Helpers.AppVersionDisplay.Current;
 
-    public static string[] Caps => MergeCaps(_capsOverride ?? DefaultCapsForPlatform(), _extraCaps);
+    public static string[] Caps => MergeCaps(
+        MergeCaps(_capsOverride ?? DefaultCapsForPlatform(), _featureCaps),
+        _extraCaps);
 
     public static void Configure(
         string? platform = null,
@@ -69,20 +72,31 @@ public static class LocalPeerIdentity
 
     /// <summary>合并已安装工具等附加 Caps（不覆盖平台基线；不进 BehaviorSync）。</summary>
     public static void SetExtraCaps(IEnumerable<string>? caps)
-    {
-        if (caps == null)
-        {
-            _extraCaps = null;
-            return;
-        }
+        => _extraCaps = NormalizeCapArray(caps);
 
-        _extraCaps = caps
+    /// <summary>平台功能 Caps（如锁屏输入助手），与工具 Caps 独立，避免互相覆盖。</summary>
+    public static void SetFeatureCaps(IEnumerable<string>? caps)
+        => _featureCaps = NormalizeCapArray(caps);
+
+    /// <summary>打开或关闭单个功能 Cap。</summary>
+    public static void SetFeatureCap(string cap, bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(cap)) return;
+        var set = new HashSet<string>(_featureCaps ?? [], StringComparer.OrdinalIgnoreCase);
+        if (enabled) set.Add(cap.Trim());
+        else set.Remove(cap.Trim());
+        _featureCaps = set.Count == 0 ? null : set.ToArray();
+    }
+
+    private static string[]? NormalizeCapArray(IEnumerable<string>? caps)
+    {
+        if (caps == null) return null;
+        var arr = caps
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .Select(c => c.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (_extraCaps.Length == 0)
-            _extraCaps = null;
+        return arr.Length == 0 ? null : arr;
     }
 
     private static string[] MergeCaps(string[] baseline, string[]? extra)

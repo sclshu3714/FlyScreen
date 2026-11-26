@@ -72,7 +72,8 @@ internal sealed class MauiTrayPopup : IDisposable
     private sealed class SubmenuSpec
     {
         public required IReadOnlyList<MauiTraySubItem> Items { get; init; }
-        public bool SepBeforeLast { get; init; }
+        /// <summary>分隔线前剩余尾部项数（1=仅最后一项前；2=最后两项前）。</summary>
+        public int SepBeforeTrailing { get; init; }
     }
 
     private MauiTrayPopup(
@@ -87,7 +88,11 @@ internal sealed class MauiTrayPopup : IDisposable
         Action onToggleDisable,
         IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts,
         IReadOnlyList<(string Label, Action Action)>? lockMachines,
-        Action onLockAll)
+        Action onLockAll,
+        Action onUnlockAll,
+        Action onShutdownAll,
+        bool lockTurnOffDisplay,
+        Action<bool> onLockTurnOffDisplayChanged)
     {
         _projectPhase = projectPhase;
         _rows = [];
@@ -122,7 +127,7 @@ internal sealed class MauiTrayPopup : IDisposable
         }
 
         switchItems.Add(MauiTraySubItem.Click(disableLabel, onToggleDisable));
-        _submenus[switchClickIndex] = new SubmenuSpec { Items = switchItems, SepBeforeLast = true };
+        _submenus[switchClickIndex] = new SubmenuSpec { Items = switchItems, SepBeforeTrailing = 1 };
 
         var toolsClickIndex = CountClickable();
         _rows.Add(new TrayRow
@@ -158,11 +163,27 @@ internal sealed class MauiTrayPopup : IDisposable
                 lockItems.Add(MauiTraySubItem.Click(label, action, mdl2: TrayMenuIcons.Mdl2Computer));
         }
 
-        lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
+        if (TrayLockMenu.TurnOffDisplayUiEnabled)
+        {
+            lockItems.Add(MauiTraySubItem.ClickWithTrailingCheck(
+                TrayLockMenu.AllLabel,
+                onLockAll,
+                TrayLockMenu.TurnOffDisplayLabel,
+                lockTurnOffDisplay,
+                onLockTurnOffDisplayChanged,
+                mdl2: TrayMenuIcons.Mdl2LockAll));
+        }
+        else
+        {
+            lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.AllLabel, onLockAll, mdl2: TrayMenuIcons.Mdl2LockAll));
+        }
+
+        lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.UnlockAllLabel, onUnlockAll, mdl2: TrayMenuIcons.Mdl2UnlockAll));
+        lockItems.Add(MauiTraySubItem.Click(TrayLockMenu.ShutdownAllLabel, onShutdownAll, mdl2: TrayMenuIcons.Mdl2ShutdownAll));
         _submenus[lockClickIndex] = new SubmenuSpec
         {
             Items = lockItems,
-            SepBeforeLast = lockItems.Count > 1
+            SepBeforeTrailing = lockItems.Count > 3 ? 3 : 0
         };
 
         _sepAfterClickIndex.Add(CountClickable() - 1);
@@ -193,7 +214,11 @@ internal sealed class MauiTrayPopup : IDisposable
         Action? onToggleDisable = null,
         IReadOnlyList<(string Label, Action Action, byte[]? IconPng)>? toolShortcuts = null,
         IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
-        Action? onLockAll = null)
+        Action? onLockAll = null,
+        Action? onUnlockAll = null,
+        Action? onShutdownAll = null,
+        bool lockTurnOffDisplay = false,
+        Action<bool>? onLockTurnOffDisplayChanged = null)
     {
         try { _open?.Dispose(); } catch { /* ignore */ }
         var popup = new MauiTrayPopup(
@@ -203,7 +228,11 @@ internal sealed class MauiTrayPopup : IDisposable
             onToggleDisable ?? (() => { }),
             toolShortcuts,
             lockMachines,
-            onLockAll ?? (() => { }));
+            onLockAll ?? (() => { }),
+            onUnlockAll ?? (() => { }),
+            onShutdownAll ?? (() => { }),
+            lockTurnOffDisplay,
+            onLockTurnOffDisplayChanged ?? (_ => { }));
         _open = popup;
         popup.ShowAtCursor();
     }
@@ -626,7 +655,7 @@ internal sealed class MauiTrayPopup : IDisposable
             spec.Items,
             onItemInvoked: CloseMenu,
             onDismissRequested: ScheduleDismissIfFocusLeft,
-            sepBeforeLast: spec.SepBeforeLast);
+            sepBeforeTrailing: spec.SepBeforeTrailing);
     }
 
     private void CloseSubmenu()

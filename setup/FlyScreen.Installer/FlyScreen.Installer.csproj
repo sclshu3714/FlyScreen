@@ -49,4 +49,11 @@
 
   <Import Project="..\..\build\FlyScreen.Version.targets" Condition="Exists('..\..\build\FlyScreen.Version.targets')" />
 
+  <!-- 单文件发布时强制自包含，避免旁路空 *.runtimeconfig.json 导致宿主解析失败 -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <IncludeAllContentForSelfExtract Condition="'$(IncludeAllContentForSelfExtract)' == ''">true</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile Condition="'$(EnableCompressionInSingleFile)' == ''">true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
 </Project>

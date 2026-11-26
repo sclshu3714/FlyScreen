@@ -1,7 +1,9 @@
+using FlyScreen.Helpers;
 using FlyScreen.Linux.Audio;
 using FlyScreen.Linux.Environment;
 using FlyScreen.Linux.Helpers;
 using FlyScreen.Linux.Input;
+using FlyScreen.Linux.LockInput;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
@@ -41,6 +43,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
     public ScreenExtendService ScreenExtend { get; }
     private readonly ProjectionAudioBridge _projectionAudio;
     public EdgeFileDragService EdgeDrag { get; }
+    public ScreenSaverBlockService ScreenSaverBlock { get; }
     public bool CanFollowEdgeFileDrag => Injector is X11InputInjector x11 && x11.IsAvailable;
 
     private FlyScreen.ToolSdk.ISharedDevicesRuntime? _sharedDevices;
@@ -139,11 +142,18 @@ public sealed class LinuxAppHost : IAsyncDisposable
             Injector.EnsureCursorVisible();
             LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
         };
+        ScreenSaverBlock = new ScreenSaverBlockService(Settings, Connections, LinuxIdleInhibit.SetActive);
         BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
         BehaviorSync.StatusMessage += PublishStatus;
         BehaviorSync.BehaviorSyncedFromPeer += peer =>
         {
-            BehaviorSyncedFromPeer?.Invoke(peer);
+            ScreenSaverBlock.Refresh();
+            _ = Task.Run(() =>
+            {
+                try { LinuxLockScreenInputHost.Apply(Settings.LockScreenInputHelper); }
+                catch { /* ignore */ }
+                try { BehaviorSyncedFromPeer?.Invoke(peer); } catch { /* ignore */ }
+            });
         };
         RemoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
         RemoteBindingSync.StatusMessage += PublishStatus;
@@ -221,12 +231,21 @@ public sealed class LinuxAppHost : IAsyncDisposable
     private void PublishStatus(string message)
     {
         AppLog.RecordStatus(message);
+        if (!Settings.ShowStatusMessages) return;
         StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
     public async Task StartAsync()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
+
+        LinuxLockScreenInputHost.ConnectionsBroadcastPeerInfo = () => Connections.BroadcastLocalPeerInfoAsync();
+        LinuxLockScreenInputHost.InitializeFromSettings(Settings.LockScreenInputHelper);
+        LinuxLockScreenSession.EnsureStarted();
+        LinuxLockScreenSession.Changed -= OnLocalScreenLockChanged;
+        LinuxLockScreenSession.Changed += OnLocalScreenLockChanged;
+        ScreenLockStateBroadcaster.Broadcast(Connections, LinuxLockScreenSession.IsLocked);
+        ScreenSaverBlock.Refresh();
 
         RefreshCaps();
         await Connections.StartAsync().ConfigureAwait(false);
@@ -316,9 +335,12 @@ public sealed class LinuxAppHost : IAsyncDisposable
         {
             case MessageType.MouseMove:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseMovePayload>(msg.Payload);
                 if (p == null) return;
+                // 锁屏助手：跳过被控门闩，直接 uinput（登录界面也能收到）
+                if (TryInjectViaLockHelper(p))
+                    break;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
                 if (p.Relative) Injector.MoveRelative(p.Dx, p.Dy);
                 else Injector.MoveAbsoluteNormalized(p.Nx, p.Ny);
                 if (p.Relative)
@@ -334,23 +356,40 @@ public sealed class LinuxAppHost : IAsyncDisposable
             }
             case MessageType.MouseButton:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseButtonPayload>(msg.Payload);
-                if (p != null) Injector.MouseButton(p);
+                if (p == null) return;
+                if (LinuxLockScreenInputBridge.HelperEnabled && LinuxLockScreenSession.IsLocked
+                    && LinuxLockScreenInputBridge.TryMouseButton(p.Button, p.Down))
+                    break;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
+                Injector.MouseButton(p);
                 break;
             }
             case MessageType.MouseWheel:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<MouseWheelPayload>(msg.Payload);
-                if (p != null) Injector.MouseWheel(p);
+                if (p == null) return;
+                if (LinuxLockScreenInputBridge.HelperEnabled && LinuxLockScreenSession.IsLocked
+                    && LinuxLockScreenInputBridge.TryMouseWheel(p.Delta, p.Horizontal))
+                    break;
+                if (!EnsureAcceptsRemoteInput(peer)) return;
+                Injector.MouseWheel(p);
                 break;
             }
             case MessageType.KeyEvent:
             {
-                if (!EnsureAcceptsRemoteInput(peer)) return;
                 var p = MessageCodec.DecodeJson<KeyEventPayload>(msg.Payload);
-                if (p != null) Injector.Key(p);
+                if (p == null) return;
+                if (LinuxLockScreenInputBridge.HelperEnabled && LinuxLockScreenSession.IsLocked)
+                {
+                    if (!string.IsNullOrEmpty(p.Text)
+                        ? LinuxLockScreenInputBridge.TryInsertText(p.Text)
+                        : LinuxLockScreenInputBridge.TryKey(p.VirtualKey, p.Down, p.Extended))
+                        break;
+                }
+
+                if (!EnsureAcceptsRemoteInput(peer)) return;
+                Injector.Key(p);
                 break;
             }
             case MessageType.SwitchFocus:
@@ -380,9 +419,45 @@ public sealed class LinuxAppHost : IAsyncDisposable
                 break;
             }
             case MessageType.LockScreen:
-                LinuxScreenLock.TryLock();
+            {
+                var turnOff = false;
+                if (msg.Payload is { Length: > 0 })
+                {
+                    try
+                    {
+                        var lockPayload = MessageCodec.DecodeJson<LockScreenPayload>(msg.Payload);
+                        turnOff = lockPayload?.TurnOffDisplay == true;
+                    }
+                    catch { /* 旧端空/非法载荷 */ }
+                }
+
+                LinuxScreenLock.TryLock(turnOff);
+                break;
+            }
+            case MessageType.UnlockScreen:
+            {
+                var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
+                if (p == null || string.IsNullOrEmpty(p.Password)) break;
+                var password = p.Password;
+                _ = Task.Run(() => LinuxScreenUnlock.TryUnlock(password));
+                break;
+            }
+            case MessageType.ShutdownComputer:
+                LinuxScreenShutdown.TryShutdown();
                 break;
         }
+    }
+
+    private void OnLocalScreenLockChanged(bool locked)
+        => ScreenLockStateBroadcaster.Broadcast(Connections, locked);
+
+    private static bool TryInjectViaLockHelper(MouseMovePayload p)
+    {
+        if (!LinuxLockScreenInputBridge.HelperEnabled || !LinuxLockScreenSession.IsLocked)
+            return false;
+        return p.Relative
+            ? LinuxLockScreenInputBridge.TryMoveRelative(p.Dx, p.Dy)
+            : LinuxLockScreenInputBridge.TryMoveAbsoluteNormalized(p.Nx, p.Ny);
     }
 
     /// <summary>
@@ -434,6 +509,7 @@ public sealed class LinuxAppHost : IAsyncDisposable
         _projectionAudio.Dispose();
         ScreenExtend.Dispose();
         EdgeDrag.Dispose();
+        ScreenSaverBlock.Dispose();
         if (Injector is IDisposable d)
             d.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);

@@ -5,6 +5,7 @@ using FlyScreen.DesktopUi.Services;
 using FlyScreen.DesktopUi.Shell;
 using FlyScreen.Linux;
 using FlyScreen.Linux.Helpers;
+using FlyScreen.Linux.LockInput;
 using FlyScreen.Models;
 using FlyScreen.Services.Clipboard;
 using FlyScreen.Services.Network;
@@ -83,7 +84,21 @@ internal sealed class LinuxDesktopShellHost : IDesktopShellHost
     public bool SupportsTray => true;
     public bool SupportsAutoStart => false;
 
-    public void LockLocalScreen() => LinuxScreenLock.TryLock();
+    public void LockLocalScreen(bool turnOffDisplay = false) => LinuxScreenLock.TryLock(turnOffDisplay);
+
+    public void UnlockLocalScreen(string password) => LinuxScreenUnlock.TryUnlock(password);
+
+    public void ShutdownLocalScreen() => LinuxScreenShutdown.TryShutdown();
+
+    public bool IsLockInputHelperRunning => LinuxLockScreenInputHost.IsRunning;
+
+    public bool ApplyLockInputHelper(bool wantEnabled) => LinuxLockScreenInputHost.Apply(wantEnabled);
+
+    public string LockInputHelperTipKey => "Tip.LockInputHelper.Linux";
+
+    public string LockInputHelperFailKey => "Status.LockInputHelper.Fail.Linux";
+
+    public void RefreshScreenSaverBlock() => _host.ScreenSaverBlock.Refresh();
 
     public Task StartAsync() => _host.StartAsync();
     public Task RestartNetworkingAsync() => _host.RestartNetworkingAsync();

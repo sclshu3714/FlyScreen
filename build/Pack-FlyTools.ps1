@@ -8,7 +8,11 @@ param(
     [string]$OutRoot = "",
     [switch]$SkipAppCopy,
     # Force: rebuild zip even if dll/manifest not newer than existing .flytool
-    [switch]$Force
+    [switch]$Force,
+    # 仅组包指定工具 Id（逗号分隔）；空 = 全部
+    [string]$ToolIds = "",
+    # 跳过 dotnet build，直接用已有 bin 输出组包（由 VS 生成 Tools 工程后调用）
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,12 +21,21 @@ $repo = Split-Path $PSScriptRoot -Parent
 $stage = Join-Path $repo "artifacts/flytools-stage"
 
 # 串行化：VS 多 TFM 并行时否则会同时 Zip / 删 stage 导致 exit 1
+# 注意：持锁期间 dotnet build 工具模块时必须 -p:FlyScreenSkipToolPackOnBuild=true，
+# 否则 AfterTargets 再进本脚本会等同一互斥锁 → 死锁。
 $mutex = $null
 $mutexAcquired = $false
 try {
     $mutex = New-Object System.Threading.Mutex($false, "Local\FlyScreen.PackFlyTools.v1")
     Write-Host "Pack-FlyTools: waiting for lock..."
-    $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(45))
+    try {
+        $mutexAcquired = $mutex.WaitOne([TimeSpan]::FromMinutes(45))
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        # 上次异常退出未 Release：仍视为已获得锁
+        $mutexAcquired = $true
+        Write-Host "Pack-FlyTools: took abandoned lock"
+    }
     if (-not $mutexAcquired) {
         throw "Pack-FlyTools: timed out waiting for pack lock (another build stuck?)"
     }
@@ -34,6 +47,15 @@ catch {
 }
 
 try {
+$wantIds = @()
+if (-not [string]::IsNullOrWhiteSpace($ToolIds)) {
+    $wantIds = @(
+        $ToolIds.Split(@(',', ';'), [System.StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+}
+
 $tools = @(
     @{
         Id = "color-picker"
@@ -196,14 +218,26 @@ $index = [ordered]@{ schemaVersion = 1; tools = @() }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 foreach ($t in $tools) {
+    if ($wantIds.Count -gt 0 -and ($wantIds -notcontains $t.Id)) {
+        Write-Host "Skip $($t.Id) (not in -ToolIds)"
+        continue
+    }
+
     $proj = Join-Path $repo $t.Proj
     if (-not (Test-Path -LiteralPath $proj)) { throw "missing project: $($t.Proj)" }
     $manifest = Join-Path $repo $t.Manifest
     if (-not (Test-Path -LiteralPath $manifest)) { throw "missing manifest: $($t.Manifest)" }
 
-    Write-Host "Building $($t.Id)..."
-    dotnet build $proj -c $Configuration --nologo -v q
-    if ($LASTEXITCODE -ne 0) { throw "build failed $($t.Id)" }
+    if ($SkipBuild) {
+        Write-Host "SkipBuild $($t.Id) (use existing bin)"
+    }
+    else {
+        # 必须 SkipToolPackOnBuild：模块工程 AfterTargets 会再调本脚本等同一互斥锁，否则死锁卡在 Building…
+        Write-Host "Building $($t.Id)..."
+        & dotnet build $proj -c $Configuration --nologo -v minimal `
+            -p:FlyScreenSkipToolPackOnBuild=true
+        if ($LASTEXITCODE -ne 0) { throw "build failed $($t.Id)" }
+    }
 
     $asmName = [IO.Path]::GetFileNameWithoutExtension($proj)
     $outDir = Resolve-ProjectOutputDir $proj $Configuration $asmName
@@ -215,9 +249,12 @@ foreach ($t in $tools) {
     foreach ($uiRel in @($t.UiProjs)) {
         $uiProj = Join-Path $repo $uiRel
         if (-not (Test-Path -LiteralPath $uiProj)) { continue }
-        Write-Host "  Building UI $uiRel..."
-        dotnet build $uiProj -c $Configuration --nologo -v q
-        if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
+        if (-not $SkipBuild) {
+            Write-Host "  Building UI $uiRel..."
+            & dotnet build $uiProj -c $Configuration --nologo -v minimal `
+                -p:FlyScreenSkipToolPackOnBuild=true
+            if ($LASTEXITCODE -ne 0) { throw "build failed UI $uiRel" }
+        }
         $uiAsm = [IO.Path]::GetFileNameWithoutExtension($uiProj)
         # Ui.Maui：打 net10.0（软帧，供 Android 手机）；勿 PreferWindows（会带 WinUI/HWND 依赖）
         $preferWin = $false

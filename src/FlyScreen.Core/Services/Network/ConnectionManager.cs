@@ -28,6 +28,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _adHocPeers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _outboundBusy = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _bulkBusy = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>对端最近一次 ScreenLockState；缺省未知。</summary>
+    private readonly ConcurrentDictionary<string, bool> _peerScreenLocked = new(StringComparer.OrdinalIgnoreCase);
     private long _lastDialTick;
 
     public string LocalMachine => LocalPeerIdentity.MachineName;
@@ -441,6 +443,19 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public PeerRemoteInfo? GetPeerRemoteInfo(string peerName)
         => _links.TryGetValue(peerName, out var link) ? link.RemoteInfo : null;
+
+    /// <summary>对端是否锁屏；null 表示尚未收到 ScreenLockState。</summary>
+    public bool? GetPeerScreenLocked(string peerName)
+    {
+        if (string.IsNullOrWhiteSpace(peerName)) return null;
+        return _peerScreenLocked.TryGetValue(peerName.Trim(), out var locked) ? locked : null;
+    }
+
+    public void SetPeerScreenLocked(string peerName, bool locked)
+    {
+        if (string.IsNullOrWhiteSpace(peerName)) return;
+        _peerScreenLocked[peerName.Trim()] = locked;
+    }
 
     /// <summary>查询对端出入站连接状态（诊断用）。</summary>
     public PeerConnectionStatus GetPeerStatus(string name)
@@ -1593,12 +1608,28 @@ public sealed class ConnectionManager : IAsyncDisposable
                 return;
             }
 
+            if (msg.Type == MessageType.ScreenLockState)
+            {
+                ApplyScreenLockState(session.PeerName, msg);
+                return;
+            }
+
             MessageReceived?.Invoke(session.PeerName, msg);
         }
         catch
         {
             // ignore
         }
+    }
+
+    private void ApplyScreenLockState(string peerName, NetMessage msg)
+    {
+        var p = MessageCodec.DecodeJson<ScreenLockStatePayload>(msg.Payload);
+        if (p == null) return;
+        // 会话名与载荷 MachineName 都记一份，避免布局槽位名与对端自报名不一致时「仍锁屏」误判
+        _peerScreenLocked[peerName.Trim()] = p.Locked;
+        if (!string.IsNullOrWhiteSpace(p.MachineName))
+            _peerScreenLocked[p.MachineName.Trim()] = p.Locked;
     }
 
     private void ApplyPeerInfoUpdate(string peerName, NetMessage msg)

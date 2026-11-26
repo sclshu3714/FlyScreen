@@ -249,13 +249,36 @@ public sealed class WindowsMauiPlatformServices : IMauiPlatformServices
                 {
                     var machine = item.MachineName;
                     list.Add((item.Label, () =>
-                        TrayLockMenu.LockMachine(_connections, machine, WindowsScreenLock.TryLock)));
+                        TrayLockMenu.LockMachine(_connections, machine, WindowsScreenLock.TryLock,
+                            TrayLockMenu.GetTurnOffDisplay(_settings))));
                 }
 
                 return list;
             },
             lockAll: () => () =>
-                TrayLockMenu.LockAll(_settings, _connections, WindowsScreenLock.TryLock));
+                TrayLockMenu.LockAll(_settings, _connections, WindowsScreenLock.TryLock,
+                    TrayLockMenu.GetTurnOffDisplay(_settings)),
+            unlockAll: () => () => _ = TrayUnlockAllAsync(),
+            shutdownAll: () => () =>
+                TrayLockMenu.ShutdownAll(_settings, _connections, WindowsScreenShutdown.TryShutdown),
+            lockTurnOffDisplay: () => TrayLockMenu.GetTurnOffDisplay(_settings),
+            onLockTurnOffDisplayChanged: v => TrayLockMenu.SetTurnOffDisplay(_settings, v));
+    }
+
+    private async Task TrayUnlockAllAsync()
+    {
+        try
+        {
+            await TrayLockMenu.UnlockAllWithRetryAsync(
+                _settings,
+                _connections,
+                MachineUnlockCredentialStore.Shared,
+                MauiUnlockPasswordsPrompt.PromptAsync).ConfigureAwait(true);
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     public void HideToBackground(

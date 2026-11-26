@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace FlyScreen.Uninstaller.Services;
@@ -17,7 +18,11 @@ public sealed class UninstallService
         await StopAppAsync(ctx, progress, ct).ConfigureAwait(false);
         Report(progress, 12, "已结束相关进程");
 
-        Report(progress, 15, "移除快捷方式…");
+        Report(progress, 13, "检查锁屏输入助手服务…");
+        TryRemoveLockInputHelperService(progress);
+        Report(progress, 15, "锁屏输入助手已处理");
+
+        Report(progress, 16, "移除快捷方式…");
         RemoveShortcuts(ctx.ProductName);
         Report(progress, 20, "快捷方式已移除");
 
@@ -288,5 +293,55 @@ public sealed class UninstallService
                 Directory.Delete(linkDir, recursive: true);
         }
         catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// 仅当锁屏输入助手服务已安装时停止并删除；未启动/未安装则跳过。
+    /// </summary>
+    private static void TryRemoveLockInputHelperService(IProgress<ProgressReport>? progress)
+    {
+        const string serviceName = "FlyScreenLockInputHelper";
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Services\" + serviceName);
+            if (key == null)
+            {
+                Report(progress, 14, "未安装锁屏输入助手服务，跳过");
+                return;
+            }
+        }
+        catch
+        {
+            return;
+        }
+
+        Report(progress, 13.5, "正在停止锁屏输入助手服务…");
+        RunSc($"stop {serviceName}");
+        // 等待短暂退出
+        try { Thread.Sleep(800); } catch { /* ignore */ }
+        Report(progress, 14.5, "正在卸载锁屏输入助手服务…");
+        RunSc($"delete {serviceName}");
+    }
+
+    private static void RunSc(string arguments)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = "sc.exe",
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            p?.WaitForExit(8_000);
+        }
+        catch
+        {
+            // ignore
+        }
     }
 }

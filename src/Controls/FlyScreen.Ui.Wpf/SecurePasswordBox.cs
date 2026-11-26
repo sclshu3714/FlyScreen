@@ -18,7 +18,7 @@ public sealed class SecurePasswordBox : Border
 
     public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
         nameof(Placeholder), typeof(string), typeof(SecurePasswordBox),
-        new PropertyMetadata(string.Empty));
+        new PropertyMetadata(string.Empty, OnPlaceholderChanged));
 
     public static readonly DependencyProperty IsRevealedProperty = DependencyProperty.Register(
         nameof(IsRevealed), typeof(bool), typeof(SecurePasswordBox),
@@ -39,6 +39,7 @@ public sealed class SecurePasswordBox : Border
 
     private readonly PasswordBox _password;
     private readonly TextBox _plain;
+    private readonly TextBlock _placeholder;
     private readonly Path _eyePath;
     private readonly Border _eyeHost;
     private bool _syncing;
@@ -50,14 +51,11 @@ public sealed class SecurePasswordBox : Border
         BorderThickness = new Thickness(1);
         Height = 36;
         Padding = new Thickness(10, 0, 4, 0);
-        Background = ResolveBrush("ControlBg", Brushes.White);
-        BorderBrush = ResolveBrush("ControlBorder", new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB)));
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var textBrush = ResolveBrush("Text", Brushes.Black);
         _password = new PasswordBox
         {
             BorderThickness = new Thickness(0),
@@ -65,8 +63,6 @@ public sealed class SecurePasswordBox : Border
             VerticalContentAlignment = VerticalAlignment.Center,
             Padding = new Thickness(0),
             PasswordChar = '•',
-            Foreground = textBrush,
-            CaretBrush = textBrush,
             Template = CreateBorderlessPasswordTemplate()
         };
         _plain = new TextBox
@@ -76,12 +72,17 @@ public sealed class SecurePasswordBox : Border
             VerticalContentAlignment = VerticalAlignment.Center,
             Padding = new Thickness(0),
             Visibility = Visibility.Collapsed,
-            Foreground = textBrush,
-            CaretBrush = textBrush,
             Template = CreateBorderlessTextTemplate()
+        };
+        _placeholder = new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
         };
 
         var inputHost = new Grid();
+        inputHost.Children.Add(_placeholder);
         inputHost.Children.Add(_password);
         inputHost.Children.Add(_plain);
         Grid.SetColumn(inputHost, 0);
@@ -92,8 +93,7 @@ public sealed class SecurePasswordBox : Border
             Data = EyeOffGeometry,
             Stretch = Stretch.Uniform,
             Width = 16,
-            Height = 16,
-            Fill = ResolveBrush("Muted", new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)))
+            Height = 16
         };
         // 不用 Button：避免宿主隐式 Button 样式（MinWidth=88 等）污染
         _eyeHost = new Border
@@ -121,6 +121,9 @@ public sealed class SecurePasswordBox : Border
         grid.Children.Add(_eyeHost);
         Child = grid;
 
+        ApplyThemeFromResources();
+        Loaded += (_, _) => ApplyThemeFromResources();
+
         _password.PasswordChanged += (_, _) =>
         {
             if (_syncing) return;
@@ -128,6 +131,7 @@ public sealed class SecurePasswordBox : Border
             Password = _password.Password;
             _plain.Text = _password.Password;
             _syncing = false;
+            UpdatePlaceholderVisibility();
             RaisePasswordChanged();
         };
         _plain.TextChanged += (_, _) =>
@@ -137,6 +141,7 @@ public sealed class SecurePasswordBox : Border
             Password = _plain.Text ?? "";
             _password.Password = Password;
             _syncing = false;
+            UpdatePlaceholderVisibility();
             RaisePasswordChanged();
         };
 
@@ -156,6 +161,25 @@ public sealed class SecurePasswordBox : Border
             if (!IsKeyboardFocusWithin)
                 BorderBrush = ResolveBrush("ControlBorder", new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB)));
         };
+    }
+
+    /// <summary>
+    /// 构造时尚未挂到父窗，会误吃 Application 深色资源；挂树后/弹窗主题注入后应再刷一次。
+    /// </summary>
+    public void ApplyThemeFromResources()
+    {
+        Background = ResolveBrush("ControlBg", Brushes.White);
+        BorderBrush = ResolveBrush("ControlBorder", new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB)));
+        var textBrush = ResolveBrush("Text", Brushes.Black);
+        var muted = ResolveBrush("Placeholder",
+            ResolveBrush("Muted", new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80))));
+        _password.Foreground = textBrush;
+        _password.CaretBrush = textBrush;
+        _plain.Foreground = textBrush;
+        _plain.CaretBrush = textBrush;
+        _placeholder.Foreground = muted;
+        _eyePath.Fill = muted;
+        UpdatePlaceholderVisibility();
     }
 
     public event EventHandler? PasswordChanged;
@@ -277,6 +301,15 @@ public sealed class SecurePasswordBox : Border
         return brush;
     }
 
+    private void UpdatePlaceholderVisibility()
+    {
+        var empty = string.IsNullOrEmpty(Password);
+        _placeholder.Text = Placeholder ?? "";
+        _placeholder.Visibility = empty && !string.IsNullOrEmpty(_placeholder.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
     private static void OnPasswordChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var box = (SecurePasswordBox)d;
@@ -288,7 +321,11 @@ public sealed class SecurePasswordBox : Border
         if (box._plain.Text != value)
             box._plain.Text = value;
         box._syncing = false;
+        box.UpdatePlaceholderVisibility();
     }
+
+    private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        => ((SecurePasswordBox)d).UpdatePlaceholderVisibility();
 
     private static void OnIsRevealedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         => ((SecurePasswordBox)d).ApplyRevealState();

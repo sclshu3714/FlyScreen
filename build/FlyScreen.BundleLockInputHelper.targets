@@ -1,0 +1,79 @@
+<!--
+  LockInputHelper 以 .bin 打进宿主（ExcludeFromSingleFile=false）。
+  运行时 ServiceControl 从 BaseDirectory 读 .bin，固化到 AppData 下 .exe 再注册服务。
+-->
+<Project>
+  <PropertyGroup>
+    <_FsLockHelperProj>$(MSBuildThisFileDirectory)..\src\FlyScreen.LockInputHelper\FlyScreen.LockInputHelper.csproj</_FsLockHelperProj>
+    <_FsLockHelperTfm>net10.0-windows7.0</_FsLockHelperTfm>
+    <_FsLockHelperBundleRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_FsLockHelperBundleRid>
+    <_FsLockHelperBundleRid Condition="'$(_FsLockHelperBundleRid)' == '' And '$(RuntimeIdentifierOverride)' != ''">$(RuntimeIdentifierOverride)</_FsLockHelperBundleRid>
+    <_FsLockHelperBundleRid Condition="'$(_FsLockHelperBundleRid)' == ''">win-x64</_FsLockHelperBundleRid>
+    <_FsLockHelperBundleDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\bundled-lock-input-helper\$(_FsLockHelperBundleRid)\</_FsLockHelperBundleDir>
+    <_FsLockHelperBundleExe>$(_FsLockHelperBundleDir)FlyScreen.LockInputHelper.exe</_FsLockHelperBundleExe>
+    <_FsLockHelperBundleBin>$(_FsLockHelperBundleDir)FlyScreen.LockInputHelper.bin</_FsLockHelperBundleBin>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_FsLockHelperBundleInputs Include="$(_FsLockHelperProj)" />
+    <_FsLockHelperBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.LockInputHelper\**\*.cs" />
+    <_FsLockHelperBundleInputs Include="$(MSBuildThisFileDirectory)..\src\FlyScreen.Windows\LockInput\**\*.cs" />
+  </ItemGroup>
+
+  <Target Name="FlyScreen_PrepareBundledLockInputHelper"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;ComputeFilesToPublish;_GetCopyToOutputDirectoryItemsFromThisProject"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipLockInputHelper)' != 'true'"
+          Inputs="@(_FsLockHelperBundleInputs)"
+          Outputs="$(_FsLockHelperBundleBin)">
+    <MakeDir Directories="$(_FsLockHelperBundleDir)" />
+    <PropertyGroup>
+      <_FsLockHelperProjFull>$([System.IO.Path]::GetFullPath('$(_FsLockHelperProj)'))</_FsLockHelperProjFull>
+      <_FsLockHelperOutFull>$([System.IO.Path]::GetFullPath('$(_FsLockHelperBundleDir)'))</_FsLockHelperOutFull>
+    </PropertyGroup>
+    <Message Importance="High" Text="打包 LockInputHelper .bin（$(_FsLockHelperBundleRid)）→ $(_FsLockHelperOutFull)" />
+    <Exec Command="dotnet publish &quot;$(_FsLockHelperProjFull)&quot; -c &quot;$(Configuration)&quot; -f $(_FsLockHelperTfm) -r $(_FsLockHelperBundleRid) --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:FlyScreenSkipLockInputHelper=true -o &quot;$(_FsLockHelperOutFull)&quot;" />
+    <Copy SourceFiles="$(_FsLockHelperBundleExe)" DestinationFiles="$(_FsLockHelperBundleBin)" OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(_FsLockHelperBundleExe)')" />
+    <Error Condition="!Exists('$(_FsLockHelperBundleBin)') And '$(DesignTimeBuild)' != 'true'"
+           Text="打包 LockInputHelper 失败：不存在 $(_FsLockHelperBundleBin)" />
+  </Target>
+
+  <Target Name="FlyScreen_IncludeBundledLockInputHelper"
+          AfterTargets="FlyScreen_PrepareBundledLockInputHelper"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;ComputeFilesToPublish;_GetCopyToOutputDirectoryItemsFromThisProject"
+          Condition="'$(FlyScreenSkipLockInputHelper)' != 'true'">
+    <ItemGroup>
+      <Content Remove="@(Content)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.LockInputHelper.exe'" />
+      <Content Remove="@(Content)" Condition="'%(Filename)%(Extension)' == 'FlyScreen.LockInputHelper.bin'" />
+    </ItemGroup>
+    <ItemGroup Condition="Exists('$(_FsLockHelperBundleBin)')">
+      <Content Include="$(_FsLockHelperBundleBin)" KeepDuplicates="false">
+        <Link>FlyScreen.LockInputHelper.bin</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <TargetPath>FlyScreen.LockInputHelper.bin</TargetPath>
+      </Content>
+    </ItemGroup>
+  </Target>
+
+  <!-- Content 增量偶发未进输出目录时兜底（WPF F5 曾缺 .bin → 启用助手失败） -->
+  <Target Name="FlyScreen_CopyLockInputHelperToOutput"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' And '$(FlyScreenSkipLockInputHelper)' != 'true' And Exists('$(_FsLockHelperBundleBin)') And '$(TargetDir)' != ''">
+    <Copy SourceFiles="$(_FsLockHelperBundleBin)"
+          DestinationFiles="$([MSBuild]::NormalizePath('$(TargetDir)', 'FlyScreen.LockInputHelper.bin'))"
+          SkipUnchangedFiles="true"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <!-- 单文件发布：.bin 已嵌入，去掉松散副本。非单文件保留输出目录中的 .bin。 -->
+  <Target Name="FlyScreen_RemoveLooseLockInputHelperFromPublish"
+          AfterTargets="Publish"
+          Condition="'$(FlyScreenSkipLockInputHelper)' != 'true' And '$(PublishDir)' != '' And '$(PublishSingleFile)' == 'true'">
+    <Delete Files="$(PublishDir)FlyScreen.LockInputHelper.exe"
+            Condition="Exists('$(PublishDir)FlyScreen.LockInputHelper.exe')" />
+    <Delete Files="$(PublishDir)FlyScreen.LockInputHelper.bin"
+            Condition="Exists('$(PublishDir)FlyScreen.LockInputHelper.bin')" />
+  </Target>
+</Project>

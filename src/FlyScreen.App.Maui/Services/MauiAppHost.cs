@@ -1,3 +1,4 @@
+using FlyScreen.Helpers;
 using FlyScreen.Models;
 using FlyScreen.Services;
 using FlyScreen.Services.Clipboard;
@@ -44,6 +45,7 @@ public sealed class MauiAppHost : IAsyncDisposable
     public FileTransferService Transfers { get; }
     public EdgeFileDragService EdgeDrag { get; }
     public ScreenExtendService ScreenExtend { get; }
+    public ScreenSaverBlockService ScreenSaverBlock { get; }
     public IMauiPlatformServices Platform => _platform;
 
     public event Action<string>? StatusMessage;
@@ -127,12 +129,28 @@ public sealed class MauiAppHost : IAsyncDisposable
             _platform.RestoreCursorWhenLeavingCluster();
             LayoutSyncedFromPeer?.Invoke(LocalPeerIdentity.MachineName);
         };
+#if WINDOWS
+        ScreenSaverBlock = new ScreenSaverBlockService(
+            Settings, Connections, FlyScreen.Helpers.WindowsIdleInhibit.SetActive);
+#else
+        ScreenSaverBlock = new ScreenSaverBlockService(Settings, Connections, static _ => { });
+#endif
         BehaviorSync = new BehaviorSyncHelper(Settings, Connections);
         BehaviorSync.StatusMessage += PublishStatus;
         BehaviorSync.BehaviorSyncedFromPeer += peer =>
         {
             _platform.SetEasyMouse(Settings.EasyMouse);
+            ScreenSaverBlock.Refresh();
+#if WINDOWS
+            _ = Task.Run(() =>
+            {
+                try { FlyScreen.LockInput.LockScreenInputHost.Apply(Settings.LockScreenInputHelper); }
+                catch { /* ignore */ }
+                try { BehaviorSyncedFromPeer?.Invoke(peer); } catch { /* ignore */ }
+            });
+#else
             BehaviorSyncedFromPeer?.Invoke(peer);
+#endif
             // 行为同步不重启网络，避免打断已有连接与扩展屏等会话
         };
         RemoteBindingSync = new RemoteBindingSyncHelper(Settings, Connections);
@@ -349,6 +367,7 @@ public sealed class MauiAppHost : IAsyncDisposable
     private void PublishStatus(string message)
     {
         AppLog.RecordStatus(message);
+        if (!Settings.ShowStatusMessages) return;
         StatusMessage?.Invoke(AppLog.ForStatusBar(message));
     }
 
@@ -386,6 +405,16 @@ public sealed class MauiAppHost : IAsyncDisposable
         }
 #endif
         await Connections.StartAsync().ConfigureAwait(false);
+#if WINDOWS
+        FlyScreen.LockInput.LockScreenInputHost.ConnectionsBroadcastPeerInfo =
+            () => Connections.BroadcastLocalPeerInfoAsync();
+        FlyScreen.LockInput.LockScreenInputHost.InitializeFromSettings(Settings.LockScreenInputHelper);
+        FlyScreen.LockInput.LockScreenSession.EnsureStarted();
+        FlyScreen.LockInput.LockScreenSession.Changed -= OnLocalScreenLockChanged;
+        FlyScreen.LockInput.LockScreenSession.Changed += OnLocalScreenLockChanged;
+        ScreenLockStateBroadcaster.Broadcast(Connections, FlyScreen.LockInput.LockScreenSession.IsLocked);
+#endif
+        ScreenSaverBlock.Refresh();
         MainThread.BeginInvokeOnMainThread(() =>
         {
             if (_platform.SupportsDesktopInput)
@@ -927,6 +956,7 @@ public sealed class MauiAppHost : IAsyncDisposable
 
         Settings.Save();
         _platform.SetEasyMouse(easyMouse);
+        ScreenSaverBlock.Refresh();
         RestoreCursorIfLayoutSolo();
     }
 
@@ -1011,18 +1041,63 @@ public sealed class MauiAppHost : IAsyncDisposable
                 break;
             }
             case MessageType.LockScreen:
-                LockLocalScreen();
+            {
+                var turnOff = false;
+                if (msg.Payload is { Length: > 0 })
+                {
+                    try
+                    {
+                        var lockPayload = MessageCodec.DecodeJson<LockScreenPayload>(msg.Payload);
+                        turnOff = lockPayload?.TurnOffDisplay == true;
+                    }
+                    catch { /* 旧端空/非法载荷 */ }
+                }
+
+                LockLocalScreen(turnOff);
+                break;
+            }
+            case MessageType.UnlockScreen:
+            {
+                var p = MessageCodec.DecodeJson<UnlockScreenPayload>(msg.Payload);
+                if (p == null || string.IsNullOrEmpty(p.Password)) break;
+                var password = p.Password;
+                _ = Task.Run(() => UnlockLocalScreen(password));
+                break;
+            }
+            case MessageType.ShutdownComputer:
+                ShutdownLocalScreen();
                 break;
         }
     }
 
     /// <summary>本机锁屏（托盘 / 对端 LockScreen）。非桌面端空操作。</summary>
-    public void LockLocalScreen()
+    public void LockLocalScreen(bool turnOffDisplay = false)
     {
 #if WINDOWS
-        FlyScreen.Helpers.WindowsScreenLock.TryLock();
+        FlyScreen.Helpers.WindowsScreenLock.TryLock(turnOffDisplay);
 #endif
     }
+
+    /// <summary>本机解锁（托盘全部解锁 / 对端 UnlockScreen）。非桌面端空操作。</summary>
+    public void UnlockLocalScreen(string password)
+    {
+#if WINDOWS
+        FlyScreen.Helpers.WindowsScreenUnlock.TryUnlock(password);
+#endif
+    }
+
+    /// <summary>本机关机（托盘全部关机 / 对端 ShutdownComputer）。非桌面端空操作。</summary>
+    public void ShutdownLocalScreen()
+    {
+#if WINDOWS
+        FlyScreen.Helpers.WindowsScreenShutdown.TryShutdown();
+#endif
+    }
+
+#if WINDOWS
+    private void OnLocalScreenLockChanged(bool locked)
+        => ScreenLockStateBroadcaster.Broadcast(Connections, locked);
+#endif
 
     /// <summary>
     /// 桌面 EdgeMouse 须 SwitchFocus；手机 AbsPointer 可能漏发 SwitchFocus，
@@ -1084,6 +1159,7 @@ public sealed class MauiAppHost : IAsyncDisposable
         RemoteBindingSync.Detach();
         SecurityKeySync.Dispose();
         DisplayInfo.Dispose();
+        ScreenSaverBlock.Dispose();
         await Connections.DisposeAsync().ConfigureAwait(false);
         Settings.Save();
         if (ReferenceEquals(_instance, this))

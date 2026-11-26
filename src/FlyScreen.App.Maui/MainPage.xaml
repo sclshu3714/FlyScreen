@@ -175,6 +175,11 @@
                                         <CheckBox x:Name="EasyMouseCheck" IsChecked="True" VerticalOptions="Center" />
                                         <Label x:Name="EasyMouseLabel" Text="轻松鼠标（移出边缘切换）" VerticalOptions="Center" FontSize="13" />
                                     </HorizontalStackLayout>
+                                    <HorizontalStackLayout x:Name="LockInputHelperRow" Spacing="4" HeightRequest="32" Margin="0,1"
+                                                           IsVisible="False">
+                                        <CheckBox x:Name="LockInputHelperCheck" VerticalOptions="Center" />
+                                        <Label x:Name="LockInputHelperLabel" Text="锁屏输入助手" VerticalOptions="Center" FontSize="13" />
+                                    </HorizontalStackLayout>
                                     <!-- Android / iOS：通知注入。Grid 约束文本列宽，HorizontalStack 无限宽导致 WordWrap 失效 -->
                                     <Grid x:Name="NotifyInjectRow" IsVisible="False"
                                           ColumnDefinitions="Auto,*" ColumnSpacing="4"

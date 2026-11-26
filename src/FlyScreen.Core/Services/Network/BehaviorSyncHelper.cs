@@ -68,6 +68,7 @@ public sealed class BehaviorSyncHelper
         MoveMouseRelatively = _settings.MoveMouseRelatively,
         BlockMouseAtCorners = _settings.BlockMouseAtCorners,
         EasyMouse = _settings.EasyMouse,
+        LockScreenInputHelper = _settings.LockScreenInputHelper,
         EdgeCrossMode = _settings.EdgeCrossMode is >= 0 and <= 3 ? _settings.EdgeCrossMode : 0,
         SwitchHotkeyMode = _settings.SwitchHotkeyMode is >= 0 and <= 2 ? _settings.SwitchHotkeyMode : 0
     };
@@ -123,6 +124,8 @@ public sealed class BehaviorSyncHelper
         _settings.MoveMouseRelatively = sync.MoveMouseRelatively;
         _settings.BlockMouseAtCorners = sync.BlockMouseAtCorners;
         _settings.EasyMouse = sync.EasyMouse;
+        if (sync.LockScreenInputHelper is { } lockHelper)
+            _settings.LockScreenInputHelper = lockHelper;
         _settings.EdgeCrossMode = sync.EdgeCrossMode is >= 0 and <= 3 ? sync.EdgeCrossMode : 0;
         if (sync.SwitchHotkeyMode is >= 0 and <= 2)
         {

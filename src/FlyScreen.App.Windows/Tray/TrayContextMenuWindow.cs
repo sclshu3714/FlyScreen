@@ -37,6 +37,10 @@ public sealed class TrayContextMenuWindow : Window
     private readonly IReadOnlyList<(string Label, Action Action, ImageSource? Icon)> _toolShortcuts;
     private readonly IReadOnlyList<(string Label, Action Action)> _lockMachines;
     private readonly Action _onLockAll;
+    private readonly Action _onUnlockAll;
+    private readonly Action _onShutdownAll;
+    private readonly bool _lockTurnOffDisplay;
+    private readonly Action<bool> _onLockTurnOffDisplayChanged;
     private Popup? _switchPopup;
     private Popup? _toolsPopup;
     private Popup? _lockPopup;
@@ -63,7 +67,11 @@ public sealed class TrayContextMenuWindow : Window
         Action? onToggleDisable = null,
         IReadOnlyList<(string Label, Action Action, ImageSource? Icon)>? toolShortcuts = null,
         IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
-        Action? onLockAll = null)
+        Action? onLockAll = null,
+        Action? onUnlockAll = null,
+        Action? onShutdownAll = null,
+        bool lockTurnOffDisplay = false,
+        Action<bool>? onLockTurnOffDisplayChanged = null)
     {
         _onOpen = onOpen;
         _onReconnect = onReconnect;
@@ -77,6 +85,10 @@ public sealed class TrayContextMenuWindow : Window
         _toolShortcuts = toolShortcuts ?? Array.Empty<(string, Action, ImageSource?)>();
         _lockMachines = lockMachines ?? Array.Empty<(string, Action)>();
         _onLockAll = onLockAll ?? (() => { });
+        _onUnlockAll = onUnlockAll ?? (() => { });
+        _onShutdownAll = onShutdownAll ?? (() => { });
+        _lockTurnOffDisplay = lockTurnOffDisplay;
+        _onLockTurnOffDisplayChanged = onLockTurnOffDisplayChanged ?? (_ => { });
 
         AllowsTransparency = true;
         Background = WpfBrushes.Transparent;
@@ -113,14 +125,19 @@ public sealed class TrayContextMenuWindow : Window
         Action? onToggleDisable = null,
         IReadOnlyList<(string Label, Action Action, ImageSource? Icon)>? toolShortcuts = null,
         IReadOnlyList<(string Label, Action Action)>? lockMachines = null,
-        Action? onLockAll = null)
+        Action? onLockAll = null,
+        Action? onUnlockAll = null,
+        Action? onShutdownAll = null,
+        bool lockTurnOffDisplay = false,
+        Action<bool>? onLockTurnOffDisplayChanged = null)
     {
         try { _open?.CloseMenu(); } catch { /* ignore */ }
 
         var w = new TrayContextMenuWindow(
             onOpen, onReconnect, onProject, projectPhase, onAbout, onExit,
             switchMachines, disableLabel, onToggleDisable, toolShortcuts,
-            lockMachines, onLockAll);
+            lockMachines, onLockAll, onUnlockAll, onShutdownAll,
+            lockTurnOffDisplay, onLockTurnOffDisplayChanged);
         _open = w;
         // 先在光标处就位再显示。直接 Show 会先画在 (0,0)，再跳到鼠标，看起来从左上角闪过来。
         w.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -569,8 +586,15 @@ public sealed class TrayContextMenuWindow : Window
             lockStack.Children.Add(BuildSubItem(label, action, forTools: true, mdl2Glyph: TrayMenuIcons.Mdl2Computer));
         if (_lockMachines.Count > 0)
             lockStack.Children.Add(BuildSeparator());
-        lockStack.Children.Add(BuildSubItem(TrayLockMenu.AllLabel, _onLockAll, forTools: true,
-            mdl2Glyph: TrayMenuIcons.Mdl2LockAll));
+        if (TrayLockMenu.TurnOffDisplayUiEnabled)
+            lockStack.Children.Add(BuildLockAllWithTurnOffRow());
+        else
+            lockStack.Children.Add(BuildSubItem(TrayLockMenu.AllLabel, _onLockAll, forTools: true,
+                mdl2Glyph: TrayMenuIcons.Mdl2LockAll));
+        lockStack.Children.Add(BuildSubItem(TrayLockMenu.UnlockAllLabel, _onUnlockAll, forTools: true,
+            mdl2Glyph: TrayMenuIcons.Mdl2UnlockAll));
+        lockStack.Children.Add(BuildSubItem(TrayLockMenu.ShutdownAllLabel, _onShutdownAll, forTools: true,
+            mdl2Glyph: TrayMenuIcons.Mdl2ShutdownAll));
 
         var lockCard = new Border
         {
@@ -729,6 +753,152 @@ public sealed class TrayContextMenuWindow : Window
 
         if (_lockParentAccent != null)
             _lockParentAccent.Background = WpfBrushes.Transparent;
+    }
+
+    /// <summary>「全部锁屏」行内嵌「息屏」复选框；不因息屏加宽子菜单 MinWidth。</summary>
+    private FrameworkElement BuildLockAllWithTurnOffRow()
+    {
+        var hoverBg = new SolidColorBrush(WpfColor.FromRgb(0xE8, 0xF2, 0xFF));
+        var hoverBorder = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xC3, 0xDE));
+        var accentBrush = new SolidColorBrush(WpfColor.FromRgb(0x25, 0x63, 0xEB));
+        var textBrush = new SolidColorBrush(WpfColor.FromRgb(0x11, 0x18, 0x27));
+        var mutedBrush = new SolidColorBrush(WpfColor.FromRgb(0x6B, 0x7C, 0x8F));
+
+        var accent = new Border
+        {
+            Width = 3,
+            Height = 20,
+            CornerRadius = new CornerRadius(1.5),
+            Background = WpfBrushes.Transparent,
+            HorizontalAlignment = WpfHAlign.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(-8, 0, 0, 0)
+        };
+
+        var left = new StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        left.Children.Add(new TextBlock
+        {
+            Text = TrayMenuIcons.Mdl2LockAll,
+            FontSize = 13,
+            FontFamily = new WpfFontFamily("Segoe MDL2 Assets"),
+            Foreground = textBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        left.Children.Add(new TextBlock
+        {
+            Text = TrayLockMenu.AllLabel,
+            FontSize = 13,
+            FontFamily = new WpfFontFamily("Microsoft YaHei UI, Segoe UI"),
+            Foreground = textBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        var check = new System.Windows.Controls.CheckBox
+        {
+            IsChecked = _lockTurnOffDisplay,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 2, 0),
+            Focusable = false
+        };
+        var checkLabel = new TextBlock
+        {
+            Text = TrayLockMenu.TurnOffDisplayLabel,
+            FontSize = 12,
+            FontFamily = new WpfFontFamily("Microsoft YaHei UI, Segoe UI"),
+            Foreground = mutedBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var turnOff = new StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = WpfHAlign.Right,
+            Cursor = WpfCursors.Hand
+        };
+        turnOff.Children.Add(check);
+        turnOff.Children.Add(checkLabel);
+
+        void ToggleTurnOff()
+        {
+            check.IsChecked = check.IsChecked != true;
+        }
+
+        check.Checked += (_, _) => _onLockTurnOffDisplayChanged(true);
+        check.Unchecked += (_, _) => _onLockTurnOffDisplayChanged(false);
+        turnOff.MouseLeftButtonUp += (_, e) =>
+        {
+            if (e.OriginalSource is System.Windows.Controls.CheckBox) return;
+            e.Handled = true;
+            ToggleTurnOff();
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(turnOff, 1);
+        grid.Children.Add(left);
+        grid.Children.Add(turnOff);
+
+        var inner = new Grid();
+        inner.Children.Add(accent);
+        inner.Children.Add(grid);
+
+        var row = new Border
+        {
+            Background = WpfBrushes.Transparent,
+            BorderBrush = WpfBrushes.Transparent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 0, 10, 0),
+            Height = 36,
+            Margin = new Thickness(4, 1, 4, 1),
+            Cursor = WpfCursors.Hand,
+            Child = inner,
+            SnapsToDevicePixels = true
+        };
+        row.MouseEnter += (_, _) =>
+        {
+            CancelToolsClose();
+            CancelLockClose();
+            row.Background = hoverBg;
+            row.BorderBrush = hoverBorder;
+            accent.Background = accentBrush;
+        };
+        row.MouseLeave += (_, _) =>
+        {
+            row.Background = WpfBrushes.Transparent;
+            row.BorderBrush = WpfBrushes.Transparent;
+            accent.Background = WpfBrushes.Transparent;
+            ScheduleLockClose();
+        };
+        row.MouseLeftButtonUp += (_, e) =>
+        {
+            if (e.OriginalSource is System.Windows.Controls.CheckBox
+                || IsDescendantOf(e.OriginalSource as DependencyObject, turnOff))
+                return;
+            e.Handled = true;
+            try { _onLockAll(); } catch { /* ignore */ }
+            CloseMenu();
+        };
+        return row;
+    }
+
+    private static bool IsDescendantOf(DependencyObject? node, DependencyObject ancestor)
+    {
+        while (node != null)
+        {
+            if (ReferenceEquals(node, ancestor)) return true;
+            node = VisualTreeHelper.GetParent(node);
+        }
+
+        return false;
     }
 
     private FrameworkElement BuildSubItem(

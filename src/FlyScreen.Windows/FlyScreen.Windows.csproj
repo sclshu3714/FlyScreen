@@ -19,6 +19,8 @@
   <ItemGroup>
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
     <PackageReference Include="System.Net.Http.WinHttpHandler" Version="10.0.14" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

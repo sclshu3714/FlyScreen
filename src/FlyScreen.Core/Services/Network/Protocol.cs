@@ -66,6 +66,12 @@ public enum MessageType : byte
     RemoteBindingSync = 68,
     /// <summary>请对端锁屏（旧端忽略未知类型）。</summary>
     LockScreen = 69,
+    /// <summary>请对端用密码解锁登录界面（旧端忽略未知类型）。</summary>
+    UnlockScreen = 74,
+    /// <summary>本机锁屏状态广播（Locked）；旧端忽略。</summary>
+    ScreenLockState = 75,
+    /// <summary>请对端关机（旧端忽略未知类型）。</summary>
+    ShutdownComputer = 76,
     /// <summary>电脑→手机：跨屏中文组字状态（拼音 + 候选）。</summary>
     CompositionUpdate = 70,
     /// <summary>电脑→手机：取消组字浮层。</summary>
@@ -206,6 +212,9 @@ public static class PeerCaps
     public const string ScreenExtendHost = "ScreenExtendHost";
     /// <summary>可作为扩展屏从机（全屏收流）。</summary>
     public const string ScreenExtendSink = "ScreenExtendSink";
+
+    /// <summary>本机锁屏输入助手已启用：对端可在登录界面继续注入键鼠。</summary>
+    public const string LockScreenInput = "LockScreenInput";
 
     /// <summary>已安装共享设备工具（扬声器/麦克风/摄像头）。</summary>
     public const string ToolSharedDevices = "Tool:shared-devices";
@@ -640,6 +649,11 @@ public sealed class BehaviorSyncPayload
     public bool MoveMouseRelatively { get; set; }
     public bool BlockMouseAtCorners { get; set; }
     public bool EasyMouse { get; set; } = true;
+    /// <summary>
+    /// 锁屏输入助手偏好。可空：旧端未发此字段时对端不改本地服务状态。
+    /// 各端收到后在本机 Apply（Win 装服务 / Mac·Linux 开 uinput 等）。
+    /// </summary>
+    public bool? LockScreenInputHelper { get; set; }
     /// <summary>0 无障碍 / 1 双击 / 2 极速 / 3 快捷键。</summary>
     public int EdgeCrossMode { get; set; }
     /// <summary>0=F1–F4 / 1=1–4 / 2=禁用；托盘「切换机器→禁用」需跨机一致。</summary>
@@ -650,6 +664,25 @@ public sealed class CursorOwnerPayload
 {
     /// <summary>当前操作/应显示光标的机器名。</summary>
     public string OwnerMachine { get; set; } = "";
+}
+
+/// <summary>请对端锁屏；可选同时息屏。旧端无 Payload / 忽略未知字段。</summary>
+public sealed class LockScreenPayload
+{
+    public bool TurnOffDisplay { get; set; }
+}
+
+/// <summary>请对端在登录/锁屏界面注入密码并回车解锁。</summary>
+public sealed class UnlockScreenPayload
+{
+    public string Password { get; set; } = "";
+}
+
+/// <summary>本机锁屏/解锁状态（供「全部解锁」跳过已解锁电脑）。</summary>
+public sealed class ScreenLockStatePayload
+{
+    public string MachineName { get; set; } = "";
+    public bool Locked { get; set; }
 }
 
 /// <summary>布局内同步安全密钥（TCP 已连接；UDP 给密钥不同尚未握手成功的实例）。</summary>

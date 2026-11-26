@@ -35,11 +35,15 @@ internal sealed class MauiTraySubPopup : IDisposable
     private static readonly Color Accent = Color.FromArgb(255, 0x25, 0x63, 0xEB);
     private static readonly Color Shadow = Color.FromArgb(70, 0x14, 0x23, 0x3A);
 
+    /// <summary>行内「息屏」复选区宽度（不参与加宽菜单，挤占左侧标签空间）。</summary>
+    private const int TrailingCheckReserve = 52;
+
     private readonly IReadOnlyList<MauiTraySubItem> _items;
     private readonly Action _onItemInvoked;
     private readonly Action? _onDismissRequested;
     private readonly Rectangle[] _itemRects;
-    private readonly bool _sepBeforeLast;
+    private readonly bool[] _trailingChecked;
+    private readonly int _sepBeforeTrailing;
     private readonly bool _showIcons;
 
     private IntPtr _hwnd;
@@ -73,14 +77,17 @@ internal sealed class MauiTraySubPopup : IDisposable
         IReadOnlyList<MauiTraySubItem> items,
         Action onItemInvoked,
         Action? onDismissRequested,
-        bool sepBeforeLast)
+        int sepBeforeTrailing)
     {
         _items = items;
         _onItemInvoked = onItemInvoked;
         _onDismissRequested = onDismissRequested;
-        _sepBeforeLast = sepBeforeLast && items.Count > 1;
+        _sepBeforeTrailing = sepBeforeTrailing > 0 && items.Count > sepBeforeTrailing
+            ? sepBeforeTrailing
+            : 0;
         _showIcons = items.Any(x => x.IconPng is { Length: > 0 } || !string.IsNullOrEmpty(x.Mdl2Glyph) || x.IsSubmenu);
         _itemRects = new Rectangle[items.Count];
+        _trailingChecked = items.Select(x => x.TrailingChecked).ToArray();
         Measure();
     }
 
@@ -90,9 +97,9 @@ internal sealed class MauiTraySubPopup : IDisposable
         IReadOnlyList<MauiTraySubItem> items,
         Action onItemInvoked,
         Action? onDismissRequested = null,
-        bool sepBeforeLast = true)
+        int sepBeforeTrailing = 1)
     {
-        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested, sepBeforeLast);
+        var popup = new MauiTraySubPopup(items, onItemInvoked, onDismissRequested, sepBeforeTrailing);
         popup.ShowAt(screenX, screenY);
         return popup;
     }
@@ -104,10 +111,10 @@ internal sealed class MauiTraySubPopup : IDisposable
         IReadOnlyList<(string Label, Action Action, byte[]? IconPng)> items,
         Action onItemInvoked,
         Action? onDismissRequested = null,
-        bool sepBeforeLast = true)
+        int sepBeforeTrailing = 1)
     {
         var mapped = items.Select(x => MauiTraySubItem.Click(x.Label, x.Action, x.IconPng)).ToList();
-        return Show(screenX, screenY, mapped, onItemInvoked, onDismissRequested, sepBeforeLast);
+        return Show(screenX, screenY, mapped, onItemInvoked, onDismissRequested, sepBeforeTrailing);
     }
 
     private void Measure()
@@ -128,7 +135,7 @@ internal sealed class MauiTraySubPopup : IDisposable
         }
 
         _cardW = Math.Max(CardMinWidth, textW + iconSlot + PanelPadX * 2 + ItemMargin * 2 + ItemHPad * 2);
-        var sepBlock = _sepBeforeLast ? 1 + 6 * 2 : 0;
+        var sepBlock = _sepBeforeTrailing > 0 ? 1 + 6 * 2 : 0;
         _cardH = PanelPadY * 2
                  + _items.Count * (ItemHeight + ItemMargin * 2)
                  + sepBlock;
@@ -136,9 +143,10 @@ internal sealed class MauiTraySubPopup : IDisposable
         _height = _cardH + CardMargin * 2;
 
         var y = CardMargin + PanelPadY;
+        var sepAt = _sepBeforeTrailing > 0 ? _items.Count - _sepBeforeTrailing : -1;
         for (var i = 0; i < _items.Count; i++)
         {
-            if (_sepBeforeLast && i == _items.Count - 1)
+            if (i == sepAt)
                 y += 6 + 1 + 6;
             _itemRects[i] = new Rectangle(
                 CardMargin + PanelPadX + ItemMargin,
@@ -222,9 +230,10 @@ internal sealed class MauiTraySubPopup : IDisposable
                 FormatFlags = StringFormatFlags.NoWrap
             };
 
-            if (_sepBeforeLast && _items.Count >= 2)
+            if (_sepBeforeTrailing > 0 && _items.Count > _sepBeforeTrailing)
             {
-                var sepY = _itemRects[_items.Count - 2].Bottom + ItemMargin + 6;
+                var before = _items.Count - _sepBeforeTrailing - 1;
+                var sepY = _itemRects[before].Bottom + ItemMargin + 6;
                 using var sepPen = new Pen(SepColor);
                 g.DrawLine(sepPen, CardMargin + 12, sepY, CardMargin + _cardW - 12, sepY);
             }
@@ -271,7 +280,8 @@ internal sealed class MauiTraySubPopup : IDisposable
                     x += IconSize + IconGap;
                 }
 
-                var rightReserve = item.IsSubmenu ? 18 : 0;
+                var rightReserve = item.IsSubmenu ? 18
+                    : item.HasTrailingCheck ? TrailingCheckReserve : 0;
                 var textRect = new RectangleF(x, rect.Y,
                     Math.Max(8, rect.Right - ItemHPad - x - rightReserve), rect.Height);
                 g.DrawString(item.Label, font, item.IsPlaceholder ? mutedBrush : textBrush, textRect, sf);
@@ -280,6 +290,10 @@ internal sealed class MauiTraySubPopup : IDisposable
                     var chevronRect = new RectangleF(rect.X + ItemHPad, rect.Y,
                         Math.Max(8, rect.Width - ItemHPad * 2), rect.Height);
                     g.DrawString("\uE76C", iconFont, mutedBrush, chevronRect, sfRight);
+                }
+                else if (item.HasTrailingCheck)
+                {
+                    DrawTrailingCheck(g, font, iconFont, mutedBrush, textBrush, rect, i, item.TrailingCheckLabel!);
                 }
             }
         }
@@ -362,12 +376,23 @@ internal sealed class MauiTraySubPopup : IDisposable
                 var x = (short)(lParam.ToInt64() & 0xFFFF);
                 var y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
                 var scale = GetDpiScale();
-                var idx = HitTest((int)(x / scale), (int)(y / scale));
+                var lx = (int)(x / scale);
+                var ly = (int)(y / scale);
+                var idx = HitTest(lx, ly);
                 if (idx >= 0 && idx < _items.Count)
                 {
                     if (_items[idx].IsSubmenu)
                     {
                         OpenNested(idx, scale);
+                        return IntPtr.Zero;
+                    }
+
+                    if (_items[idx].HasTrailingCheck && HitTrailingCheck(idx, lx))
+                    {
+                        _trailingChecked[idx] = !_trailingChecked[idx];
+                        try { _items[idx].TrailingCheckChanged!(_trailingChecked[idx]); }
+                        catch { /* ignore */ }
+                        Render(scale);
                         return IntPtr.Zero;
                     }
 
@@ -409,6 +434,56 @@ internal sealed class MauiTraySubPopup : IDisposable
         return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 
+    private bool HitTrailingCheck(int index, int x)
+    {
+        if (index < 0 || index >= _itemRects.Length) return false;
+        var rect = _itemRects[index];
+        return x >= rect.Right - ItemHPad - TrailingCheckReserve;
+    }
+
+    private void DrawTrailingCheck(
+        Graphics g,
+        Font font,
+        Font iconFont,
+        SolidBrush mutedBrush,
+        SolidBrush textBrush,
+        Rectangle rect,
+        int index,
+        string label)
+    {
+        var zone = new Rectangle(
+            rect.Right - ItemHPad - TrailingCheckReserve,
+            rect.Y,
+            TrailingCheckReserve,
+            rect.Height);
+        var box = 12;
+        var bx = zone.X;
+        var by = zone.Y + (zone.Height - box) / 2;
+        using (var pen = new Pen(Color.FromArgb(255, 0x6B, 0x7C, 0x8F), 1.2f))
+            g.DrawRectangle(pen, bx, by, box, box);
+        if (_trailingChecked[index])
+        {
+            // MDL2 CheckMark
+            g.DrawString("\uE73E", iconFont, textBrush,
+                new RectangleF(bx - 1, rect.Y, box + 4, rect.Height),
+                new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center,
+                    FormatFlags = StringFormatFlags.NoWrap
+                });
+        }
+
+        var labelRect = new RectangleF(bx + box + 3, rect.Y,
+            Math.Max(4, zone.Right - (bx + box + 3)), rect.Height);
+        g.DrawString(label, font, mutedBrush, labelRect, new StringFormat
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        });
+    }
+
     private int HitTest(int x, int y)
     {
         for (var i = 0; i < _itemRects.Length; i++)
@@ -440,7 +515,7 @@ internal sealed class MauiTraySubPopup : IDisposable
             nested,
             onItemInvoked: _onItemInvoked,
             onDismissRequested: _onDismissRequested,
-            sepBeforeLast: nested.Count > 1);
+            sepBeforeTrailing: nested.Count > 1 ? 1 : 0);
     }
 
     private void CloseNested()

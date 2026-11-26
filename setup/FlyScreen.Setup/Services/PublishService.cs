@@ -303,14 +303,9 @@ public sealed class PublishService
         var staging = JobPath("flytools");
         PrepareCleanDir(staging);
 
-        Report(progress, 10, $"{target.DisplayName}：组包 .flytool…");
-        var packArgs =
-            $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
-            $"-Configuration Release -OutRoot \"{staging}\" -SkipAppCopy";
-        var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, _jobEnv)
-            .ConfigureAwait(false);
-        if (exit != 0)
-            throw new InvalidOperationException("Pack-FlyTools 失败");
+        var ids = NormalizeSelectedFlyToolIds(target, options, requireSelection: true);
+        Report(progress, 10, $"{target.DisplayName}：组包 .flytool（{ids.Count} 个）…");
+        await PackFlyToolsToDirAsync(staging, ids, log, ct).ConfigureAwait(false);
 
         var flytools = Directory.GetFiles(staging, "*.flytool");
         if (flytools.Length == 0)
@@ -849,11 +844,14 @@ public sealed class PublishService
         var installerObj = JobPath("obj", "FlyScreen.Installer");
         Directory.CreateDirectory(installerObj);
 
-        var sc = options.DeploymentMode == DeploymentMode.SelfContained ? "true" : "false";
+        // 安装壳始终自包含单文件：依赖框架时若旁路留下空的 *.runtimeconfig.json，
+        // 宿主会优先读它并报 “The document is empty”，Setup 无法启动。
+        if (options.DeploymentMode != DeploymentMode.SelfContained)
+            log("安装壳强制 Self-contained（避免空 runtimeconfig 导致 Setup 无法启动）。");
         var versionCode = VersionResolver.ComputeVersionCode(version);
         var publishArgs =
             $"publish \"{Path.Combine(installerDir, "FlyScreen.Installer.csproj")}\" " +
-            $"-c Release -r win-x64 --self-contained {sc} " +
+            $"-c Release -r win-x64 --self-contained true " +
             $"-p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true " +
             $"-p:DebugType=None -p:DebugSymbols=false " +
             $"-p:EnableCompressionInSingleFile=true " +
@@ -871,6 +869,7 @@ public sealed class PublishService
             throw new InvalidOperationException("安装程序 publish 失败");
 
         StripDebugSymbols(setupOut, log);
+        ScrubSingleFileHostSidecars(setupOut, log);
 
         Report(progress, 92, $"{target.DisplayName}：输出 Setup…");
         var setupExe = Directory.EnumerateFiles(setupOut, "*.exe")
@@ -882,7 +881,51 @@ public sealed class PublishService
         var finalName = $"FlyScreen-{version}-{target.Rid}-Setup.exe";
         var finalPath = Path.Combine(options.OutputRoot, finalName);
         File.Copy(setupExe, finalPath, overwrite: true);
+        // 最终产物旁若残留空 runtimeconfig，同样会毒死改名后的 Setup
+        ScrubSingleFileHostSidecars(options.OutputRoot, log, exeBaseName: Path.GetFileNameWithoutExtension(finalName));
+        ScrubSingleFileHostSidecars(options.OutputRoot, log, exeBaseName: "FlyScreen-Setup");
         log($"安装包已输出: {finalPath}");
+    }
+
+    /// <summary>
+    /// 单文件宿主旁的空/残留 runtimeconfig、deps 会使 .NET 宿主解析失败。
+    /// </summary>
+    private static void ScrubSingleFileHostSidecars(
+        string dir,
+        Action<string> log,
+        string? exeBaseName = null)
+    {
+        if (!Directory.Exists(dir)) return;
+        var removed = 0;
+        foreach (var path in Directory.EnumerateFiles(dir))
+        {
+            var name = Path.GetFileName(path);
+            var scrub =
+                name.EndsWith(".runtimeconfig.json", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(".runtimeconfig.dev.json", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase);
+            if (!scrub) continue;
+            if (!string.IsNullOrWhiteSpace(exeBaseName)
+                && !name.StartsWith(exeBaseName, StringComparison.OrdinalIgnoreCase)
+                && !name.StartsWith("FlyScreen-Setup", StringComparison.OrdinalIgnoreCase)
+                && !name.StartsWith("FlyScreen.Setup", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                // 空文件或单文件发布旁路一律删除
+                var len = new FileInfo(path).Length;
+                if (len == 0 || scrub)
+                {
+                    File.Delete(path);
+                    removed++;
+                }
+            }
+            catch { /* ignore */ }
+        }
+
+        if (removed > 0)
+            log($"已清理 {removed} 个可能干扰 Setup 启动的 runtimeconfig/deps 旁路文件。");
     }
 
     private static string TrimSlash(string path)
@@ -983,6 +1026,27 @@ public sealed class PublishService
             }
         }
 
+        // App 端可选集成 .flytool；默认跳过以减小体积
+        if (target.SupportsFlyToolsBundle)
+        {
+            if (options.IncludeFlyTools)
+            {
+                var ids = NormalizeSelectedFlyToolIds(target, options, requireSelection: true);
+                var bundledDir = JobPath("bundled-flytools");
+                PrepareCleanDir(bundledDir);
+                await PackFlyToolsToDirAsync(bundledDir, ids, log, ct).ConfigureAwait(false);
+                args.Add("-p:FlyScreenSkipFlyTools=false");
+                args.Add("-p:FlyScreenSkipFlyToolsPack=true");
+                args.Add($"-p:FlyScreenFlyToolsOut=\"{bundledDir}\"");
+                log($"集成插件工具 → Tools/Bundled：{string.Join(", ", ids)}");
+            }
+            else
+            {
+                args.Add("-p:FlyScreenSkipFlyTools=true");
+                log("未集成插件工具（安装后可另行安装 .flytool）");
+            }
+        }
+
         AppendVersionMsBuildProps(args, options, log);
 
         log($"dotnet publish → {target.Id} ({configuration}, 无 PDB, job={_jobId})");
@@ -1077,6 +1141,65 @@ public sealed class PublishService
         }
 
         return removed;
+    }
+
+    private async Task PackFlyToolsToDirAsync(
+        string outDir,
+        IReadOnlyList<string> toolIds,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var script = Path.Combine(_repoRoot, "build", "Pack-FlyTools.ps1");
+        if (!File.Exists(script))
+            throw new InvalidOperationException("未找到 build/Pack-FlyTools.ps1");
+
+        Directory.CreateDirectory(outDir);
+        var idsArg = string.Join(",", toolIds);
+        var packArgs =
+            $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" " +
+            $"-Configuration Release -OutRoot \"{outDir}\" -SkipAppCopy -ToolIds \"{idsArg}\"";
+        log($"Pack-FlyTools -ToolIds {idsArg}");
+        var exit = await _runner.RunAsync("powershell", packArgs, _repoRoot, log, ct, _jobEnv)
+            .ConfigureAwait(false);
+        if (exit != 0)
+            throw new InvalidOperationException("Pack-FlyTools 失败");
+    }
+
+    /// <summary>
+    /// 规范化所选插件 Id：去重、校验存在性，并按目标端过滤不支持的插件。
+    /// </summary>
+    private static List<string> NormalizeSelectedFlyToolIds(
+        PublishTargetItem target,
+        PublishOptions options,
+        bool requireSelection)
+    {
+        var platform = FlyToolCatalog.ResolvePlatform(target.Id);
+        var selected = (options.SelectedFlyToolIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (selected.Count == 0)
+        {
+            if (requireSelection)
+                throw new InvalidOperationException("请至少选择一个插件工具。");
+            return [];
+        }
+
+        var known = FlyToolCatalog.All.ToDictionary(t => t.Id, StringComparer.OrdinalIgnoreCase);
+        var ok = new List<string>();
+        foreach (var id in selected)
+        {
+            if (!known.TryGetValue(id, out var tool))
+                throw new InvalidOperationException($"未知插件工具：{id}");
+            if (!FlyToolCatalog.SupportsPlatform(tool, platform))
+                throw new InvalidOperationException(
+                    $"插件「{tool.DisplayName}」不支持当前端（{platform ?? "不限"}），无法打包/集成。");
+            ok.Add(tool.Id);
+        }
+
+        return ok;
     }
 
     private static void EnsureReleaseConfiguration(PublishOptions options, Action<string> log)

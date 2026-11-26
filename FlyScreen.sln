@@ -127,6 +127,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.DeveloperToo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.Tool.DeveloperTools.Ui.Desktop", "src\Tools\DeveloperTools\FlyScreen.Tool.DeveloperTools.Ui.Desktop\FlyScreen.Tool.DeveloperTools.Ui.Desktop.csproj", "{03849733-C56A-46D8-B92B-ADAD73F7B1A7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlyScreen.LockInputHelper", "src\FlyScreen.LockInputHelper\FlyScreen.LockInputHelper.csproj", "{AAED9548-EB92-40A9-B13F-7D7A567A9D90}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -701,6 +703,18 @@ Global
 		{03849733-C56A-46D8-B92B-ADAD73F7B1A7}.Release|x64.Build.0 = Release|Any CPU
 		{03849733-C56A-46D8-B92B-ADAD73F7B1A7}.Release|x86.ActiveCfg = Release|Any CPU
 		{03849733-C56A-46D8-B92B-ADAD73F7B1A7}.Release|x86.Build.0 = Release|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Debug|x64.Build.0 = Debug|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Debug|x86.Build.0 = Debug|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Release|x64.ActiveCfg = Release|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Release|x64.Build.0 = Release|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Release|x86.ActiveCfg = Release|Any CPU
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -764,6 +778,7 @@ Global
 		{9436172B-75F5-48F5-9F01-1734ED60E936} = {5D3802E1-4525-1F51-88E5-2C4C0698B745}
 		{FB18587B-02AB-4C83-A0E3-56587BCEF896} = {5D3802E1-4525-1F51-88E5-2C4C0698B745}
 		{03849733-C56A-46D8-B92B-ADAD73F7B1A7} = {5D3802E1-4525-1F51-88E5-2C4C0698B745}
+		{AAED9548-EB92-40A9-B13F-7D7A567A9D90} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {6C40F13E-6940-48A6-AC70-125B93699629}
