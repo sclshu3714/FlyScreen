@@ -17,6 +17,11 @@
     <Description>玄鸟卸载程序</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Setup.Common\FlyScreen.Setup.Common.csproj" />
+    <ProjectReference Include="..\..\src\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+
   <Import Project="..\..\build\FlyScreen.Version.targets" Condition="Exists('..\..\build\FlyScreen.Version.targets')" />
 
 </Project>

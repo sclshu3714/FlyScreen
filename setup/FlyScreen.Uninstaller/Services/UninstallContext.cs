@@ -10,7 +10,7 @@ public sealed class UninstallContext
 
     public string ProductName { get; init; } = "玄鸟";
     public string Version { get; init; } = "";
-    public string InstallDir { get; init; } = "";
+    public string InstallDir { get; set; } = "";
     public string ExeName { get; init; } = "FlyScreen.exe";
     public bool Found { get; init; }
 

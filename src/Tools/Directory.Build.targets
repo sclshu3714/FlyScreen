@@ -27,6 +27,9 @@
   <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/DeveloperTools/')) Or $(_FsToolsProjectDirNorm.EndsWith('/DeveloperTools'))">
     <_FsFlyToolId>developer-tools</_FsFlyToolId>
   </PropertyGroup>
+  <PropertyGroup Condition="$(_FsToolsProjectDirNorm.Contains('/FileVault/')) Or $(_FsToolsProjectDirNorm.EndsWith('/FileVault'))">
+    <_FsFlyToolId>file-vault</_FsFlyToolId>
+  </PropertyGroup>
 
   <!--
     仅模块入口工程触发组包（FlyScreen.Tool.Xxx，不含 .Ui.*），避免同文件夹多 Ui 工程重复跑 Pack。

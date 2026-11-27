@@ -440,6 +440,20 @@ public partial class MainWindow : Window
         FinishPath.Text = installDir;
         LaunchFinishBox.Content = $"启动 {_manifest.ProductName}";
         LaunchFinishBox.IsChecked = true;
+
+        // 安装器（管理员）若一直留在完成页，「程序和功能」里点卸载/更改会提示
+        // 「请等待当前程序完成卸载或更改」。自动收尾退出，避免占住安装会话。
+        Dispatcher.BeginInvoke(async () =>
+        {
+            try
+            {
+                await Task.Delay(1200).ConfigureAwait(true);
+                if (!IsLoaded) return;
+                FinishTitle.Text = "正在关闭安装程序…";
+                Finish_Click(this, new RoutedEventArgs());
+            }
+            catch { /* ignore */ }
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void Finish_Click(object sender, RoutedEventArgs e)

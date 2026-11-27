@@ -7,7 +7,8 @@
 | [clipboard.md](clipboard.md) | **共享剪贴板**：宣告/粘贴行为与各端格式对标表；文件占用语义 |
 | [edge-file-drag.md](edge-file-drag.md) | **穿边拖文件**：跨屏拖放、跟手提示、同名冲突 |
 | [extended-display.md](extended-display.md) | **电脑扩展屏 / 投影**：真扩展、声音同步、远程回控、1 对 1 互斥、VDD |
-| [tools.md](tools.md) | **工具系统规格**：宿主 / `.flytool` / 哈希信任 / 信封；真包骨架已编码（共享设备、取色、端口代理、视频墙） |
+| [tools.md](tools.md) | **工具系统规格**：宿主 / `.flytool` / 哈希信任 / 信封；真包骨架已编码（共享设备、取色、端口代理、视频墙、保险箱） |
+| [file-vault.md](file-vault.md) | **文件保险箱**：加密对象库、挂载、迁移、卸载解密/销毁 |
 | [color-picker.md](color-picker.md) | **颜色拾取器**：本机滴管与内嵌工作区 |
 | [shared-devices.md](shared-devices.md) | **共享摄像头 / 麦克风 / 扬声器**：合并为 `shared-devices`；申请→授权流程（会话细节） |
 | [video-wall.md](video-wall.md) | **视频墙**：规格与分期；实现见 `src/Tools/VideoWall/`；配套 [可行性](video-wall-feasibility.md) / [原型](video-wall-prototype.md) / [源矩阵](video-wall-sources.md) |

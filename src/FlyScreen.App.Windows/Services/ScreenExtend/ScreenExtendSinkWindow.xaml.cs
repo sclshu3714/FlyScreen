@@ -198,6 +198,7 @@ public partial class ScreenExtendSinkWindow : Window
         var closeBtn = new System.Windows.Controls.Button
         {
             Width = 18,
+            MinWidth = 0, // 勿吃全局 Fly.Button MinWidth=88
             Height = 18,
             Padding = new Thickness(0),
             Background = System.Windows.Media.Brushes.Transparent,

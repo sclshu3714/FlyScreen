@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
+using FlyScreen.Setup.Common;
 using Microsoft.Win32;
 
 namespace FlyScreen.Installer.Services;
@@ -11,8 +12,10 @@ namespace FlyScreen.Installer.Services;
 /// 可取消、可回滚的安装：
 /// 1) 解压到 staging
 /// 2) 若已有安装：将原目录改名为 backup（卸载程序文件，不动 %AppData%\FlyScreen 个人数据）
-/// 3) staging → installDir
-/// 4) 成功删 backup；取消/失败则恢复 backup、清理半成品
+/// 3) 捕获 backup 中 Tools 用户态（已装插件 / ToolData）
+/// 4) staging → installDir（payload 仅 Bundled）
+/// 5) 合并回 Tools 用户态
+/// 6) 成功删 backup；取消/失败则恢复 backup、清理半成品
 /// </summary>
 public sealed class InstallService
 {
@@ -32,6 +35,7 @@ public sealed class InstallService
         var session = Path.Combine(Path.GetTempPath(), "FlyScreenSetup_" + Guid.NewGuid().ToString("N"));
         var staging = Path.Combine(session, "staging");
         string? backupDir = null;
+        string? toolsCapture = null;
         var committed = false;
 
         Directory.CreateDirectory(staging);
@@ -49,7 +53,7 @@ public sealed class InstallService
             // 35–45% 备份/清理旧目录
             if (reinstall && Directory.Exists(installDir))
             {
-                Report(progress, 38, "卸载旧版本（保留个人配置）…");
+                Report(progress, 38, "升级：移出旧版本（将保留已装工具与 ToolData）…");
                 await Task.Run(() =>
                 {
                     RemoveShortcuts(manifest.ProductName);
@@ -58,8 +62,10 @@ public sealed class InstallService
                         DeleteDirectoryBestEffort(backupDir);
                     // 安装目录与 %TEMP% 不在同一盘时，Directory.Move 会失败。
                     RelocateDirectory(installDir, backupDir, ct);
+                    toolsCapture = ToolsUserState.Capture(backupDir, session);
                 }, ct).ConfigureAwait(false);
-                Report(progress, 45, "旧版本已移出…");
+                Report(progress, 45,
+                    toolsCapture != null ? "旧版本已移出，已捕获工具数据…" : "旧版本已移出…");
             }
             else if (Directory.Exists(installDir))
             {
@@ -76,11 +82,17 @@ public sealed class InstallService
             // 45–88% 复制文件
             await Task.Run(() =>
             {
-                // 安装包只交付 Bundled 源包；剥离可能混入的安装态，安装后由工具页自行安装
+                // 安装包只交付 Bundled 源包；剥离可能混入的安装态
                 StripToolsInstallState(staging);
                 EnsureParentDirectory(installDir);
-                CopyDirectory(staging, installDir, progress, 45, 88, ct);
+                CopyDirectory(staging, installDir, progress, 45, 85, ct);
                 StripToolsInstallState(installDir);
+                // 合并旧版已装插件 / ToolData（对宿主不透明，不解析具体工具）
+                if (toolsCapture != null)
+                {
+                    Report(progress, 86, "恢复已装工具与数据…");
+                    ToolsUserState.Restore(toolsCapture, installDir);
+                }
             }, ct).ConfigureAwait(false);
 
             ct.ThrowIfCancellationRequested();

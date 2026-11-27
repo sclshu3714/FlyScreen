@@ -39,6 +39,12 @@ public interface IToolUiHost
 {
     void RegisterHandler(string toolId, string kind, Func<object?, CancellationToken, Task<object?>> handler);
 
+    /// <summary>
+    /// 全局 kind 处理器（任意 toolId）。工具专用 handler 优先；
+    /// 用于通用卸载决策等与具体工具无关的 UI。
+    /// </summary>
+    void RegisterGlobalHandler(string kind, Func<string, object?, CancellationToken, Task<object?>> handler);
+
     void RegisterWorkspaceFactory(string toolId, Func<object> factory);
 
     /// <summary>移除该工具的 UI 处理器与工作区工厂（卸载前调用）。</summary>

@@ -1,6 +1,7 @@
 using System.Windows;
 using FlyScreen.Helpers;
 using FlyScreen.Services;
+using FlyScreen.Tools;
 
 namespace FlyScreen;
 
@@ -16,6 +17,15 @@ public partial class App : System.Windows.Application
         // 任务栏显示名「玄鸟」；拓扑守护嵌入主程序，运行时解压（仍单文件分发）
         FlyScreen.WinApi.WindowsAppUserModel.EnsureProcessId(
             FlyScreen.WinApi.WindowsAppUserModel.MainAppId);
+
+        if (ToolUninstallBatchCli.TryGetAnswersPath(e.Args, out var answersPath))
+        {
+            // 须在返回 OnStartup 前清掉 StartupUri，否则会弹出主窗导致批处理进程不退出、卸载器卡在 22%
+            StartupUri = null;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = RunToolUninstallBatchAsync(e, answersPath);
+            return;
+        }
 
         if (!SingleInstanceHelper.TryStartPrimary(out _singleInstance))
         {
@@ -86,6 +96,72 @@ public partial class App : System.Windows.Application
         });
     }
 
+    private async Task RunToolUninstallBatchAsync(StartupEventArgs e, string answersPath)
+    {
+        StartupUri = null;
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        if (!SingleInstanceHelper.TryStartPrimary(out _singleInstance))
+        {
+            AppLog.Error("批处理卸载失败：主程序仍在运行，请先退出玄鸟");
+            // 强制退出：仅 Shutdown 在无窗体时偶发不结束进程，卸载器会一直 WaitForExit
+            ForceExit(2);
+            return;
+        }
+
+        try
+        {
+            base.OnStartup(e);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("批处理卸载 OnStartup 失败: " + ex);
+            ForceExit(1);
+            return;
+        }
+
+        UiMarshal.Configure(
+            post: a => Dispatcher.BeginInvoke(a, System.Windows.Threading.DispatcherPriority.Background),
+            send: a =>
+            {
+                if (Dispatcher.CheckAccess()) a();
+                else Dispatcher.Invoke(a);
+            });
+
+        var exit = 1;
+        try
+        {
+            AppHost.EnsureCreated();
+            // 勿回 UI 线程：批处理无主窗，ConfigureAwait(true) 可能永不续跑
+            exit = await ToolUninstallBatchCli.RunAsync(answersPath).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("批处理卸载异常: " + ex);
+            exit = 1;
+        }
+        finally
+        {
+            try { _singleInstance?.Dispose(); } catch { /* ignore */ }
+            _singleInstance = null;
+        }
+
+        ForceExit(exit);
+    }
+
+    private static void ForceExit(int code)
+    {
+        try
+        {
+            Current?.Shutdown(code);
+        }
+        catch { /* ignore */ }
+
+        // 兜底：确保卸载器侧 WaitForExit 能结束
+        try { Environment.Exit(code); }
+        catch { /* ignore */ }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         try { _singleInstance?.Dispose(); }
@@ -94,4 +170,3 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 }
-

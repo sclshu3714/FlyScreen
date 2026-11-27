@@ -117,7 +117,7 @@
 
 | 需求 | 规格 |
 |------|------|
-| 分组 | 按清单 `group` 显示。本期预置：`shared-devices`（共享设备）、`utilities`（含 `color-picker`）。`display`（投影）留给后期迁工具 |
+| 分组 | 按清单 `group` 显示。本期预置：`shared-devices`（共享设备）、`utilities`（含 `color-picker`、`file-vault`）。`display`（投影）留给后期迁工具 |
 | 筛选 | SHOULD：`全部` \| `未安装` \| `已安装` \| `需修复`（可后置；网格态用透明度/提示区分） |
 | **展示形态** | **独立卡片**，左→右、上→下 **自适应换行**（Wrap）：每项 = 图标 + 标题 + 状态文案 + 一句话说明。MUST NOT 再做成右侧大按钮条的列表卡 |
 | 卡片底色 | MUST 区分：**未安装** / **已安装** / **已启动** 三种背景；**安装中**另用安装底色，并在卡片背景上显示 **自左向右进度条** |
@@ -157,11 +157,13 @@
 | 动作 | MUST |
 |------|------|
 | 安装 | 取得 `.flytool` → **§5.5 安全校验全部通过** → 按本机 rid 解压 → 写入工具目录与安装标记 → 状态=已安装 → 注册标题栏（若有）→ 更新握手 Caps。任一步失败 MUST 回滚，MUST NOT 留半安装 |
-| 卸载 | 停止该工具会话 → 注销标题栏贡献 → 清除 Caps 中本工具相关项 → 卸组件 → 状态=未安装 |
+| 卸载 | **应用内**：若实现 `IToolUninstallPolicy`：先按 `uninstall-ui.json` / `GetUninstallUiSchema` 收集决策 → `ApplyUninstallAnswersAsync` → 再停会话 → 删安装目录。**产品卸载器（Uninstall.exe）禁止启动主程序**；只读 schema 收集答案后在卸载器进程内离线执行（保留数据 / 销毁 ToolData+`activeVaultRoot` / 解密保留须先在应用内完成），**不得**拉起 `FlyScreen.exe` |
 | 修复 | 仅当 `supportsRepair=true` 且状态=需修复；执行与安装相同的静默修复管线 + 就绪检测；成功→已安装，失败保持需修复 |
 | 分享 | 见 §4.1 |
 
 安装状态 MUST NOT 进入 `BehaviorSync`。
+
+可选卸载决策：工具在安装目录提供 `uninstall-ui.json`（`choice` / `password` / `folder` / `confirm` + `visibleWhen` + `defaults`）。宿主与 `Uninstall.exe` 用同一套通用表单渲染；执行始终在工具模块内。
 
 检测 VDD / 驱动是否异常时 MUST 只读（禁止在检测阶段 `DisplaySwitch`、禁止建副屏）。
 

@@ -481,7 +481,7 @@ public static class ToolScaffoldGenerator
         }
         text = text.Insert(m.Index + m.Length, insert);
         File.WriteAllText(path, text, new UTF8Encoding(false));
-        notes.AppendLine($"已写入 ToolIds.{constName}。请同步 ToolCatalog.BuildFallbackBuiltin。");
+        notes.AppendLine($"已写入 ToolIds.{constName}。打包后放入 Tools/Bundled 即可出现在工具页（不再维护硬编码 fallback）。");
     }
 
     private sealed class ProjectRefs

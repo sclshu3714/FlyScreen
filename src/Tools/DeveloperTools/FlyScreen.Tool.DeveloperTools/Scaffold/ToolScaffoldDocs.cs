@@ -70,9 +70,8 @@ internal static class ToolScaffoldDocs
 
             1. `FlyScreen.sln`：已含或 `dotnet sln add` 各 csproj  
             2. `src/FlyScreen.Core/Services/Tools/ToolIds.cs`：`public const string {id.FolderName} = "{id.ToolId}";`  
-            3. `ToolCatalog.BuildFallbackBuiltin()`：增加与 `manifest.json` 一致的条目  
-            4. `build/Pack-FlyTools.ps1`：增加打包项  
-            5. 编译并打包后，工具页安装验证
+            3. `build/Pack-FlyTools.ps1`：增加打包项；安装包勾选「插件工具」或把 `.flytool` 放到 `Tools/Bundled`  
+            4. 编译并打包后，工具页安装验证（卡片仅来自 Bundled 扫描，无硬编码兜底清单）
 
             安装包用户：可在本目录开发；引用指向本机玄鸟源码/宿主 DLL（见各 csproj）。打 `.flytool` 后用工具页「导入」安装。
             """;

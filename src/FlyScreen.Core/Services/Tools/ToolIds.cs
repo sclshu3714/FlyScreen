@@ -7,4 +7,5 @@ public static class ToolIds
     public const string PortProxy = "port-proxy";
     public const string VideoWall = "video-wall";
     public const string DeveloperTools = "developer-tools";
+    public const string FileVault = "file-vault";
 }

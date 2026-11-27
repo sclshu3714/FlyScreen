@@ -1,0 +1,41 @@
+{
+  "title": "文件保险箱卸载",
+  "description": "请选择如何处置保险箱中的加密数据。丢失主密码将无法解密。",
+  "defaults": {
+    "action": "keepEncrypted"
+  },
+  "fields": [
+    {
+      "id": "action",
+      "type": "choice",
+      "label": "数据处置",
+      "required": true,
+      "options": [
+        { "value": "keepEncrypted", "label": "仅卸载工具，保留加密数据（推荐）" },
+        { "value": "decryptKeep", "label": "解密并保留到文件夹…" },
+        { "value": "destroy", "label": "永久销毁保险箱内全部文件" }
+      ]
+    },
+    {
+      "id": "password",
+      "type": "password",
+      "label": "主密码",
+      "required": true,
+      "visibleWhen": "action=decryptKeep"
+    },
+    {
+      "id": "decryptDir",
+      "type": "folder",
+      "label": "解密输出目录",
+      "required": true,
+      "visibleWhen": "action=decryptKeep"
+    },
+    {
+      "id": "destroyConfirm",
+      "type": "confirm",
+      "label": "输入「销毁」以确认永久删除",
+      "required": true,
+      "visibleWhen": "action=destroy"
+    }
+  ]
+}

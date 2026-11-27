@@ -13,6 +13,7 @@ public static class ToolBundledPackSeeder
         "shared-devices.flytool",
         "port-proxy.flytool",
         "video-wall.flytool",
+        "file-vault.flytool",
         "tools-index.json"
     ];
 

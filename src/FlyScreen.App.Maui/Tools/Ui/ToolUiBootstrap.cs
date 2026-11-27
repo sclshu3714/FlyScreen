@@ -18,5 +18,11 @@ public static class ToolUiBootstrap
         };
         tools.BindUi(ctx);
         ToolUiDiscovery.RegisterAll(tools.Ui, ctx);
+        tools.Ui.RegisterGlobalHandler(ToolUninstallUiSchema.RequestKind, async (toolId, arg, _) =>
+        {
+            if (arg is not ToolUninstallUiSchema schema)
+                return ToolUninstallAnswers.Cancel();
+            return await GenericToolUninstallDialog.ShowAsync(toolId, schema);
+        });
     }
 }

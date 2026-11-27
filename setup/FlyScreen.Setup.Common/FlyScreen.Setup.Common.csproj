@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FlyScreen.Setup.Common</RootNamespace>
+    <AssemblyName>FlyScreen.Setup.Common</AssemblyName>
+    <Description>安装/卸载共用：Tools 用户态保留（不引用 ToolSdk，避免安装壳 publish 还原图污染）</Description>
+  </PropertyGroup>
+</Project>

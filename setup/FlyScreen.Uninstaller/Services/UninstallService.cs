@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
+using FlyScreen.ToolSdk;
 using Microsoft.Win32;
 
 namespace FlyScreen.Uninstaller.Services;
@@ -10,6 +10,8 @@ public sealed class UninstallService
 {
     public async Task UninstallAsync(
         UninstallContext ctx,
+        UninstallMode mode,
+        ToolUninstallBatchFile? toolBatch,
         bool keepUserData,
         IProgress<ProgressReport>? progress = null,
         CancellationToken ct = default)
@@ -18,16 +20,27 @@ public sealed class UninstallService
         await StopAppAsync(ctx, progress, ct).ConfigureAwait(false);
         Report(progress, 12, "已结束相关进程");
 
-        Report(progress, 13, "检查锁屏输入助手服务…");
+        if (toolBatch is { Tools.Count: > 0 })
+        {
+            await ToolUninstallRunner.RunBatchAsync(
+                ctx.InstallDir, ctx.ExeName, toolBatch, progress, ct).ConfigureAwait(false);
+        }
+
+        if (mode == UninstallMode.ToolsOnly)
+        {
+            Report(progress, 100, "插件卸载完成（主程序已保留）");
+            return;
+        }
+
+        Report(progress, 40, "检查锁屏输入助手服务…");
         TryRemoveLockInputHelperService(progress);
-        Report(progress, 15, "锁屏输入助手已处理");
+        Report(progress, 42, "锁屏输入助手已处理");
 
-        Report(progress, 16, "移除快捷方式…");
+        Report(progress, 44, "移除快捷方式…");
         RemoveShortcuts(ctx.ProductName);
-        Report(progress, 20, "快捷方式已移除");
+        Report(progress, 48, "快捷方式已移除");
 
-        // 20–85% 删除程序文件
-        await Task.Run(() => DeleteProgramFiles(ctx.InstallDir, progress, 20, 85, ct), ct)
+        await Task.Run(() => DeleteProgramFiles(ctx.InstallDir, progress, 48, 85, ct), ct)
             .ConfigureAwait(false);
 
         if (!keepUserData)
@@ -48,7 +61,31 @@ public sealed class UninstallService
         }
         catch { /* ignore */ }
 
+        // 安装目录里可能仍留着正在运行的 Uninstall.exe：退出后再删干净
+        ScheduleDeleteDirectory(ctx.InstallDir);
+
         Report(progress, 100, "卸载完成");
+    }
+
+    /// <summary>延迟删除目录（供卸载收尾；当前进程若在目录内也可在退出后清掉）。</summary>
+    public static void ScheduleDeleteDirectory(string dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            var full = Path.GetFullPath(dir).TrimEnd('\\', '/');
+            if (!Directory.Exists(full)) return;
+            var cmd = $"ping 127.0.0.1 -n 3 >nul & rmdir /s /q \"{full}\"";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/C " + cmd,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+        }
+        catch { /* ignore */ }
     }
 
     private static void Report(IProgress<ProgressReport>? progress, double percent, string message)

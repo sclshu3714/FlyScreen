@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>FlyScreen.Tool.FileVault.Ui.Win</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.FileVault.Ui.Win</AssemblyName>
+    <Description>文件保险箱 WPF UI</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FlyScreen.Tool.FileVault\FlyScreen.Tool.FileVault.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.Windows\FlyScreen.Windows.csproj" />
+    <ProjectReference Include="..\..\..\Theme\FlyScreen.Ui.Theme.Wpf\FlyScreen.Ui.Theme.Wpf.csproj" />
+  </ItemGroup>
+</Project>

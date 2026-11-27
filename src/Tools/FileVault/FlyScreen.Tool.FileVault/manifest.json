@@ -1,0 +1,29 @@
+{
+  "id": "file-vault",
+  "kind": "enhancement",
+  "crossScreen": false,
+  "group": "utilities",
+  "nameKey": "Tool.FileVault.Name",
+  "summaryKey": "Tool.FileVault.Summary",
+  "schemaVersion": 1,
+  "minAppVersion": "1.0.0",
+  "deviceClasses": ["Desktop"],
+  "platforms": ["Windows", "macOS", "Linux"],
+  "featuresByDeviceClass": {
+    "Desktop": ["local-vault"]
+  },
+  "roles": ["local"],
+  "supportsRepair": false,
+  "capNames": [],
+  "titleBar": false,
+  "hasWorkspace": true,
+  "icon": "tool-file-vault",
+  "permissions": ["localFile.open"],
+  "package": {
+    "version": "1.0.1",
+    "format": "flytool",
+    "formatVersion": 1
+  },
+  "entryAssembly": "FlyScreen.Tool.FileVault.dll",
+  "entryType": "FlyScreen.Tool.FileVault.Module"
+}

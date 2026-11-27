@@ -47,6 +47,12 @@
           Condition="Exists('..\..\build\version.json')" />
   </ItemGroup>
 
+  <!-- 只链源码，不 ProjectReference：发布器用 BaseIntermediateOutputPath 隔离并行任务，
+       工程引用会把 obj 图污染到依赖项目并触发 NETSDK1005 / 重复 AssemblyInfo。 -->
+  <ItemGroup>
+    <Compile Include="..\FlyScreen.Setup.Common\ToolsUserState.cs" Link="Common\ToolsUserState.cs" />
+  </ItemGroup>
+
   <Import Project="..\..\build\FlyScreen.Version.targets" Condition="Exists('..\..\build\FlyScreen.Version.targets')" />
 
   <!-- 单文件发布时强制自包含，避免旁路空 *.runtimeconfig.json 导致宿主解析失败 -->

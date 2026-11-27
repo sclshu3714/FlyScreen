@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FlyScreen.Tool.FileVault</RootNamespace>
+    <AssemblyName>FlyScreen.Tool.FileVault</AssemblyName>
+    <Description>玄鸟文件保险箱工具包入口</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
+    <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\tool-file-vault.png" LogicalName="FlyScreen.Tool.FileVault.Icons.tool-file-vault.png" />
+  </ItemGroup>
+</Project>

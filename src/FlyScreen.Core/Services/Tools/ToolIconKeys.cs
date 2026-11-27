@@ -8,6 +8,7 @@ public static class ToolIconKeys
     public const string PortProxy = "tool-port-proxy";
     public const string VideoWall = "tool-video-wall";
     public const string DeveloperTools = "tool-developer-tools";
+    public const string FileVault = "tool-file-vault";
 
     /// <summary>是否已有工具贡献的位图（优先于宿主内嵌回退）。</summary>
     public static bool HasRegisteredBitmap(string? iconKey)

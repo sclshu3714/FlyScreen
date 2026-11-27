@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Network;
@@ -383,6 +385,155 @@ public sealed class ToolService
 
     public async Task<ToolInstallResult> UninstallAsync(string toolId)
     {
+        try
+        {
+            var prepared = await PrepareToolUninstallAsync(toolId, answers: null, interactive: true)
+                .ConfigureAwait(false);
+            if (!prepared.Ok)
+                return prepared.Cancelled
+                    ? ToolInstallResult.Ok("已取消卸载")
+                    : ToolInstallResult.Fail(prepared.Error ?? "卸载准备失败");
+        }
+        catch (Exception ex)
+        {
+            return ToolInstallResult.Fail(ex.Message);
+        }
+
+        return await FinishUninstallAsync(toolId).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 批处理卸载（产品卸载器 CLI）：按给定答案 Apply，不再弹 UI。
+    /// </summary>
+    public async Task<ToolInstallResult> UninstallBatchAsync(
+        IReadOnlyList<(string ToolId, IReadOnlyDictionary<string, string> Answers)> items,
+        CancellationToken ct = default)
+    {
+        if (items.Count == 0)
+            return ToolInstallResult.Ok("无工具需要卸载");
+
+        foreach (var (toolId, answers) in items)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(toolId)) continue;
+
+            // 确保模块已加载以便执行 policy
+            if (Host.Get(toolId) == null)
+            {
+                var rec = Catalog.FindRecord(toolId);
+                if (rec != null && ToolInstaller.IsInstallComplete(rec))
+                {
+                    try
+                    {
+                        await Host.LoadInstalledAsync(toolId, rec.Path, ct).ConfigureAwait(false);
+                        RefreshToolUiContributors();
+                    }
+                    catch (Exception ex)
+                    {
+                        return ToolInstallResult.Fail($"{toolId}: 加载失败 — {ex.Message}");
+                    }
+                }
+            }
+
+            var prepared = await PrepareToolUninstallAsync(toolId, answers, interactive: false, ct)
+                .ConfigureAwait(false);
+            if (!prepared.Ok)
+            {
+                return prepared.Cancelled
+                    ? ToolInstallResult.Fail($"{toolId}: 已取消")
+                    : ToolInstallResult.Fail($"{toolId}: {prepared.Error ?? "卸载准备失败"}");
+            }
+
+            var result = await FinishUninstallAsync(toolId).ConfigureAwait(false);
+            if (!result.Success)
+                return ToolInstallResult.Fail($"{toolId}: {result.Message}");
+        }
+
+        return ToolInstallResult.Ok("批处理卸载完成");
+    }
+
+    private readonly record struct PrepareResult(bool Ok, bool Cancelled, string? Error);
+
+    /// <summary>
+    /// 交互：schema → 通用 UI → Apply；非交互：合并 defaults 后 Apply。
+    /// 无 schema 时回退 <see cref="IToolUninstallPolicy.PrepareUninstallAsync"/>。
+    /// </summary>
+    private async Task<PrepareResult> PrepareToolUninstallAsync(
+        string toolId,
+        IReadOnlyDictionary<string, string>? answers,
+        bool interactive,
+        CancellationToken ct = default)
+    {
+        var module = Host.Get(toolId);
+        if (module is not IToolUninstallPolicy policy)
+            return new PrepareResult(true, false, null);
+
+        var schema = policy.GetUninstallUiSchema();
+        if (schema != null)
+        {
+            Dictionary<string, string> merged;
+            if (interactive)
+            {
+                var uiResult = await Ui.RequestAsync(
+                    toolId, ToolUninstallUiSchema.RequestKind, schema, ct).ConfigureAwait(true);
+                if (uiResult is ToolUninstallAnswers { Cancelled: true })
+                    return new PrepareResult(false, true, null);
+                if (uiResult is ToolUninstallAnswers decided)
+                    merged = MergeAnswers(schema.Defaults, decided.Values);
+                else if (uiResult is IReadOnlyDictionary<string, string> dict)
+                    merged = MergeAnswers(schema.Defaults, dict);
+                else
+                {
+                    // 无通用 UI：回退 PrepareUninstallAsync（工具自带对话框）
+                    if (!await policy.PrepareUninstallAsync(ct).ConfigureAwait(false))
+                        return new PrepareResult(false, true, null);
+                    return new PrepareResult(true, false, null);
+                }
+            }
+            else
+            {
+                merged = MergeAnswers(schema.Defaults, answers);
+            }
+
+            if (!await policy.ApplyUninstallAnswersAsync(merged, ct).ConfigureAwait(false))
+                return new PrepareResult(false, false, "工具拒绝按给定决策继续卸载");
+            return new PrepareResult(true, false, null);
+        }
+
+        if (interactive)
+        {
+            if (!await policy.PrepareUninstallAsync(ct).ConfigureAwait(false))
+                return new PrepareResult(false, true, null);
+        }
+        else if (answers != null)
+        {
+            if (!await policy.ApplyUninstallAnswersAsync(answers, ct).ConfigureAwait(false))
+                return new PrepareResult(false, false, "工具拒绝按给定决策继续卸载");
+        }
+
+        return new PrepareResult(true, false, null);
+    }
+
+    private static Dictionary<string, string> MergeAnswers(
+        IReadOnlyDictionary<string, string>? defaults,
+        IReadOnlyDictionary<string, string>? overrides)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (defaults != null)
+        {
+            foreach (var kv in defaults)
+                map[kv.Key] = kv.Value;
+        }
+        if (overrides != null)
+        {
+            foreach (var kv in overrides)
+                map[kv.Key] = kv.Value;
+        }
+        return map;
+    }
+
+    private async Task<ToolInstallResult> FinishUninstallAsync(string toolId)
+    {
         var iconKey = Catalog.FindManifest(toolId)?.Icon;
 
         await StopToolForReplaceAsync(toolId).ConfigureAwait(false);
@@ -417,8 +568,29 @@ public sealed class ToolService
         try { await Task.Delay(80, ct).ConfigureAwait(false); }
         catch (OperationCanceledException) { /* ignore */ }
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
+        // WaitForPendingFinalizers 无超时，终结器卡住时会导致 --tool-uninstall-batch 永不退出
+        try
+        {
+            GC.Collect();
+            await Task.Run(() =>
+            {
+                var done = new ManualResetEventSlim(false);
+                var t = new Thread(() =>
+                {
+                    try { GC.WaitForPendingFinalizers(); }
+                    finally { try { done.Set(); } catch { /* ignore */ } }
+                })
+                {
+                    IsBackground = true,
+                    Name = "FlyScreen.GC.Finalizers"
+                };
+                t.Start();
+                if (!done.Wait(2000))
+                    AppLog.Warn($"GC 终结器等待超时，继续卸载 {toolId}");
+            }, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { /* ignore */ }
+        catch (Exception ex) { AppLog.Warn($"GC 回收跳过: {ex.Message}"); }
     }
 
     public async Task<(bool Ok, string Message)> PrimaryAsync(

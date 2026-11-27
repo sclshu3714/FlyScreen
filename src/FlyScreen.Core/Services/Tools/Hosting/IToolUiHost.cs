@@ -8,6 +8,9 @@ public sealed class ToolUiHost : IToolUiHost
     private readonly Dictionary<(string ToolId, string Kind), Func<object?, CancellationToken, Task<object?>>> _handlers =
         new(ToolIdKindComparer.Instance);
 
+    private readonly Dictionary<string, Func<string, object?, CancellationToken, Task<object?>>> _globalHandlers =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, Func<object>> _workspaces =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -17,6 +20,13 @@ public sealed class ToolUiHost : IToolUiHost
             throw new ArgumentException("toolId/kind required");
         _handlers[(toolId.Trim(), kind.Trim())] = handler
             ?? throw new ArgumentNullException(nameof(handler));
+    }
+
+    public void RegisterGlobalHandler(string kind, Func<string, object?, CancellationToken, Task<object?>> handler)
+    {
+        if (string.IsNullOrWhiteSpace(kind))
+            throw new ArgumentException("kind required");
+        _globalHandlers[kind.Trim()] = handler ?? throw new ArgumentNullException(nameof(handler));
     }
 
     public void RegisterWorkspaceFactory(string toolId, Func<object> factory)
@@ -36,19 +46,23 @@ public sealed class ToolUiHost : IToolUiHost
             _handlers.Remove(key);
     }
 
-    /// <summary>重新发现贡献者前清空，避免错误 UI 栈的工厂残留。</summary>
+    /// <summary>重新发现贡献者前清空工具专用注册；保留全局 kind（由宿主 Bootstrap 注册）。</summary>
     public void ClearAll()
     {
         _handlers.Clear();
         _workspaces.Clear();
     }
 
+    public void ClearGlobalHandlers() => _globalHandlers.Clear();
+
     public async Task<object?> RequestAsync(
         string toolId, string kind, object? argument = null, CancellationToken ct = default)
     {
-        if (!_handlers.TryGetValue((toolId, kind), out var handler))
-            return null;
-        return await handler(argument, ct).ConfigureAwait(true);
+        if (_handlers.TryGetValue((toolId, kind), out var handler))
+            return await handler(argument, ct).ConfigureAwait(true);
+        if (_globalHandlers.TryGetValue(kind, out var global))
+            return await global(toolId, argument, ct).ConfigureAwait(true);
+        return null;
     }
 
     public object? CreateWorkspaceContent(string toolId)

@@ -105,6 +105,19 @@ $tools = @(
             "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Desktop/FlyScreen.Tool.DeveloperTools.Ui.Desktop.csproj",
             "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Maui/FlyScreen.Tool.DeveloperTools.Ui.Maui.csproj"
         )
+    },
+    @{
+        Id = "file-vault"
+        Proj = "src/Tools/FileVault/FlyScreen.Tool.FileVault/FlyScreen.Tool.FileVault.csproj"
+        Manifest = "src/Tools/FileVault/FlyScreen.Tool.FileVault/manifest.json"
+        ExtraFiles = @(
+            "src/Tools/FileVault/FlyScreen.Tool.FileVault/uninstall-ui.json"
+        )
+        UiProjs = @(
+            "src/Tools/FileVault/FlyScreen.Tool.FileVault.Ui.Win/FlyScreen.Tool.FileVault.Ui.Win.csproj",
+            "src/Tools/FileVault/FlyScreen.Tool.FileVault.Ui.Desktop/FlyScreen.Tool.FileVault.Ui.Desktop.csproj",
+            "src/Tools/FileVault/FlyScreen.Tool.FileVault.Ui.Maui/FlyScreen.Tool.FileVault.Ui.Maui.csproj"
+        )
     }
 )
 
@@ -272,7 +285,15 @@ foreach ($t in $tools) {
 
     $mainDll = Join-Path $outDir "$asmName.dll"
     $fly = Join-Path $bundledOut "$($t.Id).flytool"
-    $inputs = @($manifest, $mainDll) + $uiDlls.ToArray()
+    $extraFiles = @()
+    if ($t.ContainsKey("ExtraFiles") -and $null -ne $t.ExtraFiles) {
+        foreach ($ef in @($t.ExtraFiles)) {
+            $efFull = Join-Path $repo $ef
+            if (Test-Path -LiteralPath $efFull) { $extraFiles += $efFull }
+            else { Write-Host "  ! missing ExtraFile $ef" }
+        }
+    }
+    $inputs = @($manifest, $mainDll) + $uiDlls.ToArray() + $extraFiles
     $newestInput = Get-NewestUtc $inputs
     $flyTime = if (Test-Path -LiteralPath $fly) { (Get-Item -LiteralPath $fly).LastWriteTimeUtc } else { [datetime]::MinValue }
 
@@ -288,6 +309,10 @@ foreach ($t in $tools) {
     New-Item -ItemType Directory -Force -Path $packStage | Out-Null
     Copy-Item $manifest (Join-Path $packStage "manifest.json") -Force
     Copy-Item $mainDll $packStage -Force
+    foreach ($efFull in $extraFiles) {
+        Copy-Item $efFull $packStage -Force
+        Write-Host "  + $(Split-Path $efFull -Leaf)"
+    }
 
     if ($t.Id -eq "video-wall") {
         foreach ($dep in @(

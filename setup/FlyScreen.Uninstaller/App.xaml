@@ -184,5 +184,81 @@
         </Setter.Value>
       </Setter>
     </Style>
+
+    <Style x:Key="MaintainCard" TargetType="RadioButton">
+      <Setter Property="Background" Value="#F8FAFC"/>
+      <Setter Property="BorderBrush" Value="#E6EBF2"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="14"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+      <Setter Property="MinHeight" Value="108"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Bd"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="12"
+                    Padding="{TemplateBinding Padding}"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#C7D7FF"/>
+                <Setter TargetName="Bd" Property="Background" Value="#F5F8FF"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="Bd" Property="BorderThickness" Value="1.5"/>
+                <Setter TargetName="Bd" Property="Background" Value="#EEF3FF"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="ModernRadioButton" TargetType="RadioButton">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Foreground" Value="#4B5563"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="VerticalContentAlignment" Value="Top"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <StackPanel Orientation="Horizontal" Background="Transparent">
+              <Border x:Name="Dot" Width="18" Height="18" CornerRadius="9"
+                      BorderThickness="1.5" BorderBrush="#C5CDD8" Background="White"
+                      VerticalAlignment="Top" Margin="0,1,0,0">
+                <Ellipse x:Name="Fill" Width="8" Height="8" Fill="White" Visibility="Collapsed"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Top"/>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Dot" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="Fill" Property="Fill" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="Fill" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Dot" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Application.Resources>
 </Application>
