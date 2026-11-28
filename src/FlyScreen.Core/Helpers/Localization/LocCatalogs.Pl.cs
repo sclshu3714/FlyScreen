@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Media"),
             ("Tool.Group.SharedDevices", "Współdzielone urządzenia"),
             ("Tool.Group.Utilities", "Narzędzia"),
-            ("Tool.Hint", "Każde narzędzie to karta, zawija od lewej do prawej. Backgrounds different for not installed / installed / started; install shows a progress fill. Kliknij, aby zainstalować lub uruchomić; użyj funkcji dezaktywowania i innych działań. Przeciągnij zainstalowane narzędzia na pasek skrótów powyżej."),
+            ("Tool.Hint", "Kliknij kartę, aby zainstalować lub uruchomić. Użyj ⋯ do odinstalowania i innych działań. Przeciągnij zainstalowane narzędzia na pasek skrótów."),
             ("Tool.Import", "Import"),
             ("Tool.ImportDiscarded", "Import odrzucony"),
             ("Tool.ImportFilter", "Support T0 Support Tool 124; * .flytool Support 124; * .exe; * .bat; * .cmd Support 124; Wszystkie pliki Support 124; *. *"),

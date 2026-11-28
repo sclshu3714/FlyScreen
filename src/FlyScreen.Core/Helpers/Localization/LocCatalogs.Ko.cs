@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "주요 특징"),
             ("Tool.Group.SharedDevices", "공유 장치"),
             ("Tool.Group.Utilities", "(주)"),
-            ("Tool.Hint", "각 도구는 왼쪽으로 감싸는 카드입니다. 배경은 설치되지 않고 / 설치 / 시작; 진행 상황을 보여줍니다. 설치 또는 시작을 클릭합니다. 제거 및 기타 작업을 위해 실행 . Drag는 위의 단축 바에 도구를 설치했습니다."),
+            ("Tool.Hint", "카드를 클릭하여 설치하거나 시작합니다. 오른쪽 위 ⋯ 에서 제거 등 작업을 할 수 있습니다. 설치된 도구를 위쪽 바로가기 바로 끌어다 놓으세요."),
             ("Tool.Import", "제품정보"),
             ("Tool.ImportDiscarded", "수입 discarded"),
             ("Tool.ImportFilter", "TT0T 도구|*.flytool|전복|*.exe;*.bat;*.cmd|모든 파일|*.*"),

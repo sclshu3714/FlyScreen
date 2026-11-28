@@ -458,8 +458,9 @@ public sealed class MauiDialogShell : ContentView
             if (page.Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement fe)
                 return;
             var clear = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            // 只清弹层页自身及紧邻壳（最多 3 层）。勿向上清到主窗视觉树，否则侧栏/主区底会被掏空。
             Microsoft.UI.Xaml.DependencyObject? node = fe;
-            for (var i = 0; i < 10 && node != null; i++)
+            for (var i = 0; i < 3 && node != null; i++)
             {
                 switch (node)
                 {

@@ -8,6 +8,8 @@ public interface IFileVaultService
     bool IsRunning { get; }
     bool HasVault { get; }
     bool IsUnlocked { get; }
+    /// <summary>未解锁时亦可据 manifest.entryCount 判断是否有条目（卸载 UI 用）。</summary>
+    bool LikelyHasEntries { get; }
     string? VaultRoot { get; }
     string? MountPath { get; }
     bool IsMounted { get; }

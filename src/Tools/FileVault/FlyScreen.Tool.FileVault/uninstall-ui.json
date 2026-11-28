@@ -19,15 +19,15 @@
     {
       "id": "password",
       "type": "password",
-      "label": "主密码",
-      "required": true,
+      "label": "主密码（未解锁时必填）",
+      "required": false,
       "visibleWhen": "action=decryptKeep"
     },
     {
       "id": "decryptDir",
       "type": "folder",
-      "label": "解密输出目录",
-      "required": true,
+      "label": "解密输出目录（空库可留空；也可直接粘贴路径）",
+      "required": false,
       "visibleWhen": "action=decryptKeep"
     },
     {

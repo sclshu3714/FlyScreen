@@ -207,6 +207,8 @@ internal static class VaultExplorerChrome
         Func<Task> onAddFolder,
         Func<Task> onDelete,
         Func<Task> onMore,
+        Action<View> onSort,
+        Action<View> onView,
         out Border newBtn,
         out Border addFileBtn,
         out Border addFolderBtn,
@@ -217,11 +219,13 @@ internal static class VaultExplorerChrome
         addFolderBtn = BuildCmdIcon("📁", Loc.T("Tool.FileVault.AddFolder"), onAddFolder);
         deleteBtn = BuildCmdIcon("🗑", Loc.T("Tool.FileVault.Delete"), onDelete);
         var sortBtn = BuildCmdLabeled("⇅", Loc.T("Tool.FileVault.Sort"), null);
-        sortBtn.Opacity = 0.45;
-        sortBtn.InputTransparent = true;
+        var sortTap = new TapGestureRecognizer();
+        sortTap.Tapped += (_, _) => onSort(sortBtn);
+        sortBtn.GestureRecognizers.Add(sortTap);
         var viewBtn = BuildCmdLabeled("☰", Loc.T("Tool.FileVault.View"), null);
-        viewBtn.Opacity = 0.45;
-        viewBtn.InputTransparent = true;
+        var viewTap = new TapGestureRecognizer();
+        viewTap.Tapped += (_, _) => onView(viewBtn);
+        viewBtn.GestureRecognizers.Add(viewTap);
         var moreBtn = BuildCmdIcon("⋯", Loc.T("Tool.FileVault.Settings"), onMore);
 
         return new Border
@@ -537,6 +541,352 @@ internal static class VaultExplorerChrome
         var span = Math.Max(1, host.RowDefinitions.Count);
         Grid.SetRowSpan(scrim, span);
         Grid.SetRowSpan(menu, span);
+        host.Children.Add(scrim);
+        host.Children.Add(menu);
+    }
+
+    public static void ShowSortMenu(View anchor, VaultSortState state, Action refresh)
+    {
+        Grid? host = null;
+        for (Element? cur = anchor; cur != null; cur = cur.Parent)
+        {
+            if (cur is Grid grid)
+                host = grid;
+        }
+        if (host == null)
+            return;
+
+        for (var i = host.Children.Count - 1; i >= 0; i--)
+        {
+            if (host.Children[i] is View old && old.ClassId is "vault-sort-menu" or "vault-sort-sub" or "vault-sort-scrim")
+                host.Children.RemoveAt(i);
+        }
+
+        var scrim = new BoxView { Color = Colors.Transparent, ZIndex = 60, ClassId = "vault-sort-scrim" };
+        Border? sub = null;
+
+        void Close()
+        {
+            host.Children.Remove(scrim);
+            if (host.Children.FirstOrDefault(v => v is View view && view.ClassId == "vault-sort-menu") is View menuView)
+                host.Children.Remove(menuView);
+            if (sub != null)
+                host.Children.Remove(sub);
+        }
+
+        var scrimTap = new TapGestureRecognizer();
+        scrimTap.Tapped += (_, _) => Close();
+        scrim.GestureRecognizers.Add(scrimTap);
+
+        void Apply(Action change)
+        {
+            change();
+            Close();
+            refresh();
+        }
+
+        View Row(string title, bool radio, bool on, bool chevron, Action? tap)
+        {
+            var mark = new Label
+            {
+                Text = on ? "●" : "",
+                WidthRequest = 16,
+                FontSize = 10,
+                TextColor = ColorOf("Blue"),
+                VerticalOptions = LayoutOptions.Center
+            };
+            var label = new Label
+            {
+                Text = title,
+                FontSize = 13,
+                TextColor = ColorOf("Text"),
+                VerticalOptions = LayoutOptions.Center
+            };
+            Grid.SetColumn(label, 1);
+            var grid = new Grid
+            {
+                Padding = new Thickness(12, 7),
+                ColumnDefinitions = new ColumnDefinitionCollection
+                {
+                    new(GridLength.Auto),
+                    new(GridLength.Star),
+                    new(GridLength.Auto)
+                },
+                Children = { mark, label }
+            };
+            if (chevron)
+            {
+                var arrow = new Label { Text = "›", FontSize = 16, TextColor = ColorOf("Muted"), VerticalOptions = LayoutOptions.Center };
+                Grid.SetColumn(arrow, 2);
+                grid.Children.Add(arrow);
+            }
+            if (tap != null)
+            {
+                var gesture = new TapGestureRecognizer();
+                gesture.Tapped += (_, _) => tap();
+                grid.GestureRecognizers.Add(gesture);
+            }
+            return grid;
+        }
+
+        Border? menu = null;
+        var list = new VerticalStackLayout { Spacing = 0 };
+        void AddKey(VaultSortKey key) =>
+            list.Children.Add(Row(VaultSort.Title(key), true, state.Key == key, false, () => Apply(() => state.Key = key)));
+        foreach (var key in VaultSort.Primary)
+            AddKey(key);
+
+        list.Children.Add(Row(Loc.T("Tool.FileVault.SortMore"), false, false, true, () => OpenSub(VaultSort.More, false)));
+        list.Children.Add(new BoxView { HeightRequest = 1, Margin = new Thickness(8, 4), Color = ColorOf("Line") });
+        list.Children.Add(Row(Loc.T("Tool.FileVault.SortAsc"), true, state.Order == VaultSortOrder.Ascending, false,
+            () => Apply(() => state.Order = VaultSortOrder.Ascending)));
+        list.Children.Add(Row(Loc.T("Tool.FileVault.SortDesc"), true, state.Order == VaultSortOrder.Descending, false,
+            () => Apply(() => state.Order = VaultSortOrder.Descending)));
+        list.Children.Add(new BoxView { HeightRequest = 1, Margin = new Thickness(8, 4), Color = ColorOf("Line") });
+        list.Children.Add(Row(Loc.T("Tool.FileVault.SortGroup"), false, false, true, () => OpenSub(VaultSort.GroupKeys, true)));
+
+        menu = new Border
+        {
+            ClassId = "vault-sort-menu",
+            WidthRequest = 220,
+            StrokeThickness = 1,
+            Stroke = ColorOf("Line"),
+            BackgroundColor = ColorOf("CardBg"),
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            Padding = new Thickness(0, 4),
+            HorizontalOptions = LayoutOptions.Start,
+            VerticalOptions = LayoutOptions.Start,
+            ZIndex = 61,
+            Content = list
+        };
+
+        void OpenSub(IReadOnlyList<VaultSortKey> keys, bool grouping)
+        {
+            if (sub != null)
+                host.Children.Remove(sub);
+            var subList = new VerticalStackLayout { Spacing = 0 };
+            foreach (var key in keys)
+            {
+                var captured = key;
+                var selected = grouping ? state.Group == captured : state.Key == captured;
+                subList.Children.Add(Row(VaultSort.Title(captured), true, selected, false, () => Apply(() =>
+                {
+                    if (grouping)
+                        state.Group = state.Group == captured ? null : captured;
+                    else
+                        state.Key = captured;
+                })));
+            }
+            sub = new Border
+            {
+                ClassId = "vault-sort-sub",
+                WidthRequest = 200,
+                StrokeThickness = 1,
+                Stroke = ColorOf("Line"),
+                BackgroundColor = ColorOf("CardBg"),
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+                Padding = new Thickness(0, 4),
+                HorizontalOptions = LayoutOptions.Start,
+                VerticalOptions = LayoutOptions.Start,
+                ZIndex = 62,
+                Content = subList
+            };
+            var left = menu?.Margin.Left ?? 8;
+            var top = menu?.Margin.Top ?? 8;
+            sub.Margin = new Thickness(left + 208, top + (grouping ? 168 : 96), 0, 0);
+            var span = Math.Max(1, host.RowDefinitions.Count);
+            Grid.SetRowSpan(sub, span);
+            host.Children.Add(sub);
+        }
+
+        double x = 0, y = 0;
+        for (VisualElement? node = anchor; node != null && !ReferenceEquals(node, host); node = node.Parent as VisualElement)
+        {
+            x += node.X;
+            y += node.Y;
+        }
+        menu.Margin = new Thickness(Math.Max(8, x), Math.Max(8, y + anchor.Height), 0, 0);
+        var hostSpan = Math.Max(1, host.RowDefinitions.Count);
+        Grid.SetRowSpan(scrim, hostSpan);
+        Grid.SetRowSpan(menu, hostSpan);
+        host.Children.Add(scrim);
+        host.Children.Add(menu);
+    }
+
+    public static void ShowViewMenu(View anchor, VaultViewState state, Action refresh)
+    {
+        Grid? host = null;
+        for (Element? cur = anchor; cur != null; cur = cur.Parent)
+        {
+            if (cur is Grid grid)
+                host = grid;
+        }
+        if (host == null)
+            return;
+
+        for (var i = host.Children.Count - 1; i >= 0; i--)
+        {
+            if (host.Children[i] is View old && old.ClassId is "vault-view-menu" or "vault-view-sub" or "vault-view-scrim")
+                host.Children.RemoveAt(i);
+        }
+
+        var scrim = new BoxView { Color = Colors.Transparent, ZIndex = 60, ClassId = "vault-view-scrim" };
+        Border? menu = null;
+        Border? sub = null;
+
+        void Close()
+        {
+            host.Children.Remove(scrim);
+            if (menu != null) host.Children.Remove(menu);
+            if (sub != null) host.Children.Remove(sub);
+        }
+
+        var scrimTap = new TapGestureRecognizer();
+        scrimTap.Tapped += (_, _) => Close();
+        scrim.GestureRecognizers.Add(scrimTap);
+
+        void Apply(Action change)
+        {
+            change();
+            Close();
+            refresh();
+        }
+
+        View Row(string iconCode, string title, bool radio, bool on, bool chevron, Action? tap)
+        {
+            var mark = new Label
+            {
+                Text = on ? (radio ? "●" : "✓") : "",
+                WidthRequest = 16,
+                FontSize = 11,
+                TextColor = ColorOf("Blue"),
+                VerticalOptions = LayoutOptions.Center
+            };
+            var icon = new ShapePath
+            {
+                Data = MauiIcon.Parse(iconCode),
+                Fill = ColorOf("Muted"),
+                Aspect = Stretch.Uniform,
+                WidthRequest = 16,
+                HeightRequest = 16,
+                VerticalOptions = LayoutOptions.Center
+            };
+            Grid.SetColumn(icon, 1);
+            var label = new Label
+            {
+                Text = title,
+                FontSize = 13,
+                TextColor = ColorOf("Text"),
+                VerticalOptions = LayoutOptions.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            Grid.SetColumn(label, 2);
+            var grid = new Grid
+            {
+                Padding = new Thickness(10, 7),
+                ColumnDefinitions = new ColumnDefinitionCollection
+                {
+                    new(GridLength.Auto),
+                    new(GridLength.Auto),
+                    new(GridLength.Star),
+                    new(GridLength.Auto)
+                },
+                Children = { mark, icon, label }
+            };
+            if (chevron)
+            {
+                var arrow = new Label { Text = "›", FontSize = 16, TextColor = ColorOf("Muted"), VerticalOptions = LayoutOptions.Center };
+                Grid.SetColumn(arrow, 3);
+                grid.Children.Add(arrow);
+            }
+            if (tap != null)
+            {
+                var gesture = new TapGestureRecognizer();
+                gesture.Tapped += (_, _) => tap();
+                grid.GestureRecognizers.Add(gesture);
+            }
+            return grid;
+        }
+
+        var list = new VerticalStackLayout { Spacing = 0 };
+        foreach (var mode in VaultView.Layouts)
+        {
+            var captured = mode;
+            list.Children.Add(Row(
+                VaultView.IconCode(captured),
+                VaultView.Title(captured),
+                true,
+                state.Layout == captured,
+                false,
+                () => Apply(() => state.Layout = captured)));
+        }
+        list.Children.Add(new BoxView { HeightRequest = 1, Margin = new Thickness(8, 4), Color = ColorOf("Line") });
+        list.Children.Add(Row(VaultView.DetailsPaneIcon, Loc.T("Tool.FileVault.ViewDetailsPane"), true, state.SidePane == VaultSidePane.Details, false,
+            () => Apply(() => VaultView.ToggleSidePane(state, VaultSidePane.Details))));
+        list.Children.Add(Row(VaultView.PreviewPaneIcon, Loc.T("Tool.FileVault.ViewPreviewPane"), true, state.SidePane == VaultSidePane.Preview, false,
+            () => Apply(() => VaultView.ToggleSidePane(state, VaultSidePane.Preview))));
+        list.Children.Add(new BoxView { HeightRequest = 1, Margin = new Thickness(8, 4), Color = ColorOf("Line") });
+        list.Children.Add(Row(VaultView.ShowIcon, Loc.T("Tool.FileVault.ViewShow"), false, false, true, OpenShow));
+
+        menu = new Border
+        {
+            ClassId = "vault-view-menu",
+            WidthRequest = 240,
+            StrokeThickness = 1,
+            Stroke = ColorOf("Line"),
+            BackgroundColor = ColorOf("CardBg"),
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+            Padding = new Thickness(0, 4),
+            HorizontalOptions = LayoutOptions.Start,
+            VerticalOptions = LayoutOptions.Start,
+            ZIndex = 61,
+            Content = list
+        };
+
+        void OpenShow()
+        {
+            if (sub != null)
+                host.Children.Remove(sub);
+            var subList = new VerticalStackLayout { Spacing = 0 };
+            void Toggle(string iconCode, string title, bool on, Action flip) =>
+                subList.Children.Add(Row(iconCode, title, false, on, false, () => Apply(flip)));
+            Toggle(VaultView.NavPaneIcon, Loc.T("Tool.FileVault.ViewNavPane"), state.NavigationPane, () => state.NavigationPane = !state.NavigationPane);
+            Toggle(VaultView.CompactIcon, Loc.T("Tool.FileVault.ViewCompact"), state.CompactView, () => state.CompactView = !state.CompactView);
+            Toggle(VaultView.CheckBoxesIcon, Loc.T("Tool.FileVault.ViewCheckBoxes"), state.ItemCheckBoxes, () => state.ItemCheckBoxes = !state.ItemCheckBoxes);
+            Toggle(VaultView.ExtensionsIcon, Loc.T("Tool.FileVault.ViewExtensions"), state.ShowExtensions, () => state.ShowExtensions = !state.ShowExtensions);
+            Toggle(VaultView.HiddenIcon, Loc.T("Tool.FileVault.ViewHidden"), state.ShowHidden, () => state.ShowHidden = !state.ShowHidden);
+            sub = new Border
+            {
+                ClassId = "vault-view-sub",
+                WidthRequest = 220,
+                StrokeThickness = 1,
+                Stroke = ColorOf("Line"),
+                BackgroundColor = ColorOf("CardBg"),
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
+                Padding = new Thickness(0, 4),
+                HorizontalOptions = LayoutOptions.Start,
+                VerticalOptions = LayoutOptions.Start,
+                ZIndex = 62,
+                Content = subList
+            };
+            var left = menu?.Margin.Left ?? 8;
+            var top = menu?.Margin.Top ?? 8;
+            sub.Margin = new Thickness(left + 228, top + 280, 0, 0);
+            var span = Math.Max(1, host.RowDefinitions.Count);
+            Grid.SetRowSpan(sub, span);
+            host.Children.Add(sub);
+        }
+
+        double x = 0, y = 0;
+        for (VisualElement? node = anchor; node != null && !ReferenceEquals(node, host); node = node.Parent as VisualElement)
+        {
+            x += node.X;
+            y += node.Y;
+        }
+        menu.Margin = new Thickness(Math.Max(8, x), Math.Max(8, y + anchor.Height), 0, 0);
+        var hostSpan = Math.Max(1, host.RowDefinitions.Count);
+        Grid.SetRowSpan(scrim, hostSpan);
+        Grid.SetRowSpan(menu, hostSpan);
         host.Children.Add(scrim);
         host.Children.Add(menu);
     }

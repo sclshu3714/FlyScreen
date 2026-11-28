@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Medien"),
             ("Tool.Group.SharedDevices", "Gemeinsame Geräte"),
             ("Tool.Group.Utilities", "Versorgungsunternehmen"),
-            ("Tool.Hint", "Jedes Werkzeug ist eine Karte, die von links nach rechts wickelt. Hintergründe unterscheiden sich für nicht installiert / installiert / gestartet; install zeigt eine Fortschrittsfüllung an. Klicken Sie, um zu installieren oder zu starten; verwenden Sie ⋯ für die Deinstallation und andere Aktionen. Ziehen Sie installierte Werkzeuge an die Abkürzungsleiste oben."),
+            ("Tool.Hint", "Klicken Sie auf eine Karte zum Installieren oder Starten. Mit ⋯ deinstallieren und weitere Aktionen. Ziehen Sie installierte Tools in die Schnellleiste oben."),
             ("Tool.Import", "Einfuhr"),
             ("Tool.ImportDiscarded", "Rückwürfe bei der Einfuhr"),
             ("Tool.ImportFilter", "FlyScreen tool|*.flytool|Executables|*.exe;*.bat;*.cmd|Alle Dateien|*.*"),

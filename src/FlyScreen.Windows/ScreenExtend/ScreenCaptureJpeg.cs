@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using FlyScreen.LockInput;
 using FlyScreen.Native;
 
 namespace FlyScreen.ScreenExtend;
@@ -16,6 +17,17 @@ public static class ScreenCaptureJpeg
         var w = monitor.Width;
         var h = monitor.Height;
         if (w <= 0 || h <= 0) return null;
+
+        // 锁屏 / UAC 安全桌面：用户态 BitBlt 只能看到 Default 黑屏，改走 SYSTEM 助手
+        var drawCursor = !ProjectionHostCursor.SuppressCapturedCursor;
+        if (SecureDesktopState.ShouldUseHelper)
+        {
+            if (LockScreenInputClient.TryCaptureJpeg(
+                    monitor.Left, monitor.Top, w, h, jpegQuality, maxEdge, drawCursor, out var helperFrame))
+                return helperFrame;
+            // 助手失败时不要回落用户态抓屏（会得到黑屏/Default 桌面）
+            return null;
+        }
 
         var scale = 1.0;
         if (maxEdge > 0)
@@ -39,7 +51,7 @@ public static class ScreenCaptureJpeg
                 return null;
 
             // BitBlt 不含光标。远程回控时不叠加，避免与观看端指针叠成两个。
-            if (!ProjectionHostCursor.SuppressCapturedCursor)
+            if (drawCursor)
                 TryDrawCursor(memDc, monitor);
 
             using var full = Image.FromHbitmap(bmp);

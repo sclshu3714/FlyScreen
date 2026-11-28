@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Vật chứa"),
             ("Tool.Group.SharedDevices", "Thiết bị chia sẻ"),
             ("Tool.Group.Utilities", "Tiện ích"),
-            ("Tool.Hint", "Mỗi công cụ là một lá bài, bọc trái sang phải. Nền khác nhau vì chưa cài đặt / đã cài đặt / bắt đầu; cài đặt hiển thị đầy đủ tiến độ. Nhấn vào để cài đặt hay khởi động; hãy dùng « » để gỡ bỏ cài đặt và các hành động khác. Kéo công cụ đã cài đặt tới thanh tắt bên trên."),
+            ("Tool.Hint", "Nhấp thẻ để cài đặt hoặc khởi chạy. Dùng ⋯ để gỡ cài đặt và thao tác khác. Kéo công cụ đã cài lên thanh lối tắt phía trên."),
             ("Tool.Import", "Nhập"),
             ("Tool.ImportDiscarded", "Nhập khẩu bị hủy bỏ"),
             ("Tool.ImportFilter", "Công cụ này có thể bị cắt bỏ."),

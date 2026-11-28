@@ -1,7 +1,7 @@
 namespace FlyScreen.LockInput;
 
 /// <summary>
-/// 注入路由：锁屏且助手可用时走命名管道；否则返回 false 由调用方走本机 SendInput。
+/// 注入路由：锁屏或 UAC 等安全桌面且助手可用时走命名管道；否则返回 false 由调用方走本机 SendInput。
 /// </summary>
 public static class LockScreenInputBridge
 {
@@ -9,7 +9,7 @@ public static class LockScreenInputBridge
     public static bool HelperEnabled { get; set; }
 
     public static bool ShouldRouteToHelper
-        => HelperEnabled && LockScreenSession.IsLocked;
+        => SecureDesktopState.ShouldUseHelper;
 
     public static bool TryMoveAbsoluteNormalized(double nx, double ny)
         => ShouldRouteToHelper && LockScreenInputClient.TryMoveAbsoluteNormalized(nx, ny);

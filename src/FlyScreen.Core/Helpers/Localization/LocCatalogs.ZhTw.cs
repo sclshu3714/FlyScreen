@@ -547,7 +547,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "媒體"),
             ("Tool.Group.SharedDevices", "共享設備"),
             ("Tool.Group.Utilities", "實用工具"),
-            ("Tool.Hint", "每個工具一張卡片，左→右、上→下自適應排列；未安裝/已安裝/已啓動底色不同，安裝中顯示進度。單擊安裝或啓動，右上角 ⋯ 卸載等操作。可將已安裝工具拖到上方快捷欄。"),
+            ("Tool.Hint", "單擊卡片可安裝或啓動；右上角 ⋯ 可卸載等操作。可將已安裝工具拖到上方快捷欄。"),
             ("Tool.Import", "導入"),
             ("Tool.ImportDiscarded", "已放棄導入"),
             ("Tool.ImportFilter", "玄鳥工具包|*.flytool|可執行程序|*.exe;*.bat;*.cmd|所有文件|*.*"),

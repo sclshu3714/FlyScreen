@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Media Media Media"),
             ("Tool.Group.SharedDevices", "Paylaşılan cihazlar"),
             ("Tool.Group.Utilities", "Utilities"),
-            ("Tool.Hint", "Her bir araç bir kart, sol tarafta sağ. Arka planlar monte edilmedi / kuruldu / başladı; yükleme bir ilerleme doldurma gösteriyor. Yüklemek veya başlamak için tıklayın; yükleme ve diğer eylemler için . kullanın. Drag yukarıdaki kısayol barına aletler kurdu."),
+            ("Tool.Hint", "Yüklemek veya başlatmak için bir karta tıklayın. Kaldırma ve diğer işlemler için ⋯ kullanın. Yüklü araçları üstteki kısayol çubuğuna sürükleyin."),
             ("Tool.Import", "İthalat"),
             ("Tool.ImportDiscarded", "Import discarded"),
             ("Tool.ImportFilter", ".T0⟧ aracı|*.flytool|Executables|*.exe;*.bat;*.cmd|All files|*.*"),

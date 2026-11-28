@@ -215,7 +215,7 @@ public static class LockScreenInputServiceControl
             return false;
         }
 
-        RunSc($"description {LockScreenInputProtocol.ServiceName} \"允许对端在本机锁屏/登录界面注入键鼠\"");
+        RunSc($"description {LockScreenInputProtocol.ServiceName} \"允许对端在本机锁屏/UAC 安全桌面抓屏并注入键鼠\"");
         return true;
     }
 

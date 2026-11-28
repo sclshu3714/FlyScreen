@@ -44,8 +44,9 @@ internal static class MauiWindowChrome
                 return;
 
             var clear = new WinSolidBrush(Microsoft.UI.Colors.Transparent);
+            // 只清弹层页自身及紧邻壳，避免把主窗侧栏/主区背景一并掏空
             DependencyObject? node = fe;
-            for (var i = 0; i < 10 && node != null; i++)
+            for (var i = 0; i < 3 && node != null; i++)
             {
                 switch (node)
                 {

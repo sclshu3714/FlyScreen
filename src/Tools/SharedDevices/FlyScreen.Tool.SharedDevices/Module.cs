@@ -212,8 +212,9 @@ public class SharedDevicesToolModule : IToolModule
             return (false, "共享设备 UI 未注册");
 
         var result = await ui.RequestAsync(Id, UiStart, _service, ct).ConfigureAwait(true);
+        // 取消 / 关闭对话框：返回 false，避免宿主当成启动成功去刷状态
         if (result is not SharedDevicesStartUiResult start)
-            return (true, "");
+            return (false, "");
 
         return await _service.StartRequestAsync(start.Peer, start.Kinds).ConfigureAwait(true);
     }

@@ -261,12 +261,18 @@
           <TextBlock Text="🗑" FontSize="14" HorizontalAlignment="Center"/>
         </Button>
         <Border Width="1" Height="20" Background="{DynamicResource Line}" Margin="8,0" VerticalAlignment="Center"/>
-        <Button Style="{StaticResource ExplorerCmdBtn}" IsEnabled="False" Opacity="0.45">
+        <Button x:Name="SortBtn" Style="{StaticResource ExplorerCmdBtn}" Click="SortBtn_Click">
+          <Button.ContextMenu>
+            <ContextMenu x:Name="SortMenu" Placement="Bottom" Opened="SortMenu_Opened"/>
+          </Button.ContextMenu>
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="⇅" Margin="0,0,4,0"/><TextBlock x:Name="SortBtnText" Text="排序"/><TextBlock Text="▾" FontSize="10" Margin="4,0,0,0"/>
           </StackPanel>
         </Button>
-        <Button Style="{StaticResource ExplorerCmdBtn}" IsEnabled="False" Opacity="0.45">
+        <Button x:Name="ViewBtn" Style="{StaticResource ExplorerCmdBtn}" Click="ViewBtn_Click">
+          <Button.ContextMenu>
+            <ContextMenu x:Name="ViewMenu" Placement="Bottom" Opened="ViewMenu_Opened"/>
+          </Button.ContextMenu>
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="☰" Margin="0,0,4,0"/><TextBlock x:Name="ViewBtnText" Text="查看"/><TextBlock Text="▾" FontSize="10" Margin="4,0,0,0"/>
           </StackPanel>
@@ -278,7 +284,16 @@
     <Border x:Name="ExplorerHost" Grid.Row="3" Margin="0"
             BorderBrush="{DynamicResource Line}" BorderThickness="0"
             Background="{DynamicResource CardBg}">
-      <ListView x:Name="EntryList" BorderThickness="0" Background="Transparent"
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TreeView x:Name="NavTree" Grid.Column="0" Width="180" Margin="0,0,1,0"
+                  Visibility="Collapsed" BorderThickness="0"
+                  Background="Transparent" SelectedItemChanged="NavTree_SelectedItemChanged"/>
+        <ListView x:Name="EntryList" Grid.Column="1" BorderThickness="0" Background="Transparent"
                 SelectionMode="Extended"
                 SelectionChanged="EntryList_SelectionChanged"
                 MouseDoubleClick="EntryList_MouseDoubleClick"
@@ -336,7 +351,17 @@
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding Icon}" Width="22" Margin="0,0,8,0"
                                VerticalAlignment="Center" FontSize="15"/>
-                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                      <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                              <Setter Property="FontWeight" Value="SemiBold"/>
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </TextBlock.Style>
+                    </TextBlock>
                   </StackPanel>
                 </DataTemplate>
               </GridViewColumn.CellTemplate>
@@ -359,6 +384,17 @@
           </GridView>
         </ListView.View>
       </ListView>
+        <Border x:Name="SidePane" Grid.Column="2" Width="220" Margin="1,0,0,0"
+                Visibility="Collapsed" BorderBrush="{DynamicResource Line}" BorderThickness="1,0,0,0"
+                Background="{DynamicResource CardBg}" Padding="12">
+          <StackPanel>
+            <TextBlock x:Name="SideIcon" FontSize="48" HorizontalAlignment="Center" Margin="0,8,0,8"/>
+            <TextBlock x:Name="SideTitle" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="SideMeta" FontSize="12" Foreground="{DynamicResource Muted}"
+                       Margin="0,8,0,0" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+      </Grid>
     </Border>
 
     <!-- 首次启用 / 每次进入解锁 -->

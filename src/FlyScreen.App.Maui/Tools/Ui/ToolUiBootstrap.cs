@@ -41,6 +41,10 @@ public static class ToolUiBootstrap
                 Platforms.Windows.MauiToolWindowChrome.Apply(win);
 #endif
                 break;
+            case ContentPage contentPage:
+                // 工具模态页走遮罩弹层（壳外透明），与添加程序 / 投影对话框一致
+                MauiDialogShell.PrepareOverlayPage(contentPage, MauiDialogShell.ActiveThemeId);
+                break;
             case Page p:
                 MauiDialogShell.ApplyForDialogColors(p, MauiDialogShell.ActiveThemeId);
                 break;

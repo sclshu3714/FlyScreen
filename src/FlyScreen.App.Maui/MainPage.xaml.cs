@@ -619,6 +619,11 @@ public partial class MainPage : ContentPage, IWallpaperHost
         // Unloaded 会反订阅；再次显示时补回
         if (!_hostWired && _uiPrepared)
             WireHostOnce();
+        // 工具模态（共享设备等）关闭后主页重现：按真宽恢复侧栏，避免弹层期间被误切成抽屉
+        ApplyResponsiveLayout(Width);
+#if WINDOWS
+        Platforms.Windows.MauiWindowChrome.RefreshAfterModal();
+#endif
         if (!_hostWired) return;
         _statusTimer?.Start();
         RefreshSlotStatuses();
@@ -631,6 +636,17 @@ public partial class MainPage : ContentPage, IWallpaperHost
     private void ApplyResponsiveLayout(double width)
     {
         if (width <= 0) return;
+
+        // 模态弹层期间主页常被错误量成窄宽；若此时切抽屉，关弹窗后侧栏不会自动回来
+        try
+        {
+            if (Navigation?.ModalStack?.Count > 0)
+                return;
+        }
+        catch
+        {
+            // ignore
+        }
 
         // 手机 / 窄屏用抽屉；平板横屏与桌面用固定侧栏
         var compact = width < CompactWidthBreakpoint

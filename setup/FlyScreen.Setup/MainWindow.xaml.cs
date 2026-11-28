@@ -42,8 +42,9 @@ public partial class MainWindow : Window
         _maxConcurrentJobs = _concurrency.MaxJobs;
         _repoRoot = RepoPaths.FindRepoRoot();
         _targets = new ObservableCollection<PublishTargetItem>(TargetCatalog.CreateDefaults());
+        var flyTools = FlyToolCatalog.Refresh(_repoRoot);
         _flyTools = new ObservableCollection<FlyToolSelectItem>(
-            FlyToolCatalog.All.Select(t => new FlyToolSelectItem
+            flyTools.Select(t => new FlyToolSelectItem
             {
                 Id = t.Id,
                 DisplayName = t.DisplayName,

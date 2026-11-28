@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Mídia"),
             ("Tool.Group.SharedDevices", "Dispositivos partilhados"),
             ("Tool.Group.Utilities", "Utilitários"),
-            ("Tool.Hint", "Cada ferramenta é um cartão, embrulhando da esquerda para a direita. Os fundos diferem para não instalado / instalado / iniciado; a instalação mostra um preenchimento de progresso. Clique para instalar ou iniciar; use □ para desinstalar e outras ações. Arraste as ferramentas instaladas para a barra de atalhos acima."),
+            ("Tool.Hint", "Clique em um cartão para instalar ou iniciar. Use ⋯ para desinstalar e outras ações. Arraste as ferramentas instaladas para a barra de atalhos."),
             ("Tool.Import", "Importar"),
             ("Tool.ImportDiscarded", "Importar descartado"),
             ("Tool.ImportFilter", "Todos os ficheiros*.*"),

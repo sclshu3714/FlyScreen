@@ -7,6 +7,7 @@ using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using Orientation = System.Windows.Controls.Orientation;
 using RadioButton = System.Windows.Controls.RadioButton;
 using TextBox = System.Windows.Controls.TextBox;
+using VerticalAlignment = System.Windows.VerticalAlignment;
 
 namespace FlyScreen.Tools.Ui;
 
@@ -47,8 +48,13 @@ internal static class GenericToolUninstallDialog
         root.Children.Add(fieldHost);
 
         var controls = new Dictionary<string, FrameworkElement>(StringComparer.OrdinalIgnoreCase);
+        var rebuilding = false;
         void Rebuild()
         {
+            if (rebuilding) return;
+            rebuilding = true;
+            try
+            {
             fieldHost.Children.Clear();
             controls.Clear();
             foreach (var field in schema.Fields)
@@ -76,18 +82,19 @@ internal static class GenericToolUninstallDialog
                                 Content = opt.Label,
                                 Tag = opt.Value,
                                 GroupName = "f_" + field.Id + "_" + toolId,
-                                Margin = new Thickness(0, 2, 0, 2),
-                                IsChecked = values.TryGetValue(field.Id, out var cur)
-                                    && string.Equals(cur, opt.Value, StringComparison.OrdinalIgnoreCase)
+                                Margin = new Thickness(0, 2, 0, 2)
                             };
                             rb.Checked += (_, _) =>
                             {
+                                if (rebuilding) return;
                                 if (rb.Tag is string v)
                                 {
                                     values[field.Id] = v;
                                     Rebuild();
                                 }
                             };
+                            rb.IsChecked = values.TryGetValue(field.Id, out var cur)
+                                && string.Equals(cur, opt.Value, StringComparison.OrdinalIgnoreCase);
                             panel.Children.Add(rb);
                         }
                         if (!values.ContainsKey(field.Id) && field.Options is { Count: > 0 })
@@ -112,30 +119,51 @@ internal static class GenericToolUninstallDialog
                     }
                     case "folder":
                     {
-                        var row = new Grid();
-                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                        // 手输 + 框内嵌选夹图标按钮
                         var tb = new TextBox
                         {
-                            IsReadOnly = true,
-                            Text = values.TryGetValue(field.Id, out var fv) ? fv : ""
+                            Text = values.TryGetValue(field.Id, out var fv) ? fv : "",
+                            Padding = new Thickness(6, 4, 34, 4),
+                            VerticalContentAlignment = VerticalAlignment.Center
                         };
-                        var btn = new Button { Content = "浏览…", Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(10, 4, 10, 4) };
+                        tb.TextChanged += (_, _) => values[field.Id] = tb.Text?.Trim() ?? "";
+                        var btn = new Button
+                        {
+                            Content = "📁",
+                            Width = 30,
+                            Height = 26,
+                            Padding = new Thickness(0),
+                            Margin = new Thickness(0, 0, 3, 0),
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Background = System.Windows.Media.Brushes.Transparent,
+                            BorderThickness = new Thickness(0),
+                            Cursor = System.Windows.Input.Cursors.Hand,
+                            ToolTip = "选择文件夹"
+                        };
                         btn.Click += (_, _) =>
                         {
-                            var dlg = new OpenFolderDialog { Title = field.Label };
-                            if (dlg.ShowDialog(win) == true)
+                            try
                             {
-                                values[field.Id] = dlg.FolderName;
-                                tb.Text = dlg.FolderName;
+                                var dlg = new OpenFolderDialog { Title = field.Label };
+                                if (dlg.ShowDialog(win) == true && !string.IsNullOrWhiteSpace(dlg.FolderName))
+                                {
+                                    values[field.Id] = dlg.FolderName;
+                                    tb.Text = dlg.FolderName;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show(win,
+                                    "未能打开文件夹对话框，请直接在输入框粘贴路径。\n" + ex.Message,
+                                    win.Title, MessageBoxButton.OK, MessageBoxImage.Information);
                             }
                         };
-                        Grid.SetColumn(tb, 0);
-                        Grid.SetColumn(btn, 1);
-                        row.Children.Add(tb);
-                        row.Children.Add(btn);
-                        controls[field.Id] = row;
-                        fieldHost.Children.Add(row);
+                        var chrome = new Grid();
+                        chrome.Children.Add(tb);
+                        chrome.Children.Add(btn);
+                        controls[field.Id] = chrome;
+                        fieldHost.Children.Add(chrome);
                         break;
                     }
                     case "confirm":
@@ -152,6 +180,11 @@ internal static class GenericToolUninstallDialog
                         fieldHost.Children.Add(new TextBlock { Text = $"不支持的字段类型: {field.Type}" });
                         break;
                 }
+            }
+            }
+            finally
+            {
+                rebuilding = false;
             }
         }
 

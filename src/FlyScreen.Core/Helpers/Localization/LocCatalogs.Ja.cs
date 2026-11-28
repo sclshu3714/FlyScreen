@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "メディア"),
             ("Tool.Group.SharedDevices", "共有デバイス"),
             ("Tool.Group.Utilities", "ユーティリティ"),
-            ("Tool.Hint", "各ツールは、左から右にラップするカードです。 背景は、インストールされていない/インストール/開始のために異なります。 インストールは、進捗状況を記入します。 クリックしてインストールまたは開始します。 アンインストールやその他の操作に ¢ を使用します。 上記のショートカットバーにインストールされたツールをドラッグします。"),
+            ("Tool.Hint", "カードをクリックしてインストールまたは起動します。右上の ⋯ でアンインストールなどの操作ができます。インストール済みツールは上のショートカットバーにドラッグできます。"),
             ("Tool.Import", "インポート"),
             ("Tool.ImportDiscarded", "廃棄される輸入"),
             ("Tool.ImportFilter", "FlyScreenツール|*.flytool|抜粋|*.exe;*.bat;*.cmd|全ファイル|*.*"),

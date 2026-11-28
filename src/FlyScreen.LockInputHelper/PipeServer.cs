@@ -8,6 +8,8 @@ namespace FlyScreen.LockInputHelper;
 
 internal static class PipeServer
 {
+    private const int PipeBuffer = 1024 * 1024;
+
     public static void Run(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -18,21 +20,27 @@ internal static class PipeServer
                 // LocalSystem 创建的管道默认 ACL 可能拒交互用户；显式放行 Authenticated Users
                 server = NamedPipeServerStreamAcl.Create(
                     LockScreenInputProtocol.PipeName,
-                    PipeDirection.In,
+                    PipeDirection.InOut,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous,
-                    0,
-                    0,
+                    PipeBuffer,
+                    PipeBuffer,
                     CreatePipeSecurity());
 
                 server.WaitForConnectionAsync(ct).GetAwaiter().GetResult();
-                using var reader = new StreamReader(server, new UTF8Encoding(false));
+                var encoding = new UTF8Encoding(false);
+                using var reader = new StreamReader(server, encoding, detectEncodingFromByteOrderMarks: false,
+                    bufferSize: PipeBuffer, leaveOpen: true);
+                using var writer = new StreamWriter(server, encoding, bufferSize: PipeBuffer, leaveOpen: true)
+                {
+                    AutoFlush = true
+                };
                 while (!ct.IsCancellationRequested && server.IsConnected)
                 {
                     var line = reader.ReadLine();
                     if (line == null) break;
-                    HandleLine(line);
+                    HandleLine(line, writer);
                 }
             }
             catch (OperationCanceledException)
@@ -64,13 +72,20 @@ internal static class PipeServer
         return security;
     }
 
-    private static void HandleLine(string line)
+    private static void HandleLine(string line, StreamWriter writer)
     {
         var cmd = LockScreenInputProtocol.Decode(line);
         if (cmd == null || string.IsNullOrWhiteSpace(cmd.Op)) return;
         switch (cmd.Op.Trim().ToLowerInvariant())
         {
             case "ping":
+                break;
+            case "desktop":
+            case "querydesktop":
+                ReplyDesktop(writer);
+                break;
+            case "capture":
+                ReplyCapture(cmd, writer);
                 break;
             case "moveabs":
             case "move":
@@ -95,5 +110,79 @@ internal static class PipeServer
                     SecureDesktopInjector.InsertText(cmd.Text);
                 break;
         }
+    }
+
+    private static void ReplyDesktop(StreamWriter writer)
+    {
+        try
+        {
+            var name = SecureDesktopCapture.GetInputDesktopName();
+            var secure = SecureDesktopInjector.IsSecureDesktopName(name);
+            WriteResponse(writer, new LockScreenInputProtocol.Response
+            {
+                Op = "desktop",
+                Ok = !string.IsNullOrEmpty(name),
+                Desktop = name,
+                Secure = secure
+            });
+        }
+        catch (Exception ex)
+        {
+            WriteResponse(writer, new LockScreenInputProtocol.Response
+            {
+                Op = "desktop",
+                Ok = false,
+                Error = ex.Message
+            });
+        }
+    }
+
+    private static void ReplyCapture(LockScreenInputProtocol.Command cmd, StreamWriter writer)
+    {
+        try
+        {
+            var frame = SecureDesktopCapture.CaptureJpeg(
+                cmd.Left ?? 0,
+                cmd.Top ?? 0,
+                cmd.Width ?? 0,
+                cmd.Height ?? 0,
+                cmd.Quality ?? 85L,
+                cmd.MaxEdge ?? 0,
+                cmd.DrawCursor ?? true);
+            if (frame == null || frame.Value.Jpeg.Length == 0)
+            {
+                WriteResponse(writer, new LockScreenInputProtocol.Response
+                {
+                    Op = "capture",
+                    Ok = false,
+                    Error = "capture failed"
+                });
+                return;
+            }
+
+            WriteResponse(writer, new LockScreenInputProtocol.Response
+            {
+                Op = "capture",
+                Ok = true,
+                Width = frame.Value.Width,
+                Height = frame.Value.Height,
+                JpegBase64 = Convert.ToBase64String(frame.Value.Jpeg)
+            });
+        }
+        catch (Exception ex)
+        {
+            WriteResponse(writer, new LockScreenInputProtocol.Response
+            {
+                Op = "capture",
+                Ok = false,
+                Error = ex.Message
+            });
+        }
+    }
+
+    private static void WriteResponse(StreamWriter writer, LockScreenInputProtocol.Response resp)
+    {
+        writer.WriteLine(LockScreenInputProtocol.Encode(resp));
+        writer.Flush();
     }
 }

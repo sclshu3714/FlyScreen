@@ -76,4 +76,20 @@ public static class IconPaths
     public static string FileExcel => IconCatalog.GetPath(IconCodes.FileExcel);
     public static string FileZip => IconCatalog.GetPath(IconCodes.FileZip);
     public static string FileGeneric => IconCatalog.GetPath(IconCodes.FileGeneric);
+
+    public static string ViewExtraLarge => IconCatalog.GetPath(IconCodes.ViewExtraLarge);
+    public static string ViewLarge => IconCatalog.GetPath(IconCodes.ViewLarge);
+    public static string ViewMedium => IconCatalog.GetPath(IconCodes.ViewMedium);
+    public static string ViewSmall => IconCatalog.GetPath(IconCodes.ViewSmall);
+    public static string ViewDetails => IconCatalog.GetPath(IconCodes.ViewDetails);
+    public static string ViewTiles => IconCatalog.GetPath(IconCodes.ViewTiles);
+    public static string ViewContent => IconCatalog.GetPath(IconCodes.ViewContent);
+    public static string ViewDetailsPane => IconCatalog.GetPath(IconCodes.ViewDetailsPane);
+    public static string ViewPreviewPane => IconCatalog.GetPath(IconCodes.ViewPreviewPane);
+    public static string ViewShow => IconCatalog.GetPath(IconCodes.ViewShow);
+    public static string ViewNavPane => IconCatalog.GetPath(IconCodes.ViewNavPane);
+    public static string ViewCompact => IconCatalog.GetPath(IconCodes.ViewCompact);
+    public static string ViewCheckBoxes => IconCatalog.GetPath(IconCodes.ViewCheckBoxes);
+    public static string ViewExtensions => IconCatalog.GetPath(IconCodes.ViewExtensions);
+    public static string ViewHidden => IconCatalog.GetPath(IconCodes.ViewHidden);
 }

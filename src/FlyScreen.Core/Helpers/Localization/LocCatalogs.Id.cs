@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Media"),
             ("Tool.Group.SharedDevices", "Perangkat bersama"),
             ("Tool.Group.Utilities", "Utilitas"),
-            ("Tool.Hint", "Setiap alat adalah kartu, membungkus kiri ke kanan. Latar belakang berbeda karena tidak terpasang / terpasang / dimulai; instalasi menampilkan progress fill. Klik untuk memasang atau memulai; gunakan grendel untuk uninstall dan aksi lain. Seret perangkat yang terpasang ke batang jalan pintas di atas."),
+            ("Tool.Hint", "Klik kartu untuk memasang atau memulai. Gunakan ⋯ untuk mencopot pemasangan dan tindakan lain. Seret alat terpasang ke bilah pintasan di atas."),
             ("Tool.Import", "Impor"),
             ("Tool.ImportDiscarded", "Impor dibuang"),
             ("Tool.ImportFilter", "♫ Executables 124; ♫"),

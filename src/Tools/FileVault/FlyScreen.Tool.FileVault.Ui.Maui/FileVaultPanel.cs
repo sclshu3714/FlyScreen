@@ -5,6 +5,7 @@ using FlyScreen.Services.Tools;
 using FlyScreen.Tool.FileVault.Store;
 using FlyScreen.Ui.Maui;
 using FlyScreen.Ui.Theme;
+using Microsoft.Maui.Layouts;
 
 namespace FlyScreen.Tool.FileVault.Ui.Maui;
 
@@ -19,6 +20,15 @@ public sealed class FileVaultPanel : ContentView
     private Border _deleteBtn = new();
     private readonly FlyPathBreadcrumbBar _pathBar = new();
     private readonly CollectionView _list;
+    private readonly FlexLayout _iconFlex = new()
+    {
+        Direction = FlexDirection.Row,
+        Wrap = FlexWrap.Wrap,
+        AlignItems = FlexAlignItems.Start,
+        JustifyContent = FlexJustify.Start,
+        Padding = new Thickness(8)
+    };
+    private readonly ScrollView _iconScroll = new() { IsVisible = false };
     private readonly Border _explorerHost;
     private readonly Border _gateHost;
     private readonly Grid _root = new();
@@ -28,6 +38,16 @@ public sealed class FileVaultPanel : ContentView
     private View? _captionTabs;
     private bool _captionMounted;
     private readonly VaultWindowDrop _fileDrop = new();
+    private readonly VaultSortState _sort = new();
+    private readonly VaultViewState _view = new();
+    private readonly Grid _explorerShell = new();
+    private readonly VerticalStackLayout _navList = new() { Spacing = 0, Padding = new Thickness(4) };
+    private readonly Border _navPane = new();
+    private readonly VerticalStackLayout _sideBody = new() { Spacing = 8, Padding = new Thickness(12) };
+    private readonly Border _sidePane = new();
+    private readonly Label _sideTitle = new() { FontSize = 14, FontAttributes = FontAttributes.Bold };
+    private readonly Label _sideIcon = new() { FontSize = 48, HorizontalTextAlignment = TextAlignment.Center };
+    private readonly Label _sideMeta = new() { FontSize = 12 };
 
     /// <summary>标题栏拖拽区（Maui-Win SetTitleBar）。嵌入系统标题栏时为空，由系统拖窗。</summary>
     public View? TitleDragRegion => _titleDrag;
@@ -141,46 +161,37 @@ public sealed class FileVaultPanel : ContentView
                 Margin = new Thickness(12, 24),
                 HorizontalOptions = LayoutOptions.Center,
                 TextColor = TryMuted()
-            },
-            ItemTemplate = new DataTemplate(() =>
-            {
-                var icon = new Label { FontSize = 15, WidthRequest = 24, VerticalOptions = LayoutOptions.Center };
-                icon.SetBinding(Label.TextProperty, nameof(EntryRow.Icon));
-                var name = new Label { FontSize = 13, VerticalOptions = LayoutOptions.Center, LineBreakMode = LineBreakMode.TailTruncation };
-                name.SetBinding(Label.TextProperty, nameof(EntryRow.Name));
-                var modified = new Label { FontSize = 12, WidthRequest = 120, TextColor = TryMuted(), VerticalOptions = LayoutOptions.Center };
-                modified.SetBinding(Label.TextProperty, nameof(EntryRow.ModifiedText));
-                var type = new Label { FontSize = 12, WidthRequest = 72, TextColor = TryMuted(), VerticalOptions = LayoutOptions.Center };
-                type.SetBinding(Label.TextProperty, nameof(EntryRow.TypeText));
-                var size = new Label { FontSize = 12, WidthRequest = 64, TextColor = TryMuted(), HorizontalTextAlignment = TextAlignment.End, VerticalOptions = LayoutOptions.Center };
-                size.SetBinding(Label.TextProperty, nameof(EntryRow.SizeText));
-                var row = new Grid
-                {
-                    Padding = new Thickness(10, 8),
-                    ColumnDefinitions =
-                    {
-                        new(GridLength.Auto),
-                        new(GridLength.Star),
-                        new(GridLength.Auto),
-                        new(GridLength.Auto),
-                        new(GridLength.Auto)
-                    },
-                    Children = { icon, PlaceCol(name, 1), PlaceCol(modified, 2), PlaceCol(type, 3), PlaceCol(size, 4) }
-                };
-                var dbl = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
-                dbl.Tapped += async (_, _) =>
-                {
-                    if (row.BindingContext is EntryRow entry)
-                    {
-                        _list.SelectedItem = entry;
-                        try { await OpenSelectedAsync(); }
-                        catch (Exception ex) { await Alert(ex.Message); }
-                    }
-                };
-                row.GestureRecognizers.Add(dbl);
-                return row;
-            })
+            }
         };
+        _list.SelectionChanged += (_, _) => UpdateSidePane();
+        _iconScroll.Content = _iconFlex;
+        ApplyListTemplate();
+
+        _navPane.StrokeThickness = 0;
+        _navPane.WidthRequest = 180;
+        _navPane.IsVisible = false;
+        _navPane.Content = new ScrollView { Content = _navList };
+        _sidePane.StrokeThickness = 0;
+        _sidePane.WidthRequest = 220;
+        _sidePane.IsVisible = false;
+        _sidePane.Content = new ScrollView { Content = _sideBody };
+        _sideBody.Children.Add(_sideIcon);
+        _sideBody.Children.Add(_sideTitle);
+        _sideBody.Children.Add(_sideMeta);
+        _sideMeta.TextColor = TryMuted();
+        _explorerShell.ColumnDefinitions = new ColumnDefinitionCollection
+        {
+            new(GridLength.Auto),
+            new(GridLength.Star),
+            new(GridLength.Auto)
+        };
+        _explorerShell.Children.Add(_navPane);
+        Grid.SetColumn(_list, 1);
+        _explorerShell.Children.Add(_list);
+        Grid.SetColumn(_iconScroll, 1);
+        _explorerShell.Children.Add(_iconScroll);
+        Grid.SetColumn(_sidePane, 2);
+        _explorerShell.Children.Add(_sidePane);
 
         _explorerHost = new Border
         {
@@ -188,7 +199,7 @@ public sealed class FileVaultPanel : ContentView
             Stroke = TryLine(),
             StrokeThickness = 1,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 4 },
-            Content = _list,
+            Content = _explorerShell,
             VerticalOptions = LayoutOptions.Fill
         };
         // 右键：Win11 样式菜单（顶栏剪切/复制/重命名/删除）
@@ -204,6 +215,7 @@ public sealed class FileVaultPanel : ContentView
         };
         _explorerHost.GestureRecognizers.Add(rightClick);
         _list.GestureRecognizers.Add(rightClick);
+        _iconScroll.GestureRecognizers.Add(rightClick);
 
         _gatePassword.Placeholder = Loc.T("Tool.FileVault.PasswordPlaceholder");
         _gateConfirm.Placeholder = Loc.T("Tool.FileVault.ConfirmPlaceholder");
@@ -291,6 +303,8 @@ public sealed class FileVaultPanel : ContentView
             () => Safe(ImportFolderAsync),
             () => Safe(DeleteAsync),
             async () => ShowWin11ContextMenu(new Point(120, 140)),
+            anchor => ShowSortMenu(anchor),
+            anchor => ShowViewMenu(anchor),
             out _newFolderBtn,
             out _addFileBtn,
             out _addFolderBtn,
@@ -430,7 +444,7 @@ public sealed class FileVaultPanel : ContentView
     {
         DismissContextMenu();
         var unlocked = _service?.IsUnlocked == true;
-        var hasSel = _list.SelectedItem is EntryRow;
+        var hasSel = _list.SelectedItem is EntryRow { IsHeader: false };
         var row = _list.SelectedItem as EntryRow;
 
         _ctxScrim = new BoxView { Color = Colors.Transparent };
@@ -650,25 +664,46 @@ public sealed class FileVaultPanel : ContentView
                 e.IsDir ? "📁" : "📄",
                 e.IsDir ? Loc.T("Tool.FileVault.TypeFolder") : Loc.T("Tool.FileVault.TypeFile"),
                 e.IsDir ? "" : FormatSize(e.Size),
-                e.ModifiedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm")));
+                e.ModifiedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm"),
+                false,
+                e.Size,
+                e.ModifiedUtc,
+                VaultView.DisplayName(e.Name, e.IsDir, _view.ShowExtensions)));
         }
+        RebuildNavPane();
         ApplySearchFilter();
+        ApplyViewChrome();
     }
 
     private void ApplySearchFilter()
     {
         var q = (_searchBox.Text ?? "").Trim();
+        var matched = _allRows
+            .Where(r => q.Length == 0 || r.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var arranged = VaultSort.Arrange(matched, r => new VaultSortFacts(r.Name, r.IsDir, r.SizeBytes, r.ModifiedUtc), _sort);
         _rows.Clear();
-        foreach (var row in _allRows)
+        foreach (var piece in arranged)
         {
-            if (q.Length == 0 || row.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
-                _rows.Add(row);
+            if (piece.IsHeader)
+                _rows.Add(new EntryRow("", piece.Header, false, "", "", "", "", true));
+            else if (piece.Item is EntryRow row)
+            {
+                _rows.Add(row with
+                {
+                    DisplayName = VaultView.DisplayName(row.Name, row.IsDir, _view.ShowExtensions)
+                });
+            }
         }
-        var sel = _list.SelectedItem != null ? 1 : 0;
-        var text = string.Format(Loc.T("Tool.FileVault.ItemsCount"), _rows.Count);
+        var shown = _rows.Count(r => !r.IsHeader);
+        var sel = _list.SelectedItem is EntryRow { IsHeader: false } ? 1 : 0;
+        var text = string.Format(Loc.T("Tool.FileVault.ItemsCount"), shown);
         if (sel > 0) text += "  " + string.Format(Loc.T("Tool.FileVault.SelectedCount"), sel);
         _status.Text = text;
         StatusReporter?.Invoke(text);
+        if (VaultView.IsIconLayout(_view.Layout))
+            RebuildIconGrid();
+        UpdateSidePane();
     }
 
     private void ShowGate(string title, string hint, bool needsConfirm, bool enabled)
@@ -728,7 +763,7 @@ public sealed class FileVaultPanel : ContentView
 
     private async Task OpenSelectedAsync()
     {
-        if (_service == null || _list.SelectedItem is not EntryRow row) return;
+        if (_service == null || _list.SelectedItem is not EntryRow row || row.IsHeader) return;
         if (row.IsDir) NavigateRecording(() => _service.NavigateTo(row.Id));
         else { await _service.OpenEntryAsync(row.Id); Refresh(); }
     }
@@ -789,7 +824,7 @@ public sealed class FileVaultPanel : ContentView
 
     private void StageClipboard(bool cut)
     {
-        if (_service == null || _list.SelectedItem is not EntryRow row) return;
+        if (_service == null || _list.SelectedItem is not EntryRow row || row.IsHeader) return;
         _service.StageClipboard([row.Id], cut);
     }
 
@@ -802,7 +837,7 @@ public sealed class FileVaultPanel : ContentView
 
     private async Task RenameAsync()
     {
-        if (_service == null || _list.SelectedItem is not EntryRow row) return;
+        if (_service == null || _list.SelectedItem is not EntryRow row || row.IsHeader) return;
         var page = GetPage();
         if (page == null) return;
         var name = await page.DisplayPromptAsync(Loc.T("Tool.FileVault.Rename"), "", initialValue: row.Name);
@@ -833,7 +868,7 @@ public sealed class FileVaultPanel : ContentView
 
     private async Task ExportSelectedAsync(bool requireDir)
     {
-        if (_service == null || _list.SelectedItem is not EntryRow row || row.IsDir != requireDir) return;
+        if (_service == null || _list.SelectedItem is not EntryRow row || row.IsHeader || row.IsDir != requireDir) return;
         var folder = await FileVaultMauiDialogs.PickFolderAsync(Loc.T("Tool.FileVault.Export"), VaultWindow());
         if (string.IsNullOrEmpty(folder)) return;
         await _service.ExportSelectedAsync(row.Id, Path.Combine(folder, row.Name));
@@ -842,7 +877,7 @@ public sealed class FileVaultPanel : ContentView
 
     private async Task DeleteAsync()
     {
-        if (_service == null || _list.SelectedItem is not EntryRow row) return;
+        if (_service == null || _list.SelectedItem is not EntryRow row || row.IsHeader) return;
         await _service.DeleteAsync(row.Id);
         Refresh();
     }
@@ -910,5 +945,270 @@ public sealed class FileVaultPanel : ContentView
         return $"{v:0.##} {units[i]}";
     }
 
-    private sealed record EntryRow(string Id, string Name, bool IsDir, string Icon, string TypeText, string SizeText, string ModifiedText);
+    private sealed record EntryRow(
+        string Id, string Name, bool IsDir, string Icon, string TypeText, string SizeText, string ModifiedText,
+        bool IsHeader = false, long SizeBytes = 0, DateTimeOffset ModifiedUtc = default, string DisplayName = "");
+
+    private void ShowSortMenu(View anchor) => VaultExplorerChrome.ShowSortMenu(anchor, _sort, ApplySearchFilter);
+
+    private void ShowViewMenu(View anchor) => VaultExplorerChrome.ShowViewMenu(anchor, _view, () =>
+    {
+        ApplyListTemplate();
+        RebuildNavPane();
+        ApplyViewChrome();
+        ApplySearchFilter();
+    });
+
+    private void ApplyViewChrome()
+    {
+        _navPane.IsVisible = _view.NavigationPane;
+        _sidePane.IsVisible = _view.SidePane != VaultSidePane.None;
+        _sidePane.WidthRequest = _view.SidePane == VaultSidePane.Preview ? 260 : 220;
+        UpdateSidePane();
+    }
+
+    private void RebuildNavPane()
+    {
+        _navList.Children.Clear();
+        if (_service == null || !_view.NavigationPane)
+            return;
+        void AddFolder(string? parentId, int depth)
+        {
+            foreach (var folder in _service.ListFolders(parentId))
+            {
+                var captured = folder;
+                var row = new Label
+                {
+                    Text = new string(' ', depth * 2) + "📁 " + folder.Name,
+                    FontSize = 12,
+                    Padding = new Thickness(8, 6),
+                    TextColor = string.Equals(_service.CurrentFolderId, folder.Id, StringComparison.Ordinal)
+                        ? TryText()
+                        : TryMuted()
+                };
+                var tap = new TapGestureRecognizer();
+                tap.Tapped += (_, _) => NavigateRecording(() => _service.NavigateTo(captured.Id));
+                row.GestureRecognizers.Add(tap);
+                _navList.Children.Add(row);
+                AddFolder(folder.Id, depth + 1);
+            }
+        }
+        var root = new Label
+        {
+            Text = "🔐 " + Loc.T("Tool.FileVault.BreadcrumbRoot"),
+            FontSize = 12,
+            Padding = new Thickness(8, 6),
+            FontAttributes = FontAttributes.Bold
+        };
+        var rootTap = new TapGestureRecognizer();
+        rootTap.Tapped += (_, _) => NavigateRecording(() => _service.NavigateTo(null));
+        root.GestureRecognizers.Add(rootTap);
+        _navList.Children.Add(root);
+        AddFolder(null, 1);
+    }
+
+    private void UpdateSidePane()
+    {
+        if (_view.SidePane == VaultSidePane.None)
+            return;
+        if (_list.SelectedItem is not EntryRow { IsHeader: false } row)
+        {
+            _sideIcon.Text = "";
+            _sideTitle.Text = Loc.T("Tool.FileVault.ViewNoSelection");
+            _sideMeta.Text = "";
+            return;
+        }
+        _sideIcon.Text = row.Icon;
+        _sideIcon.FontSize = _view.SidePane == VaultSidePane.Preview ? 72 : 40;
+        _sideTitle.Text = row.DisplayName.Length > 0 ? row.DisplayName : row.Name;
+        _sideMeta.Text = string.Join("\n", new[]
+        {
+            Loc.T("Tool.FileVault.ColType") + ": " + row.TypeText,
+            string.IsNullOrEmpty(row.SizeText) ? null : Loc.T("Tool.FileVault.ColSize") + ": " + row.SizeText,
+            Loc.T("Tool.FileVault.ColModified") + ": " + row.ModifiedText
+        }.Where(s => s != null));
+    }
+
+    private void ApplyListTemplate()
+    {
+        var mode = _view.Layout;
+        var iconSize = VaultView.IconSize(mode);
+        var pad = VaultView.RowPadding(_view);
+        var icons = VaultView.IsIconLayout(mode);
+        _list.IsVisible = !icons;
+        _iconScroll.IsVisible = icons;
+        if (icons)
+        {
+            RebuildIconGrid();
+            return;
+        }
+
+        _list.ItemsLayout = new LinearItemsLayout(ItemsLayoutOrientation.Vertical) { ItemSpacing = 0 };
+        _list.ItemTemplate = new DataTemplate(() => BuildDetailCell(mode, iconSize, pad));
+    }
+
+    private void RebuildIconGrid()
+    {
+        _iconFlex.Children.Clear();
+        var mode = _view.Layout;
+        var iconSize = VaultView.IconSize(mode);
+        var cellW = VaultView.CellWidth(mode);
+        var pad = VaultView.RowPadding(_view);
+        var tiles = mode == VaultLayoutMode.Tiles;
+        foreach (var row in _rows)
+        {
+            if (row.IsHeader)
+            {
+                var header = new Label
+                {
+                    Text = row.Name,
+                    FontAttributes = FontAttributes.Bold,
+                    FontSize = 13,
+                    Margin = new Thickness(4, 10, 4, 4),
+                    WidthRequest = cellW * VaultView.GridSpan(mode)
+                };
+                _iconFlex.Children.Add(header);
+                continue;
+            }
+
+            var check = new Label { Text = "☐", FontSize = 12, IsVisible = _view.ItemCheckBoxes };
+            var icon = new Label
+            {
+                Text = row.Icon,
+                FontSize = iconSize * 0.55,
+                HorizontalTextAlignment = TextAlignment.Center
+            };
+            var name = new Label
+            {
+                Text = string.IsNullOrEmpty(row.DisplayName) ? row.Name : row.DisplayName,
+                FontSize = 12,
+                HorizontalTextAlignment = TextAlignment.Center,
+                LineBreakMode = LineBreakMode.TailTruncation,
+                MaxLines = 2
+            };
+            var type = new Label
+            {
+                Text = row.TypeText,
+                FontSize = 11,
+                TextColor = TryMuted(),
+                HorizontalTextAlignment = TextAlignment.Center,
+                IsVisible = tiles
+            };
+            var cell = new Border
+            {
+                StrokeThickness = 0,
+                WidthRequest = cellW,
+                Padding = pad,
+                Content = new VerticalStackLayout
+                {
+                    Spacing = 4,
+                    Children = { check, icon, name, type }
+                }
+            };
+            cell.BindingContext = row;
+            var select = new TapGestureRecognizer();
+            select.Tapped += (_, _) =>
+            {
+                _list.SelectedItem = row;
+                UpdateSidePane();
+            };
+            cell.GestureRecognizers.Add(select);
+            AttachItemGestures(cell);
+            _iconFlex.Children.Add(cell);
+        }
+    }
+
+    private View BuildDetailCell(VaultLayoutMode mode, double iconSize, double pad)
+    {
+        var check = new Label { Text = "☐", FontSize = 12, WidthRequest = 16, IsVisible = _view.ItemCheckBoxes, VerticalOptions = LayoutOptions.Center };
+        var icon = new Label { FontSize = Math.Max(14, iconSize * 0.7), WidthRequest = iconSize + 8, VerticalOptions = LayoutOptions.Center };
+        icon.SetBinding(Label.TextProperty, nameof(EntryRow.Icon));
+        var name = new Label { FontSize = 13, VerticalOptions = LayoutOptions.Center, LineBreakMode = LineBreakMode.TailTruncation };
+        name.SetBinding(Label.TextProperty, nameof(EntryRow.DisplayName));
+        var modified = new Label { FontSize = 12, WidthRequest = 120, TextColor = TryMuted(), VerticalOptions = LayoutOptions.Center };
+        modified.SetBinding(Label.TextProperty, nameof(EntryRow.ModifiedText));
+        var type = new Label { FontSize = 12, WidthRequest = 72, TextColor = TryMuted(), VerticalOptions = LayoutOptions.Center };
+        type.SetBinding(Label.TextProperty, nameof(EntryRow.TypeText));
+        var size = new Label { FontSize = 12, WidthRequest = 64, TextColor = TryMuted(), HorizontalTextAlignment = TextAlignment.End, VerticalOptions = LayoutOptions.Center };
+        size.SetBinding(Label.TextProperty, nameof(EntryRow.SizeText));
+        var contentLine = new Label { FontSize = 11, TextColor = TryMuted(), IsVisible = mode == VaultLayoutMode.Content };
+        contentLine.SetBinding(Label.TextProperty, nameof(EntryRow.ModifiedText));
+
+        View body = mode switch
+        {
+            VaultLayoutMode.List => new Grid
+            {
+                ColumnDefinitions = { new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star) },
+                Children = { check, PlaceCol(icon, 1), PlaceCol(name, 2) }
+            },
+            VaultLayoutMode.Content => new Grid
+            {
+                ColumnDefinitions = { new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star) },
+                RowDefinitions = { new(GridLength.Auto), new(GridLength.Auto) },
+                Children =
+                {
+                    check, PlaceCol(icon, 1), PlaceCol(name, 2),
+                    Place(contentLine, 1, 1)
+                }
+            },
+            _ => new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star),
+                    new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)
+                },
+                Children =
+                {
+                    check, PlaceCol(icon, 1), PlaceCol(name, 2),
+                    PlaceCol(modified, 3), PlaceCol(type, 4), PlaceCol(size, 5)
+                }
+            }
+        };
+        if (mode == VaultLayoutMode.Content)
+            Grid.SetColumnSpan(contentLine, 2);
+
+        var row = new Border
+        {
+            StrokeThickness = 0,
+            Padding = new Thickness(10, pad),
+            Content = body
+        };
+        row.BindingContextChanged += (_, _) =>
+        {
+            var header = row.BindingContext is EntryRow { IsHeader: true };
+            name.FontAttributes = header ? FontAttributes.Bold : FontAttributes.None;
+            icon.IsVisible = modified.IsVisible = type.IsVisible = size.IsVisible = check.IsVisible = !header;
+            if (header)
+                check.IsVisible = false;
+            else
+                check.IsVisible = _view.ItemCheckBoxes;
+        };
+        AttachItemGestures(row);
+        return row;
+    }
+
+    private static View Place(View view, int col, int row)
+    {
+        Grid.SetColumn(view, col);
+        Grid.SetRow(view, row);
+        return view;
+    }
+
+    private void AttachItemGestures(View view)
+    {
+        var dbl = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
+        dbl.Tapped += async (_, _) =>
+        {
+            if (view.BindingContext is EntryRow { IsHeader: true })
+                return;
+            if (view.BindingContext is EntryRow entry)
+            {
+                _list.SelectedItem = entry;
+                try { await OpenSelectedAsync(); }
+                catch (Exception ex) { await Alert(ex.Message); }
+            }
+        };
+        view.GestureRecognizers.Add(dbl);
+    }
 }

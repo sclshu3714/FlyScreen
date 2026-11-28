@@ -128,12 +128,18 @@ internal sealed class VaultRepository
     {
         EnsureUnlocked();
         return _index.Entries
-            .Where(e => string.Equals(e.ParentId, parentId, StringComparison.Ordinal))
+            .Where(e => SameParent(e.ParentId, parentId))
             .OrderByDescending(e => e.IsDir)
             .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .Select(ToView)
             .ToList();
     }
+
+    /// <summary>根目录 ParentId 可能是 null 或 ""，导出时必须等价。</summary>
+    private static bool SameParent(string? a, string? b)
+        => string.IsNullOrEmpty(a)
+            ? string.IsNullOrEmpty(b)
+            : string.Equals(a, b, StringComparison.Ordinal);
 
     public VaultEntryView? Get(string id)
     {

@@ -26,6 +26,10 @@ public partial class FileVaultPanel : UserControl
     private bool _gateNeedsConfirm;
     private bool _forcingLock;
     private bool _entered;
+    private readonly VaultSortState _sort = new();
+    private readonly VaultViewState _view = new();
+    private GridView? _detailsView;
+    private Style? _defaultListItemStyle;
     private ExplorerFileDropTarget? _explorerDrop;
     private HwndSource? _dropSource;
     private HwndSourceHook? _dropHook;
@@ -35,6 +39,8 @@ public partial class FileVaultPanel : UserControl
     public FileVaultPanel()
     {
         InitializeComponent();
+        _detailsView = EntryList.View as GridView;
+        _defaultListItemStyle = EntryList.ItemContainerStyle;
         _service = ToolService.Instance.GetToolService<IFileVaultService>();
         EntryList.ItemsSource = _rows;
         PathBarHost.Content = _pathBar;
@@ -328,9 +334,14 @@ public partial class FileVaultPanel : UserControl
                 Icon = e.IsDir ? "📁" : "📄",
                 TypeText = e.IsDir ? Loc.T("Tool.FileVault.TypeFolder") : Loc.T("Tool.FileVault.TypeFile"),
                 SizeText = e.IsDir ? "" : FormatSize(e.Size),
-                ModifiedText = e.ModifiedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
+                ModifiedText = e.ModifiedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm"),
+                SizeBytes = e.Size,
+                ModifiedUtc = e.ModifiedUtc,
+                DisplayName = VaultView.DisplayName(e.Name, e.IsDir, _view.ShowExtensions)
             });
         }
+        RebuildNavTree();
+        ApplyViewChrome();
         ApplySearchFilter();
         UpdateStatusBar();
     }
@@ -361,22 +372,366 @@ public partial class FileVaultPanel : UserControl
     private void ApplySearchFilter()
     {
         var q = (SearchBox.Text ?? "").Trim();
+        var matched = _allRows
+            .Where(r => q.Length == 0 || r.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var arranged = VaultSort.Arrange(matched, r => new VaultSortFacts(r.Name, r.IsDir, r.SizeBytes, r.ModifiedUtc), _sort);
         _rows.Clear();
-        foreach (var row in _allRows)
+        foreach (var piece in arranged)
         {
-            if (q.Length == 0 || row.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
+            if (piece.IsHeader)
+            {
+                _rows.Add(new EntryRow { Name = piece.Header, DisplayName = piece.Header, IsHeader = true });
+            }
+            else if (piece.Item is EntryRow row)
+            {
+                row.DisplayName = VaultView.DisplayName(row.Name, row.IsDir, _view.ShowExtensions);
                 _rows.Add(row);
+            }
         }
         UpdateStatusBar();
+        UpdateSidePane();
+    }
+
+    private void SortBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!SortBtn.IsEnabled) return;
+        Dispatcher.BeginInvoke(new Action(() => SortMenu.IsOpen = true));
+    }
+
+    private void SortMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        SortMenu.Items.Clear();
+        foreach (var key in VaultSort.Primary)
+            SortMenu.Items.Add(KeyItem(key, false));
+        var more = new MenuItem { Header = Loc.T("Tool.FileVault.SortMore") };
+        foreach (var key in VaultSort.More)
+            more.Items.Add(KeyItem(key, false));
+        SortMenu.Items.Add(more);
+        SortMenu.Items.Add(new Separator());
+        SortMenu.Items.Add(OrderItem(VaultSortOrder.Ascending, Loc.T("Tool.FileVault.SortAsc")));
+        SortMenu.Items.Add(OrderItem(VaultSortOrder.Descending, Loc.T("Tool.FileVault.SortDesc")));
+        SortMenu.Items.Add(new Separator());
+        var group = new MenuItem { Header = Loc.T("Tool.FileVault.SortGroup") };
+        foreach (var key in VaultSort.GroupKeys)
+            group.Items.Add(KeyItem(key, true));
+        SortMenu.Items.Add(group);
+    }
+
+    private MenuItem KeyItem(VaultSortKey key, bool grouping)
+    {
+        var item = new MenuItem
+        {
+            Header = VaultSort.Title(key),
+            IsCheckable = true,
+            IsChecked = grouping ? _sort.Group == key : _sort.Key == key
+        };
+        item.Click += (_, _) =>
+        {
+            if (grouping)
+                _sort.Group = _sort.Group == key ? null : key;
+            else
+                _sort.Key = key;
+            ApplySearchFilter();
+        };
+        return item;
+    }
+
+    private MenuItem OrderItem(VaultSortOrder order, string title)
+    {
+        var item = new MenuItem
+        {
+            Header = title,
+            IsCheckable = true,
+            IsChecked = _sort.Order == order
+        };
+        item.Click += (_, _) =>
+        {
+            _sort.Order = order;
+            ApplySearchFilter();
+        };
+        return item;
+    }
+
+    private void ViewBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ViewBtn.IsEnabled) return;
+        Dispatcher.BeginInvoke(new Action(() => ViewMenu.IsOpen = true));
+    }
+
+    private void ViewMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        ViewMenu.Items.Clear();
+        foreach (var mode in VaultView.Layouts)
+        {
+            var captured = mode;
+            var item = new MenuItem
+            {
+                Header = VaultView.Title(captured),
+                IsCheckable = true,
+                IsChecked = _view.Layout == captured
+            };
+            TrySetViewIcon(item, VaultView.IconCode(captured));
+            item.Click += (_, _) =>
+            {
+                _view.Layout = captured;
+                ApplyListLayout();
+                ApplySearchFilter();
+            };
+            ViewMenu.Items.Add(item);
+        }
+        ViewMenu.Items.Add(new Separator());
+        ViewMenu.Items.Add(SidePaneItem(VaultSidePane.Details, Loc.T("Tool.FileVault.ViewDetailsPane"), VaultView.DetailsPaneIcon));
+        ViewMenu.Items.Add(SidePaneItem(VaultSidePane.Preview, Loc.T("Tool.FileVault.ViewPreviewPane"), VaultView.PreviewPaneIcon));
+        ViewMenu.Items.Add(new Separator());
+        var show = new MenuItem { Header = Loc.T("Tool.FileVault.ViewShow") };
+        TrySetViewIcon(show, VaultView.ShowIcon);
+        show.Items.Add(ToggleItem(Loc.T("Tool.FileVault.ViewNavPane"), VaultView.NavPaneIcon, _view.NavigationPane, v =>
+        {
+            _view.NavigationPane = v;
+            ApplyViewChrome();
+            RebuildNavTree();
+        }));
+        show.Items.Add(ToggleItem(Loc.T("Tool.FileVault.ViewCompact"), VaultView.CompactIcon, _view.CompactView, v =>
+        {
+            _view.CompactView = v;
+            ApplyListLayout();
+        }));
+        show.Items.Add(ToggleItem(Loc.T("Tool.FileVault.ViewCheckBoxes"), VaultView.CheckBoxesIcon, _view.ItemCheckBoxes, v =>
+        {
+            _view.ItemCheckBoxes = v;
+            ApplyListLayout();
+        }));
+        show.Items.Add(ToggleItem(Loc.T("Tool.FileVault.ViewExtensions"), VaultView.ExtensionsIcon, _view.ShowExtensions, v =>
+        {
+            _view.ShowExtensions = v;
+            ApplySearchFilter();
+        }));
+        show.Items.Add(ToggleItem(Loc.T("Tool.FileVault.ViewHidden"), VaultView.HiddenIcon, _view.ShowHidden, v => _view.ShowHidden = v));
+        ViewMenu.Items.Add(show);
+    }
+
+    private MenuItem SidePaneItem(VaultSidePane pane, string title, string iconCode)
+    {
+        var item = new MenuItem
+        {
+            Header = title,
+            IsCheckable = true,
+            IsChecked = _view.SidePane == pane
+        };
+        TrySetViewIcon(item, iconCode);
+        item.Click += (_, _) =>
+        {
+            VaultView.ToggleSidePane(_view, pane);
+            ApplyViewChrome();
+            UpdateSidePane();
+        };
+        return item;
+    }
+
+    private MenuItem ToggleItem(string title, string iconCode, bool on, Action<bool> set)
+    {
+        var item = new MenuItem { Header = title, IsCheckable = true, IsChecked = on };
+        TrySetViewIcon(item, iconCode);
+        item.Click += (_, _) => set(item.IsChecked);
+        return item;
+    }
+
+    private void TrySetViewIcon(MenuItem item, string iconCode)
+    {
+        try
+        {
+            var brush = (TryFindResource("Muted") as System.Windows.Media.Brush)
+                        ?? System.Windows.Media.Brushes.Gray;
+            item.Icon = FlyScreen.Ui.Theme.Wpf.Icons.WpfIcon.Create(iconCode, brush, 16);
+        }
+        catch
+        {
+            // 没有图标时仍显示文字
+        }
+    }
+
+    private void ApplyViewChrome()
+    {
+        NavTree.Visibility = _view.NavigationPane ? Visibility.Visible : Visibility.Collapsed;
+        SidePane.Visibility = _view.SidePane == VaultSidePane.None ? Visibility.Collapsed : Visibility.Visible;
+        SidePane.Width = _view.SidePane == VaultSidePane.Preview ? 260 : 220;
+        SideIcon.FontSize = _view.SidePane == VaultSidePane.Preview ? 72 : 48;
+    }
+
+    private void RebuildNavTree()
+    {
+        NavTree.Items.Clear();
+        if (_service == null || !_view.NavigationPane)
+            return;
+        var root = new TreeViewItem
+        {
+            Header = "🔐 " + Loc.T("Tool.FileVault.BreadcrumbRoot"),
+            Tag = (string?)null,
+            IsExpanded = true
+        };
+        AddNavChildren(root, null);
+        NavTree.Items.Add(root);
+    }
+
+    private void AddNavChildren(TreeViewItem parent, string? parentId)
+    {
+        if (_service == null) return;
+        foreach (var folder in _service.ListFolders(parentId))
+        {
+            var node = new TreeViewItem
+            {
+                Header = "📁 " + folder.Name,
+                Tag = folder.Id,
+                IsExpanded = true
+            };
+            AddNavChildren(node, folder.Id);
+            parent.Items.Add(node);
+        }
+    }
+
+    private void NavTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (NavTree.SelectedItem is not TreeViewItem { Tag: var tag })
+            return;
+        NavigateRecording(() => _service?.NavigateTo(tag as string));
+    }
+
+    private void UpdateSidePane()
+    {
+        if (_view.SidePane == VaultSidePane.None)
+            return;
+        if (EntryList.SelectedItem is not EntryRow { IsHeader: false } row)
+        {
+            SideIcon.Text = "";
+            SideTitle.Text = Loc.T("Tool.FileVault.ViewNoSelection");
+            SideMeta.Text = "";
+            return;
+        }
+        SideIcon.Text = row.Icon;
+        SideTitle.Text = string.IsNullOrEmpty(row.DisplayName) ? row.Name : row.DisplayName;
+        SideMeta.Text = string.Join(Environment.NewLine, new[]
+        {
+            Loc.T("Tool.FileVault.ColType") + ": " + row.TypeText,
+            string.IsNullOrEmpty(row.SizeText) ? null : Loc.T("Tool.FileVault.ColSize") + ": " + row.SizeText,
+            Loc.T("Tool.FileVault.ColModified") + ": " + row.ModifiedText
+        }.Where(s => s != null));
+    }
+
+    private void ApplyListLayout()
+    {
+        _detailsView ??= EntryList.View as GridView;
+        var mode = _view.Layout;
+        var iconSize = VaultView.IconSize(mode);
+        if (VaultView.IsIconLayout(mode))
+        {
+            EntryList.View = null;
+            var cellW = VaultView.CellWidth(mode);
+            var container = new Style(typeof(ListViewItem));
+            container.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left));
+            container.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left));
+            container.Setters.Add(new Setter(FrameworkElement.WidthProperty, cellW));
+            container.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(4)));
+            container.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+            EntryList.ItemContainerStyle = container;
+            var panel = new FrameworkElementFactory(typeof(WrapPanel));
+            panel.SetValue(WrapPanel.OrientationProperty, Orientation.Horizontal);
+            panel.SetValue(WrapPanel.ItemWidthProperty, cellW);
+            EntryList.ItemsPanel = new ItemsPanelTemplate { VisualTree = panel };
+            EntryList.ItemTemplate = BuildIconTemplate(iconSize, mode == VaultLayoutMode.Tiles);
+        }
+        else
+        {
+            EntryList.ItemContainerStyle = _defaultListItemStyle;
+            var panel = new FrameworkElementFactory(typeof(VirtualizingStackPanel));
+            EntryList.ItemsPanel = new ItemsPanelTemplate { VisualTree = panel };
+            EntryList.ItemTemplate = mode is VaultLayoutMode.List or VaultLayoutMode.Content
+                ? BuildLineTemplate(mode)
+                : null;
+            EntryList.View = mode == VaultLayoutMode.Details ? _detailsView : null;
+            if (mode == VaultLayoutMode.Details && _detailsView != null)
+                EntryList.View = _detailsView;
+        }
+    }
+
+    private DataTemplate BuildIconTemplate(double iconSize, bool tiles)
+    {
+        var root = new FrameworkElementFactory(typeof(StackPanel));
+        root.SetValue(StackPanel.OrientationProperty, Orientation.Vertical);
+        root.SetValue(FrameworkElement.WidthProperty, VaultView.CellWidth(_view.Layout) - 8);
+        root.SetValue(FrameworkElement.MarginProperty, new Thickness(4));
+        if (_view.ItemCheckBoxes)
+        {
+            var check = new FrameworkElementFactory(typeof(TextBlock));
+            check.SetValue(TextBlock.TextProperty, "☐");
+            check.SetValue(TextBlock.FontSizeProperty, 11.0);
+            root.AppendChild(check);
+        }
+        var icon = new FrameworkElementFactory(typeof(TextBlock));
+        icon.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(EntryRow.Icon)));
+        icon.SetValue(TextBlock.FontSizeProperty, iconSize * 0.55);
+        icon.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        root.AppendChild(icon);
+        var name = new FrameworkElementFactory(typeof(TextBlock));
+        name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(EntryRow.DisplayName)));
+        name.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
+        name.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        name.SetValue(TextBlock.FontSizeProperty, 12.0);
+        root.AppendChild(name);
+        if (tiles)
+        {
+            var type = new FrameworkElementFactory(typeof(TextBlock));
+            type.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(EntryRow.TypeText)));
+            type.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
+            type.SetValue(TextBlock.FontSizeProperty, 11.0);
+            type.SetValue(TextBlock.ForegroundProperty, FindResource("Muted") as System.Windows.Media.Brush);
+            root.AppendChild(type);
+        }
+        return new DataTemplate { VisualTree = root };
+    }
+
+    private DataTemplate BuildLineTemplate(VaultLayoutMode mode)
+    {
+        var root = new FrameworkElementFactory(typeof(DockPanel));
+        root.SetValue(FrameworkElement.MarginProperty, new Thickness(8, VaultView.RowPadding(_view), 8, VaultView.RowPadding(_view)));
+        if (_view.ItemCheckBoxes)
+        {
+            var check = new FrameworkElementFactory(typeof(TextBlock));
+            check.SetValue(TextBlock.TextProperty, "☐");
+            check.SetValue(FrameworkElement.WidthProperty, 16.0);
+            check.SetValue(DockPanel.DockProperty, Dock.Left);
+            root.AppendChild(check);
+        }
+        var icon = new FrameworkElementFactory(typeof(TextBlock));
+        icon.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(EntryRow.Icon)));
+        icon.SetValue(FrameworkElement.WidthProperty, 24.0);
+        icon.SetValue(DockPanel.DockProperty, Dock.Left);
+        root.AppendChild(icon);
+        if (mode == VaultLayoutMode.Content)
+        {
+            var meta = new FrameworkElementFactory(typeof(TextBlock));
+            meta.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(EntryRow.ModifiedText)));
+            meta.SetValue(TextBlock.FontSizeProperty, 11.0);
+            meta.SetValue(DockPanel.DockProperty, Dock.Bottom);
+            root.AppendChild(meta);
+        }
+        var name = new FrameworkElementFactory(typeof(TextBlock));
+        name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(EntryRow.DisplayName)));
+        name.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        root.AppendChild(name);
+        return new DataTemplate { VisualTree = root };
     }
 
     private void EntryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        => UpdateStatusBar();
+    {
+        UpdateStatusBar();
+        UpdateSidePane();
+    }
 
     private void UpdateStatusBar()
     {
         var sel = EntryList.SelectedItems.Count;
-        var text = string.Format(Loc.T("Tool.FileVault.ItemsCount"), _rows.Count);
+        var text = string.Format(Loc.T("Tool.FileVault.ItemsCount"), _rows.Count(r => !r.IsHeader));
         if (sel > 0)
             text += "  " + string.Format(Loc.T("Tool.FileVault.SelectedCount"), sel);
         StatusText.Text = text;
@@ -493,7 +848,7 @@ public partial class FileVaultPanel : UserControl
 
     private async void MiRename_Click(object sender, RoutedEventArgs e)
     {
-        if (_service == null || EntryList.SelectedItem is not EntryRow row || !EnsureUnlocked()) return;
+        if (_service == null || EntryList.SelectedItem is not EntryRow row || row.IsHeader || !EnsureUnlocked()) return;
         VaultMenu.IsOpen = false;
         try
         {
@@ -527,7 +882,7 @@ public partial class FileVaultPanel : UserControl
 
     private async void MiOpen_Click(object sender, RoutedEventArgs e)
     {
-        if (_service == null || EntryList.SelectedItem is not EntryRow row) return;
+        if (_service == null || EntryList.SelectedItem is not EntryRow row || row.IsHeader) return;
         try
         {
             if (row.IsDir)
@@ -584,7 +939,7 @@ public partial class FileVaultPanel : UserControl
 
     private async Task ExportSelectedAsync(bool requireDir)
     {
-        if (_service == null || EntryList.SelectedItem is not EntryRow row) return;
+        if (_service == null || EntryList.SelectedItem is not EntryRow row || row.IsHeader) return;
         if (row.IsDir != requireDir) return;
         try
         {
@@ -598,7 +953,7 @@ public partial class FileVaultPanel : UserControl
 
     private async void DeleteBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (_service == null || EntryList.SelectedItem is not EntryRow row) return;
+        if (_service == null || EntryList.SelectedItem is not EntryRow row || row.IsHeader) return;
         try
         {
             if (MessageBox.Show(Loc.T("Tool.FileVault.Delete") + "?", Loc.T("Tool.FileVault.Name"),
@@ -712,7 +1067,7 @@ public partial class FileVaultPanel : UserControl
             lvi.IsSelected = true;
             EntryList.SelectedItem = lvi.DataContext;
         }
-        if (EntryList.SelectedItem is not EntryRow row) return;
+        if (EntryList.SelectedItem is not EntryRow row || row.IsHeader) return;
         try
         {
             if (row.IsDir)
@@ -788,5 +1143,9 @@ public partial class FileVaultPanel : UserControl
         public string TypeText { get; set; } = "";
         public string SizeText { get; set; } = "";
         public string ModifiedText { get; set; } = "";
+        public bool IsHeader { get; set; }
+        public long SizeBytes { get; set; }
+        public DateTimeOffset ModifiedUtc { get; set; }
+        public string DisplayName { get; set; } = "";
     }
 }

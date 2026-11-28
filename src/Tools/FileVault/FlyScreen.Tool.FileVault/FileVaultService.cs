@@ -31,6 +31,30 @@ public sealed class FileVaultService : IFileVaultService
     public bool HasVault => !string.IsNullOrEmpty(_settings.ActiveVaultRoot)
                             && VaultRepository.LooksLikeVault(_settings.ActiveVaultRoot!);
     public bool IsUnlocked => _repo.IsUnlocked;
+    public bool LikelyHasEntries
+    {
+        get
+        {
+            if (IsUnlocked)
+                return _repo.Entries.Values.Any(e => !e.IsDir);
+            var n = _repo.Manifest?.EntryCount ?? 0;
+            if (n > 0) return true;
+            // Manifest 未加载时尝试只读扫一眼
+            var root = VaultRoot;
+            if (string.IsNullOrWhiteSpace(root) || !VaultRepository.LooksLikeVault(root))
+                return false;
+            try
+            {
+                if (string.IsNullOrEmpty(_repo.Root))
+                    _repo.OpenLocked(root);
+                return (_repo.Manifest?.EntryCount ?? 0) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
     public string? VaultRoot => string.IsNullOrEmpty(_repo.Root) ? _settings.ActiveVaultRoot : _repo.Root;
     public string? MountPath => _mount.MountPath;
     public bool IsMounted => _mount.IsMounted;
@@ -509,26 +533,66 @@ public sealed class FileVaultService : IFileVaultService
                 PersistSettings();
                 return;
             case VaultUninstallAction.DecryptAndKeep:
-                if (string.IsNullOrWhiteSpace(decryptDestDir))
-                    throw new ArgumentException("请指定解密目标文件夹");
+            {
+                // 确保已打开库目录（未启动过工具窗口时 Root 可能为空）
+                if (string.IsNullOrEmpty(_repo.Root))
+                {
+                    var root = _settings.ActiveVaultRoot;
+                    if (string.IsNullOrWhiteSpace(root) || !VaultRepository.LooksLikeVault(root))
+                        throw new InvalidOperationException("未找到有效的保险箱数据");
+                    _repo.OpenLocked(root);
+                }
+
+                // 卸载解密勿走 AutoMount（避免先物化到 Temp 失败而中断）
                 if (!IsUnlocked)
                 {
                     if (string.IsNullOrEmpty(password))
                         throw new ArgumentException("需要密码以解密保留");
-                    await UnlockAsync(password, ct).ConfigureAwait(false);
+                    _repo.Unlock(password);
+                    _currentFolderId = null;
                 }
-                var progress = new Progress<VaultProgress>(p => ProgressChanged?.Invoke(p));
-                Directory.CreateDirectory(decryptDestDir);
-                _repo.ExportTree(null, decryptDestDir, progress, ct);
-                await LockAsync(ct).ConfigureAwait(false);
-                if (!string.IsNullOrWhiteSpace(_settings.ActiveVaultRoot))
+
+                var hasFiles = _repo.Entries.Values.Any(e => !e.IsDir);
+                if (hasFiles)
                 {
-                    _repo.OpenLocked(_settings.ActiveVaultRoot!);
-                    _repo.DestroyVault();
+                    if (string.IsNullOrWhiteSpace(decryptDestDir))
+                        throw new ArgumentException("保险箱内有文件，请指定解密输出目录（可粘贴路径）");
+                    decryptDestDir = Path.GetFullPath(decryptDestDir);
+
+                    // 禁止解到保险箱目录内部（随后 Destroy 会删掉刚写出的明文）
+                    var vaultRoot = Path.GetFullPath(_repo.Root);
+                    if (decryptDestDir.Equals(vaultRoot, StringComparison.OrdinalIgnoreCase)
+                        || decryptDestDir.StartsWith(
+                            vaultRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                            + Path.DirectorySeparatorChar,
+                            StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("请选择保险箱目录以外的输出文件夹");
+
+                    Directory.CreateDirectory(decryptDestDir);
+                    var progress = new Progress<VaultProgress>(p => ProgressChanged?.Invoke(p));
+                    _repo.ExportTree(null, decryptDestDir, progress, ct);
                 }
+                // 空库：无明文可导，直接销毁加密壳
+
+                await LockAsync(ct).ConfigureAwait(false);
+                var destroyRoot = _settings.ActiveVaultRoot;
+                if (!string.IsNullOrWhiteSpace(destroyRoot) && VaultRepository.LooksLikeVault(destroyRoot))
+                {
+                    try
+                    {
+                        _repo.OpenLocked(destroyRoot);
+                        _repo.DestroyVault();
+                    }
+                    catch
+                    {
+                        // 明文已导出（或本为空库）；销毁失败不阻断卸载
+                    }
+                }
+
                 _settings.ActiveVaultRoot = null;
                 PersistSettings();
                 return;
+            }
             default:
                 throw new ArgumentOutOfRangeException(nameof(action));
         }

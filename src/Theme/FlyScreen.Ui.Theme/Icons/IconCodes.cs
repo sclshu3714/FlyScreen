@@ -83,4 +83,21 @@ public static class IconCodes
     public const string FileExcel = "icon.file.excel";
     public const string FileZip = "icon.file.zip";
     public const string FileGeneric = "icon.file.generic";
+
+    // —— 保险箱「查看」 ——
+    public const string ViewExtraLarge = "icon.view.extra-large";
+    public const string ViewLarge = "icon.view.large";
+    public const string ViewMedium = "icon.view.medium";
+    public const string ViewSmall = "icon.view.small";
+    public const string ViewDetails = "icon.view.details";
+    public const string ViewTiles = "icon.view.tiles";
+    public const string ViewContent = "icon.view.content";
+    public const string ViewDetailsPane = "icon.view.details-pane";
+    public const string ViewPreviewPane = "icon.view.preview-pane";
+    public const string ViewShow = "icon.view.show";
+    public const string ViewNavPane = "icon.view.nav-pane";
+    public const string ViewCompact = "icon.view.compact";
+    public const string ViewCheckBoxes = "icon.view.checkboxes";
+    public const string ViewExtensions = "icon.view.extensions";
+    public const string ViewHidden = "icon.view.hidden";
 }

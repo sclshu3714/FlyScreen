@@ -151,7 +151,7 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
         // 无库时无需决策；产品卸载器仍可读包内 uninstall-ui.json
         if (!_service.HasVault && string.IsNullOrWhiteSpace(_service.VaultRoot))
             return null;
-        return CreateUninstallSchema();
+        return CreateUninstallSchema(includeDecryptDir: _service.LikelyHasEntries);
     }
 
     public async Task<bool> ApplyUninstallAnswersAsync(
@@ -178,12 +178,13 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
                 case "decryptkeep":
                     answers.TryGetValue("password", out var pwd);
                     answers.TryGetValue("decryptDir", out var dir);
-                    if (string.IsNullOrWhiteSpace(dir))
-                        throw new InvalidOperationException("请指定解密输出目录");
                     if (string.IsNullOrEmpty(pwd) && !_service.IsUnlocked)
-                        throw new InvalidOperationException("请输入主密码");
+                        throw new InvalidOperationException("请输入主密码后再确定");
+                    // 空库可不选输出目录；有文件时 Apply 内会再校验
                     await _service.ApplyUninstallActionAsync(
-                        VaultUninstallAction.DecryptAndKeep, dir, pwd, ct).ConfigureAwait(false);
+                        VaultUninstallAction.DecryptAndKeep,
+                        string.IsNullOrWhiteSpace(dir) ? null : dir,
+                        pwd, ct).ConfigureAwait(false);
                     return true;
 
                 case "destroy":
@@ -228,17 +229,11 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
         return false;
     }
 
-    public static ToolUninstallUiSchema CreateUninstallSchema() => new()
+    public static ToolUninstallUiSchema CreateUninstallSchema(bool includeDecryptDir = true)
     {
-        Title = Loc.T("Tool.FileVault.UninstallTitle"),
-        Description = Loc.T("Tool.FileVault.UninstallHint"),
-        Defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var fields = new List<ToolUninstallUiField>
         {
-            ["action"] = "keepEncrypted"
-        },
-        Fields =
-        [
-            new ToolUninstallUiField
+            new()
             {
                 Id = "action",
                 Type = "choice",
@@ -251,32 +246,49 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
                     new() { Value = "destroy", Label = Loc.T("Tool.FileVault.UninstallDestroy") }
                 ]
             },
-            new ToolUninstallUiField
+            new()
             {
                 Id = "password",
                 Type = "password",
                 Label = Loc.T("Tool.FileVault.Password"),
-                Required = true,
+                Required = false,
                 VisibleWhen = "action=decryptKeep"
-            },
-            new ToolUninstallUiField
+            }
+        };
+
+        // 空库不出现「选文件夹」步骤，避免系统选择器失败弹窗
+        if (includeDecryptDir)
+        {
+            fields.Add(new ToolUninstallUiField
             {
                 Id = "decryptDir",
                 Type = "folder",
                 Label = Loc.T("Tool.FileVault.PickDecryptDir"),
-                Required = true,
+                Required = false,
                 VisibleWhen = "action=decryptKeep"
-            },
-            new ToolUninstallUiField
+            });
+        }
+
+        fields.Add(new ToolUninstallUiField
+        {
+            Id = "destroyConfirm",
+            Type = "confirm",
+            Label = Loc.T("Tool.FileVault.DestroyConfirm"),
+            Required = true,
+            VisibleWhen = "action=destroy"
+        });
+
+        return new ToolUninstallUiSchema
+        {
+            Title = Loc.T("Tool.FileVault.UninstallTitle"),
+            Description = Loc.T("Tool.FileVault.UninstallHint"),
+            Defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                Id = "destroyConfirm",
-                Type = "confirm",
-                Label = Loc.T("Tool.FileVault.DestroyConfirm"),
-                Required = true,
-                VisibleWhen = "action=destroy"
-            }
-        ]
-    };
+                ["action"] = "keepEncrypted"
+            },
+            Fields = fields
+        };
+    }
 
     private async Task<(bool Ok, string Message)> StopInternalAsync()
     {

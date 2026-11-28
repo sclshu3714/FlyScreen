@@ -116,8 +116,10 @@ public sealed class SharedDevicesStartPage : ContentPage
         };
         cancelBtn.Clicked += async (_, _) =>
         {
+            // 取消：先出结果再关层；OnDisappearing 的 TrySet 只会是 no-op
             _tcs.TrySetResult((null, []));
-            await Navigation.PopModalAsync();
+            try { await Navigation.PopModalAsync(); }
+            catch { /* ignore */ }
         };
 
         var okBtn = new Button
@@ -274,13 +276,16 @@ public sealed class SharedDevicesStartPage : ContentPage
             return;
         }
 
+        // 必须先写入成功结果再 Pop：Pop 会触发 OnDisappearing，若顺序反了会把成功结果盖成取消
         _tcs.TrySetResult((row.Info.PeerName, kinds.ToArray()));
-        await Navigation.PopModalAsync();
+        try { await Navigation.PopModalAsync(); }
+        catch { /* ignore */ }
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        // 仅兜底未点确认/取消就关掉的情况（TrySet 不会覆盖已成功的结果）
         _tcs.TrySetResult((null, []));
     }
 

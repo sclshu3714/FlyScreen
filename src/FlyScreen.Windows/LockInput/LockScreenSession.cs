@@ -39,6 +39,7 @@ public static class LockScreenSession
 
         if (_locked == locked) return;
         _locked = locked;
+        SecureDesktopState.Invalidate();
         try { Changed?.Invoke(locked); } catch { /* ignore */ }
         if (!locked)
             LockScreenInputClient.Reset();

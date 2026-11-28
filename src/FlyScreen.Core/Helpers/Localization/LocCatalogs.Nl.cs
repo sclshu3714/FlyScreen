@@ -537,7 +537,7 @@ internal static partial class LocCatalogs
             ("Tool.Group.Media", "Media"),
             ("Tool.Group.SharedDevices", "Gedeelde apparaten"),
             ("Tool.Group.Utilities", "Hulpmiddelen"),
-            ("Tool.Hint", "Elk gereedschap is een kaart, die links naar rechts inpakt. Achtergronden verschillen voor niet geïnstalleerd / geïnstalleerd / gestart; installatie toont een voortgang vullen. Klik om te installeren of te starten; gebruik Sleep geïnstalleerde gereedschappen naar de sneltoets hierboven."),
+            ("Tool.Hint", "Klik op een kaart om te installeren of te starten. Gebruik ⋯ om te deïnstalleren en andere acties. Sleep geïnstalleerde tools naar de snelkoppelingsbalk."),
             ("Tool.Import", "Importeren"),
             ("Tool.ImportDiscarded", "Import afgewezen"),
             ("Tool.ImportFilter", "FlyScreen tool|*.flytool|Executables|*.exe;*.bat;*.cmd|All files|*.*"),

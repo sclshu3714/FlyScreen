@@ -56,70 +56,74 @@ if (-not [string]::IsNullOrWhiteSpace($ToolIds)) {
     )
 }
 
-$tools = @(
-    @{
-        Id = "color-picker"
-        Proj = "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker/FlyScreen.Tool.ColorPicker.csproj"
-        Manifest = "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker/manifest.json"
-        UiProjs = @(
-            "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker.Ui.Win/FlyScreen.Tool.ColorPicker.Ui.Win.csproj",
-            "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker.Ui.Desktop/FlyScreen.Tool.ColorPicker.Ui.Desktop.csproj",
-            "src/Tools/ColorPicker/FlyScreen.Tool.ColorPicker.Ui.Maui/FlyScreen.Tool.ColorPicker.Ui.Maui.csproj"
-        )
-    },
-    @{
-        Id = "shared-devices"
-        Proj = "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices/FlyScreen.Tool.SharedDevices.csproj"
-        Manifest = "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices/manifest.json"
-        UiProjs = @(
-            "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Win/FlyScreen.Tool.SharedDevices.Ui.Win.csproj",
-            "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Desktop/FlyScreen.Tool.SharedDevices.Ui.Desktop.csproj",
-            "src/Tools/SharedDevices/FlyScreen.Tool.SharedDevices.Ui.Maui/FlyScreen.Tool.SharedDevices.Ui.Maui.csproj"
-        )
-    },
-    @{
-        Id = "port-proxy"
-        Proj = "src/Tools/PortProxy/FlyScreen.Tool.PortProxy/FlyScreen.Tool.PortProxy.csproj"
-        Manifest = "src/Tools/PortProxy/FlyScreen.Tool.PortProxy/manifest.json"
-        UiProjs = @(
-            "src/Tools/PortProxy/FlyScreen.Tool.PortProxy.Ui.Win/FlyScreen.Tool.PortProxy.Ui.Win.csproj",
-            "src/Tools/PortProxy/FlyScreen.Tool.PortProxy.Ui.Maui/FlyScreen.Tool.PortProxy.Ui.Maui.csproj"
-        )
-    },
-    @{
-        Id = "video-wall"
-        Proj = "src/Tools/VideoWall/FlyScreen.Tool.VideoWall/FlyScreen.Tool.VideoWall.csproj"
-        Manifest = "src/Tools/VideoWall/FlyScreen.Tool.VideoWall/manifest.json"
-        UiProjs = @(
-            "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Win/FlyScreen.Tool.VideoWall.Ui.Win.csproj",
-            "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Desktop/FlyScreen.Tool.VideoWall.Ui.Desktop.csproj",
-            "src/Tools/VideoWall/FlyScreen.Tool.VideoWall.Ui.Maui/FlyScreen.Tool.VideoWall.Ui.Maui.csproj"
-        )
-    },
-    @{
-        Id = "developer-tools"
-        Proj = "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools/FlyScreen.Tool.DeveloperTools.csproj"
-        Manifest = "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools/manifest.json"
-        UiProjs = @(
-            "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Win/FlyScreen.Tool.DeveloperTools.Ui.Win.csproj",
-            "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Desktop/FlyScreen.Tool.DeveloperTools.Ui.Desktop.csproj",
-            "src/Tools/DeveloperTools/FlyScreen.Tool.DeveloperTools.Ui.Maui/FlyScreen.Tool.DeveloperTools.Ui.Maui.csproj"
-        )
-    },
-    @{
-        Id = "file-vault"
-        Proj = "src/Tools/FileVault/FlyScreen.Tool.FileVault/FlyScreen.Tool.FileVault.csproj"
-        Manifest = "src/Tools/FileVault/FlyScreen.Tool.FileVault/manifest.json"
-        ExtraFiles = @(
-            "src/Tools/FileVault/FlyScreen.Tool.FileVault/uninstall-ui.json"
-        )
-        UiProjs = @(
-            "src/Tools/FileVault/FlyScreen.Tool.FileVault.Ui.Win/FlyScreen.Tool.FileVault.Ui.Win.csproj",
-            "src/Tools/FileVault/FlyScreen.Tool.FileVault.Ui.Desktop/FlyScreen.Tool.FileVault.Ui.Desktop.csproj",
-            "src/Tools/FileVault/FlyScreen.Tool.FileVault.Ui.Maui/FlyScreen.Tool.FileVault.Ui.Maui.csproj"
-        )
+# 动态扫描 src/Tools：每组目录下 FlyScreen.Tool.*（非 .Ui.）含 manifest.json + csproj 即视为插件
+function Get-FlyToolDescriptors {
+    $toolsRoot = Join-Path $repo "src/Tools"
+    if (-not (Test-Path -LiteralPath $toolsRoot)) { return @() }
+
+    $list = New-Object 'System.Collections.Generic.List[hashtable]'
+    foreach ($groupDir in Get-ChildItem -LiteralPath $toolsRoot -Directory) {
+        foreach ($coreDir in Get-ChildItem -LiteralPath $groupDir.FullName -Directory -Filter "FlyScreen.Tool.*") {
+            if ($coreDir.Name -match '\.Ui\.') { continue }
+            $manifest = Join-Path $coreDir.FullName "manifest.json"
+            $proj = Join-Path $coreDir.FullName ($coreDir.Name + ".csproj")
+            if (-not (Test-Path -LiteralPath $manifest)) { continue }
+            if (-not (Test-Path -LiteralPath $proj)) { continue }
+
+            try {
+                $mf = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            }
+            catch {
+                Write-Host "Skip broken manifest: $manifest"
+                continue
+            }
+            if (-not $mf.id) { continue }
+
+            $toRel = {
+                param([string]$full)
+                $fullPath = [IO.Path]::GetFullPath($full)
+                $rootPath = [IO.Path]::GetFullPath($repo).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+                if (-not $fullPath.StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "path outside repo: $fullPath"
+                }
+                return $fullPath.Substring($rootPath.Length).Replace('\', '/')
+            }
+
+            $uiProjs = New-Object 'System.Collections.Generic.List[string]'
+            foreach ($uiDir in Get-ChildItem -LiteralPath $groupDir.FullName -Directory -Filter "FlyScreen.Tool.*.Ui.*") {
+                $uiCsproj = Join-Path $uiDir.FullName ($uiDir.Name + ".csproj")
+                if (Test-Path -LiteralPath $uiCsproj) {
+                    [void]$uiProjs.Add((& $toRel $uiCsproj))
+                }
+            }
+
+            $extra = New-Object 'System.Collections.Generic.List[string]'
+            $uninstallUi = Join-Path $coreDir.FullName "uninstall-ui.json"
+            if (Test-Path -LiteralPath $uninstallUi) {
+                [void]$extra.Add((& $toRel $uninstallUi))
+            }
+
+            $entry = @{
+                Id       = [string]$mf.id
+                Proj     = (& $toRel $proj)
+                Manifest = (& $toRel $manifest)
+                UiProjs  = @($uiProjs)
+            }
+            if ($extra.Count -gt 0) {
+                $entry.ExtraFiles = @($extra)
+            }
+            [void]$list.Add($entry)
+        }
     }
-)
+
+    return @($list | Sort-Object { $_.Id })
+}
+
+$tools = @(Get-FlyToolDescriptors)
+if ($tools.Count -eq 0) {
+    throw "Pack-FlyTools: 未在 src/Tools 下发现任何插件（需 FlyScreen.Tool.*/manifest.json）"
+}
+Write-Host ("Pack-FlyTools: discovered {0} tool(s): {1}" -f $tools.Count, (($tools | ForEach-Object { $_.Id }) -join ", "))
 
 function Test-AllowedFlyToolDest([string]$path) {
     if ([string]::IsNullOrWhiteSpace($path)) { return $false }

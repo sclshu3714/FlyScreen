@@ -130,6 +130,14 @@ public static class SecureDesktopInjector
     }
 
     private static void WithInputDesktop(Action action)
+        => RunOnInputDesktop(() =>
+        {
+            action();
+            return true;
+        });
+
+    /// <summary>切到当前输入桌面（优先 OpenInputDesktop / Winlogon）执行；供抓屏复用。</summary>
+    public static T? RunOnInputDesktop<T>(Func<T?> action)
     {
         lock (Gate)
         {
@@ -145,10 +153,13 @@ public static class SecureDesktopInjector
                 if (desktop != IntPtr.Zero)
                 {
                     old = GetThreadDesktop(GetCurrentThreadId());
-                    SetThreadDesktop(desktop);
+                    if (!SetThreadDesktop(desktop) && old != IntPtr.Zero)
+                    {
+                        // 切桌面失败仍尝试执行（可能已在目标桌面）
+                    }
                 }
 
-                action();
+                return action();
             }
             finally
             {
@@ -165,7 +176,25 @@ public static class SecureDesktopInjector
         }
     }
 
+    /// <summary>当前线程桌面名（须已 SetThreadDesktop 或本身在目标桌面）。</summary>
+    public static string? QueryCurrentDesktopName()
+    {
+        var h = GetThreadDesktop(GetCurrentThreadId());
+        if (h == IntPtr.Zero) return null;
+        var buf = new char[256];
+        if (!GetUserObjectInformation(h, UoiName, buf, buf.Length * 2, out var needed) || needed <= 2)
+            return null;
+        var len = Math.Max(0, (needed / 2) - 1);
+        return new string(buf, 0, Math.Min(len, buf.Length));
+    }
+
+    /// <summary>是否非用户 Default 桌面（Winlogon / 屏保等）。</summary>
+    public static bool IsSecureDesktopName(string? name)
+        => !string.IsNullOrWhiteSpace(name)
+           && !name.Equals("Default", StringComparison.OrdinalIgnoreCase);
+
     private const uint DesktopGenericAll = 0x10000000;
+    private const int UoiName = 2;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
@@ -184,4 +213,8 @@ public static class SecureDesktopInjector
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetUserObjectInformation(
+        IntPtr hObj, int nIndex, char[] pvInfo, int nLength, out int lpnLengthNeeded);
 }

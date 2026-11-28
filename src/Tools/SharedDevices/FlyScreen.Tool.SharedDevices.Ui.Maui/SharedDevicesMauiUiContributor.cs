@@ -21,6 +21,8 @@ public sealed class SharedDevicesMauiUiContributor : IToolUiContributor
                 return await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     var page = new SharedDevicesStartPage(sd.ListApplicantTargets());
+                    // 遮罩弹层：壳外透明，避免实心底盖住主窗；关窗后主页 OnAppearing 恢复侧栏
+                    context.ApplyWindowTheme?.Invoke(page);
                     await Nav().PushModalAsync(page, animated: true);
                     var (peer, kinds) = await page.Result;
                     if (string.IsNullOrEmpty(peer) || kinds.Length == 0)
@@ -41,6 +43,7 @@ public sealed class SharedDevicesMauiUiContributor : IToolUiContributor
                 return await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     var page = new SharedDevicesIncomingPage(incoming.Service, incoming.Request);
+                    context.ApplyWindowTheme?.Invoke(page);
                     await Nav().PushModalAsync(page, animated: true);
                     var (accept, remember, devices) = await page.Result;
                     return (object?)new SharedDevicesIncomingUiResult
@@ -58,6 +61,7 @@ public sealed class SharedDevicesMauiUiContributor : IToolUiContributor
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     var page = new SharedDevicesTestPage();
+                    context.ApplyWindowTheme?.Invoke(page);
                     await Nav().PushModalAsync(page, animated: true);
                     await page.Closed;
                 });
@@ -72,6 +76,7 @@ public sealed class SharedDevicesMauiUiContributor : IToolUiContributor
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     var page = new SharedDevicesManagePage(sd);
+                    context.ApplyWindowTheme?.Invoke(page);
                     await Nav().PushModalAsync(page, animated: true);
                     await page.Closed;
                 });
