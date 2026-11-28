@@ -6,9 +6,10 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>FlyScreen.Ui.Wpf</RootNamespace>
     <AssemblyName>FlyScreen.Ui.Wpf</AssemblyName>
-    <Description>玄鸟 WPF 共享控件（安全密码、多按钮编辑框、加载遮罩等）</Description>
+    <Description>玄鸟 WPF 共享控件（安全密码、路径条、多按钮编辑框、加载遮罩等）</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 </Project>

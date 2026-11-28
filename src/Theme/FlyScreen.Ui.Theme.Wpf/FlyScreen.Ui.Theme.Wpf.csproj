@@ -10,5 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 </Project>

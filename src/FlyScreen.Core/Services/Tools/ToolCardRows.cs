@@ -62,9 +62,11 @@ public static class ToolCardRows
             var isRunning = module?.IsRunning == true;
             var isInstalling = progress.IsInstalling(card.Id);
             var percent = progress.GetPercent(card.Id);
+            // 可启动：嵌入工作区 / 跨屏消费端 / 本机增强（含无工作区的独立弹窗工具，如文件保险箱）
             var canStart = installed && !isRunning && (
                 card.Manifest.HasWorkspace
-                || card.CanConsume);
+                || card.CanConsume
+                || IsLocalLaunchable(card.Manifest));
 
             string visualState;
             string status;
@@ -188,5 +190,18 @@ public static class ToolCardRows
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// 本机可点启动的工具（非「仅接收申请」的提供端）。无 HasWorkspace 时也可弹独立窗。
+    /// </summary>
+    private static bool IsLocalLaunchable(ToolManifest m)
+    {
+        if (m.Roles is { Length: > 0 }
+            && m.Roles.Any(r => string.Equals(r, "local", StringComparison.OrdinalIgnoreCase)))
+            return true;
+        if (string.Equals(m.Kind, "enhancement", StringComparison.OrdinalIgnoreCase) && !m.CrossScreen)
+            return true;
+        return !m.CrossScreen && !m.HasWorkspace;
     }
 }

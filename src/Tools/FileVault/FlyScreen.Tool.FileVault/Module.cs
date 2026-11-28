@@ -14,6 +14,8 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
     public const string UiPickFiles = "pick-files";
     public const string UiPromptPassword = "prompt-password";
     public const string UiPromptText = "prompt-text";
+    public const string UiShowWindow = "show-window";
+    public const string UiCloseWindow = "close-window";
 
     private readonly FileVaultService _service = new();
     private IToolHostServices? _host;
@@ -26,7 +28,7 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
 
     public string Id => ToolIds.FileVault;
     public bool IsRunning => _service.IsRunning;
-    public bool UsesWorkspace => true;
+    public bool UsesWorkspace => false;
     public FileVaultService Service => _service;
 
     public event Action? StateChanged
@@ -46,8 +48,13 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
         return Task.CompletedTask;
     }
 
-    public Task OnUnloadedAsync(CancellationToken ct = default)
+    public async Task OnUnloadedAsync(CancellationToken ct = default)
     {
+        if (_host?.Ui != null)
+        {
+            try { await _host.Ui.RequestAsync(Id, UiCloseWindow, null, ct).ConfigureAwait(true); }
+            catch { /* ignore */ }
+        }
         _service.Stop();
         _host?.Workspace.Close(Id);
         try
@@ -59,7 +66,6 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
 
         ToolIconRegistry.Unregister(FileVaultIcons.Instance.IconKey);
         _host = null;
-        return Task.CompletedTask;
     }
 
     public Task<(bool Ok, string Message)> PrimaryAsync(
@@ -78,8 +84,8 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
             return StopInternalAsync();
         }
 
-        if (!ctx.Row.CanStart)
-            return Task.FromResult((false, ""));
+        if (!ctx.Row.CanStart && !ctx.Row.IsRunning)
+            return Task.FromResult((false, Loc.T("Tool.FileVault.CannotStart")));
 
         if (!_service.IsRunning)
             _service.Start();
@@ -117,7 +123,27 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
         if (_host == null) return;
         if (!_service.IsRunning)
             _service.Start();
-        _host.Workspace.OpenOrFocus(Id, Loc.T("Tool.FileVault.Name"));
+        // 独立弹窗，不嵌入工具工作区；先刷新 UI 贡献者确保 show-window 已注册
+        try { ToolService.Instance.RefreshToolUiContributors(); }
+        catch { /* ignore */ }
+        _ = OpenWindowSafeAsync();
+    }
+
+    private async Task OpenWindowSafeAsync()
+    {
+        if (_host?.Ui == null) return;
+        try
+        {
+            await _host.Ui.RequestAsync(Id, UiShowWindow, null).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await _host.Ui.RequestAsync(Id, "alert", ex.Message).ConfigureAwait(true);
+            }
+            catch { /* ignore */ }
+        }
     }
 
     public ToolUninstallUiSchema? GetUninstallUiSchema()
@@ -252,10 +278,15 @@ public sealed class Module : IToolModule, IToolUninstallPolicy
         ]
     };
 
-    private Task<(bool Ok, string Message)> StopInternalAsync()
+    private async Task<(bool Ok, string Message)> StopInternalAsync()
     {
+        if (_host?.Ui != null)
+        {
+            try { await _host.Ui.RequestAsync(Id, UiCloseWindow, null).ConfigureAwait(true); }
+            catch { /* ignore */ }
+        }
         _service.Stop();
         _host?.Workspace.Close(Id);
-        return Task.FromResult((true, ""));
+        return (true, "");
     }
 }

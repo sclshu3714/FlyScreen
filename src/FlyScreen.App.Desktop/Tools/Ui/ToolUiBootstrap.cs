@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using FlyScreen.DesktopUi.Helpers;
 using FlyScreen.Services.Tools;
 using FlyScreen.ToolSdk;
 
@@ -12,7 +13,12 @@ public static class ToolUiBootstrap
         var ctx = new ToolUiContext
         {
             Owner = owner,
-            ReportStatus = setStatus
+            ReportStatus = setStatus,
+            ApplyWindowTheme = o =>
+            {
+                if (o is Window win)
+                    DesktopThemeService.ApplyToChildWindow(win);
+            }
         };
         tools.BindUi(ctx);
         ToolUiDiscovery.RegisterAll(tools.Ui, ctx);

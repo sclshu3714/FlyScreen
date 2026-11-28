@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using FlyScreen.Helpers.Localization;
+using FlyScreen.Models;
 using FlyScreen.Tool.FileVault.Mount;
 using FlyScreen.Tool.FileVault.Open;
 using FlyScreen.Tool.FileVault.Store;
@@ -17,6 +19,8 @@ public sealed class FileVaultService : IFileVaultService
     private string? _currentFolderId;
     private bool _running;
     private CancellationTokenSource? _idleCts;
+    private readonly List<string> _clipboard = new();
+    private bool _clipboardCut;
 
     public FileVaultService()
     {
@@ -30,6 +34,7 @@ public sealed class FileVaultService : IFileVaultService
     public string? VaultRoot => string.IsNullOrEmpty(_repo.Root) ? _settings.ActiveVaultRoot : _repo.Root;
     public string? MountPath => _mount.MountPath;
     public bool IsMounted => _mount.IsMounted;
+    public bool HasClipboard => _clipboard.Count > 0;
     public string? CurrentFolderId => _currentFolderId;
     public string CurrentPathLabel
     {
@@ -75,7 +80,8 @@ public sealed class FileVaultService : IFileVaultService
     public void Start()
     {
         _running = true;
-        Raise();
+        // 每次进入工具都必须重新输入主密码
+        _ = LockAsync();
     }
 
     public void Stop()
@@ -83,6 +89,18 @@ public sealed class FileVaultService : IFileVaultService
         _ = LockAsync();
         _running = false;
         Raise();
+    }
+
+    public string EnsureDefaultRoot()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.ActiveVaultRoot))
+        {
+            _settings.ActiveVaultRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FlyScreen", "Vaults", "default");
+            PersistSettings();
+        }
+        return _settings.ActiveVaultRoot!;
     }
 
     public async Task CreateVaultAsync(string root, string password, CancellationToken ct = default)
@@ -102,6 +120,9 @@ public sealed class FileVaultService : IFileVaultService
         Raise();
         await Task.CompletedTask.ConfigureAwait(false);
     }
+
+    public Task CreateDefaultVaultAsync(string password, CancellationToken ct = default)
+        => CreateVaultAsync(EnsureDefaultRoot(), password, ct);
 
     public Task OpenVaultAsync(string root, CancellationToken ct = default)
     {
@@ -144,6 +165,54 @@ public sealed class FileVaultService : IFileVaultService
         return _repo.ListChildren(_currentFolderId);
     }
 
+    public IReadOnlyList<PathBreadcrumbItem> GetPathSegments()
+    {
+        // 根段用可读名（对齐资源管理器「此电脑」），路径条显示：🔐 › 保险箱 › …
+        var root = new PathBreadcrumbItem
+        {
+            Id = null,
+            Title = Loc.T("Tool.FileVault.BreadcrumbRoot"),
+            ParentId = null
+        };
+        if (!IsUnlocked || string.IsNullOrEmpty(_currentFolderId))
+            return [root];
+
+        var chain = new List<PathBreadcrumbItem>();
+        var cur = _currentFolderId;
+        var guard = 0;
+        while (!string.IsNullOrEmpty(cur) && guard++ < 256)
+        {
+            var e = _repo.Get(cur);
+            if (e == null) break;
+            chain.Add(new PathBreadcrumbItem
+            {
+                Id = e.Id,
+                Title = e.Name,
+                ParentId = e.ParentId
+            });
+            cur = e.ParentId;
+        }
+        chain.Reverse();
+        chain.Insert(0, root);
+        return chain;
+    }
+
+    public IReadOnlyList<VaultEntryView> ListFolders(string? parentId)
+    {
+        if (!IsUnlocked) return [];
+        TouchIdle();
+        return _repo.ListChildren(parentId).Where(e => e.IsDir).ToList();
+    }
+
+    public bool TryNavigatePath(string virtualPath)
+    {
+        if (!IsUnlocked) return false;
+        if (!_repo.TryResolveVirtualPath(virtualPath, out var folderId))
+            return false;
+        NavigateTo(folderId);
+        return true;
+    }
+
     public void NavigateTo(string? folderId)
     {
         if (!IsUnlocked) return;
@@ -163,7 +232,10 @@ public sealed class FileVaultService : IFileVaultService
         Raise();
     }
 
-    public async Task ImportPathsAsync(IEnumerable<string> paths, CancellationToken ct = default)
+    public Task ImportPathsAsync(IEnumerable<string> paths, CancellationToken ct = default)
+        => ImportPathsAsync(paths, _settings.SecureDeleteSource, ct);
+
+    public async Task ImportPathsAsync(IEnumerable<string> paths, bool removeSource, CancellationToken ct = default)
     {
         EnsureUnlocked();
         var progress = new Progress<VaultProgress>(p => ProgressChanged?.Invoke(p));
@@ -171,14 +243,77 @@ public sealed class FileVaultService : IFileVaultService
         {
             ct.ThrowIfCancellationRequested();
             if (Directory.Exists(path))
-                await ImportDirectoryAsync(path, _currentFolderId, progress, ct).ConfigureAwait(false);
+                await ImportDirectoryAsync(path, _currentFolderId, removeSource, progress, ct).ConfigureAwait(false);
             else if (File.Exists(path))
-                _repo.ImportFile(_currentFolderId, path, _settings.SecureDeleteSource, progress, ct);
+                _repo.ImportFile(_currentFolderId, path, removeSource, progress, ct);
         }
         TouchIdle();
         if (_settings.AutoMount && IsMounted)
             await MountAsync(ct).ConfigureAwait(false);
         Raise();
+    }
+
+    public Task CreateNewAsync(VaultNewEntry entry, string? shortcutTarget = null, CancellationToken ct = default)
+    {
+        EnsureUnlocked();
+        ct.ThrowIfCancellationRequested();
+        if (entry.Kind == VaultNewKind.Folder)
+        {
+            var name = string.IsNullOrWhiteSpace(entry.SuggestedName) ? "新建文件夹" : entry.SuggestedName;
+            _repo.CreateUniqueDirectory(_currentFolderId, name);
+            TouchIdle();
+            Raise();
+            return Task.CompletedTask;
+        }
+
+        string? tempDir = null;
+        try
+        {
+            tempDir = Path.Combine(Path.GetTempPath(), "FlyScreen", "vault-new", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            var fileName = entry.Kind == VaultNewKind.Shortcut
+                ? SanitizeFileName(Path.GetFileNameWithoutExtension(shortcutTarget ?? "") + ".lnk")
+                : SanitizeFileName(entry.SuggestedName);
+            if (string.IsNullOrWhiteSpace(fileName) || fileName == ".lnk")
+                throw new InvalidOperationException("没有快捷方式目标");
+            var path = Path.Combine(tempDir, fileName);
+            if (entry.Kind == VaultNewKind.Shortcut)
+                WriteShortcut(path, shortcutTarget ?? throw new InvalidOperationException("没有快捷方式目标"));
+            else if (!string.IsNullOrEmpty(entry.TemplatePath) && File.Exists(entry.TemplatePath))
+                File.Copy(entry.TemplatePath, path, overwrite: false);
+            else
+                File.WriteAllBytes(path, entry.TemplateBytes ?? []);
+            var progress = new Progress<VaultProgress>(p => ProgressChanged?.Invoke(p));
+            _repo.ImportFile(_currentFolderId, path, secureDeleteSource: false, progress, ct);
+        }
+        finally
+        {
+            if (tempDir != null)
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { /* ignore */ }
+            }
+        }
+        TouchIdle();
+        Raise();
+        return Task.CompletedTask;
+    }
+
+    private static void WriteShortcut(string path, string target)
+    {
+        var shellType = Type.GetTypeFromProgID("WScript.Shell")
+            ?? throw new InvalidOperationException("无法创建快捷方式");
+        var shell = Activator.CreateInstance(shellType)!;
+        var shortcut = shellType.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, [path]);
+        shortcut?.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.SetProperty, null, shortcut, [target]);
+        shortcut?.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        name = Path.GetFileName(name.Trim());
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
     }
 
     public Task ExportSelectedAsync(string entryId, string destPath, CancellationToken ct = default)
@@ -199,6 +334,49 @@ public sealed class FileVaultService : IFileVaultService
         EnsureUnlocked();
         ct.ThrowIfCancellationRequested();
         _repo.DeleteEntry(entryId, recursive: true);
+        TouchIdle();
+        Raise();
+        return Task.CompletedTask;
+    }
+
+    public Task RenameAsync(string entryId, string newName, CancellationToken ct = default)
+    {
+        EnsureUnlocked();
+        ct.ThrowIfCancellationRequested();
+        _repo.RenameEntry(entryId, newName);
+        TouchIdle();
+        Raise();
+        return Task.CompletedTask;
+    }
+
+    public void StageClipboard(IReadOnlyList<string> entryIds, bool cut)
+    {
+        _clipboard.Clear();
+        _clipboardCut = cut;
+        if (entryIds == null) return;
+        foreach (var id in entryIds)
+        {
+            if (!string.IsNullOrWhiteSpace(id))
+                _clipboard.Add(id);
+        }
+    }
+
+    public Task PasteAsync(CancellationToken ct = default)
+    {
+        EnsureUnlocked();
+        if (_clipboard.Count == 0)
+            return Task.CompletedTask;
+        var ids = _clipboard.ToList();
+        foreach (var id in ids)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_clipboardCut)
+                _repo.MoveEntry(id, _currentFolderId);
+            else
+                _repo.CopyEntry(id, _currentFolderId);
+        }
+        if (_clipboardCut)
+            _clipboard.Clear();
         TouchIdle();
         Raise();
         return Task.CompletedTask;
@@ -366,6 +544,7 @@ public sealed class FileVaultService : IFileVaultService
     private async Task ImportDirectoryAsync(
         string dirPath,
         string? parentId,
+        bool removeSource,
         IProgress<VaultProgress> progress,
         CancellationToken ct)
     {
@@ -374,14 +553,14 @@ public sealed class FileVaultService : IFileVaultService
         foreach (var file in Directory.EnumerateFiles(dirPath))
         {
             ct.ThrowIfCancellationRequested();
-            _repo.ImportFile(folder.Id, file, _settings.SecureDeleteSource, progress, ct);
+            _repo.ImportFile(folder.Id, file, removeSource, progress, ct);
         }
         foreach (var sub in Directory.EnumerateDirectories(dirPath))
         {
             ct.ThrowIfCancellationRequested();
-            await ImportDirectoryAsync(sub, folder.Id, progress, ct).ConfigureAwait(false);
+            await ImportDirectoryAsync(sub, folder.Id, removeSource, progress, ct).ConfigureAwait(false);
         }
-        if (_settings.SecureDeleteSource)
+        if (removeSource)
             SecureDelete.DirectoryTree(dirPath);
     }
 

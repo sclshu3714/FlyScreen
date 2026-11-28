@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
   <!-- Shared / Maui 下 XAML 为样式源文件：由 App.Maui 通过 Link 合并，避免类库 MauiXaml 双嵌入 -->
   <ItemGroup>

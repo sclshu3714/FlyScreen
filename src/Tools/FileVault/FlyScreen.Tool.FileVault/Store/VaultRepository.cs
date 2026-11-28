@@ -160,6 +160,36 @@ internal sealed class VaultRepository
         return "/" + string.Join("/", parts);
     }
 
+    /// <summary>
+    /// 解析虚拟路径为文件夹 Id。返回 true 且 folderId=null 表示根；找不到返回 false。
+    /// </summary>
+    public bool TryResolveVirtualPath(string virtualPath, out string? folderId)
+    {
+        folderId = null;
+        EnsureUnlocked();
+        var raw = (virtualPath ?? "").Trim().Replace('\\', '/');
+        if (string.IsNullOrEmpty(raw) || raw == "/")
+            return true;
+
+        var parts = raw.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string? parent = null;
+        foreach (var name in parts)
+        {
+            var hit = _index.Entries.FirstOrDefault(e =>
+                e.IsDir
+                && string.Equals(e.ParentId, parent, StringComparison.Ordinal)
+                && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (hit == null)
+            {
+                folderId = null;
+                return false;
+            }
+            parent = hit.Id;
+        }
+        folderId = parent;
+        return true;
+    }
+
     public VaultEntryDto EnsureDirectory(string? parentId, string name)
     {
         EnsureUnlocked();
@@ -182,6 +212,13 @@ internal sealed class VaultRepository
         _byId[entry.Id] = entry;
         PersistIndexUnlocked();
         return entry;
+    }
+
+    public VaultEntryDto CreateUniqueDirectory(string? parentId, string baseName)
+    {
+        EnsureUnlocked();
+        baseName = SanitizeName(baseName);
+        return EnsureDirectory(parentId, ResolveUniqueName(parentId, baseName, isDir: true));
     }
 
     public VaultEntryDto ImportFile(
@@ -346,6 +383,50 @@ internal sealed class VaultRepository
         PersistIndexUnlocked();
     }
 
+    public void RenameEntry(string id, string newName)
+    {
+        EnsureUnlocked();
+        if (!_byId.TryGetValue(id, out var entry))
+            throw new InvalidOperationException("条目不存在");
+        newName = SanitizeName(newName);
+        if (string.Equals(entry.Name, newName, StringComparison.OrdinalIgnoreCase))
+            return;
+        if (NameTaken(entry.ParentId, newName, id))
+            throw new InvalidOperationException("名称已存在");
+        entry.Name = newName;
+        entry.ModifiedUtc = DateTimeOffset.UtcNow.ToString("O");
+        PersistIndexUnlocked();
+    }
+
+    public void MoveEntry(string id, string? newParentId)
+    {
+        EnsureUnlocked();
+        if (!_byId.TryGetValue(id, out var entry))
+            throw new InvalidOperationException("条目不存在");
+        if (string.Equals(entry.ParentId, newParentId, StringComparison.Ordinal))
+            return;
+        if (entry.IsDir && IsUnder(newParentId, id))
+            throw new InvalidOperationException("不能移动到自身内部");
+        var name = entry.Name;
+        entry.ParentId = newParentId;
+        if (NameTaken(newParentId, name, entry.Id))
+            entry.Name = ResolveUniqueName(newParentId, name, entry.IsDir);
+        entry.ModifiedUtc = DateTimeOffset.UtcNow.ToString("O");
+        PersistIndexUnlocked();
+    }
+
+    public void CopyEntry(string id, string? newParentId)
+    {
+        EnsureUnlocked();
+        if (!_byId.TryGetValue(id, out var entry))
+            throw new InvalidOperationException("条目不存在");
+        if (entry.IsDir && IsUnder(newParentId, id))
+            throw new InvalidOperationException("不能复制到自身内部");
+        CopyEntryCore(entry, newParentId);
+        UpdateManifestStats();
+        PersistIndexUnlocked();
+    }
+
     public void DestroyVault()
     {
         Lock();
@@ -455,6 +536,55 @@ internal sealed class VaultRepository
     {
         if (_mk == null || _manifest == null)
             throw new InvalidOperationException("保险箱未解锁");
+    }
+
+    private void CopyEntryCore(VaultEntryDto src, string? parentId)
+    {
+        var id = Guid.NewGuid().ToString("N");
+        if (!src.IsDir)
+        {
+            var srcBlob = Path.Combine(Root, ObjectsDir, src.Id + ".blob");
+            var dstBlob = Path.Combine(Root, ObjectsDir, id + ".blob");
+            if (File.Exists(srcBlob))
+                File.Copy(srcBlob, dstBlob, overwrite: false);
+        }
+
+        var copy = new VaultEntryDto
+        {
+            Id = id,
+            ParentId = parentId,
+            Name = ResolveUniqueName(parentId, src.Name, src.IsDir),
+            IsDir = src.IsDir,
+            Size = src.Size,
+            ModifiedUtc = DateTimeOffset.UtcNow.ToString("O"),
+            ContentHash = src.ContentHash,
+            DekWrappedBase64 = src.DekWrappedBase64,
+            ChunkCount = src.ChunkCount
+        };
+        _index.Entries.Add(copy);
+        _byId[copy.Id] = copy;
+        if (!src.IsDir)
+            return;
+        foreach (var child in _index.Entries.Where(e => string.Equals(e.ParentId, src.Id, StringComparison.Ordinal)).ToList())
+            CopyEntryCore(child, id);
+    }
+
+    private bool NameTaken(string? parentId, string name, string exceptId) =>
+        _index.Entries.Any(e =>
+            !string.Equals(e.Id, exceptId, StringComparison.Ordinal)
+            && string.Equals(e.ParentId, parentId, StringComparison.Ordinal)
+            && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private bool IsUnder(string? nodeId, string ancestorId)
+    {
+        var cur = nodeId;
+        while (!string.IsNullOrEmpty(cur))
+        {
+            if (string.Equals(cur, ancestorId, StringComparison.Ordinal))
+                return true;
+            cur = _byId.TryGetValue(cur, out var e) ? e.ParentId : null;
+        }
+        return false;
     }
 
     private string ResolveUniqueName(string? parentId, string name, bool isDir)

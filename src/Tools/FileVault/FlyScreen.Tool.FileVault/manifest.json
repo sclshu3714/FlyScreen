@@ -16,11 +16,11 @@
   "supportsRepair": false,
   "capNames": [],
   "titleBar": false,
-  "hasWorkspace": true,
+  "hasWorkspace": false,
   "icon": "tool-file-vault",
   "permissions": ["localFile.open"],
   "package": {
-    "version": "1.0.1",
+    "version": "1.0.13",
     "format": "flytool",
     "formatVersion": 1
   },

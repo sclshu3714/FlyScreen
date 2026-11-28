@@ -159,7 +159,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         PlatformLabel.Text = _host.PlatformBanner;
         WireHostOnce();
         EnsureNetworkBreadcrumb();
-        EndpointList.ItemsSource = _endpoints;
+        BindEndpointList();
         DeviceInventoryList.ItemsSource = _deviceInventory;
         if (ConnectionEndpointStore.EnsureFromBindings(_host.Settings) > 0)
             _host.Settings.Save();
@@ -2933,19 +2933,39 @@ public partial class MainPage : ContentPage, IWallpaperHost
             ToolsScroll.IsVisible = false;
             ToolsWorkspaceHost.IsVisible = true;
             var activeId = ws.ActiveToolId;
-            if (!string.IsNullOrEmpty(activeId)
-                && ToolService.Instance.CreateWorkspaceContent(activeId) is View content
-                && (ToolsWorkspaceHost.Content == null
-                    || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
+            if (string.IsNullOrEmpty(activeId))
+                return;
+
+            // 安装/ALC 加载后补扫；避免工厂未注册时 Content 一直为 null 只剩空白
+            ToolService.Instance.RefreshToolUiContributors();
+            View? content = null;
+            try
+            {
+                content = ToolService.Instance.CreateWorkspaceContent(activeId) as View;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"创建工具工作区失败 {activeId}: {ex.Message}");
+            }
+
+            if (content == null)
+            {
+                content = new Label
+                {
+                    Text = Loc.T("Tool.Workspace.NoUi"),
+                    Margin = new Thickness(8),
+                    FontSize = 13,
+                    LineBreakMode = LineBreakMode.WordWrap
+                };
+            }
+
+            if (ToolsWorkspaceHost.Content == null
+                || ToolsWorkspaceHost.Content.GetType() != content.GetType())
             {
                 ToolsWorkspaceHost.Content = content;
-                _toolsWorkspaceContentToolId = activeId;
             }
-            else if (!string.IsNullOrEmpty(activeId)
-                     && ToolsWorkspaceHost.Content != null)
-            {
-                _toolsWorkspaceContentToolId = activeId;
-            }
+
+            _toolsWorkspaceContentToolId = activeId;
         }
     }
 
@@ -5128,6 +5148,9 @@ public partial class MainPage : ContentPage, IWallpaperHost
 #if WINDOWS
         if (PageOptions == null) return;
         var viewport = PageOptions.Height;
+        // ScrollView 给子级无限高，* 行撑不开；用视口高度作最小高，功能卡才能填满
+        if (OptionsContentRoot != null && viewport > 1)
+            OptionsContentRoot.MinimumHeightRequest = viewport;
         var contentH = OptionsContentRoot?.Height ?? 0;
         var needScroll = PageOptions.IsVisible
                          && viewport > 1
@@ -5460,8 +5483,14 @@ public partial class MainPage : ContentPage, IWallpaperHost
         _endpoints.Clear();
         foreach (var ep in s.ConnectionEndpoints)
             _endpoints.Add(ep);
-        if (EndpointList != null)
-            EndpointList.ItemsSource = _endpoints;
+        BindEndpointList();
+    }
+
+    private void BindEndpointList()
+    {
+        if (EndpointList == null) return;
+        BindableLayout.SetItemsSource(EndpointList, null);
+        BindableLayout.SetItemsSource(EndpointList, _endpoints);
     }
 
     private void PersistEndpoints(bool saveFile = true)
@@ -5482,8 +5511,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
     {
         _endpoints.Add(new ConnectionEndpoint { Kind = ConnectionEndpoint.KindRemote });
         PersistEndpoints();
-        EndpointList.ItemsSource = null;
-        EndpointList.ItemsSource = _endpoints;
+        BindEndpointList();
         StatusLabel.Text = Loc.T("Net.EndpointAdded");
     }
 
@@ -5494,8 +5522,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         if (ep == null) return;
         ep.ToggleKind();
         PersistEndpoints();
-        EndpointList.ItemsSource = null;
-        EndpointList.ItemsSource = _endpoints;
+        BindEndpointList();
     }
 
     private int ReadUiTcpPort()
@@ -5557,8 +5584,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         PersistEndpoints();
         if (updateStatusBar)
             StatusLabel.Text = ok ? $"{Loc.T("Net.TestOk")}: {message}" : $"{Loc.T("Net.TestFail")}: {message}";
-        EndpointList.ItemsSource = null;
-        EndpointList.ItemsSource = _endpoints;
+        BindEndpointList();
         RefreshDiscovery();
     }
 
@@ -5569,8 +5595,7 @@ public partial class MainPage : ContentPage, IWallpaperHost
         if (ep == null) return;
         _endpoints.Remove(ep);
         PersistEndpoints();
-        EndpointList.ItemsSource = null;
-        EndpointList.ItemsSource = _endpoints;
+        BindEndpointList();
         RefreshDiscovery();
     }
 

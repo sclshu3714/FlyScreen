@@ -8,7 +8,11 @@
     <Description>Avalonia 主题样式源（ActionStyles / DialogStyles / ScrollBar；由宿主 App.Desktop Link 编译）</Description>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Styles\**\*.axaml" />

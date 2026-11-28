@@ -43,7 +43,7 @@
             <Grid Grid.Row="0">
                 <!-- ===== 安全（独立页）：生成密钥在标题工具栏，输入框窄屏不被挤裁 ===== -->
                 <Grid x:Name="PageSecurity" IsVisible="False">
-                    <Border Style="{StaticResource Card}" VerticalOptions="Start">
+                    <Border Style="{StaticResource Card}">
                         <VerticalStackLayout Spacing="12">
                             <Grid ColumnDefinitions="*,Auto">
                                 <Label x:Name="SecurityTitleText" Text="安全密钥" FontSize="15" FontAttributes="Bold"
@@ -114,13 +114,13 @@
                     </Border>
                 </Grid>
 
-                <!-- ===== 高级选项：相对原布局仅略收约 10；Maui-Win 默认不滚，手机仍可滚 ===== -->
+                <!-- ===== 高级选项：功能卡 * 撑满；Maui-Win 默认不滚，手机仍可滚 ===== -->
                 <ScrollView x:Name="PageOptions" IsVisible="False" VerticalScrollBarVisibility="Never">
-                    <Grid x:Name="OptionsContentRoot" RowDefinitions="Auto,Auto" RowSpacing="8" Padding="0,0,0,4">
+                    <Grid x:Name="OptionsContentRoot" RowDefinitions="*,Auto" RowSpacing="8" Padding="0,0,0,4">
                         <Border Style="{StaticResource Card}" Padding="12,8">
                             <!-- 宽屏三列；窄屏由 ApplyOptionsPlacement 改为单列堆叠 -->
                             <Grid x:Name="OptionsFeatGrid" ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto"
-                                  ColumnSpacing="12" RowSpacing="8">
+                                  ColumnSpacing="12" RowSpacing="8" VerticalOptions="Start">
                                 <VerticalStackLayout x:Name="FeatColumn" Spacing="0">
                                     <Label x:Name="FeatTitleText" Text="功能" FontAttributes="Bold" Margin="0,0,0,4" />
                                     <!-- Spacing=8；列勿锁死 20px（会裁掉勾选图标） -->
@@ -353,12 +353,12 @@
                     </Grid>
                 </ScrollView>
 
-                <!-- ===== 网络设置：连接配置 / 设备管理 ===== -->
+                <!-- ===== 网络设置：卡片拉满整高（同基础/程序） ===== -->
                 <Grid x:Name="PageNetwork" RowDefinitions="Auto,*" RowSpacing="10" IsVisible="False">
                     <HorizontalStackLayout x:Name="NetworkBreadcrumbHost" />
                     <Grid Grid.Row="1">
                         <Border x:Name="PanelConnConfig" Style="{StaticResource Card}">
-                            <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+                            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <VerticalStackLayout Spacing="4">
                                         <Label x:Name="ConnConfigTitleText" Text="连接配置" FontSize="15" FontAttributes="Bold" />
@@ -370,59 +370,62 @@
                                             WidthRequest="32" FontSize="16" Clicked="AddEndpoint_Clicked" />
                                 </Grid>
                                 <Border Grid.Row="1" BackgroundColor="{DynamicResource ListBg}" Stroke="{DynamicResource Line}"
-                                        StrokeThickness="1" StrokeShape="RoundRectangle 8" Padding="12,8">
-                                    <Grid ColumnDefinitions="100,*,96">
-                                        <Label x:Name="ConnColType" Text="类型" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold"
-                                               HorizontalTextAlignment="Center" HorizontalOptions="Fill" />
-                                        <Label x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
-                                        <Label x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold"
-                                               HorizontalTextAlignment="End" />
+                                        StrokeThickness="1" StrokeShape="RoundRectangle 8">
+                                    <Grid RowDefinitions="Auto,Auto,*">
+                                        <Grid ColumnDefinitions="100,*,96" Padding="12,8">
+                                            <Label x:Name="ConnColType" Text="类型" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold"
+                                                   HorizontalTextAlignment="Center" HorizontalOptions="Fill" />
+                                            <Label x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold" />
+                                            <Label x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" TextColor="{DynamicResource Muted}" FontAttributes="Bold"
+                                                   HorizontalTextAlignment="End" />
+                                        </Grid>
+                                        <BoxView Grid.Row="1" HeightRequest="1" Color="{DynamicResource Line}" />
+                                        <ScrollView Grid.Row="2">
+                                            <VerticalStackLayout Spacing="0">
+                                                <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
+                                                        StrokeThickness="1" Padding="12,10">
+                                                    <Grid ColumnDefinitions="100,*,96" ColumnSpacing="8">
+                                                        <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" VerticalOptions="Center"
+                                                               HorizontalTextAlignment="Center" HorizontalOptions="Center" />
+                                                        <Picker x:Name="NicPicker" Grid.Column="1" HeightRequest="36"
+                                                                ItemDisplayBinding="{Binding ShortDisplay}" />
+                                                        <Button x:Name="RefreshNicsBtn" Grid.Column="2" Text="↻"
+                                                                Style="{StaticResource NetIconOpBtn}" Clicked="RefreshNics_Clicked" />
+                                                    </Grid>
+                                                </Border>
+                                                <VerticalStackLayout x:Name="EndpointList">
+                                                    <BindableLayout.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
+                                                                    StrokeThickness="1" Padding="12,10">
+                                                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="100,*,96" ColumnSpacing="8" RowSpacing="4">
+                                                                    <Button Text="{Binding KindLabel}" HeightRequest="34" Padding="10,0"
+                                                                            FontAttributes="Bold" HorizontalOptions="Center"
+                                                                            Clicked="EndpointKind_Clicked"
+                                                                            CommandParameter="{Binding}"
+                                                                            BackgroundColor="{DynamicResource BlueSoft}"
+                                                                            TextColor="{DynamicResource Text}" />
+                                                                    <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
+                                                                           Placeholder="{Binding AddressPlaceholder}" />
+                                                                    <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
+                                                                        <Button Style="{StaticResource NetIconOpBtn}" Text="⚡"
+                                                                                CommandParameter="{Binding}" Clicked="TestEndpoint_Clicked" />
+                                                                        <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}" Text="−"
+                                                                                CommandParameter="{Binding}" Clicked="DeleteEndpoint_Clicked" />
+                                                                    </Grid>
+                                                                    <Label Grid.Row="1" Grid.Column="1" Text="{Binding StatusText}"
+                                                                           FontSize="11" TextColor="{DynamicResource Muted}" />
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </BindableLayout.ItemTemplate>
+                                                </VerticalStackLayout>
+                                                <CollectionView x:Name="DiscoveryList" IsVisible="False" HeightRequest="0" />
+                                            </VerticalStackLayout>
+                                        </ScrollView>
                                     </Grid>
                                 </Border>
-                                <ScrollView Grid.Row="2">
-                                    <VerticalStackLayout Spacing="0">
-                                        <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
-                                                StrokeThickness="1" Padding="12,10">
-                                            <Grid ColumnDefinitions="100,*,96" ColumnSpacing="8">
-                                                <Label x:Name="NicTitleText" Text="本机网卡" FontAttributes="Bold" VerticalOptions="Center"
-                                                       HorizontalTextAlignment="Center" HorizontalOptions="Center" />
-                                                <Picker x:Name="NicPicker" Grid.Column="1" HeightRequest="36"
-                                                        ItemDisplayBinding="{Binding ShortDisplay}" />
-                                                <Button x:Name="RefreshNicsBtn" Grid.Column="2" Text="↻"
-                                                        Style="{StaticResource NetIconOpBtn}" Clicked="RefreshNics_Clicked" />
-                                            </Grid>
-                                        </Border>
-                                        <CollectionView x:Name="EndpointList" HeightRequest="160">
-                                            <CollectionView.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border BackgroundColor="{DynamicResource CardBg}" Stroke="{DynamicResource Line}"
-                                                            StrokeThickness="1" Padding="12,10">
-                                                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="100,*,96" ColumnSpacing="8" RowSpacing="4">
-                                                            <Button Text="{Binding KindLabel}" HeightRequest="34" Padding="10,0"
-                                                                    FontAttributes="Bold" HorizontalOptions="Center"
-                                                                    Clicked="EndpointKind_Clicked"
-                                                                    CommandParameter="{Binding}"
-                                                                    BackgroundColor="{DynamicResource BlueSoft}"
-                                                                    TextColor="{DynamicResource Text}" />
-                                                            <Entry Grid.Column="1" Text="{Binding Address}" HeightRequest="34"
-                                                                   Placeholder="{Binding AddressPlaceholder}" />
-                                                            <Grid Grid.Column="2" ColumnDefinitions="*,6,*">
-                                                                <Button Style="{StaticResource NetIconOpBtn}" Text="⚡"
-                                                                        CommandParameter="{Binding}" Clicked="TestEndpoint_Clicked" />
-                                                                <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}" Text="−"
-                                                                        CommandParameter="{Binding}" Clicked="DeleteEndpoint_Clicked" />
-                                                            </Grid>
-                                                            <Label Grid.Row="1" Grid.Column="1" Text="{Binding StatusText}"
-                                                                   FontSize="11" TextColor="{DynamicResource Muted}" />
-                                                        </Grid>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </CollectionView.ItemTemplate>
-                                        </CollectionView>
-                                        <CollectionView x:Name="DiscoveryList" IsVisible="False" HeightRequest="0" />
-                                    </VerticalStackLayout>
-                                </ScrollView>
-                                <Grid Grid.Row="3" ColumnDefinitions="Auto,100,Auto,100" ColumnSpacing="8">
+                                <Grid Grid.Row="2" ColumnDefinitions="Auto,100,Auto,100" ColumnSpacing="8">
                                     <Label x:Name="TcpPortLabel" Text="TCP" VerticalOptions="Center" TextColor="{DynamicResource Muted}" />
                                     <Entry x:Name="TcpPortEntry" Grid.Column="1" Keyboard="Numeric" Text="15155" HeightRequest="34" />
                                     <Label x:Name="UdpPortLabel" Grid.Column="2" Text="发现" VerticalOptions="Center" TextColor="{DynamicResource Muted}" />

@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
     <ProjectReference Include="..\..\..\FlyScreen.ToolSdk\FlyScreen.ToolSdk.csproj" />
     <ProjectReference Include="..\..\..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\..\Controls\FlyScreen.Ui.Avalonia\FlyScreen.Ui.Avalonia.csproj" />
     <ProjectReference Include="..\FlyScreen.Tool.FileVault\FlyScreen.Tool.FileVault.csproj" />
   </ItemGroup>
 </Project>

@@ -654,9 +654,9 @@
 
             <!-- 页面内容（无滚动条，自适应） -->
             <Grid Grid.Row="0">
-                <!-- ===== 安全（独立页）：生成密钥在标题工具栏，输入框窄屏不被挤裁 ===== -->
+                <!-- ===== 安全（独立页）：卡片拉满整高，同基础/程序 ===== -->
                 <Grid x:Name="PageSecurity" Visibility="Collapsed">
-                    <Border Style="{StaticResource Card}" Padding="16" VerticalAlignment="Top">
+                    <Border Style="{StaticResource Card}" Padding="16">
                         <StackPanel>
                             <DockPanel Margin="0,0,0,12" LastChildFill="True">
                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -827,12 +827,13 @@
               ToolTipService.ShowDuration="20000"
               ToolTipService.BetweenShowDelay="200">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                        <!-- 宽屏三列；窄屏由 OptionsFeatGrid_SizeChanged 改为单列堆叠 -->
-                        <Grid x:Name="OptionsFeatGrid" SizeChanged="OptionsFeatGrid_SizeChanged">
+                        <!-- 宽屏三列；窄屏由 OptionsFeatGrid_SizeChanged 改为单列堆叠；* 行撑满剩余高度 -->
+                        <Grid x:Name="OptionsFeatGrid" SizeChanged="OptionsFeatGrid_SizeChanged"
+                              VerticalAlignment="Top">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
@@ -1005,7 +1006,7 @@
                     </Grid>
                 </Grid>
 
-                <!-- ===== 网络设置：连接配置 / 设备管理 ===== -->
+                <!-- ===== 网络设置：连接配置 / 设备管理（卡片拉满整高，同基础/程序） ===== -->
                 <Grid x:Name="PageNetwork" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -1016,7 +1017,6 @@
                     <Border x:Name="PanelConnConfig" Grid.Row="1" Style="{StaticResource Card}">
                         <Grid>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                                 <RowDefinition Height="Auto"/>
@@ -1033,97 +1033,101 @@
                                                Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
+                            <!-- 列表区 *：卡片剩余高度由列表边框占满 -->
                             <Border Grid.Row="1" Background="{DynamicResource ListBg}" BorderBrush="{DynamicResource Line}"
-                                    BorderThickness="1" CornerRadius="8" Padding="0" Margin="0,0,0,8">
-                                <Grid Margin="12,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="140"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="ConnColType" Text="类型" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource Muted}"
-                                               HorizontalAlignment="Stretch" TextAlignment="Center"/>
-                                    <TextBlock x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource Muted}"/>
-                                    <TextBlock x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource Muted}" Width="96" TextAlignment="Right"/>
-                                </Grid>
+                                    BorderThickness="1" CornerRadius="8" Margin="0,0,0,8">
+                                <DockPanel LastChildFill="True">
+                                    <Grid DockPanel.Dock="Top" Margin="12,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="ConnColType" Text="类型" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource Muted}"
+                                                   HorizontalAlignment="Stretch" TextAlignment="Center"/>
+                                        <TextBlock x:Name="ConnColAddr" Grid.Column="1" Text="地址" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource Muted}"/>
+                                        <TextBlock x:Name="ConnColOp" Grid.Column="2" Text="操作" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource Muted}" Width="96" TextAlignment="Right"/>
+                                    </Grid>
+                                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0"/>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel>
+                                            <!-- 固定：本机网卡；单操作钮拉满与双按钮同宽 -->
+                                            <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                                                    BorderThickness="0,0,0,1" Padding="12,10">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="140"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="96"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center"
+                                                               FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center" TextAlignment="Center"/>
+                                                    <ComboBox x:Name="NicCombo" Grid.Column="1" DisplayMemberPath="Display"
+                                                              VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+                                                    <Button x:Name="RefreshNicsBtn" Grid.Column="2" Style="{StaticResource NetIconOpBtn}"
+                                                            Content="↻" ToolTip="刷新网卡" Click="RefreshNics_Click"
+                                                            HorizontalAlignment="Stretch"/>
+                                                </Grid>
+                                            </Border>
+                                            <ItemsControl x:Name="EndpointList">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
+                                                                BorderThickness="0,0,0,1" Padding="12,10">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="140"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="96"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Grid.RowDefinitions>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                </Grid.RowDefinitions>
+                                                                <!-- 不用 ComboBox：嵌在 ItemsControl 内时 SelectedIndex 易写回 -1，行看起来像没加上 -->
+                                                                <Button Content="{Binding KindLabel}"
+                                                                        Tag="{Binding}"
+                                                                        Click="EndpointKind_Click"
+                                                                        FontWeight="SemiBold"
+                                                                        Margin="0"
+                                                                        MinWidth="0"
+                                                                        Padding="10,0"
+                                                                        HorizontalAlignment="Center"
+                                                                        HorizontalContentAlignment="Center"
+                                                                        ToolTip="{Binding KindToggleTip}"/>
+                                                                <TextBox Grid.Column="1" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
+                                                                         Margin="0,0,8,0" VerticalContentAlignment="Center"
+                                                                         ToolTip="{Binding AddressTip}"/>
+                                                                <Grid Grid.Column="2">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="*"/>
+                                                                        <ColumnDefinition Width="6"/>
+                                                                        <ColumnDefinition Width="*"/>
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <Button Grid.Column="0" Style="{StaticResource NetIconOpBtn}"
+                                                                            Content="⚡" ToolTip="测试（通过后才进入设备管理）" Click="TestEndpoint_Click" Tag="{Binding}"/>
+                                                                    <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}"
+                                                                            Content="−" ToolTip="删除" Click="DeleteEndpoint_Click" Tag="{Binding}"/>
+                                                                </Grid>
+                                                                <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,4,8,0" FontSize="11"
+                                                                           Foreground="{DynamicResource Muted}"
+                                                                           Text="{Binding StatusText}"/>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <!-- 兼容：隐藏旧发现列表宿主，供代码迁移期引用 -->
+                                            <ListBox x:Name="DiscoveryList" Visibility="Collapsed" Height="0"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </DockPanel>
                             </Border>
-                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                                <StackPanel>
-                                    <!-- 固定：本机网卡；单操作钮拉满与双按钮同宽 -->
-                                    <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
-                                            BorderThickness="0,0,0,1" Padding="12,10">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="140"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="96"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock x:Name="NicTitleText" Text="本机网卡" VerticalAlignment="Center"
-                                                       FontWeight="SemiBold"
-                                                       HorizontalAlignment="Center" TextAlignment="Center"/>
-                                            <ComboBox x:Name="NicCombo" Grid.Column="1" DisplayMemberPath="Display"
-                                                      VerticalContentAlignment="Center" Margin="0,0,8,0"/>
-                                            <Button x:Name="RefreshNicsBtn" Grid.Column="2" Style="{StaticResource NetIconOpBtn}"
-                                                    Content="↻" ToolTip="刷新网卡" Click="RefreshNics_Click"
-                                                    HorizontalAlignment="Stretch"/>
-                                        </Grid>
-                                    </Border>
-                                    <ItemsControl x:Name="EndpointList">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}"
-                                                        BorderThickness="0,0,0,1" Padding="12,10">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="140"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="96"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <Grid.RowDefinitions>
-                                                            <RowDefinition Height="Auto"/>
-                                                            <RowDefinition Height="Auto"/>
-                                                        </Grid.RowDefinitions>
-                                                        <!-- 不用 ComboBox：嵌在 ItemsControl 内时 SelectedIndex 易写回 -1，行看起来像没加上 -->
-                                                        <Button Content="{Binding KindLabel}"
-                                                                Tag="{Binding}"
-                                                                Click="EndpointKind_Click"
-                                                                FontWeight="SemiBold"
-                                                                Margin="0"
-                                                                MinWidth="0"
-                                                                Padding="10,0"
-                                                                HorizontalAlignment="Center"
-                                                                HorizontalContentAlignment="Center"
-                                                                ToolTip="{Binding KindToggleTip}"/>
-                                                        <TextBox Grid.Column="1" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}"
-                                                                 Margin="0,0,8,0" VerticalContentAlignment="Center"
-                                                                 ToolTip="{Binding AddressTip}"/>
-                                                        <Grid Grid.Column="2">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="6"/>
-                                                                <ColumnDefinition Width="*"/>
-                                                            </Grid.ColumnDefinitions>
-                                                            <Button Grid.Column="0" Style="{StaticResource NetIconOpBtn}"
-                                                                    Content="⚡" ToolTip="测试（通过后才进入设备管理）" Click="TestEndpoint_Click" Tag="{Binding}"/>
-                                                            <Button Grid.Column="2" Style="{StaticResource NetIconOpBtnWarn}"
-                                                                    Content="−" ToolTip="删除" Click="DeleteEndpoint_Click" Tag="{Binding}"/>
-                                                        </Grid>
-                                                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,4,8,0" FontSize="11"
-                                                                   Foreground="{DynamicResource Muted}"
-                                                                   Text="{Binding StatusText}"/>
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                    <!-- 兼容：隐藏旧发现列表宿主，供代码迁移期引用 -->
-                                    <ListBox x:Name="DiscoveryList" Visibility="Collapsed" Height="0"/>
-                                </StackPanel>
-                            </ScrollViewer>
-                            <Grid Grid.Row="3" Margin="0,12,0,0">
+                            <Grid Grid.Row="2" Margin="0,4,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="100"/>
@@ -1515,116 +1519,119 @@
                                 <StackPanel x:Name="ToolsShortcutBar" Orientation="Horizontal"
                                             HorizontalAlignment="Left"/>
                             </ScrollViewer>
-                            <ScrollViewer x:Name="ToolsCatalogHost" Grid.Row="3" VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled"
-                                          SizeChanged="ToolsCatalogHost_SizeChanged">
-                                <!-- VerticalAlignment=Top：避免 ScrollViewer 拉伸后 UniformGrid 把卡片垂直居中 -->
-                                <ItemsControl x:Name="ToolsList" VerticalAlignment="Top" HorizontalAlignment="Stretch">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <UniformGrid Columns="2" VerticalAlignment="Top"/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Height="104" Margin="6" Cursor="Hand"
-                                                    HorizontalAlignment="Stretch" VerticalAlignment="Top"
-                                                    CornerRadius="10" BorderThickness="1"
-                                                    ClipToBounds="True"
-                                                    MouseLeftButtonDown="ToolCard_MouseLeftButtonDown"
-                                                    MouseLeftButtonUp="ToolCard_MouseLeftButtonUp"
-                                                    MouseMove="ToolCard_MouseMove"
-                                                    MouseEnter="ToolCard_MouseEnter"
-                                                    MouseLeave="ToolCard_MouseLeave"
-                                                    Tag="{Binding}">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <!-- BorderBrush 必须在 Style 内，否则本地值会压过悬停 Trigger -->
-                                                        <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
-                                                        <Setter Property="Background" Value="{DynamicResource ToolCardNotInstalledBg}"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding VisualState}" Value="Installed">
-                                                                <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding VisualState}" Value="LocalProgram">
-                                                                <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding VisualState}" Value="Running">
-                                                                <Setter Property="Background" Value="{DynamicResource ToolCardRunningBg}"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding VisualState}" Value="Installing">
-                                                                <Setter Property="Background" Value="{DynamicResource ToolCardInstallingBg}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                                <Grid>
-                                                    <!-- 安装进度：自左向右铺底 -->
-                                                    <Border Background="{DynamicResource ToolCardProgress}" Opacity="0.55"
-                                                            IsHitTestVisible="False" RenderTransformOrigin="0,0.5">
-                                                        <Border.RenderTransform>
-                                                            <ScaleTransform ScaleX="{Binding InstallProgressRatio}"/>
-                                                        </Border.RenderTransform>
-                                                        <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsInstalling}" Value="True">
-                                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Border.Style>
-                                                    </Border>
-                                                    <!-- 悬停淡罩（由 MouseEnter/Leave 控制，对齐 Maui-Win） -->
-                                                    <Border Tag="ToolCardHoverWash"
-                                                            Background="{DynamicResource BlueHover}" Opacity="0.32"
-                                                            IsHitTestVisible="False" CornerRadius="10"
-                                                            Visibility="Collapsed"/>
-                                                    <Grid Margin="12,10,8,10">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <!-- 图标瓷砖：对齐 Maui-Win CreateToolCard -->
-                                                        <Border Width="48" Height="48" CornerRadius="10"
-                                                                BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                                                                Background="{DynamicResource SubtleBg}"
-                                                                VerticalAlignment="Center"
-                                                                SnapsToDevicePixels="True">
-                                                            <Image Width="36" Height="36" Stretch="Uniform"
-                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                   Source="{Binding IconKey, Converter={x:Static helpers:ToolIconKeyToImageConverter.Instance}}"/>
+                            <!-- 目录与工作区同格叠放，工作区必须能撑满 * 行 -->
+                            <Grid Grid.Row="3">
+                                <ScrollViewer x:Name="ToolsCatalogHost" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              SizeChanged="ToolsCatalogHost_SizeChanged">
+                                    <!-- VerticalAlignment=Top：避免 ScrollViewer 拉伸后 UniformGrid 把卡片垂直居中 -->
+                                    <ItemsControl x:Name="ToolsList" VerticalAlignment="Top" HorizontalAlignment="Stretch">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <UniformGrid Columns="2" VerticalAlignment="Top"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Height="104" Margin="6" Cursor="Hand"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                                                        CornerRadius="10" BorderThickness="1"
+                                                        ClipToBounds="True"
+                                                        MouseLeftButtonDown="ToolCard_MouseLeftButtonDown"
+                                                        MouseLeftButtonUp="ToolCard_MouseLeftButtonUp"
+                                                        MouseMove="ToolCard_MouseMove"
+                                                        MouseEnter="ToolCard_MouseEnter"
+                                                        MouseLeave="ToolCard_MouseLeave"
+                                                        Tag="{Binding}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <!-- BorderBrush 必须在 Style 内，否则本地值会压过悬停 Trigger -->
+                                                            <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+                                                            <Setter Property="Background" Value="{DynamicResource ToolCardNotInstalledBg}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding VisualState}" Value="Installed">
+                                                                    <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding VisualState}" Value="LocalProgram">
+                                                                    <Setter Property="Background" Value="{DynamicResource ToolCardInstalledBg}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding VisualState}" Value="Running">
+                                                                    <Setter Property="Background" Value="{DynamicResource ToolCardRunningBg}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding VisualState}" Value="Installing">
+                                                                    <Setter Property="Background" Value="{DynamicResource ToolCardInstallingBg}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <Grid>
+                                                        <!-- 安装进度：自左向右铺底 -->
+                                                        <Border Background="{DynamicResource ToolCardProgress}" Opacity="0.55"
+                                                                IsHitTestVisible="False" RenderTransformOrigin="0,0.5">
+                                                            <Border.RenderTransform>
+                                                                <ScaleTransform ScaleX="{Binding InstallProgressRatio}"/>
+                                                            </Border.RenderTransform>
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsInstalling}" Value="True">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
                                                         </Border>
-                                                        <StackPanel Grid.Column="1" Margin="12,0,6,0" VerticalAlignment="Center">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
-                                                                           Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
-                                                                <TextBlock Text="{Binding StatusText}" FontSize="11" Margin="8,0,0,0"
-                                                                           Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                                        <!-- 悬停淡罩（由 MouseEnter/Leave 控制，对齐 Maui-Win） -->
+                                                        <Border Tag="ToolCardHoverWash"
+                                                                Background="{DynamicResource BlueHover}" Opacity="0.32"
+                                                                IsHitTestVisible="False" CornerRadius="10"
+                                                                Visibility="Collapsed"/>
+                                                        <Grid Margin="12,10,8,10">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <!-- 图标瓷砖：对齐 Maui-Win CreateToolCard -->
+                                                            <Border Width="48" Height="48" CornerRadius="10"
+                                                                    BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                                                    Background="{DynamicResource SubtleBg}"
+                                                                    VerticalAlignment="Center"
+                                                                    SnapsToDevicePixels="True">
+                                                                <Image Width="36" Height="36" Stretch="Uniform"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                       Source="{Binding IconKey, Converter={x:Static helpers:ToolIconKeyToImageConverter.Instance}}"/>
+                                                            </Border>
+                                                            <StackPanel Grid.Column="1" Margin="12,0,6,0" VerticalAlignment="Center">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
+                                                                               Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis"/>
+                                                                    <TextBlock Text="{Binding StatusText}" FontSize="11" Margin="8,0,0,0"
+                                                                               Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                                                </StackPanel>
+                                                                <TextBlock Text="{Binding Summary}" FontSize="12" Margin="0,4,0,0"
+                                                                           Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
+                                                                           TextTrimming="CharacterEllipsis" MaxHeight="40"/>
                                                             </StackPanel>
-                                                            <TextBlock Text="{Binding Summary}" FontSize="12" Margin="0,4,0,0"
-                                                                       Foreground="{DynamicResource Muted}" TextWrapping="Wrap"
-                                                                       TextTrimming="CharacterEllipsis" MaxHeight="40"/>
-                                                        </StackPanel>
-                                                        <Button Grid.Column="2" Content="⋯"
-                                                                Style="{StaticResource ToolCardMoreBtn}"
-                                                                VerticalAlignment="Top" HorizontalAlignment="Right"
-                                                                Click="ToolCardMore_Click"
-                                                                PreviewMouseLeftButtonDown="ToolCardMore_PreviewMouseLeftButtonDown"/>
+                                                            <Button Grid.Column="2" Content="⋯"
+                                                                    Style="{StaticResource ToolCardMoreBtn}"
+                                                                    VerticalAlignment="Top" HorizontalAlignment="Right"
+                                                                    Click="ToolCardMore_Click"
+                                                                    PreviewMouseLeftButtonDown="ToolCardMore_PreviewMouseLeftButtonDown"/>
+                                                        </Grid>
                                                     </Grid>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                            <ContentControl x:Name="ToolsWorkspaceHost" Grid.Row="3" Visibility="Collapsed"
-                                            HorizontalContentAlignment="Stretch"
-                                            VerticalContentAlignment="Stretch"
-                                            HorizontalAlignment="Stretch"
-                                            VerticalAlignment="Stretch"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <ContentControl x:Name="ToolsWorkspaceHost" Visibility="Collapsed"
+                                                HorizontalContentAlignment="Stretch"
+                                                VerticalContentAlignment="Stretch"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"/>
+                            </Grid>
                         </Grid>
                     </Border>
                 </Grid>

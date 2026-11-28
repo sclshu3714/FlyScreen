@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Ui.Avalonia;
 
 namespace FlyScreen.Tool.FileVault.Ui.Desktop;
 
@@ -13,13 +14,19 @@ internal static class FileVaultDialogs
         {
             Title = Loc.T("Tool.FileVault.Password"),
             Width = 360,
-            Height = 150,
+            Height = 170,
             WindowStartupLocation = WindowStartupLocation.CenterOwner
         };
-        var box = new TextBox { PasswordChar = '•', Margin = new Avalonia.Thickness(16) };
+        var box = new SecurePasswordBox
+        {
+            Margin = new Avalonia.Thickness(16),
+            Placeholder = Loc.T("Tool.FileVault.PasswordPlaceholder"),
+            ShowPasswordTip = Loc.T("Sec.ShowPassword"),
+            HidePasswordTip = Loc.T("Sec.HidePassword")
+        };
         string? result = null;
         var ok = new Button { Content = Loc.T("Tool.FileVault.Ok"), Width = 80 };
-        ok.Click += (_, _) => { result = box.Text; win.Close(); };
+        ok.Click += (_, _) => { result = box.Password; win.Close(); };
         win.Content = new StackPanel
         {
             Children =
@@ -38,7 +45,10 @@ internal static class FileVaultDialogs
         return result;
     }
 
-    public static async Task<string?> PromptText(Window owner, string message)
+    public static Task<string?> PromptText(Window owner, string message)
+        => PromptText(owner, message, null);
+
+    public static async Task<string?> PromptText(Window owner, string message, string? initial)
     {
         var win = new Window
         {
@@ -47,7 +57,7 @@ internal static class FileVaultDialogs
             Height = 160,
             WindowStartupLocation = WindowStartupLocation.CenterOwner
         };
-        var box = new TextBox { Margin = new Avalonia.Thickness(16, 8, 16, 8) };
+        var box = new TextBox { Margin = new Avalonia.Thickness(16, 8, 16, 8), Text = initial ?? "" };
         string? result = null;
         var ok = new Button { Content = Loc.T("Tool.FileVault.Ok"), Width = 80 };
         ok.Click += (_, _) => { result = box.Text; win.Close(); };

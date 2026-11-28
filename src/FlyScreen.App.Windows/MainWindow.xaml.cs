@@ -4035,62 +4035,62 @@ public partial class MainWindow : Window
             ToolsCatalogHost.Visibility = Visibility.Collapsed;
             ToolsWorkspaceHost.Visibility = Visibility.Visible;
             var activeId = ws.ActiveToolId;
-            if (!string.IsNullOrEmpty(activeId))
+            if (string.IsNullOrEmpty(activeId))
+                return;
+
+            ToolService.Instance.RefreshToolUiContributors();
+            object? content = null;
+            try
             {
-                object? content = null;
-                try
+                content = ToolService.Instance.CreateWorkspaceContent(activeId);
+            }
+            catch (Exception ex)
+            {
+                content = new System.Windows.Controls.TextBlock
                 {
-                    content = ToolService.Instance.CreateWorkspaceContent(activeId);
-                }
-                catch (Exception ex)
+                    Text = Loc.T("Tool.Workspace.LoadFailed", ex.Message),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(8),
+                    FontSize = 13,
+                    Foreground = TryFindResource("Muted") as System.Windows.Media.Brush
+                                 ?? System.Windows.Media.Brushes.Gray
+                };
+            }
+
+            if (content == null)
+            {
+                content = new System.Windows.Controls.TextBlock
                 {
-                    content = new System.Windows.Controls.TextBlock
-                    {
-                        Text = Loc.T("Tool.Workspace.LoadFailed", ex.Message),
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(8),
-                        FontSize = 13,
-                        Foreground = (System.Windows.Media.Brush)FindResource("Muted")
-                    };
+                    Text = Loc.T("Tool.Workspace.NoUi"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(8),
+                    FontSize = 13,
+                    Foreground = TryFindResource("Muted") as System.Windows.Media.Brush
+                                 ?? System.Windows.Media.Brushes.Gray
+                };
+            }
+
+            if (ToolsWorkspaceHost.Content == null
+                || ToolsWorkspaceHost.Content.GetType() != content.GetType())
+            {
+                ToolsWorkspaceHost.Content = content;
+            }
+
+            _toolsWorkspaceContentToolId = activeId;
+
+            // 工具控件常自带一份 WpfTheme；打开后再同步色板，避免滚动条仍用浅色令牌
+            if (ToolsWorkspaceHost.Content is FrameworkElement toolRoot)
+            {
+                void SyncToolTheme(object? _, RoutedEventArgs __)
+                {
+                    toolRoot.Loaded -= SyncToolTheme;
+                    ThemeService.SyncSubtree(toolRoot);
                 }
 
-                if (content == null)
-                {
-                    content = new System.Windows.Controls.TextBlock
-                    {
-                        Text = Loc.T("Tool.Workspace.NoUi"),
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(8),
-                        FontSize = 13,
-                        Foreground = (System.Windows.Media.Brush)FindResource("Muted")
-                    };
-                }
-
-                if (ToolsWorkspaceHost.Content == null
-                    || ToolsWorkspaceHost.Content.GetType() != content.GetType())
-                {
-                    ToolsWorkspaceHost.Content = content;
-                    _toolsWorkspaceContentToolId = activeId;
-                }
+                if (toolRoot.IsLoaded)
+                    ThemeService.SyncSubtree(toolRoot);
                 else
-                {
-                    _toolsWorkspaceContentToolId = activeId;
-                }
-
-                // 工具控件常自带一份 WpfTheme；打开后再同步色板，避免滚动条仍用浅色令牌
-                if (ToolsWorkspaceHost.Content is FrameworkElement toolRoot)
-                {
-                    void SyncToolTheme(object? _, RoutedEventArgs __)
-                    {
-                        toolRoot.Loaded -= SyncToolTheme;
-                        ThemeService.SyncSubtree(toolRoot);
-                    }
-
-                    if (toolRoot.IsLoaded)
-                        ThemeService.SyncSubtree(toolRoot);
-                    else
-                        toolRoot.Loaded += SyncToolTheme;
-                }
+                    toolRoot.Loaded += SyncToolTheme;
             }
         }
     }

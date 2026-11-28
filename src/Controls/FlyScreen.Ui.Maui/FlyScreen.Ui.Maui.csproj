@@ -5,12 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FlyScreen.Ui.Maui</RootNamespace>
     <AssemblyName>FlyScreen.Ui.Maui</AssemblyName>
-    <Description>玄鸟 MAUI 共享控件（安全密码、多按钮编辑框、加载遮罩等）</Description>
+    <Description>玄鸟 MAUI 共享控件（安全密码、路径条、多按钮编辑框、加载遮罩等）</Description>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <DefineConstants>$(DefineConstants);MAUI_WINDOWS</DefineConstants>
     <WindowsSdkPackageVersion>10.0.19041.38</WindowsSdkPackageVersion>
+    <!-- Core 引用会拉起 WinRT AOT 生成器，需 unsafe -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,5 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Theme\FlyScreen.Ui.Theme\FlyScreen.Ui.Theme.csproj" />
+    <ProjectReference Include="..\..\FlyScreen.Core\FlyScreen.Core.csproj" />
   </ItemGroup>
 </Project>

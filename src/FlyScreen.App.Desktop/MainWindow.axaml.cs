@@ -1848,21 +1848,47 @@ public partial class MainWindow : Window
             ToolsCatalogHost.IsVisible = false;
             ToolsWorkspaceHost.IsVisible = true;
             var activeId = ws.ActiveToolId;
-            if (!string.IsNullOrEmpty(activeId))
+            if (string.IsNullOrEmpty(activeId))
+                return;
+
+            ToolService.Instance.RefreshToolUiContributors();
+            TryGetThemeBrush("Muted", out var mutedBrush);
+            object? content = null;
+            try
             {
-                var content = ToolService.Instance.CreateWorkspaceContent(activeId);
-                if (content != null
-                    && (ToolsWorkspaceHost.Content == null
-                        || ToolsWorkspaceHost.Content.GetType() != content.GetType()))
-                {
-                    ToolsWorkspaceHost.Content = content;
-                    _toolsWorkspaceContentToolId = activeId;
-                }
-                else if (content != null)
-                {
-                    _toolsWorkspaceContentToolId = activeId;
-                }
+                content = ToolService.Instance.CreateWorkspaceContent(activeId);
             }
+            catch (Exception ex)
+            {
+                content = new TextBlock
+                {
+                    Text = Loc.T("Tool.Workspace.LoadFailed", ex.Message),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(8),
+                    FontSize = 13,
+                    Foreground = mutedBrush
+                };
+            }
+
+            if (content == null)
+            {
+                content = new TextBlock
+                {
+                    Text = Loc.T("Tool.Workspace.NoUi"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(8),
+                    FontSize = 13,
+                    Foreground = mutedBrush
+                };
+            }
+
+            if (ToolsWorkspaceHost.Content == null
+                || ToolsWorkspaceHost.Content.GetType() != content.GetType())
+            {
+                ToolsWorkspaceHost.Content = content;
+            }
+
+            _toolsWorkspaceContentToolId = activeId;
         }
     }
 

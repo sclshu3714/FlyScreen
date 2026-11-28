@@ -40,6 +40,10 @@ public static class IconPaths
     public static string NavHelp => IconCatalog.GetPath(IconCodes.NavHelp);
     public static string ChevronLeft => IconCatalog.GetPath(IconCodes.ChevronLeft);
     public static string ChevronRight => IconCatalog.GetPath(IconCodes.ChevronRight);
+    public static string ChevronUp => IconCatalog.GetPath(IconCodes.ChevronUp);
+    public static string WindowMinimize => IconCatalog.GetPath(IconCodes.WindowMinimize);
+    public static string WindowMaximize => IconCatalog.GetPath(IconCodes.WindowMaximize);
+    public static string WindowRestore => IconCatalog.GetPath(IconCodes.WindowRestore);
 
     public static string ViewCard => IconCatalog.GetPath(IconCodes.ViewCard);
     public static string ViewList => IconCatalog.GetPath(IconCodes.ViewList);
@@ -60,4 +64,16 @@ public static class IconPaths
     public static string PlayOutline => IconCatalog.GetPath(IconCodes.PlayOutline);
     public static string PauseBars => IconCatalog.GetPath(IconCodes.PauseBars);
     public static string StopSmall => IconCatalog.GetPath(IconCodes.StopSmall);
+
+    public static string FileFolder => IconCatalog.GetPath(IconCodes.FileFolder);
+    public static string FileShortcut => IconCatalog.GetPath(IconCodes.FileShortcut);
+    public static string FileAccess => IconCatalog.GetPath(IconCodes.FileAccess);
+    public static string FileImage => IconCatalog.GetPath(IconCodes.FileImage);
+    public static string FileWord => IconCatalog.GetPath(IconCodes.FileWord);
+    public static string FilePpt => IconCatalog.GetPath(IconCodes.FilePpt);
+    public static string FileText => IconCatalog.GetPath(IconCodes.FileText);
+    public static string FileRtf => IconCatalog.GetPath(IconCodes.FileRtf);
+    public static string FileExcel => IconCatalog.GetPath(IconCodes.FileExcel);
+    public static string FileZip => IconCatalog.GetPath(IconCodes.FileZip);
+    public static string FileGeneric => IconCatalog.GetPath(IconCodes.FileGeneric);
 }

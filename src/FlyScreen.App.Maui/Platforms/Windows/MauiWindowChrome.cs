@@ -120,6 +120,10 @@ internal static class MauiWindowChrome
                 if (window.Handler?.PlatformView is not Microsoft.UI.Xaml.Window native)
                     continue;
 
+                // 保险箱等自绘 Tab 标题栏：勿刷系统/模板标题栏色，否则会顶回白条与系统窗控
+                if (MauiFileVaultWindowChrome.IsFileVaultWindow(window))
+                    continue;
+
                 if (native.Content is FrameworkElement root)
                 {
                     var want = dark ? ElementTheme.Dark : ElementTheme.Light;

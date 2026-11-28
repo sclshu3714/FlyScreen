@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using FlyScreen.Helpers.Localization;
+using FlyScreen.Ui.Wpf;
 
 namespace FlyScreen.Tool.FileVault.Ui.Win;
 
@@ -12,14 +13,21 @@ internal static class FileVaultPasswordDialog
         {
             Title = title ?? Loc.T("Tool.FileVault.Password"),
             Width = 360,
-            Height = 160,
+            Height = 180,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             Owner = owner,
             ShowInTaskbar = false
         };
 
-        var pwd = new PasswordBox { Margin = new Thickness(16, 16, 16, 8) };
+        var pwd = new SecurePasswordBox
+        {
+            Margin = new Thickness(16, 16, 16, 8),
+            Height = 36,
+            Placeholder = Loc.T("Tool.FileVault.PasswordPlaceholder"),
+            ShowPasswordTip = Loc.T("Sec.ShowPassword"),
+            HidePasswordTip = Loc.T("Sec.HidePassword")
+        };
         var ok = new Button
         {
             Content = Loc.T("Tool.FileVault.Ok"),

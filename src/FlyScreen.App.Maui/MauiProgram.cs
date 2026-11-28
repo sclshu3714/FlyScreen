@@ -84,6 +84,14 @@ public static class MauiProgram
             Helpers.MauiScrollChrome.ApplyCurrentTheme();
         });
 
+        // 文件保险箱：Window 句柄就绪即盖掉 Maui 假标题栏（资源 0 高 + Presenter）
+        Microsoft.Maui.Handlers.WindowHandler.Mapper.AppendToMapping("FileVaultChrome", (handler, _) =>
+        {
+            if (handler.VirtualView is not Window window) return;
+            if (!Platforms.Windows.MauiFileVaultWindowChrome.IsFileVaultWindow(window)) return;
+            Platforms.Windows.MauiFileVaultWindowChrome.Apply(window);
+        });
+
         Microsoft.Maui.Handlers.ScrollViewHandler.Mapper.AppendToMapping("FlyScreenScrollBar", (_, _) =>
             Helpers.MauiScrollChrome.ApplyCurrentTheme());
 

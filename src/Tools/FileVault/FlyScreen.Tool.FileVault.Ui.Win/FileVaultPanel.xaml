@@ -1,10 +1,156 @@
 <UserControl x:Class="FlyScreen.Tool.FileVault.Ui.Win.FileVaultPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-  <Grid Margin="4">
+             xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+             xmlns:theme="clr-namespace:FlyScreen.Ui.Theme.Wpf;assembly=FlyScreen.Ui.Theme.Wpf"
+             xmlns:ui="clr-namespace:FlyScreen.Ui.Wpf;assembly=FlyScreen.Ui.Wpf"
+             Background="{DynamicResource WinBg}"
+             Foreground="{DynamicResource Text}"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+             Loaded="OnLoaded" Unloaded="OnUnloaded">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <theme:WpfTheme/>
+      </ResourceDictionary.MergedDictionaries>
+    <!-- Win11 Explorer 命令按钮：图标在左、文字在右 -->
+    <Style x:Key="ExplorerCmdBtn" TargetType="Button">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="Margin" Value="0,0,2,0"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="Transparent" CornerRadius="4"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.38"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="ExplorerPrimaryBtn" TargetType="Button">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="16,6"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{DynamicResource Blue}" CornerRadius="4"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.92"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="VaultContextMenu" TargetType="ContextMenu">
+      <Setter Property="Background" Value="{DynamicResource CardBg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="4"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ContextMenu">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="8" Padding="{TemplateBinding Padding}"
+                    SnapsToDevicePixels="True">
+              <Border.Effect>
+                <DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.32" Color="#000000"/>
+              </Border.Effect>
+              <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="VaultMenuItem" TargetType="MenuItem">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style x:Key="VaultMenuSep" TargetType="Separator">
+      <Setter Property="Margin" Value="8,4"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Separator">
+            <Border Height="1" Background="{DynamicResource Line}" Margin="{TemplateBinding Margin}"/>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="ListViewItem">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Padding" Value="4,2"/>
+      <Setter Property="MinHeight" Value="28"/>
+    </Style>
+
+    <!-- 搜索：按钮嵌在输入框内 -->
+    <Style x:Key="VaultSearchBtn" TargetType="Button">
+      <Setter Property="Width" Value="32"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Margin" Value="0,0,2,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="Transparent" CornerRadius="4"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueHover}"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BlueSoft}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
@@ -12,62 +158,229 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Margin="0,0,0,8">
-      <TextBlock x:Name="HintText" TextWrapping="Wrap" FontSize="12"
-                 Foreground="{DynamicResource Muted}" Margin="0,0,0,4"/>
-      <TextBlock x:Name="SecurityNoticeText" TextWrapping="Wrap" FontSize="11"
-                 Foreground="{DynamicResource Muted}"/>
-    </StackPanel>
+    <!-- 自定义标题栏 = Tab 行（WindowChrome CaptionHeight 拖窗） -->
+    <Border x:Name="TitleTabBar" Grid.Row="0" Background="{DynamicResource WinBg}" Height="40" Padding="0">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="8,0,0,0">
+          <Border MinWidth="140" Height="32" CornerRadius="8,8,0,0" Padding="10,0,4,0"
+                  Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="🔐" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Center"/>
+              <TextBlock x:Name="TabTitleText" Text="文件保险箱" FontSize="12" VerticalAlignment="Center"
+                         Foreground="{DynamicResource Text}"/>
+              <Button x:Name="TabCloseBtn" Style="{StaticResource VaultSearchBtn}" Width="22" Height="22"
+                      Margin="8,0,0,0" Click="TabCloseBtn_Click" ToolTip="关闭"
+                      shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <TextBlock Text="✕" FontSize="10" Foreground="{DynamicResource Muted}"/>
+              </Button>
+            </StackPanel>
+          </Border>
+          <TextBlock Text="＋" Opacity="0.4" Margin="8,0,0,4" VerticalAlignment="Bottom" FontSize="14"/>
+        </StackPanel>
+        <!-- 中间空白：WindowChrome 原生拖窗 -->
+        <Border Grid.Column="1" Background="#01000000" IsHitTestVisible="False"/>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Stretch">
+          <Button x:Name="ChromeMinBtn" Width="46" MinWidth="0" Height="40" Padding="0"
+                  Background="Transparent" BorderThickness="0" Cursor="Hand"
+                  Click="ChromeMinBtn_Click" ToolTip="最小化"
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                  Content="─" FontSize="12" Foreground="{DynamicResource Muted}"/>
+          <Button x:Name="ChromeMaxBtn" Width="46" MinWidth="0" Height="40" Padding="0"
+                  Background="Transparent" BorderThickness="0" Cursor="Hand"
+                  Click="ChromeMaxBtn_Click" ToolTip="最大化"
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                  Content="☐" FontSize="11" Foreground="{DynamicResource Muted}"/>
+          <Button x:Name="ChromeCloseBtn" Width="46" MinWidth="0" Height="40" Padding="0"
+                  Background="Transparent" BorderThickness="0" Cursor="Hand"
+                  Click="ChromeCloseBtn_Click" ToolTip="关闭"
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                  Content="✕" FontSize="12" Foreground="{DynamicResource Muted}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
 
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-      <Button x:Name="CreateBtn" Margin="0,0,6,0" Padding="10,6" Click="CreateBtn_Click"/>
-      <Button x:Name="OpenBtn" Margin="0,0,6,0" Padding="10,6" Click="OpenBtn_Click"/>
-      <Button x:Name="UnlockBtn" Margin="0,0,6,0" Padding="10,6" Click="UnlockBtn_Click"/>
-      <Button x:Name="LockBtn" Margin="0,0,6,0" Padding="10,6" Click="LockBtn_Click"/>
-      <TextBlock x:Name="StateText" VerticalAlignment="Center" Margin="8,0,0,0"
-                 Foreground="{DynamicResource Text}"/>
-    </StackPanel>
+    <!-- 地址栏行：路径条 + 搜索 -->
+    <Grid x:Name="NavRow" Grid.Row="1" Margin="8,4,8,4">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="240"/>
+      </Grid.ColumnDefinitions>
+      <ContentControl x:Name="PathBarHost" Grid.Column="0" Margin="0,0,8,0" HorizontalContentAlignment="Stretch"/>
+      <Border Grid.Column="1" Height="32" CornerRadius="6" BorderBrush="{DynamicResource Line}"
+              BorderThickness="1" Background="{DynamicResource CardBg}" Padding="4,0,2,0">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="SearchBox" Grid.Column="0" BorderThickness="0" Background="Transparent"
+                   VerticalContentAlignment="Center" FontSize="13" Padding="6,0,4,0"
+                   CaretBrush="{DynamicResource Text}" Foreground="{DynamicResource Text}"
+                   TextChanged="SearchBox_TextChanged"/>
+          <Button x:Name="SearchBtn" Grid.Column="1" Style="{StaticResource VaultSearchBtn}"
+                  ToolTip="搜索" Click="SearchBtn_Click">
+            <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xE721;" FontSize="12"
+                       Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+          </Button>
+        </Grid>
+      </Border>
+    </Grid>
 
-    <WrapPanel Grid.Row="2" Margin="0,0,0,4">
-      <Button x:Name="UpBtn" Margin="0,0,6,6" Padding="10,6" Click="UpBtn_Click"/>
-      <Button x:Name="ImportBtn" Margin="0,0,6,6" Padding="10,6" Click="ImportBtn_Click"/>
-      <Button x:Name="ImportFolderBtn" Margin="0,0,6,6" Padding="10,6" Click="ImportFolderBtn_Click"/>
-      <Button x:Name="ExportBtn" Margin="0,0,6,6" Padding="10,6" Click="ExportBtn_Click"/>
-      <Button x:Name="DeleteBtn" Margin="0,0,6,6" Padding="10,6" Click="DeleteBtn_Click"/>
-      <Button x:Name="NewFolderBtn" Margin="0,0,6,6" Padding="10,6" Click="NewFolderBtn_Click"/>
-      <Button x:Name="MountBtn" Margin="0,0,6,6" Padding="10,6" Click="MountBtn_Click"/>
-      <Button x:Name="OpenMountBtn" Margin="0,0,6,6" Padding="10,6" Click="OpenMountBtn_Click"/>
-      <Button x:Name="MigrateBtn" Margin="0,0,6,6" Padding="10,6" Click="MigrateBtn_Click"/>
-      <Button x:Name="BackupBtn" Margin="0,0,6,6" Padding="10,6" Click="BackupBtn_Click"/>
-      <Button x:Name="RestoreBtn" Margin="0,0,6,6" Padding="10,6" Click="RestoreBtn_Click"/>
-      <TextBlock x:Name="PathText" VerticalAlignment="Center" Margin="8,0,0,6"
-                 Foreground="{DynamicResource Muted}"/>
-    </WrapPanel>
+    <!-- 命令栏：对齐资源管理器 -->
+    <Border Grid.Row="2" Padding="6,2,8,6" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Button x:Name="NewFolderBtn" Style="{StaticResource ExplorerCmdBtn}" Click="NewMenu_Click">
+          <Button.ContextMenu>
+            <ContextMenu x:Name="NewMenu" Placement="Bottom" Opened="NewMenu_Opened"/>
+          </Button.ContextMenu>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="＋" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource Blue}"
+                       VerticalAlignment="Center" Margin="0,0,2,2"/>
+            <TextBlock x:Name="NewFolderBtnText" Text="新建" VerticalAlignment="Center"/>
+            <TextBlock Text="▾" FontSize="10" Foreground="{DynamicResource Muted}" Margin="6,0,0,0"
+                       VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+        <Border Width="1" Height="20" Background="{DynamicResource Line}" Margin="8,0" VerticalAlignment="Center"/>
+        <Button x:Name="AddFileBtn" Style="{StaticResource ExplorerCmdBtn}" Width="36" Padding="0"
+                ToolTip="添加文件" Click="ImportBtn_Click">
+          <TextBlock Text="📄" FontSize="14" HorizontalAlignment="Center"/>
+        </Button>
+        <Button x:Name="AddFolderBtn" Style="{StaticResource ExplorerCmdBtn}" Width="36" Padding="0"
+                ToolTip="添加文件夹" Click="ImportFolderBtn_Click">
+          <TextBlock Text="📁" FontSize="14" HorizontalAlignment="Center"/>
+        </Button>
+        <Button x:Name="DeleteCmdBtn" Style="{StaticResource ExplorerCmdBtn}" Width="36" Padding="0"
+                ToolTip="删除" Click="DeleteBtn_Click">
+          <TextBlock Text="🗑" FontSize="14" HorizontalAlignment="Center"/>
+        </Button>
+        <Border Width="1" Height="20" Background="{DynamicResource Line}" Margin="8,0" VerticalAlignment="Center"/>
+        <Button Style="{StaticResource ExplorerCmdBtn}" IsEnabled="False" Opacity="0.45">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="⇅" Margin="0,0,4,0"/><TextBlock x:Name="SortBtnText" Text="排序"/><TextBlock Text="▾" FontSize="10" Margin="4,0,0,0"/>
+          </StackPanel>
+        </Button>
+        <Button Style="{StaticResource ExplorerCmdBtn}" IsEnabled="False" Opacity="0.45">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="☰" Margin="0,0,4,0"/><TextBlock x:Name="ViewBtnText" Text="查看"/><TextBlock Text="▾" FontSize="10" Margin="4,0,0,0"/>
+          </StackPanel>
+        </Button>
+      </StackPanel>
+    </Border>
 
-    <WrapPanel Grid.Row="3" Margin="0,0,0,8">
-      <CheckBox x:Name="SecureDeleteCheck" Margin="0,0,12,4" VerticalAlignment="Center"
-                Checked="Settings_Changed" Unchecked="Settings_Changed"/>
-      <CheckBox x:Name="AutoMountCheck" Margin="0,0,12,4" VerticalAlignment="Center"
-                Checked="Settings_Changed" Unchecked="Settings_Changed"/>
-      <TextBlock x:Name="IdleLockLabel" VerticalAlignment="Center" Margin="0,0,6,4"
-                 Foreground="{DynamicResource Muted}"/>
-      <TextBox x:Name="IdleLockBox" Width="48" Margin="0,0,0,4" VerticalAlignment="Center"
-               LostFocus="IdleLockBox_LostFocus"/>
-    </WrapPanel>
+    <!-- 详情列表 -->
+    <Border x:Name="ExplorerHost" Grid.Row="3" Margin="0"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0"
+            Background="{DynamicResource CardBg}">
+      <ListView x:Name="EntryList" BorderThickness="0" Background="Transparent"
+                SelectionMode="Extended"
+                SelectionChanged="EntryList_SelectionChanged"
+                MouseDoubleClick="EntryList_MouseDoubleClick"
+                PreviewMouseRightButtonDown="EntryList_PreviewMouseRightButtonDown">
+        <ListView.ContextMenu>
+          <ContextMenu x:Name="VaultMenu" Style="{StaticResource VaultContextMenu}" Opened="VaultMenu_Opened">
+            <!-- Win11 顶栏：剪切/复制/重命名/删除 -->
+            <MenuItem Style="{StaticResource VaultMenuItem}" IsEnabled="False" Header="顶栏" Visibility="Collapsed"/>
+            <MenuItem x:Name="MiTopBar" Style="{StaticResource VaultMenuItem}" StaysOpenOnClick="True">
+              <MenuItem.Header>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="4,2">
+                  <Button x:Name="MiCutBtn" Style="{StaticResource ExplorerCmdBtn}" Width="56" Click="MiCut_Click">
+                    <StackPanel><TextBlock Text="✂" HorizontalAlignment="Center" Foreground="{DynamicResource Blue}"/><TextBlock x:Name="MiCutText" Text="剪切" FontSize="11" HorizontalAlignment="Center"/></StackPanel>
+                  </Button>
+                  <Button x:Name="MiCopyBtn" Style="{StaticResource ExplorerCmdBtn}" Width="56" Click="MiCopy_Click">
+                    <StackPanel><TextBlock Text="⧉" HorizontalAlignment="Center" Foreground="{DynamicResource Blue}"/><TextBlock x:Name="MiCopyText" Text="复制" FontSize="11" HorizontalAlignment="Center"/></StackPanel>
+                  </Button>
+                  <Button x:Name="MiRenameBtn" Style="{StaticResource ExplorerCmdBtn}" Width="56" Click="MiRename_Click">
+                    <StackPanel><TextBlock Text="✎" HorizontalAlignment="Center" Foreground="{DynamicResource Blue}"/><TextBlock x:Name="MiRenameText" Text="重命名" FontSize="11" HorizontalAlignment="Center"/></StackPanel>
+                  </Button>
+                  <Button Style="{StaticResource ExplorerCmdBtn}" Width="56" Click="DeleteBtn_Click">
+                    <StackPanel><TextBlock Text="🗑" HorizontalAlignment="Center" Foreground="{DynamicResource Blue}"/><TextBlock x:Name="MiDeleteTopText" Text="删除" FontSize="11" HorizontalAlignment="Center"/></StackPanel>
+                  </Button>
+                </StackPanel>
+              </MenuItem.Header>
+            </MenuItem>
+            <Separator Style="{StaticResource VaultMenuSep}"/>
+            <MenuItem x:Name="MiOpen" Style="{StaticResource VaultMenuItem}" Click="MiOpen_Click"/>
+            <MenuItem x:Name="MiPaste" Style="{StaticResource VaultMenuItem}" Click="MiPaste_Click"/>
+            <Separator Style="{StaticResource VaultMenuSep}"/>
+            <MenuItem x:Name="MiDelete" Style="{StaticResource VaultMenuItem}" Click="DeleteBtn_Click"/>
+            <Separator Style="{StaticResource VaultMenuSep}"/>
+            <MenuItem x:Name="MiImport" Style="{StaticResource VaultMenuItem}">
+              <MenuItem x:Name="MiImportFile" Style="{StaticResource VaultMenuItem}" Click="ImportBtn_Click"/>
+              <MenuItem x:Name="MiImportFolder" Style="{StaticResource VaultMenuItem}" Click="ImportFolderBtn_Click"/>
+              <MenuItem x:Name="MiImportBackup" Style="{StaticResource VaultMenuItem}" Click="RestoreBtn_Click"/>
+            </MenuItem>
+            <MenuItem x:Name="MiExport" Style="{StaticResource VaultMenuItem}">
+              <MenuItem x:Name="MiExportFile" Style="{StaticResource VaultMenuItem}" Click="ExportFile_Click"/>
+              <MenuItem x:Name="MiExportFolder" Style="{StaticResource VaultMenuItem}" Click="ExportFolder_Click"/>
+              <MenuItem x:Name="MiExportBackup" Style="{StaticResource VaultMenuItem}" Click="BackupBtn_Click"/>
+            </MenuItem>
+            <Separator Style="{StaticResource VaultMenuSep}"/>
+            <MenuItem x:Name="MiIdleLock" Style="{StaticResource VaultMenuItem}" Click="MiIdleLock_Click"/>
+          </ContextMenu>
+        </ListView.ContextMenu>
+        <ListView.View>
+          <GridView>
+            <GridViewColumn x:Name="ColName" Width="320">
+              <GridViewColumn.Header>
+                <TextBlock x:Name="ColNameHeader" Text="名称"/>
+              </GridViewColumn.Header>
+              <GridViewColumn.CellTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Icon}" Width="22" Margin="0,0,8,0"
+                               VerticalAlignment="Center" FontSize="15"/>
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                  </StackPanel>
+                </DataTemplate>
+              </GridViewColumn.CellTemplate>
+            </GridViewColumn>
+            <GridViewColumn x:Name="ColModified" Width="150" DisplayMemberBinding="{Binding ModifiedText}">
+              <GridViewColumn.Header>
+                <TextBlock x:Name="ColModifiedHeader" Text="修改日期"/>
+              </GridViewColumn.Header>
+            </GridViewColumn>
+            <GridViewColumn x:Name="ColType" Width="110" DisplayMemberBinding="{Binding TypeText}">
+              <GridViewColumn.Header>
+                <TextBlock x:Name="ColTypeHeader" Text="类型"/>
+              </GridViewColumn.Header>
+            </GridViewColumn>
+            <GridViewColumn x:Name="ColSize" Width="90" DisplayMemberBinding="{Binding SizeText}">
+              <GridViewColumn.Header>
+                <TextBlock x:Name="ColSizeHeader" Text="大小"/>
+              </GridViewColumn.Header>
+            </GridViewColumn>
+          </GridView>
+        </ListView.View>
+      </ListView>
+    </Border>
 
-    <ListView x:Name="EntryList" Grid.Row="4"
-              BorderBrush="{DynamicResource Line}" BorderThickness="1"
-              MouseDoubleClick="EntryList_MouseDoubleClick">
-      <ListView.View>
-        <GridView>
-          <GridViewColumn x:Name="ColName" Width="280" DisplayMemberBinding="{Binding Name}"/>
-          <GridViewColumn x:Name="ColSize" Width="100" DisplayMemberBinding="{Binding SizeText}"/>
-          <GridViewColumn x:Name="ColModified" Width="160" DisplayMemberBinding="{Binding ModifiedText}"/>
-        </GridView>
-      </ListView.View>
-    </ListView>
+    <!-- 首次启用 / 每次进入解锁 -->
+    <!-- 不盖 TitleTabBar：锁定时仍可拖窗 / 自绘窗控 -->
+    <Border x:Name="GateHost" Grid.Row="1" Grid.RowSpan="3"
+            Background="{DynamicResource CardBg}" Visibility="Collapsed">
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="360" Margin="24">
+        <TextBlock x:Name="GateTitle" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"
+                   Foreground="{DynamicResource Text}" Margin="0,0,0,10"/>
+        <TextBlock x:Name="GateHint" FontSize="13" TextWrapping="Wrap" TextAlignment="Center"
+                   Foreground="{DynamicResource Muted}" Margin="0,0,0,18"/>
+        <ui:SecurePasswordBox x:Name="GatePassword" Height="36" Margin="0,0,0,10"/>
+        <ui:SecurePasswordBox x:Name="GatePasswordConfirm" Height="36" Margin="0,0,0,14"/>
+        <Button x:Name="GateActionBtn" Style="{StaticResource ExplorerPrimaryBtn}"
+                HorizontalAlignment="Stretch" Click="GateActionBtn_Click"/>
+        <TextBlock x:Name="GateError" Foreground="#EF4444" FontSize="12" TextWrapping="Wrap"
+                   Margin="0,12,0,0" TextAlignment="Center"/>
+      </StackPanel>
+    </Border>
 
-    <TextBlock x:Name="StatusText" Grid.Row="5" Margin="0,8,0,0" FontSize="12"
-               Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+    <Border Grid.Row="4" Padding="12,6" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0">
+      <TextBlock x:Name="StatusText" FontSize="12" Foreground="{DynamicResource Muted}"/>
+    </Border>
   </Grid>
 </UserControl>
