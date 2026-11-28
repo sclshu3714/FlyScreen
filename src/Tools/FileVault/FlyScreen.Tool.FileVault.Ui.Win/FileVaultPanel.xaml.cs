@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
+using FlyScreen.Win32Clipboard;
 using FlyScreen.Helpers.Localization;
 using FlyScreen.Models;
 using FlyScreen.Services.Tools;
@@ -24,6 +26,9 @@ public partial class FileVaultPanel : UserControl
     private bool _gateNeedsConfirm;
     private bool _forcingLock;
     private bool _entered;
+    private ExplorerFileDropTarget? _explorerDrop;
+    private HwndSource? _dropSource;
+    private HwndSourceHook? _dropHook;
 
     public Action<string>? StatusReporter { get; set; }
 
@@ -54,9 +59,7 @@ public partial class FileVaultPanel : UserControl
                 })
                 .ToList();
         };
-        AllowDrop = true;
-        PreviewDragOver += OnFileDragOver;
-        PreviewDrop += OnFileDrop;
+        AllowDrop = false;
         ApplyLabels();
         if (_service != null)
         {
@@ -79,6 +82,17 @@ public partial class FileVaultPanel : UserControl
             win.StateChanged -= HostWindow_StateChanged;
             win.StateChanged += HostWindow_StateChanged;
             HostWindow_StateChanged(win, EventArgs.Empty);
+            var hwnd = new WindowInteropHelper(win).EnsureHandle();
+            ExplorerFileDropTarget.Allow(hwnd);
+            _explorerDrop?.Dispose();
+            _explorerDrop = ExplorerFileDropTarget.TryAttachWpf(hwnd, AcceptExplorerDrop);
+            if (_dropSource == null)
+            {
+                _dropSource = HwndSource.FromHwnd(hwnd);
+                _dropHook = DropWndProc;
+                _dropSource?.AddHook(_dropHook);
+            }
+            _ = Dispatcher.BeginInvoke(() => _explorerDrop?.Reaffirm());
         }
         await EnterRequirePasswordAsync();
     }
@@ -96,7 +110,16 @@ public partial class FileVaultPanel : UserControl
     }
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
-        => await LeaveLockAsync();
+    {
+        if (_dropSource != null && _dropHook != null)
+        {
+            try { _dropSource.RemoveHook(_dropHook); } catch { /* ignore */ }
+            _dropSource = null;
+        }
+        _explorerDrop?.Dispose();
+        _explorerDrop = null;
+        await LeaveLockAsync();
+    }
 
     private async Task EnterRequirePasswordAsync()
     {
@@ -482,23 +505,24 @@ public partial class FileVaultPanel : UserControl
         catch (Exception ex) { ShowErr(ex); }
     }
 
-    private void OnFileDragOver(object sender, DragEventArgs e)
+    private IntPtr DropWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
-        e.Handled = true;
+        _explorerDrop?.TryHandle(hwnd, msg, wParam, lParam, ref handled);
+        return IntPtr.Zero;
     }
 
-    private async void OnFileDrop(object sender, DragEventArgs e)
+    private void AcceptExplorerDrop(IReadOnlyList<string> paths)
     {
-        if (!EnsureUnlocked() || _service == null) return;
-        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length == 0) return;
-        e.Handled = true;
-        try
+        Dispatcher.InvokeAsync(async () =>
         {
-            await _service.ImportPathsAsync(paths, removeSource: false);
-            RefreshUi();
-        }
-        catch (Exception ex) { ShowErr(ex); }
+            if (!EnsureUnlocked() || _service == null || paths.Count == 0) return;
+            try
+            {
+                await _service.ImportPathsAsync(paths, removeSource: false);
+                RefreshUi();
+            }
+            catch (Exception ex) { ShowErr(ex); }
+        });
     }
 
     private async void MiOpen_Click(object sender, RoutedEventArgs e)

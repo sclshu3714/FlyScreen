@@ -125,6 +125,14 @@ public sealed class ExplorerFileDropTarget : IDisposable
         PrepareWindow(_hwnd);
     }
 
+    /// <summary>放行资源管理器拖进管理员进程所需的消息。</summary>
+    public static void Allow(IntPtr hwnd)
+    {
+        EnsureMessageFilter();
+        if (hwnd != IntPtr.Zero)
+            AllowMessagesForWindow(hwnd);
+    }
+
     public static void EnsureMessageFilter()
     {
         if (Interlocked.Exchange(ref _filterArmed, 1) == 1) return;

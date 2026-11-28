@@ -13,12 +13,18 @@ internal static class MauiFileVaultDrop
     private const int AlreadyRegistered = unchecked((int)0x80040101);
     private const int NotInitialized = unchecked((int)0x800401F0);
     private const uint CopyEffect = 1;
+    private const uint WmDropFiles = 0x0233;
+    private const uint WmCopyData = 0x004A;
+    private const uint WmCopyGlobalData = 0x0049;
+    private const uint MsgfltAllow = 1;
+    private static int _filterArmed;
     private static readonly Dictionary<nint, DropTarget> Targets = new();
 
     public static void Attach(IntPtr hwnd, Microsoft.Maui.Controls.Window window)
     {
         if (hwnd == IntPtr.Zero)
             return;
+        AllowDropMessages(hwnd);
         if (!Targets.TryGetValue(hwnd, out var target))
         {
             target = new DropTarget(window);
@@ -38,10 +44,41 @@ internal static class MauiFileVaultDrop
         }, IntPtr.Zero);
     }
 
+    private static void AllowDropMessages(IntPtr hwnd = default)
+    {
+        if (Interlocked.Exchange(ref _filterArmed, 1) == 0)
+        {
+            try
+            {
+                Native.ChangeWindowMessageFilter(WmDropFiles, MsgfltAllow);
+                Native.ChangeWindowMessageFilter(WmCopyData, MsgfltAllow);
+                Native.ChangeWindowMessageFilter(WmCopyGlobalData, MsgfltAllow);
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _filterArmed, 0);
+            }
+        }
+
+        if (hwnd == IntPtr.Zero)
+            return;
+        try
+        {
+            Native.ChangeWindowMessageFilterEx(hwnd, WmDropFiles, MsgfltAllow, IntPtr.Zero);
+            Native.ChangeWindowMessageFilterEx(hwnd, WmCopyData, MsgfltAllow, IntPtr.Zero);
+            Native.ChangeWindowMessageFilterEx(hwnd, WmCopyGlobalData, MsgfltAllow, IntPtr.Zero);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     private static void Register(IntPtr hwnd, DropTarget target, HashSet<nint> seen)
     {
         if (hwnd == IntPtr.Zero || !seen.Add(hwnd))
             return;
+        AllowDropMessages(hwnd);
         var hr = Native.RegisterDragDrop(hwnd, target.Pointer);
         if (hr == NotInitialized)
         {
@@ -271,6 +308,13 @@ internal static class MauiFileVaultDrop
 
         [DllImport("user32.dll")]
         public static extern bool EnumChildWindows(IntPtr hwnd, EnumChildProc proc, IntPtr lparam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool ChangeWindowMessageFilter(uint message, uint dwFlag);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool ChangeWindowMessageFilterEx(
+            IntPtr hwnd, uint message, uint action, IntPtr pChangeFilterStruct);
     }
 }
 #endif

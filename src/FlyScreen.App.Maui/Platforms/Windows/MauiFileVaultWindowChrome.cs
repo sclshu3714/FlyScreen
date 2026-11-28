@@ -94,7 +94,6 @@ internal static class MauiFileVaultWindowChrome
             if (Centered.Add(window.GetHashCode()))
                 TryCenter(appWindow, window, id);
             HookFileDrop(native, window);
-            MauiFileVaultDrop.Attach(hwnd, window);
         }
         catch
         {
@@ -140,33 +139,8 @@ internal static class MauiFileVaultWindowChrome
         if (!DropHooked.Add(window.GetHashCode()))
             return;
 
-        root.AllowDrop = true;
-        root.DragEnter += (_, e) =>
-        {
-            e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            e.Handled = true;
-        };
-        root.DragOver += (_, e) =>
-        {
-            e.AcceptedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            e.Handled = true;
-        };
-        root.Drop += async (_, e) =>
-        {
-            if (!e.DataView.Contains(global::Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-                return;
-            var items = await e.DataView.GetStorageItemsAsync();
-            var paths = items
-                .Select(i => i.Path)
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .ToList();
-            if (paths.Count == 0)
-                return;
-            var panel = (window.Page as Microsoft.Maui.Controls.ContentPage)?.Content;
-            if (panel?.GetType().GetMethod("ImportDroppedPaths", BindingFlags.Instance | BindingFlags.Public)
-                    ?.Invoke(panel, [paths]) is Task task)
-                await task;
-        };
+        // 提权进程上的 WinUI AllowDrop 会注册 OLE 目标，资源管理器拖进来就是禁止光标。
+        root.AllowDrop = false;
     }
 
     private static void TryCenter(AppWindow appWindow, Microsoft.Maui.Controls.Window window, Microsoft.UI.WindowId id)

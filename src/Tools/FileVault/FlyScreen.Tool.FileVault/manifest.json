@@ -20,7 +20,7 @@
   "icon": "tool-file-vault",
   "permissions": ["localFile.open"],
   "package": {
-    "version": "1.0.13",
+    "version": "1.0.14",
     "format": "flytool",
     "formatVersion": 1
   },
